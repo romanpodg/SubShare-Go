@@ -23,7 +23,7 @@
 go mod tidy
 
 export ADMIN_USER=admin
-export ADMIN_PASSWORD=change_me_now
+export ADMIN_PASSWORD=admin
 export DEVICE_LIMIT_MESSAGE="You have reached the maximum number of allowed devices for your subscription"
 
 go run ./cmd/server
@@ -65,19 +65,6 @@ web/templates/     # HTML-шаблоны
 web/static/        # CSS/статические файлы
 data/              # SQLite база (локально)
 docs/              # документация
-```
-
-## Публикация в GitHub
-
-`.gitignore` уже добавлен и исключает локальные артефакты (`server`, `data/*.db`, `.env`, IDE-файлы).
-
-```bash
-git init
-git add .
-git commit -m "Initial commit: xray-sub MVP"
-git branch -M main
-git remote add origin <YOUR_GITHUB_REPO_URL>
-git push -u origin main
 ```
 
 ## Примечания
