@@ -1,0 +1,74 @@
+"use client";
+
+import { useState, FormEvent } from "react";
+import { Modal } from "@/components/ui/Modal";
+import { Input } from "@/components/ui/Input";
+import { Button } from "@/components/ui/Button";
+import { useToast } from "@/components/ui/Toast";
+import { keys as keysApi } from "@/lib/api";
+import type { VLESSKey } from "@/lib/types";
+
+interface Props {
+  keyData: VLESSKey;
+  onClose: () => void;
+  onRefresh: () => Promise<void>;
+}
+
+export function EditKeyModal({ keyData, onClose, onRefresh }: Props) {
+  const { toast } = useToast();
+  const [loading, setLoading] = useState(false);
+  const [label, setLabel] = useState(keyData.label);
+  const [status, setStatus] = useState<"active" | "non-active">(keyData.status);
+  const [uuid, setUuid] = useState(keyData.edit_uuid);
+  const [host, setHost] = useState(keyData.edit_host);
+  const [port, setPort] = useState(keyData.edit_port);
+  const [query, setQuery] = useState(keyData.edit_query);
+  const [fragment, setFragment] = useState(keyData.edit_fragment);
+
+  const handleSubmit = async (e: FormEvent) => {
+    e.preventDefault();
+    setLoading(true);
+    try {
+      await keysApi.update(keyData.id, { label, status, uuid, host, port, query, fragment });
+      toast("Key updated", "success");
+      onClose();
+      await onRefresh();
+    } catch (err: unknown) {
+      toast(err instanceof Error ? err.message : "Failed to update key", "error");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <Modal open onClose={onClose} title={`Редактировать — ${keyData.label}`}>
+      <form onSubmit={handleSubmit} className="flex flex-col gap-4">
+        <Input
+          label="Label"
+          value={label}
+          onChange={(e) => setLabel(e.target.value)}
+          required
+        />
+        <div className="flex flex-col gap-1.5">
+          <label className="text-sm text-zinc-400">Статус</label>
+          <select
+            value={status}
+            onChange={(e) => setStatus(e.target.value as "active" | "non-active")}
+            className="bg-surface-2 border border-border rounded-lg px-3 py-2 text-sm text-zinc-200"
+          >
+            <option value="active">active</option>
+            <option value="non-active">non-active</option>
+          </select>
+        </div>
+        <Input label="UUID" value={uuid} onChange={(e) => setUuid(e.target.value)} />
+        <Input label="Host" value={host} onChange={(e) => setHost(e.target.value)} />
+        <Input label="Port" value={port} onChange={(e) => setPort(e.target.value)} />
+        <Input label="Query" value={query} onChange={(e) => setQuery(e.target.value)} />
+        <Input label="Fragment" value={fragment} onChange={(e) => setFragment(e.target.value)} />
+        <Button type="submit" loading={loading}>
+          Сохранить
+        </Button>
+      </form>
+    </Modal>
+  );
+}
