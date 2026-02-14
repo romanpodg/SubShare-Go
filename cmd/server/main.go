@@ -2,7 +2,9 @@ package main
 
 import (
 	"context"
+	"crypto/rand"
 	"database/sql"
+	"encoding/hex"
 	"fmt"
 	"io/fs"
 	"log"
@@ -14,8 +16,13 @@ import (
 	"syscall"
 	"time"
 
+	"golang.org/x/crypto/bcrypt"
 	_ "modernc.org/sqlite"
 )
+
+type ctxKey string
+
+const ctxKeyRequestID ctxKey = "request_id"
 
 func main() {
 	if err := run(); err != nil {
@@ -24,24 +31,37 @@ func main() {
 }
 
 func run() error {
-	if err := os.MkdirAll("data", 0o755); err != nil {
+	dbPath := strings.TrimSpace(os.Getenv("DB_PATH"))
+	if dbPath == "" {
+		dbPath = "data/app.db"
+	}
+
+	if err := os.MkdirAll(filepath.Dir(dbPath), 0o700); err != nil {
 		return fmt.Errorf("create data dir: %w", err)
 	}
 
-	db, err := sql.Open("sqlite", filepath.ToSlash("data/app.db"))
+	db, err := sql.Open("sqlite", filepath.ToSlash(dbPath))
 	if err != nil {
 		return fmt.Errorf("open db: %w", err)
 	}
 	defer db.Close()
 
-	db.SetMaxOpenConns(1)
-	db.SetMaxIdleConns(1)
+	db.SetMaxOpenConns(4)
+	db.SetMaxIdleConns(4)
+	db.SetConnMaxLifetime(0)
 
-	if _, err := db.Exec("PRAGMA foreign_keys = ON"); err != nil {
-		return fmt.Errorf("set foreign_keys pragma: %w", err)
+	pragmas := []string{
+		"PRAGMA foreign_keys = ON",
+		"PRAGMA busy_timeout = 5000",
+		"PRAGMA synchronous = NORMAL",
+		"PRAGMA cache_size = -4000",
+		"PRAGMA mmap_size = 268435456",
+		"PRAGMA temp_store = MEMORY",
 	}
-	if _, err := db.Exec("PRAGMA busy_timeout = 5000"); err != nil {
-		return fmt.Errorf("set busy_timeout pragma: %w", err)
+	for _, p := range pragmas {
+		if _, err := db.Exec(p); err != nil {
+			return fmt.Errorf("exec %s: %w", p, err)
+		}
 	}
 
 	if err := migrate(db); err != nil {
@@ -57,23 +77,48 @@ func run() error {
 		log.Fatal("ADMIN_PASSWORD environment variable is required but not set")
 	}
 
+	adminPassHash, err := bcrypt.GenerateFromPassword([]byte(adminPass), bcrypt.DefaultCost)
+	if err != nil {
+		return fmt.Errorf("hash admin password: %w", err)
+	}
+
 	deviceLimitMessage := strings.TrimSpace(os.Getenv("DEVICE_LIMIT_MESSAGE"))
 	if deviceLimitMessage == "" {
 		deviceLimitMessage = defaultDeviceLimitMessage
 	}
 
+	baseURL := strings.TrimSpace(os.Getenv("BASE_URL"))
+	baseURL = strings.TrimRight(baseURL, "/")
+
 	app := &App{
 		db:                 db,
 		adminUser:          adminUser,
-		adminPass:          adminPass,
+		adminPassHash:      adminPassHash,
 		deviceLimitMessage: deviceLimitMessage,
+		baseURL:            baseURL,
 		sessions:           make(map[string]AdminSession),
 	}
 
+	go app.cleanupExpiredSessions(5 * time.Minute)
+	app.startBackup()
+
+	loginLimiter := newRateLimiter(5, 1*time.Minute)
+	activationLimiter := newRateLimiter(10, 1*time.Minute)
+	subscriptionLimiter := newRateLimiter(30, 1*time.Minute)
+
 	mux := http.NewServeMux()
 
+	// Health check
+	mux.HandleFunc("GET /health", func(w http.ResponseWriter, r *http.Request) {
+		if err := db.Ping(); err != nil {
+			writeError(w, http.StatusServiceUnavailable, "database unreachable")
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"status": "ok"})
+	})
+
 	// Auth API
-	mux.HandleFunc("POST /api/auth/login", app.apiLogin)
+	mux.HandleFunc("POST /api/auth/login", loginLimiter.wrap(app.apiLogin))
 	mux.Handle("POST /api/auth/logout", app.requireAdmin(http.HandlerFunc(app.apiLogout)))
 	mux.Handle("GET /api/auth/me", app.requireAdmin(http.HandlerFunc(app.apiMe)))
 
@@ -95,10 +140,10 @@ func run() error {
 	mux.Handle("POST /api/admin/keys/check-all", app.requireAdmin(http.HandlerFunc(app.apiCheckAllKeys)))
 
 	// Subscription API
-	mux.HandleFunc("POST /api/subscription/activate", app.apiActivateSubscription)
+	mux.HandleFunc("POST /api/subscription/activate", activationLimiter.wrap(app.apiActivateSubscription))
 
-	// Subscription delivery (VPN clients hit this directly — unchanged)
-	mux.HandleFunc("GET /sub/{subscription_id}", app.handleSubscription)
+	// Subscription delivery (VPN clients hit this directly)
+	mux.HandleFunc("GET /sub/{subscription_id}", subscriptionLimiter.wrap(app.handleSubscription))
 
 	// Serve frontend static files in production (if frontend/out exists)
 	frontendDir := "frontend/out"
@@ -107,13 +152,20 @@ func run() error {
 		mux.Handle("/", spaFileServer(os.DirFS(frontendDir)))
 	}
 
-	addr := ":8080"
+	addr := os.Getenv("PORT")
+	if addr == "" {
+		addr = ":8080"
+	} else if !strings.Contains(addr, ":") {
+		addr = ":" + addr
+	}
+
+	handler := securityHeaders(requestID(logRequest(mux)))
 
 	srv := &http.Server{
 		Addr:              addr,
-		Handler:           logRequest(mux),
+		Handler:           handler,
 		ReadTimeout:       15 * time.Second,
-		WriteTimeout:      30 * time.Second,
+		WriteTimeout:      60 * time.Second,
 		IdleTimeout:       60 * time.Second,
 		ReadHeaderTimeout: 5 * time.Second,
 	}
@@ -158,10 +210,71 @@ func spaFileServer(root fs.FS) http.Handler {
 	})
 }
 
+func securityHeaders(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("X-Content-Type-Options", "nosniff")
+		w.Header().Set("X-Frame-Options", "DENY")
+		w.Header().Set("Referrer-Policy", "strict-origin-when-cross-origin")
+		w.Header().Set("Permissions-Policy", "camera=(), microphone=(), geolocation=()")
+		next.ServeHTTP(w, r)
+	})
+}
+
+type statusRecorder struct {
+	http.ResponseWriter
+	status int
+}
+
+func (r *statusRecorder) WriteHeader(code int) {
+	r.status = code
+	r.ResponseWriter.WriteHeader(code)
+}
+
+func requestID(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		id := strings.TrimSpace(r.Header.Get("X-Request-ID"))
+		if id == "" {
+			buf := make([]byte, 16)
+			_, _ = rand.Read(buf)
+			id = hex.EncodeToString(buf)
+		}
+		w.Header().Set("X-Request-ID", id)
+		ctx := context.WithValue(r.Context(), ctxKeyRequestID, id)
+		next.ServeHTTP(w, r.WithContext(ctx))
+	})
+}
+
 func logRequest(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		start := time.Now()
-		next.ServeHTTP(w, r)
-		log.Printf("%s %s %s", r.Method, r.URL.Path, time.Since(start))
+		rec := &statusRecorder{ResponseWriter: w, status: 200}
+		next.ServeHTTP(rec, r)
+		reqID, _ := r.Context().Value(ctxKeyRequestID).(string)
+		log.Printf("%d %s %s %s %s req_id=%s", rec.status, r.Method, r.URL.Path, time.Since(start), clientIP(r), reqID)
 	})
+}
+
+func (a *App) startBackup() {
+	backupPath := strings.TrimSpace(os.Getenv("BACKUP_PATH"))
+	if backupPath == "" {
+		return
+	}
+
+	intervalStr := strings.TrimSpace(os.Getenv("BACKUP_INTERVAL"))
+	interval, err := time.ParseDuration(intervalStr)
+	if err != nil || interval <= 0 {
+		interval = 1 * time.Hour
+	}
+
+	go func() {
+		ticker := time.NewTicker(interval)
+		defer ticker.Stop()
+		for range ticker.C {
+			if _, err := a.db.Exec(`VACUUM INTO ?`, backupPath); err != nil {
+				log.Printf("backup failed: %v", err)
+			} else {
+				log.Printf("backup completed to %s", backupPath)
+			}
+		}
+	}()
 }

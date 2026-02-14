@@ -28,11 +28,6 @@ func (a *App) requireAdmin(next http.Handler) http.Handler {
 	})
 }
 
-func (a *App) isAdminAuthenticated(r *http.Request) bool {
-	_, _, ok := a.adminSessionFromRequest(r)
-	return ok
-}
-
 func (a *App) adminSessionFromRequest(r *http.Request) (AdminSession, string, bool) {
 	cookie, err := r.Cookie("xary_admin_session")
 	if err != nil || cookie.Value == "" {
@@ -78,4 +73,19 @@ func generateToken(byteLen int) (string, error) {
 		return "", err
 	}
 	return hex.EncodeToString(buf), nil
+}
+
+func (a *App) cleanupExpiredSessions(interval time.Duration) {
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+	for range ticker.C {
+		now := time.Now()
+		a.mu.Lock()
+		for id, session := range a.sessions {
+			if now.After(session.ExpiresAt) {
+				delete(a.sessions, id)
+			}
+		}
+		a.mu.Unlock()
+	}
 }

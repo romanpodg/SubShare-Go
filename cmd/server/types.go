@@ -9,8 +9,9 @@ import (
 type App struct {
 	db                 *sql.DB
 	adminUser          string
-	adminPass          string
+	adminPassHash      []byte
 	deviceLimitMessage string
+	baseURL            string
 	sessions           map[string]AdminSession
 	mu                 sync.RWMutex
 }

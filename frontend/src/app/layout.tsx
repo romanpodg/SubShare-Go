@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { Inter } from "next/font/google";
 import { ToastProvider } from "@/components/ui/Toast";
+import { ErrorBoundary } from "@/components/ErrorBoundary";
 import "./globals.css";
 
 const inter = Inter({ subsets: ["latin", "cyrillic"] });
@@ -18,7 +19,9 @@ export default function RootLayout({
   return (
     <html lang="ru" className="dark">
       <body className={`${inter.className} bg-bg text-zinc-200 min-h-screen`}>
-        <ToastProvider>{children}</ToastProvider>
+        <ToastProvider>
+          <ErrorBoundary>{children}</ErrorBoundary>
+        </ToastProvider>
       </body>
     </html>
   );

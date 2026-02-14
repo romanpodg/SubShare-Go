@@ -144,16 +144,6 @@ func formatDateTimeInput(value sql.NullTime) string {
 	return value.Time.Local().Format("2006-01-02T15:04")
 }
 
-func formatDateTimeLabel(value sql.NullTime, fallback time.Time) string {
-	if value.Valid {
-		return value.Time.Local().Format("2006-01-02 15:04")
-	}
-	if !fallback.IsZero() {
-		return fallback.Local().Format("2006-01-02 15:04")
-	}
-	return ""
-}
-
 func nullTimeValue(value sql.NullTime) any {
 	if !value.Valid {
 		return nil
@@ -202,6 +192,31 @@ func (a *App) checkAndPersistKey(keyID int64, rawURL string) error {
 	return err
 }
 
+func isPrivateIP(ip net.IP) bool {
+	privateRanges := []struct {
+		network string
+	}{
+		{"10.0.0.0/8"},
+		{"172.16.0.0/12"},
+		{"192.168.0.0/16"},
+		{"127.0.0.0/8"},
+		{"169.254.0.0/16"},
+		{"::1/128"},
+		{"fc00::/7"},
+		{"fe80::/10"},
+	}
+	for _, r := range privateRanges {
+		_, cidr, err := net.ParseCIDR(r.network)
+		if err != nil {
+			continue
+		}
+		if cidr.Contains(ip) {
+			return true
+		}
+	}
+	return false
+}
+
 func checkVLESSAvailability(raw string) (string, string, int64) {
 	parsed, err := url.Parse(strings.TrimSpace(raw))
 	if err != nil {
@@ -219,6 +234,21 @@ func checkVLESSAvailability(raw string) (string, string, int64) {
 	port := strings.TrimSpace(parsed.Port())
 	if port == "" {
 		port = "443"
+	}
+
+	// SSRF protection: resolve hostname and block private/reserved addresses
+	ips, err := net.LookupHost(host)
+	if err != nil {
+		return "down", fmt.Sprintf("DNS lookup failed: %s", err.Error()), 0
+	}
+	for _, ipStr := range ips {
+		ip := net.ParseIP(ipStr)
+		if ip == nil {
+			continue
+		}
+		if isPrivateIP(ip) {
+			return "down", "health check to private addresses is not allowed", 0
+		}
 	}
 
 	address := net.JoinHostPort(host, port)
@@ -243,7 +273,11 @@ func nullInt64Value(value int64) any {
 	return value
 }
 
-func resolveBaseURL(r *http.Request) string {
+func (a *App) resolveBaseURL(r *http.Request) string {
+	if a.baseURL != "" {
+		return a.baseURL
+	}
+
 	scheme := strings.TrimSpace(r.Header.Get("X-Forwarded-Proto"))
 	if scheme == "" {
 		if r.TLS != nil {

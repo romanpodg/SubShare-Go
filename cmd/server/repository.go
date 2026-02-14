@@ -5,9 +5,12 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"regexp"
 	"strings"
 	"time"
 )
+
+var validSQLIdentifier = regexp.MustCompile(`^[a-zA-Z_][a-zA-Z0-9_]*$`)
 
 func migrate(db *sql.DB) error {
 	queries := []string{
@@ -121,6 +124,9 @@ func migrate(db *sql.DB) error {
 	if _, err := db.Exec(`CREATE INDEX IF NOT EXISTS idx_user_devices_user_id ON user_devices(user_id)`); err != nil {
 		return err
 	}
+	if _, err := db.Exec(`CREATE INDEX IF NOT EXISTS idx_user_keys_key_id ON user_keys(key_id)`); err != nil {
+		return err
+	}
 	if _, err := db.Exec(`UPDATE vless_keys SET check_status = 'unknown' WHERE check_status IS NULL OR TRIM(check_status) = ''`); err != nil {
 		return err
 	}
@@ -137,6 +143,13 @@ func migrate(db *sql.DB) error {
 }
 
 func ensureColumn(db *sql.DB, tableName, columnName, definition string) error {
+	if !validSQLIdentifier.MatchString(tableName) {
+		return fmt.Errorf("invalid SQL identifier: %q", tableName)
+	}
+	if !validSQLIdentifier.MatchString(columnName) {
+		return fmt.Errorf("invalid SQL identifier: %q", columnName)
+	}
+
 	rows, err := db.Query(fmt.Sprintf(`PRAGMA table_info(%s)`, tableName))
 	if err != nil {
 		return err
@@ -167,24 +180,32 @@ func ensureColumn(db *sql.DB, tableName, columnName, definition string) error {
 
 func (a *App) listUsers() ([]User, error) {
 	rows, err := a.db.Query(`
+		WITH device_agg AS (
+			SELECT user_id,
+			       COUNT(1) AS connected_devices,
+			       GROUP_CONCAT(hwid, '||') AS connected_hwids
+			FROM user_devices
+			GROUP BY user_id
+		),
+		key_agg AS (
+			SELECT user_id,
+			       GROUP_CONCAT(key_id) AS assigned_key_ids
+			FROM user_keys
+			GROUP BY user_id
+		)
 		SELECT
-			u.id,
-			u.name,
-			u.email,
-			u.activation_code,
-			u.subscription_id,
-			u.activation_used_at,
-			u.status,
-			u.starts_at,
-			u.expires_at,
+			u.id, u.name, u.email, u.activation_code, u.subscription_id,
+			u.activation_used_at, u.status, u.starts_at, u.expires_at,
 			u.blocked_reason,
 			COALESCE(NULLIF(u.max_devices, 0), 1) AS max_devices,
-			(SELECT COUNT(1) FROM user_devices ud WHERE ud.user_id = u.id) AS connected_devices,
-			(SELECT COALESCE(GROUP_CONCAT(ud.hwid, '||'), '') FROM user_devices ud WHERE ud.user_id = u.id ORDER BY ud.last_seen_at DESC) AS connected_hwids,
+			COALESCE(d.connected_devices, 0) AS connected_devices,
+			COALESCE(d.connected_hwids, '') AS connected_hwids,
 			u.created_at,
-			(SELECT COALESCE(GROUP_CONCAT(uk.key_id), '') FROM user_keys uk WHERE uk.user_id = u.id) AS assigned_key_ids
+			COALESCE(k.assigned_key_ids, '') AS assigned_key_ids
 		FROM users u
-		ORDER BY id DESC
+		LEFT JOIN device_agg d ON d.user_id = u.id
+		LEFT JOIN key_agg k ON k.user_id = u.id
+		ORDER BY u.id DESC
 	`)
 	if err != nil {
 		return nil, err
@@ -246,29 +267,6 @@ func (a *App) listUsers() ([]User, error) {
 		}
 		u.AssignedKeyIDs = strings.TrimSpace(assignedKeyIDs.String)
 		out = append(out, u)
-	}
-	return out, rows.Err()
-}
-
-func (a *App) listAssignableKeys() ([]VLESSKey, error) {
-	rows, err := a.db.Query(`
-		SELECT id, label
-		FROM vless_keys
-		WHERE LOWER(COALESCE(NULLIF(TRIM(status), ''), 'active')) = 'active'
-		ORDER BY id
-	`)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-
-	var out []VLESSKey
-	for rows.Next() {
-		var key VLESSKey
-		if err := rows.Scan(&key.ID, &key.Label); err != nil {
-			return nil, err
-		}
-		out = append(out, key)
 	}
 	return out, rows.Err()
 }
@@ -337,11 +335,7 @@ func (a *App) subscriptionAccessAllowed(subscriptionID string) (bool, int64, int
 	now := time.Now().UTC()
 
 	if normalizedStatus == userStatusBlocked {
-		reason := strings.TrimSpace(blockedReason.String)
-		if reason == "" {
-			reason = "subscription blocked"
-		}
-		return false, userID, http.StatusForbidden, reason, nil
+		return false, userID, http.StatusForbidden, "subscription blocked", nil
 	}
 	if normalizedStatus == userStatusPaused {
 		return false, userID, http.StatusForbidden, "subscription paused", nil
@@ -423,7 +417,10 @@ func (a *App) registerHWID(userID int64, hwid string) (bool, error) {
 	}
 	rows, _ := res.RowsAffected()
 	if rows > 0 {
-		return tx.Commit() == nil, nil // known device, just updated
+		if err := tx.Commit(); err != nil {
+			return false, fmt.Errorf("commit transaction: %w", err)
+		}
+		return true, nil
 	}
 
 	// Check device limit and get max_devices atomically within transaction
@@ -439,7 +436,10 @@ func (a *App) registerHWID(userID int64, hwid string) (bool, error) {
 		if err != nil {
 			return false, err
 		}
-		return tx.Commit() == nil, nil
+		if err := tx.Commit(); err != nil {
+			return false, fmt.Errorf("commit transaction: %w", err)
+		}
+		return true, nil
 	}
 
 	var count int
@@ -457,5 +457,8 @@ func (a *App) registerHWID(userID int64, hwid string) (bool, error) {
 		return false, err
 	}
 
-	return tx.Commit() == nil, nil
+	if err := tx.Commit(); err != nil {
+		return false, fmt.Errorf("commit transaction: %w", err)
+	}
+	return true, nil
 }
