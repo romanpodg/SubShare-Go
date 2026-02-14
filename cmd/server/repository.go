@@ -8,6 +8,9 @@ import (
 	"regexp"
 	"strings"
 	"time"
+
+	"xary-sub/internal/model"
+	"xary-sub/internal/vless"
 )
 
 var validSQLIdentifier = regexp.MustCompile(`^[a-zA-Z_][a-zA-Z0-9_]*$`)
@@ -178,7 +181,7 @@ func ensureColumn(db *sql.DB, tableName, columnName, definition string) error {
 	return err
 }
 
-func (a *App) listUsers() ([]User, error) {
+func (a *App) listUsers() ([]model.User, error) {
 	rows, err := a.db.Query(`
 		WITH device_agg AS (
 			SELECT user_id,
@@ -212,9 +215,9 @@ func (a *App) listUsers() ([]User, error) {
 	}
 	defer rows.Close()
 
-	var out []User
+	var out []model.User
 	for rows.Next() {
-		var u User
+		var u model.User
 		var status sql.NullString
 		var activationCode sql.NullString
 		var subscriptionID sql.NullString
@@ -250,7 +253,7 @@ func (a *App) listUsers() ([]User, error) {
 		if activationUsedAt.Valid {
 			u.ActivationUsedAt = activationUsedAt.Time.Local().Format("2006-01-02 15:04:05")
 		}
-		u.Status = normalizeStoredStatus(status.String)
+		u.Status = model.NormalizeStoredStatus(status.String)
 		u.StartsAtInput = formatDateTimeInput(startsAt)
 		u.ExpiresAtInput = formatDateTimeInput(expiresAt)
 		u.BlockedReason = strings.TrimSpace(blockedReason.String)
@@ -271,7 +274,7 @@ func (a *App) listUsers() ([]User, error) {
 	return out, rows.Err()
 }
 
-func (a *App) listKeys() ([]VLESSKey, error) {
+func (a *App) listKeys() ([]model.VLESSKey, error) {
 	rows, err := a.db.Query(`
 		SELECT id, label, url, status, check_status, check_error, last_checked_at, last_latency_ms, created_at
 		FROM vless_keys
@@ -282,9 +285,9 @@ func (a *App) listKeys() ([]VLESSKey, error) {
 	}
 	defer rows.Close()
 
-	var out []VLESSKey
+	var out []model.VLESSKey
 	for rows.Next() {
-		var key VLESSKey
+		var key model.VLESSKey
 		var status sql.NullString
 		var checkStatus sql.NullString
 		var checkError sql.NullString
@@ -293,16 +296,16 @@ func (a *App) listKeys() ([]VLESSKey, error) {
 		if err := rows.Scan(&key.ID, &key.Label, &key.URL, &status, &checkStatus, &checkError, &lastCheckedAt, &latency, &key.CreatedAt); err != nil {
 			return nil, err
 		}
-		key.Status, _ = normalizeKeyStatus(status.String)
+		key.Status, _ = model.NormalizeKeyStatus(status.String)
 		if key.Status == "" {
-			key.Status = keyStatusActive
+			key.Status = model.KeyStatusActive
 		}
-		key.StatusLabel = keyStatusLabel(key.Status)
-		key.URLShort = truncateMiddle(key.URL, 88)
-		key.CheckStatus = normalizeCheckStatus(checkStatus.String)
-		key.CheckStatusLabel = checkStatusLabel(key.CheckStatus)
+		key.StatusLabel = model.KeyStatusLabel(key.Status)
+		key.URLShort = vless.TruncateMiddle(key.URL, 88)
+		key.CheckStatus = model.NormalizeCheckStatus(checkStatus.String)
+		key.CheckStatusLabel = model.CheckStatusLabel(key.CheckStatus)
 		key.CheckError = strings.TrimSpace(checkError.String)
-		key.EditUUID, key.EditHost, key.EditPort, key.EditQuery, key.EditFragment, _ = parseVLESSParts(key.URL)
+		key.EditUUID, key.EditHost, key.EditPort, key.EditQuery, key.EditFragment, _ = vless.ParseVLESSParts(key.URL)
 		if latency.Valid {
 			key.LastLatencyMS = latency.Int64
 		}
@@ -331,13 +334,13 @@ func (a *App) subscriptionAccessAllowed(subscriptionID string) (bool, int64, int
 		return false, 0, 0, "", err
 	}
 
-	normalizedStatus := normalizeStoredStatus(status.String)
+	normalizedStatus := model.NormalizeStoredStatus(status.String)
 	now := time.Now().UTC()
 
-	if normalizedStatus == userStatusBlocked {
+	if normalizedStatus == model.UserStatusBlocked {
 		return false, userID, http.StatusForbidden, "subscription blocked", nil
 	}
-	if normalizedStatus == userStatusPaused {
+	if normalizedStatus == model.UserStatusPaused {
 		return false, userID, http.StatusForbidden, "subscription paused", nil
 	}
 	if startsAt.Valid && now.Before(startsAt.Time.UTC()) {

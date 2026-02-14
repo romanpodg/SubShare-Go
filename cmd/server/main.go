@@ -2,11 +2,8 @@ package main
 
 import (
 	"context"
-	"crypto/rand"
 	"database/sql"
-	"encoding/hex"
 	"fmt"
-	"io/fs"
 	"log"
 	"net/http"
 	"os"
@@ -18,11 +15,10 @@ import (
 
 	"golang.org/x/crypto/bcrypt"
 	_ "modernc.org/sqlite"
+
+	"xary-sub/internal/middleware"
+	"xary-sub/internal/model"
 )
-
-type ctxKey string
-
-const ctxKeyRequestID ctxKey = "request_id"
 
 func main() {
 	if err := run(); err != nil {
@@ -84,11 +80,21 @@ func run() error {
 
 	deviceLimitMessage := strings.TrimSpace(os.Getenv("DEVICE_LIMIT_MESSAGE"))
 	if deviceLimitMessage == "" {
-		deviceLimitMessage = defaultDeviceLimitMessage
+		deviceLimitMessage = model.DefaultDeviceLimitMessage
 	}
 
 	baseURL := strings.TrimSpace(os.Getenv("BASE_URL"))
 	baseURL = strings.TrimRight(baseURL, "/")
+
+	var corsOrigins []string
+	if raw := strings.TrimSpace(os.Getenv("CORS_ORIGINS")); raw != "" {
+		for _, o := range strings.Split(raw, ",") {
+			o = strings.TrimSpace(o)
+			if o != "" {
+				corsOrigins = append(corsOrigins, o)
+			}
+		}
+	}
 
 	app := &App{
 		db:                 db,
@@ -96,15 +102,15 @@ func run() error {
 		adminPassHash:      adminPassHash,
 		deviceLimitMessage: deviceLimitMessage,
 		baseURL:            baseURL,
-		sessions:           make(map[string]AdminSession),
+		sessions:           make(map[string]model.AdminSession),
 	}
 
 	go app.cleanupExpiredSessions(5 * time.Minute)
 	app.startBackup()
 
-	loginLimiter := newRateLimiter(5, 1*time.Minute)
-	activationLimiter := newRateLimiter(10, 1*time.Minute)
-	subscriptionLimiter := newRateLimiter(30, 1*time.Minute)
+	loginLimiter := middleware.NewRateLimiter(5, 1*time.Minute)
+	activationLimiter := middleware.NewRateLimiter(10, 1*time.Minute)
+	subscriptionLimiter := middleware.NewRateLimiter(30, 1*time.Minute)
 
 	mux := http.NewServeMux()
 
@@ -118,7 +124,7 @@ func run() error {
 	})
 
 	// Auth API
-	mux.HandleFunc("POST /api/auth/login", loginLimiter.wrap(app.apiLogin))
+	mux.HandleFunc("POST /api/auth/login", loginLimiter.Wrap(writeError, app.apiLogin))
 	mux.Handle("POST /api/auth/logout", app.requireAdmin(http.HandlerFunc(app.apiLogout)))
 	mux.Handle("GET /api/auth/me", app.requireAdmin(http.HandlerFunc(app.apiMe)))
 
@@ -139,17 +145,21 @@ func run() error {
 	mux.Handle("POST /api/admin/keys/{id}/check", app.requireAdmin(http.HandlerFunc(app.apiCheckKey)))
 	mux.Handle("POST /api/admin/keys/check-all", app.requireAdmin(http.HandlerFunc(app.apiCheckAllKeys)))
 
+	// Export API
+	mux.Handle("GET /api/admin/export/users", app.requireAdmin(http.HandlerFunc(app.apiExportUsers)))
+	mux.Handle("GET /api/admin/export/keys", app.requireAdmin(http.HandlerFunc(app.apiExportKeys)))
+
 	// Subscription API
-	mux.HandleFunc("POST /api/subscription/activate", activationLimiter.wrap(app.apiActivateSubscription))
+	mux.HandleFunc("POST /api/subscription/activate", activationLimiter.Wrap(writeError, app.apiActivateSubscription))
 
 	// Subscription delivery (VPN clients hit this directly)
-	mux.HandleFunc("GET /sub/{subscription_id}", subscriptionLimiter.wrap(app.handleSubscription))
+	mux.HandleFunc("GET /sub/{subscription_id}", subscriptionLimiter.Wrap(writeError, app.handleSubscription))
 
 	// Serve frontend static files in production (if frontend/out exists)
 	frontendDir := "frontend/out"
 	if info, err := os.Stat(frontendDir); err == nil && info.IsDir() {
 		log.Printf("Serving frontend from %s", frontendDir)
-		mux.Handle("/", spaFileServer(os.DirFS(frontendDir)))
+		mux.Handle("/", middleware.SPAFileServer(os.DirFS(frontendDir)))
 	}
 
 	addr := os.Getenv("PORT")
@@ -159,7 +169,10 @@ func run() error {
 		addr = ":" + addr
 	}
 
-	handler := securityHeaders(requestID(logRequest(mux)))
+	var handler http.Handler = middleware.SecurityHeaders(middleware.RequestID(middleware.LogRequest(mux)))
+	if len(corsOrigins) > 0 {
+		handler = middleware.CorsMiddleware(corsOrigins, handler)
+	}
 
 	srv := &http.Server{
 		Addr:              addr,
@@ -190,68 +203,6 @@ func run() error {
 
 	log.Println("Server stopped")
 	return nil
-}
-
-func spaFileServer(root fs.FS) http.Handler {
-	fileServer := http.FileServerFS(root)
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		path := strings.TrimPrefix(r.URL.Path, "/")
-		if path == "" {
-			path = "index.html"
-		}
-		f, err := root.Open(path)
-		if err != nil {
-			r.URL.Path = "/"
-			fileServer.ServeHTTP(w, r)
-			return
-		}
-		f.Close()
-		fileServer.ServeHTTP(w, r)
-	})
-}
-
-func securityHeaders(next http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("X-Content-Type-Options", "nosniff")
-		w.Header().Set("X-Frame-Options", "DENY")
-		w.Header().Set("Referrer-Policy", "strict-origin-when-cross-origin")
-		w.Header().Set("Permissions-Policy", "camera=(), microphone=(), geolocation=()")
-		next.ServeHTTP(w, r)
-	})
-}
-
-type statusRecorder struct {
-	http.ResponseWriter
-	status int
-}
-
-func (r *statusRecorder) WriteHeader(code int) {
-	r.status = code
-	r.ResponseWriter.WriteHeader(code)
-}
-
-func requestID(next http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		id := strings.TrimSpace(r.Header.Get("X-Request-ID"))
-		if id == "" {
-			buf := make([]byte, 16)
-			_, _ = rand.Read(buf)
-			id = hex.EncodeToString(buf)
-		}
-		w.Header().Set("X-Request-ID", id)
-		ctx := context.WithValue(r.Context(), ctxKeyRequestID, id)
-		next.ServeHTTP(w, r.WithContext(ctx))
-	})
-}
-
-func logRequest(next http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		start := time.Now()
-		rec := &statusRecorder{ResponseWriter: w, status: 200}
-		next.ServeHTTP(rec, r)
-		reqID, _ := r.Context().Value(ctxKeyRequestID).(string)
-		log.Printf("%d %s %s %s %s req_id=%s", rec.status, r.Method, r.URL.Path, time.Since(start), clientIP(r), reqID)
-	})
 }
 
 func (a *App) startBackup() {

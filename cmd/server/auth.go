@@ -8,6 +8,8 @@ import (
 	"net/http"
 	"strings"
 	"time"
+
+	"xary-sub/internal/model"
 )
 
 func (a *App) requireAdmin(next http.Handler) http.Handler {
@@ -28,23 +30,23 @@ func (a *App) requireAdmin(next http.Handler) http.Handler {
 	})
 }
 
-func (a *App) adminSessionFromRequest(r *http.Request) (AdminSession, string, bool) {
-	cookie, err := r.Cookie("xary_admin_session")
+func (a *App) adminSessionFromRequest(r *http.Request) (model.AdminSession, string, bool) {
+	cookie, err := r.Cookie("xray_admin_session")
 	if err != nil || cookie.Value == "" {
-		return AdminSession{}, "", false
+		return model.AdminSession{}, "", false
 	}
 
 	a.mu.RLock()
 	session, ok := a.sessions[cookie.Value]
 	a.mu.RUnlock()
 	if !ok {
-		return AdminSession{}, "", false
+		return model.AdminSession{}, "", false
 	}
 	if time.Now().After(session.ExpiresAt) {
 		a.mu.Lock()
 		delete(a.sessions, cookie.Value)
 		a.mu.Unlock()
-		return AdminSession{}, "", false
+		return model.AdminSession{}, "", false
 	}
 	return session, cookie.Value, true
 }

@@ -12,6 +12,9 @@ import (
 	"time"
 
 	"golang.org/x/crypto/bcrypt"
+
+	"xary-sub/internal/model"
+	"xary-sub/internal/vless"
 )
 
 // --- JSON helpers ---
@@ -50,7 +53,7 @@ func pathID(w http.ResponseWriter, r *http.Request, name string) (int64, bool) {
 // --- Auth API ---
 
 func (a *App) apiLogin(w http.ResponseWriter, r *http.Request) {
-	var req LoginRequest
+	var req model.LoginRequest
 	if err := readJSON(r, &req); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid request body")
 		return
@@ -75,14 +78,14 @@ func (a *App) apiLogin(w http.ResponseWriter, r *http.Request) {
 	}
 
 	a.mu.Lock()
-	a.sessions[sessionID] = AdminSession{
+	a.sessions[sessionID] = model.AdminSession{
 		ExpiresAt: time.Now().Add(24 * time.Hour),
 		CSRFToken: csrfToken,
 	}
 	a.mu.Unlock()
 
 	http.SetCookie(w, &http.Cookie{
-		Name:     "xary_admin_session",
+		Name:     "xray_admin_session",
 		Value:    sessionID,
 		Path:     "/",
 		HttpOnly: true,
@@ -94,7 +97,7 @@ func (a *App) apiLogin(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *App) apiLogout(w http.ResponseWriter, r *http.Request) {
-	cookie, err := r.Cookie("xary_admin_session")
+	cookie, err := r.Cookie("xray_admin_session")
 	if err == nil && cookie.Value != "" {
 		a.mu.Lock()
 		delete(a.sessions, cookie.Value)
@@ -102,7 +105,7 @@ func (a *App) apiLogout(w http.ResponseWriter, r *http.Request) {
 	}
 
 	http.SetCookie(w, &http.Cookie{
-		Name:     "xary_admin_session",
+		Name:     "xray_admin_session",
 		Value:    "",
 		Path:     "/",
 		HttpOnly: true,
@@ -129,13 +132,13 @@ func (a *App) apiListUsers(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if users == nil {
-		users = []User{}
+		users = []model.User{}
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"users": users})
 }
 
 func (a *App) apiCreateUser(w http.ResponseWriter, r *http.Request) {
-	var req CreateUserRequest
+	var req model.CreateUserRequest
 	if err := readJSON(r, &req); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid request body")
 		return
@@ -144,7 +147,7 @@ func (a *App) apiCreateUser(w http.ResponseWriter, r *http.Request) {
 	name := strings.TrimSpace(req.Name)
 	email := strings.TrimSpace(req.Email)
 	activationCode := strings.TrimSpace(req.ActivationCode)
-	status, ok := normalizeUserStatus(req.Status)
+	status, ok := model.NormalizeUserStatus(req.Status)
 	if !ok {
 		writeError(w, http.StatusBadRequest, "invalid subscription status")
 		return
@@ -160,7 +163,7 @@ func (a *App) apiCreateUser(w http.ResponseWriter, r *http.Request) {
 	}
 
 	blockedReason := strings.TrimSpace(req.BlockedReason)
-	if status != userStatusBlocked {
+	if status != model.UserStatusBlocked {
 		blockedReason = ""
 	}
 
@@ -233,7 +236,7 @@ func (a *App) apiUpdateUserKeys(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var req UpdateUserKeysRequest
+	var req model.UpdateUserKeysRequest
 	if err := readJSON(r, &req); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid request body")
 		return
@@ -289,13 +292,13 @@ func (a *App) apiUpdateUserSubscription(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	var req UpdateSubscriptionRequest
+	var req model.UpdateSubscriptionRequest
 	if err := readJSON(r, &req); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid request body")
 		return
 	}
 
-	status, ok := normalizeUserStatus(req.Status)
+	status, ok := model.NormalizeUserStatus(req.Status)
 	if !ok {
 		writeError(w, http.StatusBadRequest, "invalid subscription status")
 		return
@@ -318,7 +321,7 @@ func (a *App) apiUpdateUserSubscription(w http.ResponseWriter, r *http.Request) 
 	}
 
 	blockedReason := strings.TrimSpace(req.BlockedReason)
-	if status != userStatusBlocked {
+	if status != model.UserStatusBlocked {
 		blockedReason = ""
 	}
 
@@ -341,7 +344,7 @@ func (a *App) apiUpdateUserHWID(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var req UpdateHWIDRequest
+	var req model.UpdateHWIDRequest
 	if err := readJSON(r, &req); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid request body")
 		return
@@ -397,13 +400,13 @@ func (a *App) apiListKeys(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if keys == nil {
-		keys = []VLESSKey{}
+		keys = []model.VLESSKey{}
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"keys": keys})
 }
 
 func (a *App) apiCreateKey(w http.ResponseWriter, r *http.Request) {
-	var req CreateKeyRequest
+	var req model.CreateKeyRequest
 	if err := readJSON(r, &req); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid request body")
 		return
@@ -411,7 +414,7 @@ func (a *App) apiCreateKey(w http.ResponseWriter, r *http.Request) {
 
 	label := strings.TrimSpace(req.Label)
 	keyURL := strings.TrimSpace(req.URL)
-	status, ok := normalizeKeyStatus(req.Status)
+	status, ok := model.NormalizeKeyStatus(req.Status)
 	if !ok {
 		writeError(w, http.StatusBadRequest, "invalid key status")
 		return
@@ -451,14 +454,14 @@ func (a *App) apiUpdateKey(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var req UpdateKeyRequest
+	var req model.UpdateKeyRequest
 	if err := readJSON(r, &req); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid request body")
 		return
 	}
 
 	label := strings.TrimSpace(req.Label)
-	status, ok := normalizeKeyStatus(req.Status)
+	status, ok := model.NormalizeKeyStatus(req.Status)
 	if !ok {
 		writeError(w, http.StatusBadRequest, "invalid key status")
 		return
@@ -472,7 +475,7 @@ func (a *App) apiUpdateKey(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	builtURL, err := buildVLESSURL(req.UUID, req.Host, req.Port, req.Query, req.Fragment)
+	builtURL, err := vless.BuildVLESSURL(req.UUID, req.Host, req.Port, req.Query, req.Fragment)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
@@ -594,8 +597,8 @@ func (a *App) apiCheckAllKeys(w http.ResponseWriter, r *http.Request) {
 		}
 		payload := map[string]any{
 			"id":                 id,
-			"check_status":       normalizeCheckStatus(checkStatus.String),
-			"check_status_label": checkStatusLabel(normalizeCheckStatus(checkStatus.String)),
+			"check_status":       model.NormalizeCheckStatus(checkStatus.String),
+			"check_status_label": model.CheckStatusLabel(model.NormalizeCheckStatus(checkStatus.String)),
 			"check_error":        strings.TrimSpace(checkError.String),
 			"last_checked_at":    "",
 			"last_latency_ms":    int64(0),
@@ -618,7 +621,7 @@ func (a *App) apiCheckAllKeys(w http.ResponseWriter, r *http.Request) {
 // --- Subscription API ---
 
 func (a *App) apiActivateSubscription(w http.ResponseWriter, r *http.Request) {
-	var req ActivateRequest
+	var req model.ActivateRequest
 	if err := readJSON(r, &req); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid request body")
 		return
@@ -650,7 +653,7 @@ func (a *App) apiActivateSubscription(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// --- Subscription delivery (unchanged — serves plaintext for VPN clients) ---
+// --- Subscription delivery (unchanged --- serves plaintext for VPN clients) ---
 
 func (a *App) handleSubscription(w http.ResponseWriter, r *http.Request) {
 	subscriptionID := r.PathValue("subscription_id")
@@ -691,11 +694,11 @@ func (a *App) handleSubscription(w http.ResponseWriter, r *http.Request) {
 			w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 			message := strings.TrimSpace(a.deviceLimitMessage)
 			if message == "" {
-				message = defaultDeviceLimitMessage
+				message = model.DefaultDeviceLimitMessage
 			}
 			headerMessage := strings.ReplaceAll(strings.ReplaceAll(message, "\r", " "), "\n", " ")
 			if headerMessage == "" {
-				headerMessage = defaultDeviceLimitMessage
+				headerMessage = model.DefaultDeviceLimitMessage
 			}
 			w.Header().Set("X-Device-Limit-Message", headerMessage)
 			_, _ = w.Write([]byte("# " + message + "\n" + message + "\n"))
@@ -703,7 +706,7 @@ func (a *App) handleSubscription(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	rows, err := a.db.Query(`
+	dbRows, err := a.db.Query(`
 		SELECT k.url
 		FROM users u
 		JOIN user_keys uk ON uk.user_id = u.id
@@ -717,18 +720,18 @@ func (a *App) handleSubscription(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "failed to load subscription", http.StatusInternalServerError)
 		return
 	}
-	defer rows.Close()
+	defer dbRows.Close()
 
 	var lines []string
-	for rows.Next() {
+	for dbRows.Next() {
 		var keyURL string
-		if err := rows.Scan(&keyURL); err != nil {
+		if err := dbRows.Scan(&keyURL); err != nil {
 			http.Error(w, "failed to read subscription", http.StatusInternalServerError)
 			return
 		}
 		lines = append(lines, keyURL)
 	}
-	if err := rows.Err(); err != nil {
+	if err := dbRows.Err(); err != nil {
 		http.Error(w, "failed to read subscription", http.StatusInternalServerError)
 		return
 	}
@@ -739,6 +742,36 @@ func (a *App) handleSubscription(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 	_, _ = w.Write([]byte(strings.Join(lines, "\n")))
+}
+
+// --- Data export API ---
+
+func (a *App) apiExportUsers(w http.ResponseWriter, r *http.Request) {
+	users, err := a.listUsers()
+	if err != nil {
+		log.Printf("apiExportUsers: %v", err)
+		writeError(w, http.StatusInternalServerError, "failed to export users")
+		return
+	}
+	if users == nil {
+		users = []model.User{}
+	}
+	w.Header().Set("Content-Disposition", `attachment; filename="users.json"`)
+	writeJSON(w, http.StatusOK, users)
+}
+
+func (a *App) apiExportKeys(w http.ResponseWriter, r *http.Request) {
+	keys, err := a.listKeys()
+	if err != nil {
+		log.Printf("apiExportKeys: %v", err)
+		writeError(w, http.StatusInternalServerError, "failed to export keys")
+		return
+	}
+	if keys == nil {
+		keys = []model.VLESSKey{}
+	}
+	w.Header().Set("Content-Disposition", `attachment; filename="keys.json"`)
+	writeJSON(w, http.StatusOK, keys)
 }
 
 // --- JSON key check response helper ---
@@ -754,11 +787,11 @@ func (a *App) respondJSONKeyCheck(w http.ResponseWriter, keyID int64) {
 		writeError(w, http.StatusInternalServerError, "failed to load key check")
 		return
 	}
-	status := normalizeCheckStatus(checkStatus.String)
+	status := model.NormalizeCheckStatus(checkStatus.String)
 	payload := map[string]any{
 		"id":                 keyID,
 		"check_status":       status,
-		"check_status_label": checkStatusLabel(status),
+		"check_status_label": model.CheckStatusLabel(status),
 		"check_error":        strings.TrimSpace(checkError.String),
 		"last_checked_at":    "",
 		"last_latency_ms":    int64(0),
