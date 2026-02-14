@@ -1,0 +1,51 @@
+# =============================================================================
+# .dockerignore - Exclude files from Docker build context
+# =============================================================================
+
+# Version control
+.git
+.gitignore
+
+# IDE and editor files
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# Runtime data
+data/
+*.db
+*.db-shm
+*.db-wal
+
+# Environment files (secrets must not be baked into images)
+.env
+.env.local
+.env.production
+
+# Documentation
+*.md
+LICENSE
+
+# OS artifacts
+.DS_Store
+Thumbs.db
+
+# Go build artifacts
+/server
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+*.test
+*.out
+coverage.out
+
+# Frontend directory (frontend has its own Dockerfile and build context)
+frontend/
+
+# Docker files (avoid recursive builds)
+docker-compose*.yml
+Dockerfile*

@@ -1,0 +1,176 @@
+# =============================================================================
+# Xray Sub - Docker Compose
+# =============================================================================
+# Quick start:
+#   cp .env.example .env        # Edit .env and set ADMIN_PASSWORD
+#   docker compose up -d        # Start both services
+#   docker compose logs -f      # Follow logs
+#   docker compose down         # Stop all services
+# =============================================================================
+
+services:
+  # ---------------------------------------------------------------------------
+  # Backend - Go API server (internal only, not exposed to host by default)
+  # ---------------------------------------------------------------------------
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        VERSION: ${BUILD_VERSION:-dev}
+        COMMIT: ${BUILD_COMMIT:-unknown}
+        BUILD_TIME: ${BUILD_TIME:-unknown}
+    image: xray-sub-backend:latest
+    container_name: xray-sub-backend
+
+    restart: unless-stopped
+
+    env_file:
+      - .env
+
+    # Run as non-root user (matches UID/GID created in the Dockerfile).
+    # The named volume is initialized with correct ownership on first run.
+    user: "1000:1000"
+
+    # The backend is accessed internally by the frontend container via Docker
+    # networking (nginx proxies /api/* and /sub/* to http://backend:8080).
+    # Not exposed to the host by default. Uncomment below for direct access:
+    # ports:
+    #   - "127.0.0.1:8081:8080"
+
+    volumes:
+      - app-data:/app/data
+
+    # -------------------------------------------------------------------------
+    # Security hardening
+    # -------------------------------------------------------------------------
+    # Read-only root filesystem prevents runtime tampering.
+    # /tmp tmpfs covers any transient file needs.
+    read_only: true
+    tmpfs:
+      - /tmp:noexec,nosuid,size=64m
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+
+    # -------------------------------------------------------------------------
+    # Health check
+    # -------------------------------------------------------------------------
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://127.0.0.1:8080/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+    # -------------------------------------------------------------------------
+    # Resource limits
+    # -------------------------------------------------------------------------
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+          cpus: "1.0"
+        reservations:
+          memory: 64M
+          cpus: "0.25"
+
+    # -------------------------------------------------------------------------
+    # Logging
+    # -------------------------------------------------------------------------
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "5"
+        compress: "true"
+
+    # -------------------------------------------------------------------------
+    # Graceful shutdown
+    # -------------------------------------------------------------------------
+    # The Go server handles SIGTERM with a 10-second drain period.
+    # Allow 15 seconds before Docker sends SIGKILL.
+    stop_grace_period: 15s
+
+    networks:
+      - internal
+
+  # ---------------------------------------------------------------------------
+  # Frontend - Next.js static export served by nginx
+  # ---------------------------------------------------------------------------
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    image: xray-sub-frontend:latest
+    container_name: xray-sub-frontend
+
+    restart: unless-stopped
+
+    # The frontend is the public-facing entry point.
+    # nginx reverse-proxies /api/* and /sub/* to the backend.
+    ports:
+      - "${HOST_PORT:-8080}:3000"
+
+    depends_on:
+      backend:
+        condition: service_healthy
+
+    # -------------------------------------------------------------------------
+    # Security hardening
+    # -------------------------------------------------------------------------
+    read_only: true
+    tmpfs:
+      - /tmp:noexec,nosuid,size=32m,uid=101,gid=101
+      - /var/cache/nginx:noexec,nosuid,size=64m,uid=101,gid=101
+      - /var/run:noexec,nosuid,size=1m,uid=101,gid=101
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+
+    # -------------------------------------------------------------------------
+    # Health check
+    # -------------------------------------------------------------------------
+    healthcheck:
+      test: ["CMD", "wget", "-qO", "/dev/null", "http://127.0.0.1:3000/"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 5s
+
+    # -------------------------------------------------------------------------
+    # Resource limits
+    # -------------------------------------------------------------------------
+    deploy:
+      resources:
+        limits:
+          memory: 128M
+          cpus: "0.5"
+        reservations:
+          memory: 32M
+          cpus: "0.1"
+
+    # -------------------------------------------------------------------------
+    # Logging
+    # -------------------------------------------------------------------------
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+        compress: "true"
+
+    stop_grace_period: 10s
+
+    networks:
+      - internal
+
+volumes:
+  app-data:
+    driver: local
+
+networks:
+  internal:
+    driver: bridge

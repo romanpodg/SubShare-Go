@@ -1,0 +1,37 @@
+# =============================================================================
+# Frontend .dockerignore - Exclude files from Docker build context
+# =============================================================================
+
+# Dependencies (installed fresh in Docker)
+node_modules/
+
+# Build output (built fresh in Docker)
+.next/
+out/
+
+# TypeScript build info
+tsconfig.tsbuildinfo
+
+# Environment files
+.env
+.env.local
+.env.production
+.env.development
+
+# IDE and editor files
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# OS artifacts
+.DS_Store
+Thumbs.db
+
+# Documentation
+README.md
+
+# Docker files (avoid recursive builds)
+Dockerfile
+.dockerignore
