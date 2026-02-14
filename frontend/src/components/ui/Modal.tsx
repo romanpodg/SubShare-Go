@@ -51,11 +51,6 @@ export function Modal({ open, onClose, title, children }: ModalProps) {
     if (!open) return;
 
     const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === "Escape") {
-        onClose();
-        return;
-      }
-
       if (e.key === "Tab") {
         const focusable = getFocusableElements();
         if (focusable.length === 0) {
@@ -90,7 +85,6 @@ export function Modal({ open, onClose, title, children }: ModalProps) {
     <div
       ref={overlayRef}
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/60"
-      onClick={(e) => e.target === overlayRef.current && onClose()}
     >
       <div
         ref={modalRef}

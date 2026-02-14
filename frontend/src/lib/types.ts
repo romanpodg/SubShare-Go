@@ -13,7 +13,21 @@ export interface User {
   max_devices: number;
   connected_device_count: number;
   connected_hwids: string[];
+  connected_devices: ConnectedDevice[];
   created_at: string;
+}
+
+export interface ConnectedDevice {
+  hwid: string;
+  device_name: string;
+  device_model: string;
+  platform: string;
+  os_version: string;
+  app_name: string;
+  app_version: string;
+  user_agent: string;
+  created_at: string;
+  last_seen_at: string;
 }
 
 export interface VLESSKey {

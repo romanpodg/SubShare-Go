@@ -71,7 +71,7 @@ export function UsersSection({ users, assignableKeys, onRefresh }: Props) {
             <thead>
               <tr className="text-left text-zinc-400 border-b border-border">
                 <th scope="col" className="pb-2 pr-4">Имя</th>
-                <th scope="col" className="pb-2 pr-4">Email</th>
+                <th scope="col" className="pb-2 pr-4">Имя пользователя Telegram</th>
                 <th scope="col" className="pb-2 pr-4">Код активации</th>
                 <th scope="col" className="pb-2 pr-4">Статус</th>
                 <th scope="col" className="pb-2 pr-4">Подписка</th>
@@ -82,7 +82,7 @@ export function UsersSection({ users, assignableKeys, onRefresh }: Props) {
               {users.map((user) => (
                 <tr key={user.id} className="border-b border-border last:border-0">
                   <td className="py-3 pr-4">{user.name}</td>
-                  <td className="py-3 pr-4 text-zinc-400">{user.email || "—"}</td>
+                  <td className="py-3 pr-4 text-zinc-400">{user.email ? `@${user.email.replace(/^@+/, "")}` : "—"}</td>
                   <td className="py-3 pr-4 font-mono text-xs">{user.activation_code}</td>
                   <td className="py-3 pr-4"><StatusBadge status={user.status} /></td>
                   <td className="py-3 pr-4 text-xs text-zinc-400">

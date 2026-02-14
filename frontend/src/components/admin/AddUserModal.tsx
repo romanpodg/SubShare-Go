@@ -18,14 +18,14 @@ export function AddUserModal({ open, onClose, onRefresh }: Props) {
   const { toast } = useToast();
   const [loading, setLoading] = useState(false);
   const [name, setName] = useState("");
-  const [email, setEmail] = useState("");
+  const [telegramUsername, setTelegramUsername] = useState("");
   const [code, setCode] = useState("");
   const [status, setStatus] = useState("active");
   const [days, setDays] = useState("30");
 
   const resetForm = () => {
     setName("");
-    setEmail("");
+    setTelegramUsername("");
     setCode("");
     setStatus("active");
     setDays("30");
@@ -41,9 +41,10 @@ export function AddUserModal({ open, onClose, onRefresh }: Props) {
     e.preventDefault();
     setLoading(true);
     try {
+      const normalizedTelegramUsername = telegramUsername.trim().replace(/^@+/, "");
       await usersApi.create({
         name,
-        email,
+        email: normalizedTelegramUsername,
         activation_code: code,
         status,
         issue_days: parseInt(days) || 30,
@@ -63,12 +64,23 @@ export function AddUserModal({ open, onClose, onRefresh }: Props) {
     <Modal open={open} onClose={onClose} title="Добавить пользователя">
       <form onSubmit={handleSubmit} className="flex flex-col gap-4">
         <Input label="Имя" value={name} onChange={(e) => setName(e.target.value)} required />
-        <Input
-          label="Email"
-          type="email"
-          value={email}
-          onChange={(e) => setEmail(e.target.value)}
-        />
+        <div className="flex flex-col gap-1.5">
+          <label htmlFor="telegram-username" className="text-sm text-zinc-400">
+            Имя пользователя Telegram
+          </label>
+          <div className="flex items-center bg-surface-2 border border-border rounded-lg text-sm focus-within:ring-2 focus-within:ring-accent focus-within:ring-offset-2 focus-within:ring-offset-bg">
+            <span className="pl-3 pr-1 text-zinc-500 select-none">@</span>
+            <input
+              id="telegram-username"
+              type="text"
+              value={telegramUsername}
+              onChange={(e) => setTelegramUsername(e.target.value.replace(/@/g, ""))}
+              placeholder="username"
+              autoComplete="off"
+              className="w-full bg-transparent py-2 pr-3 text-zinc-200 placeholder:text-zinc-500 focus:outline-none"
+            />
+          </div>
+        </div>
         <Input
           label="Код активации"
           value={code}

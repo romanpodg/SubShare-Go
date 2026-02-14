@@ -29,21 +29,36 @@ type AdminSession struct {
 
 // User represents a subscription user.
 type User struct {
-	ID                   int64     `json:"id"`
-	Name                 string    `json:"name"`
-	Email                string    `json:"email"`
-	ActivationCode       string    `json:"activation_code"`
-	SubscriptionID       string    `json:"subscription_id"`
-	ActivationUsedAt     string    `json:"activation_used_at"`
-	Status               string    `json:"status"`
-	StartsAtInput        string    `json:"starts_at"`
-	ExpiresAtInput       string    `json:"expires_at"`
-	BlockedReason        string    `json:"blocked_reason"`
-	AssignedKeyIDs       string    `json:"assigned_key_ids"`
-	MaxDevices           int       `json:"max_devices"`
-	ConnectedDeviceCount int       `json:"connected_device_count"`
-	ConnectedHWIDs       []string  `json:"connected_hwids"`
-	CreatedAt            time.Time `json:"created_at"`
+	ID                   int64             `json:"id"`
+	Name                 string            `json:"name"`
+	Email                string            `json:"email"`
+	ActivationCode       string            `json:"activation_code"`
+	SubscriptionID       string            `json:"subscription_id"`
+	ActivationUsedAt     string            `json:"activation_used_at"`
+	Status               string            `json:"status"`
+	StartsAtInput        string            `json:"starts_at"`
+	ExpiresAtInput       string            `json:"expires_at"`
+	BlockedReason        string            `json:"blocked_reason"`
+	AssignedKeyIDs       string            `json:"assigned_key_ids"`
+	MaxDevices           int               `json:"max_devices"`
+	ConnectedDeviceCount int               `json:"connected_device_count"`
+	ConnectedHWIDs       []string          `json:"connected_hwids"`
+	ConnectedDevices     []ConnectedDevice `json:"connected_devices"`
+	CreatedAt            time.Time         `json:"created_at"`
+}
+
+// ConnectedDevice stores device metadata collected from subscription client requests.
+type ConnectedDevice struct {
+	HWID        string `json:"hwid"`
+	DeviceName  string `json:"device_name"`
+	DeviceModel string `json:"device_model"`
+	Platform    string `json:"platform"`
+	OSVersion   string `json:"os_version"`
+	AppName     string `json:"app_name"`
+	AppVersion  string `json:"app_version"`
+	UserAgent   string `json:"user_agent"`
+	CreatedAt   string `json:"created_at"`
+	LastSeenAt  string `json:"last_seen_at"`
 }
 
 // VLESSKey represents a VLESS server key.

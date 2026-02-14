@@ -685,7 +685,8 @@ func (a *App) handleSubscription(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if hwid != "" {
-		allowedDevice, err := a.registerHWID(userID, hwid)
+		meta := extractDeviceMeta(r)
+		allowedDevice, err := a.registerHWID(userID, hwid, meta)
 		if err != nil {
 			http.Error(w, "failed to validate hwid", http.StatusInternalServerError)
 			return

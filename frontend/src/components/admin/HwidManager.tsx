@@ -1,8 +1,7 @@
 "use client";
 
-import { useState, FormEvent } from "react";
+import { useEffect, useMemo, useState, FormEvent } from "react";
 import { Modal } from "@/components/ui/Modal";
-import { Input } from "@/components/ui/Input";
 import { Button } from "@/components/ui/Button";
 import { useToast } from "@/components/ui/Toast";
 import { users as usersApi } from "@/lib/api";
@@ -17,13 +16,51 @@ interface Props {
 export function HwidManager({ user, onClose, onRefresh }: Props) {
   const { toast } = useToast();
   const [loading, setLoading] = useState(false);
-  const [maxDevices, setMaxDevices] = useState(String(user.max_devices));
+  const [maxDevicesInput, setMaxDevicesInput] = useState(String(user.max_devices));
+
+  useEffect(() => {
+    setMaxDevicesInput(String(user.max_devices));
+  }, [user.id, user.max_devices]);
+
+  const parsedMaxDevices = useMemo(() => {
+    const parsed = parseInt(maxDevicesInput, 10);
+    if (Number.isNaN(parsed)) {
+      return 1;
+    }
+    return Math.min(32, Math.max(1, parsed));
+  }, [maxDevicesInput]);
+
+  const hasMaxDevicesChanges = parsedMaxDevices !== user.max_devices;
+
+  const connectedDevices = useMemo(() => {
+    if (user.connected_devices && user.connected_devices.length > 0) {
+      return user.connected_devices;
+    }
+    if (user.connected_hwids && user.connected_hwids.length > 0) {
+      return user.connected_hwids.map((hwid) => ({
+        hwid,
+        device_name: "",
+        device_model: "",
+        platform: "",
+        os_version: "",
+        app_name: "",
+        app_version: "",
+        user_agent: "",
+        created_at: "",
+        last_seen_at: "",
+      }));
+    }
+    return [];
+  }, [user.connected_devices, user.connected_hwids]);
 
   const handleSave = async (e: FormEvent) => {
     e.preventDefault();
+    if (!hasMaxDevicesChanges) {
+      return;
+    }
     setLoading(true);
     try {
-      await usersApi.updateHwid(user.id, parseInt(maxDevices) || 1);
+      await usersApi.updateHwid(user.id, parsedMaxDevices);
       toast("Настройки HWID обновлены", "success");
       await onRefresh();
     } catch (err: unknown) {
@@ -31,6 +68,28 @@ export function HwidManager({ user, onClose, onRefresh }: Props) {
     } finally {
       setLoading(false);
     }
+  };
+
+  const stepMaxDevices = (delta: number) => {
+    const next = Math.min(32, Math.max(1, parsedMaxDevices + delta));
+    setMaxDevicesInput(String(next));
+  };
+
+  const inferDeviceKind = (value: string) => {
+    const normalized = value.toLowerCase();
+    if (normalized.includes("iphone") || normalized.includes("ios")) return "iPhone";
+    if (normalized.includes("ipad")) return "iPad";
+    if (normalized.includes("android") || normalized.includes("miui") || normalized.includes("oneui")) return "Android";
+    if (normalized.includes("windows") || normalized.includes("win32") || normalized.includes("win64")) return "Windows";
+    if (normalized.includes("mac") || normalized.includes("darwin") || normalized.includes("macos")) return "macOS";
+    if (normalized.includes("linux")) return "Linux";
+    return "Устройство";
+  };
+
+  const shortHwid = (hwid: string) => {
+    const value = hwid.trim();
+    if (value.length <= 24) return value;
+    return `${value.slice(0, 10)}…${value.slice(-8)}`;
   };
 
   const handleDeleteHwid = async (hwid: string) => {
@@ -46,15 +105,46 @@ export function HwidManager({ user, onClose, onRefresh }: Props) {
   return (
     <Modal open onClose={onClose} title={`HWID — ${user.name}`}>
       <form onSubmit={handleSave} className="flex flex-col gap-4">
-        <Input
-          label="Макс. устройств"
-          type="number"
-          value={maxDevices}
-          onChange={(e) => setMaxDevices(e.target.value)}
-          min="1"
-          max="32"
-        />
-        <Button type="submit" loading={loading}>
+        <div className="flex flex-col gap-1.5">
+          <label htmlFor="hwid-max-devices" className="text-sm text-zinc-400">
+            Макс. устройств
+          </label>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => stepMaxDevices(-1)}
+              disabled={parsedMaxDevices <= 1 || loading}
+              className="h-10 w-10 rounded-lg border border-border bg-surface-2 text-zinc-300 transition-colors hover:bg-surface-1 disabled:opacity-50 disabled:cursor-not-allowed"
+              aria-label="Уменьшить максимум устройств"
+            >
+              −
+            </button>
+            <input
+              id="hwid-max-devices"
+              type="text"
+              inputMode="numeric"
+              pattern="[0-9]*"
+              value={maxDevicesInput}
+              onChange={(e) => {
+                const digits = e.target.value.replace(/\D/g, "");
+                setMaxDevicesInput(digits === "" ? "" : String(Math.min(32, Math.max(1, parseInt(digits, 10)))));
+              }}
+              onBlur={() => setMaxDevicesInput(String(parsedMaxDevices))}
+              className="h-10 w-full rounded-lg border border-border bg-surface-2 px-3 text-center text-sm text-zinc-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-bg"
+              aria-label="Максимум устройств"
+            />
+            <button
+              type="button"
+              onClick={() => stepMaxDevices(1)}
+              disabled={parsedMaxDevices >= 32 || loading}
+              className="h-10 w-10 rounded-lg border border-border bg-surface-2 text-zinc-300 transition-colors hover:bg-surface-1 disabled:opacity-50 disabled:cursor-not-allowed"
+              aria-label="Увеличить максимум устройств"
+            >
+              +
+            </button>
+          </div>
+        </div>
+        <Button type="submit" loading={loading} disabled={!hasMaxDevicesChanges}>
           Сохранить
         </Button>
       </form>
@@ -63,23 +153,45 @@ export function HwidManager({ user, onClose, onRefresh }: Props) {
         <h3 className="text-sm text-zinc-400 mb-2">
           Подключенные устройства ({user.connected_device_count}/{user.max_devices})
         </h3>
-        {user.connected_hwids && user.connected_hwids.length > 0 ? (
+        {connectedDevices.length > 0 ? (
           <div className="flex flex-col gap-1">
-            {user.connected_hwids.map((hwid) => (
+            {connectedDevices.map((device, index) => {
+              const sourceText = [device.device_name, device.device_model, device.platform, device.os_version, device.app_name, device.app_version, device.user_agent]
+                .filter(Boolean)
+                .join(" ");
+              const title = [device.device_name, device.device_model, inferDeviceKind(sourceText || device.hwid)]
+                .filter(Boolean)
+                .join(" · ") || `Устройство ${index + 1}`;
+
+              return (
               <div
-                key={hwid}
+                key={device.hwid}
                 className="flex items-center justify-between bg-surface-2 rounded-lg px-3 py-2"
               >
-                <span className="font-mono text-xs text-zinc-300">{hwid}</span>
+                <div className="min-w-0 pr-3">
+                  <div className="text-sm text-zinc-200 truncate">
+                    {title}
+                  </div>
+                  <div className="font-mono text-xs text-zinc-500 truncate" title={device.hwid}>
+                    {shortHwid(device.hwid)}
+                  </div>
+                  {(device.app_name || device.last_seen_at) && (
+                    <div className="text-xs text-zinc-500 truncate mt-0.5">
+                      {device.app_name ? `${device.app_name}${device.app_version ? ` ${device.app_version}` : ""}` : "Клиент не определен"}
+                      {device.last_seen_at ? ` · Last seen: ${device.last_seen_at}` : ""}
+                    </div>
+                  )}
+                </div>
                 <Button
                   variant="danger"
                   className="text-xs"
-                  onClick={() => handleDeleteHwid(hwid)}
+                  onClick={() => handleDeleteHwid(device.hwid)}
                 >
                   Удалить
                 </Button>
               </div>
-            ))}
+              );
+            })}
           </div>
         ) : (
           <p className="text-sm text-zinc-400">Нет подключенных устройств</p>

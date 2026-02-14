@@ -53,6 +53,13 @@ go run ./cmd/server
 ## Поведение лимита устройств
 
 - HWID читается из `?hwid=...`, `X-HWID` или `X-Device-ID`
+- Доп. метаданные устройства (для читаемого отображения в HWID-панели) можно передавать через query/header:
+	- `device_name` / `X-Device-Name`
+	- `device_model` / `X-Device-Model`
+	- `platform` / `X-Device-Platform`
+	- `os_version` / `X-OS-Version`
+	- `app_name` / `X-App-Name`
+	- `app_version` / `X-App-Version`
 - При превышении лимита endpoint `/sub/{subscription_id}` возвращает `200 text/plain` без ключей
 - Текст берется из `DEVICE_LIMIT_MESSAGE`
 - Дополнительно отправляется заголовок `X-Device-Limit-Message`

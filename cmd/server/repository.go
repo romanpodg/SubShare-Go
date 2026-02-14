@@ -102,6 +102,27 @@ func migrate(db *sql.DB) error {
 	if err := ensureColumn(db, "vless_keys", "blocked_reason", "TEXT"); err != nil {
 		return err
 	}
+	if err := ensureColumn(db, "user_devices", "device_name", "TEXT"); err != nil {
+		return err
+	}
+	if err := ensureColumn(db, "user_devices", "device_model", "TEXT"); err != nil {
+		return err
+	}
+	if err := ensureColumn(db, "user_devices", "platform", "TEXT"); err != nil {
+		return err
+	}
+	if err := ensureColumn(db, "user_devices", "os_version", "TEXT"); err != nil {
+		return err
+	}
+	if err := ensureColumn(db, "user_devices", "app_name", "TEXT"); err != nil {
+		return err
+	}
+	if err := ensureColumn(db, "user_devices", "app_version", "TEXT"); err != nil {
+		return err
+	}
+	if err := ensureColumn(db, "user_devices", "user_agent", "TEXT"); err != nil {
+		return err
+	}
 
 	if _, err := db.Exec(`UPDATE users SET status = 'active' WHERE status IS NULL OR TRIM(status) = ''`); err != nil {
 		return err
@@ -271,7 +292,69 @@ func (a *App) listUsers() ([]model.User, error) {
 		u.AssignedKeyIDs = strings.TrimSpace(assignedKeyIDs.String)
 		out = append(out, u)
 	}
-	return out, rows.Err()
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
+	if len(out) == 0 {
+		return out, nil
+	}
+
+	deviceRows, err := a.db.Query(`
+		SELECT user_id, hwid, device_name, device_model, platform, os_version, app_name, app_version, user_agent, created_at, last_seen_at
+		FROM user_devices
+		ORDER BY last_seen_at DESC
+	`)
+	if err != nil {
+		return nil, err
+	}
+	defer deviceRows.Close()
+
+	devicesByUser := make(map[int64][]model.ConnectedDevice)
+	for deviceRows.Next() {
+		var userID int64
+		var hwid sql.NullString
+		var deviceName sql.NullString
+		var deviceModel sql.NullString
+		var platform sql.NullString
+		var osVersion sql.NullString
+		var appName sql.NullString
+		var appVersion sql.NullString
+		var userAgent sql.NullString
+		var createdAt sql.NullTime
+		var lastSeenAt sql.NullTime
+
+		if err := deviceRows.Scan(&userID, &hwid, &deviceName, &deviceModel, &platform, &osVersion, &appName, &appVersion, &userAgent, &createdAt, &lastSeenAt); err != nil {
+			return nil, err
+		}
+
+		device := model.ConnectedDevice{
+			HWID:        strings.TrimSpace(hwid.String),
+			DeviceName:  strings.TrimSpace(deviceName.String),
+			DeviceModel: strings.TrimSpace(deviceModel.String),
+			Platform:    strings.TrimSpace(platform.String),
+			OSVersion:   strings.TrimSpace(osVersion.String),
+			AppName:     strings.TrimSpace(appName.String),
+			AppVersion:  strings.TrimSpace(appVersion.String),
+			UserAgent:   strings.TrimSpace(userAgent.String),
+		}
+		if createdAt.Valid {
+			device.CreatedAt = createdAt.Time.Local().Format("2006-01-02 15:04:05")
+		}
+		if lastSeenAt.Valid {
+			device.LastSeenAt = lastSeenAt.Time.Local().Format("2006-01-02 15:04:05")
+		}
+		devicesByUser[userID] = append(devicesByUser[userID], device)
+	}
+	if err := deviceRows.Err(); err != nil {
+		return nil, err
+	}
+
+	for index := range out {
+		out[index].ConnectedDevices = devicesByUser[out[index].ID]
+	}
+
+	return out, nil
 }
 
 func (a *App) listKeys() ([]model.VLESSKey, error) {
@@ -401,7 +484,7 @@ func (a *App) redeemActivationCode(code string) (string, int, string, error) {
 	return generatedSubscriptionID, http.StatusOK, "", nil
 }
 
-func (a *App) registerHWID(userID int64, hwid string) (bool, error) {
+func (a *App) registerHWID(userID int64, hwid string, meta deviceMeta) (bool, error) {
 	hwid = strings.TrimSpace(hwid)
 	if hwid == "" {
 		return true, nil
@@ -414,7 +497,27 @@ func (a *App) registerHWID(userID int64, hwid string) (bool, error) {
 	defer tx.Rollback()
 
 	// Try to update existing device
-	res, err := tx.Exec(`UPDATE user_devices SET last_seen_at = CURRENT_TIMESTAMP WHERE user_id = ? AND hwid = ?`, userID, hwid)
+	res, err := tx.Exec(
+		`UPDATE user_devices
+		 SET last_seen_at = CURRENT_TIMESTAMP,
+		     device_name = COALESCE(NULLIF(?, ''), device_name),
+		     device_model = COALESCE(NULLIF(?, ''), device_model),
+		     platform = COALESCE(NULLIF(?, ''), platform),
+		     os_version = COALESCE(NULLIF(?, ''), os_version),
+		     app_name = COALESCE(NULLIF(?, ''), app_name),
+		     app_version = COALESCE(NULLIF(?, ''), app_version),
+		     user_agent = COALESCE(NULLIF(?, ''), user_agent)
+		 WHERE user_id = ? AND hwid = ?`,
+		meta.DeviceName,
+		meta.DeviceModel,
+		meta.Platform,
+		meta.OSVersion,
+		meta.AppName,
+		meta.AppVersion,
+		meta.UserAgent,
+		userID,
+		hwid,
+	)
 	if err != nil {
 		return false, err
 	}
@@ -435,7 +538,19 @@ func (a *App) registerHWID(userID int64, hwid string) (bool, error) {
 
 	if maxDevices <= 0 {
 		// No limit set, allow
-		_, err = tx.Exec(`INSERT INTO user_devices (user_id, hwid) VALUES (?, ?)`, userID, hwid)
+		_, err = tx.Exec(
+			`INSERT INTO user_devices (user_id, hwid, device_name, device_model, platform, os_version, app_name, app_version, user_agent)
+			 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+			userID,
+			hwid,
+			meta.DeviceName,
+			meta.DeviceModel,
+			meta.Platform,
+			meta.OSVersion,
+			meta.AppName,
+			meta.AppVersion,
+			meta.UserAgent,
+		)
 		if err != nil {
 			return false, err
 		}
@@ -455,7 +570,19 @@ func (a *App) registerHWID(userID int64, hwid string) (bool, error) {
 		return false, nil // limit exceeded
 	}
 
-	_, err = tx.Exec(`INSERT INTO user_devices (user_id, hwid) VALUES (?, ?)`, userID, hwid)
+	_, err = tx.Exec(
+		`INSERT INTO user_devices (user_id, hwid, device_name, device_model, platform, os_version, app_name, app_version, user_agent)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		userID,
+		hwid,
+		meta.DeviceName,
+		meta.DeviceModel,
+		meta.Platform,
+		meta.OSVersion,
+		meta.AppName,
+		meta.AppVersion,
+		meta.UserAgent,
+	)
 	if err != nil {
 		return false, err
 	}

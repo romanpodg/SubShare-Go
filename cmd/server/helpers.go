@@ -10,6 +10,56 @@ import (
 	"xary-sub/internal/vless"
 )
 
+type deviceMeta struct {
+	DeviceName  string
+	DeviceModel string
+	Platform    string
+	OSVersion   string
+	AppName     string
+	AppVersion  string
+	UserAgent   string
+}
+
+func requestValue(r *http.Request, queryKeys []string, headerKeys []string) string {
+	for _, key := range queryKeys {
+		if value := strings.TrimSpace(r.URL.Query().Get(key)); value != "" {
+			return value
+		}
+	}
+	for _, key := range headerKeys {
+		if value := strings.TrimSpace(r.Header.Get(key)); value != "" {
+			return value
+		}
+	}
+	return ""
+}
+
+func clampString(value string, maxLen int) string {
+	value = strings.TrimSpace(value)
+	if maxLen <= 0 {
+		return ""
+	}
+	if len(value) > maxLen {
+		return value[:maxLen]
+	}
+	return value
+}
+
+func extractDeviceMeta(r *http.Request) deviceMeta {
+	platform := requestValue(r, []string{"platform"}, []string{"X-Device-Platform", "Sec-CH-UA-Platform"})
+	platform = strings.Trim(platform, `"`)
+
+	return deviceMeta{
+		DeviceName:  clampString(requestValue(r, []string{"device_name", "device"}, []string{"X-Device-Name"}), 128),
+		DeviceModel: clampString(requestValue(r, []string{"device_model", "model"}, []string{"X-Device-Model"}), 128),
+		Platform:    clampString(platform, 64),
+		OSVersion:   clampString(requestValue(r, []string{"os_version"}, []string{"X-OS-Version"}), 64),
+		AppName:     clampString(requestValue(r, []string{"app_name"}, []string{"X-App-Name"}), 64),
+		AppVersion:  clampString(requestValue(r, []string{"app_version"}, []string{"X-App-Version"}), 64),
+		UserAgent:   clampString(strings.TrimSpace(r.UserAgent()), 255),
+	}
+}
+
 func parseOptionalDateTimeLocal(raw string) (sql.NullTime, error) {
 	raw = strings.TrimSpace(raw)
 	if raw == "" {
