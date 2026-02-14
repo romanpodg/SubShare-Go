@@ -1,8 +1,9 @@
 "use client";
 
-import { useState, FormEvent } from "react";
+import { useState, useEffect, FormEvent } from "react";
 import { Modal } from "@/components/ui/Modal";
 import { Input } from "@/components/ui/Input";
+import { Select } from "@/components/ui/Select";
 import { Button } from "@/components/ui/Button";
 import { useToast } from "@/components/ui/Toast";
 import { users as usersApi } from "@/lib/api";
@@ -22,6 +23,20 @@ export function AddUserModal({ open, onClose, onRefresh }: Props) {
   const [status, setStatus] = useState("active");
   const [days, setDays] = useState("30");
 
+  const resetForm = () => {
+    setName("");
+    setEmail("");
+    setCode("");
+    setStatus("active");
+    setDays("30");
+  };
+
+  useEffect(() => {
+    if (open) {
+      resetForm();
+    }
+  }, [open]);
+
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();
     setLoading(true);
@@ -33,16 +48,12 @@ export function AddUserModal({ open, onClose, onRefresh }: Props) {
         status,
         issue_days: parseInt(days) || 30,
       });
-      toast("User created", "success");
-      setName("");
-      setEmail("");
-      setCode("");
-      setStatus("active");
-      setDays("30");
+      toast("Пользователь создан", "success");
+      resetForm();
       onClose();
       await onRefresh();
     } catch (err: unknown) {
-      toast(err instanceof Error ? err.message : "Failed to create user", "error");
+      toast(err instanceof Error ? err.message : "Не удалось создать пользователя", "error");
     } finally {
       setLoading(false);
     }
@@ -64,18 +75,16 @@ export function AddUserModal({ open, onClose, onRefresh }: Props) {
           onChange={(e) => setCode(e.target.value)}
           required
         />
-        <div className="flex flex-col gap-1.5">
-          <label className="text-sm text-zinc-400">Статус</label>
-          <select
-            value={status}
-            onChange={(e) => setStatus(e.target.value)}
-            className="bg-surface-2 border border-border rounded-lg px-3 py-2 text-sm text-zinc-200"
-          >
-            <option value="active">active</option>
-            <option value="paused">paused</option>
-            <option value="blocked">blocked</option>
-          </select>
-        </div>
+        <Select
+          label="Статус"
+          value={status}
+          onChange={(e) => setStatus(e.target.value)}
+          options={[
+            { value: "active", label: "Активен" },
+            { value: "paused", label: "Приостановлен" },
+            { value: "blocked", label: "Заблокирован" },
+          ]}
+        />
         <Input
           label="Дней подписки"
           type="number"

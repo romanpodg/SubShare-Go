@@ -3,6 +3,7 @@
 import { useState, FormEvent } from "react";
 import { Modal } from "@/components/ui/Modal";
 import { Input } from "@/components/ui/Input";
+import { Select } from "@/components/ui/Select";
 import { Button } from "@/components/ui/Button";
 import { useToast } from "@/components/ui/Toast";
 import { keys as keysApi } from "@/lib/api";
@@ -30,11 +31,11 @@ export function EditKeyModal({ keyData, onClose, onRefresh }: Props) {
     setLoading(true);
     try {
       await keysApi.update(keyData.id, { label, status, uuid, host, port, query, fragment });
-      toast("Key updated", "success");
+      toast("Ключ обновлен", "success");
       onClose();
       await onRefresh();
     } catch (err: unknown) {
-      toast(err instanceof Error ? err.message : "Failed to update key", "error");
+      toast(err instanceof Error ? err.message : "Не удалось обновить ключ", "error");
     } finally {
       setLoading(false);
     }
@@ -44,22 +45,20 @@ export function EditKeyModal({ keyData, onClose, onRefresh }: Props) {
     <Modal open onClose={onClose} title={`Редактировать — ${keyData.label}`}>
       <form onSubmit={handleSubmit} className="flex flex-col gap-4">
         <Input
-          label="Label"
+          label="Название"
           value={label}
           onChange={(e) => setLabel(e.target.value)}
           required
         />
-        <div className="flex flex-col gap-1.5">
-          <label className="text-sm text-zinc-400">Статус</label>
-          <select
-            value={status}
-            onChange={(e) => setStatus(e.target.value as "active" | "non-active")}
-            className="bg-surface-2 border border-border rounded-lg px-3 py-2 text-sm text-zinc-200"
-          >
-            <option value="active">active</option>
-            <option value="non-active">non-active</option>
-          </select>
-        </div>
+        <Select
+          label="Статус"
+          value={status}
+          onChange={(e) => setStatus(e.target.value as "active" | "non-active")}
+          options={[
+            { value: "active", label: "Активен" },
+            { value: "non-active", label: "Неактивен" },
+          ]}
+        />
         <Input label="UUID" value={uuid} onChange={(e) => setUuid(e.target.value)} />
         <Input label="Host" value={host} onChange={(e) => setHost(e.target.value)} />
         <Input label="Port" value={port} onChange={(e) => setPort(e.target.value)} />

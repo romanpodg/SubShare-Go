@@ -8,6 +8,7 @@ interface Toast {
   id: number;
   message: string;
   type: ToastType;
+  exiting?: boolean;
 }
 
 interface ToastContextType {
@@ -29,7 +30,12 @@ export function ToastProvider({ children }: { children: ReactNode }) {
     const id = nextId++;
     setToasts((prev) => [...prev, { id, message, type }]);
     setTimeout(() => {
-      setToasts((prev) => prev.filter((t) => t.id !== id));
+      setToasts((prev) =>
+        prev.map((t) => (t.id === id ? { ...t, exiting: true } : t))
+      );
+      setTimeout(() => {
+        setToasts((prev) => prev.filter((t) => t.id !== id));
+      }, 300);
     }, 4000);
   }, []);
 
@@ -46,7 +52,7 @@ export function ToastProvider({ children }: { children: ReactNode }) {
         {toasts.map((t) => (
           <div
             key={t.id}
-            className={`px-4 py-3 rounded-lg border text-sm animate-fade-in ${colors[t.type]}`}
+            className={`px-4 py-3 rounded-lg border text-sm ${t.exiting ? "animate-fade-out" : "animate-fade-in"} ${colors[t.type]}`}
           >
             {t.message}
           </div>

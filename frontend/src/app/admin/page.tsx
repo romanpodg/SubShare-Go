@@ -2,12 +2,14 @@
 
 import { useEffect, useState, useCallback } from "react";
 import { useRouter } from "next/navigation";
+import Link from "next/link";
 import { useAuth } from "@/hooks/useAuth";
 import { useToast } from "@/components/ui/Toast";
 import { users as usersApi, keys as keysApi } from "@/lib/api";
 import type { User, VLESSKey } from "@/lib/types";
 import { UsersSection } from "@/components/admin/UsersSection";
 import { KeysSection } from "@/components/admin/KeysSection";
+import { LoadingSpinner } from "@/components/ui/LoadingSpinner";
 
 export default function AdminPage() {
   const router = useRouter();
@@ -17,13 +19,17 @@ export default function AdminPage() {
   const [keysList, setKeysList] = useState<VLESSKey[]>([]);
   const [loading, setLoading] = useState(true);
 
+  useEffect(() => {
+    document.title = "Панель управления — Xray Sub";
+  }, []);
+
   const fetchData = useCallback(async () => {
     try {
       const [usersRes, keysRes] = await Promise.all([usersApi.list(), keysApi.list()]);
       setUsersList(usersRes.users);
       setKeysList(keysRes.keys);
     } catch {
-      toast("Failed to load data", "error");
+      toast("Не удалось загрузить данные", "error");
     } finally {
       setLoading(false);
     }
@@ -46,7 +52,7 @@ export default function AdminPage() {
   if (authLoading || loading) {
     return (
       <div className="min-h-screen flex items-center justify-center">
-        <p className="text-zinc-500">Loading...</p>
+        <LoadingSpinner size="lg" />
       </div>
     );
   }
@@ -58,18 +64,18 @@ export default function AdminPage() {
   return (
     <div className="min-h-screen">
       <header className="border-b border-border px-6 py-4 flex items-center justify-between">
-        <h1 className="text-lg font-semibold">Xray Sub</h1>
+        <h1 className="text-xl font-bold">Xray Sub</h1>
         <div className="flex items-center gap-4">
-          <a href="/subscription" className="text-sm text-zinc-400 hover:text-zinc-200 transition-colors">
+          <Link href="/subscription" className="text-sm text-zinc-400 hover:text-zinc-200 transition-colors">
             Клиентская страница
-          </a>
+          </Link>
           <button onClick={handleLogout} className="text-sm text-zinc-400 hover:text-zinc-200 transition-colors">
             Выйти
           </button>
         </div>
       </header>
 
-      <main className="max-w-6xl mx-auto p-6 flex flex-col gap-8">
+      <main id="main-content" className="max-w-6xl mx-auto p-6 flex flex-col gap-8">
         <UsersSection
           users={usersList}
           assignableKeys={assignableKeys}

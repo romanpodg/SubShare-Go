@@ -4,7 +4,7 @@
   --color-bg: #0a0a0f;
   --color-surface-1: #13131a;
   --color-surface-2: #1a1a24;
-  --color-border: rgba(255, 255, 255, 0.04);
+  --color-border: rgba(255, 255, 255, 0.08);
   --color-accent: #6366f1;
   --color-accent-hover: #818cf8;
   --color-success: #22c55e;
@@ -12,10 +12,16 @@
   --color-warning: #f59e0b;
 
   --animate-fade-in: fade-in 0.2s ease-out;
+  --animate-fade-out: fade-out 0.3s ease-in forwards;
 
   @keyframes fade-in {
     0% { opacity: 0; transform: translateY(8px); }
     100% { opacity: 1; transform: translateY(0); }
+  }
+
+  @keyframes fade-out {
+    0% { opacity: 1; transform: translateY(0); }
+    100% { opacity: 0; transform: translateY(8px); }
   }
 }
 

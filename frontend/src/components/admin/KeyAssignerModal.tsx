@@ -47,11 +47,11 @@ export function KeyAssignerModal({ user, assignableKeys, onClose, onRefresh }: P
     setLoading(true);
     try {
       await usersApi.updateKeys(user.id, Array.from(assignedIds));
-      toast("Keys updated", "success");
+      toast("Ключи обновлены", "success");
       onClose();
       await onRefresh();
     } catch (err: unknown) {
-      toast(err instanceof Error ? err.message : "Failed to update keys", "error");
+      toast(err instanceof Error ? err.message : "Не удалось обновить ключи", "error");
     } finally {
       setLoading(false);
     }
@@ -71,7 +71,7 @@ export function KeyAssignerModal({ user, assignableKeys, onClose, onRefresh }: P
         </Button>
       </div>
 
-      <div className="grid grid-cols-2 gap-4 mb-4">
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-4">
         <div>
           <h3 className="text-sm text-zinc-400 mb-2">Доступные</h3>
           <div className="flex flex-wrap gap-1.5 min-h-[60px] bg-surface-2 rounded-lg p-3">
@@ -84,7 +84,7 @@ export function KeyAssignerModal({ user, assignableKeys, onClose, onRefresh }: P
                 {key.label}
               </button>
             ))}
-            {available.length === 0 && <span className="text-xs text-zinc-600">Пусто</span>}
+            {available.length === 0 && <span className="text-xs text-zinc-500">Пусто</span>}
           </div>
         </div>
         <div>
@@ -99,7 +99,7 @@ export function KeyAssignerModal({ user, assignableKeys, onClose, onRefresh }: P
                 {key.label}
               </button>
             ))}
-            {assigned.length === 0 && <span className="text-xs text-zinc-600">Пусто</span>}
+            {assigned.length === 0 && <span className="text-xs text-zinc-500">Пусто</span>}
           </div>
         </div>
       </div>

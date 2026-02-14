@@ -24,10 +24,10 @@ export function HwidManager({ user, onClose, onRefresh }: Props) {
     setLoading(true);
     try {
       await usersApi.updateHwid(user.id, parseInt(maxDevices) || 1);
-      toast("HWID settings updated", "success");
+      toast("Настройки HWID обновлены", "success");
       await onRefresh();
     } catch (err: unknown) {
-      toast(err instanceof Error ? err.message : "Failed to update", "error");
+      toast(err instanceof Error ? err.message : "Не удалось обновить", "error");
     } finally {
       setLoading(false);
     }
@@ -36,10 +36,10 @@ export function HwidManager({ user, onClose, onRefresh }: Props) {
   const handleDeleteHwid = async (hwid: string) => {
     try {
       await usersApi.deleteHwid(user.id, hwid);
-      toast("HWID removed", "success");
+      toast("HWID удален", "success");
       await onRefresh();
     } catch {
-      toast("Failed to remove HWID", "error");
+      toast("Не удалось удалить HWID", "error");
     }
   };
 
@@ -82,7 +82,7 @@ export function HwidManager({ user, onClose, onRefresh }: Props) {
             ))}
           </div>
         ) : (
-          <p className="text-sm text-zinc-500">Нет подключенных устройств</p>
+          <p className="text-sm text-zinc-400">Нет подключенных устройств</p>
         )}
       </div>
     </Modal>

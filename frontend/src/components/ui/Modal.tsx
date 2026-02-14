@@ -1,6 +1,6 @@
 "use client";
 
-import { ReactNode, useEffect, useRef } from "react";
+import { ReactNode, useEffect, useRef, useCallback } from "react";
 
 interface ModalProps {
   open: boolean;
@@ -11,15 +11,78 @@ interface ModalProps {
 
 export function Modal({ open, onClose, title, children }: ModalProps) {
   const overlayRef = useRef<HTMLDivElement>(null);
+  const modalRef = useRef<HTMLDivElement>(null);
+  const previousFocusRef = useRef<Element | null>(null);
+
+  const getFocusableElements = useCallback(() => {
+    if (!modalRef.current) return [];
+    return Array.from(
+      modalRef.current.querySelectorAll<HTMLElement>(
+        'a[href], button:not([disabled]), textarea:not([disabled]), input:not([disabled]), select:not([disabled]), [tabindex]:not([tabindex="-1"])'
+      )
+    );
+  }, []);
 
   useEffect(() => {
     if (!open) return;
-    const handleEsc = (e: KeyboardEvent) => {
-      if (e.key === "Escape") onClose();
+
+    previousFocusRef.current = document.activeElement;
+
+    document.body.classList.add("overflow-hidden");
+
+    const timer = setTimeout(() => {
+      const focusable = getFocusableElements();
+      if (focusable.length > 0) {
+        focusable[0].focus();
+      }
+    }, 0);
+
+    return () => {
+      clearTimeout(timer);
+      document.body.classList.remove("overflow-hidden");
+
+      if (previousFocusRef.current instanceof HTMLElement) {
+        previousFocusRef.current.focus();
+      }
     };
-    document.addEventListener("keydown", handleEsc);
-    return () => document.removeEventListener("keydown", handleEsc);
-  }, [open, onClose]);
+  }, [open, getFocusableElements]);
+
+  useEffect(() => {
+    if (!open) return;
+
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        onClose();
+        return;
+      }
+
+      if (e.key === "Tab") {
+        const focusable = getFocusableElements();
+        if (focusable.length === 0) {
+          e.preventDefault();
+          return;
+        }
+
+        const first = focusable[0];
+        const last = focusable[focusable.length - 1];
+
+        if (e.shiftKey) {
+          if (document.activeElement === first) {
+            e.preventDefault();
+            last.focus();
+          }
+        } else {
+          if (document.activeElement === last) {
+            e.preventDefault();
+            first.focus();
+          }
+        }
+      }
+    };
+
+    document.addEventListener("keydown", handleKeyDown);
+    return () => document.removeEventListener("keydown", handleKeyDown);
+  }, [open, onClose, getFocusableElements]);
 
   if (!open) return null;
 
@@ -29,12 +92,19 @@ export function Modal({ open, onClose, title, children }: ModalProps) {
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/60"
       onClick={(e) => e.target === overlayRef.current && onClose()}
     >
-      <div className="bg-surface-1 border border-border rounded-xl p-6 w-full max-w-lg max-h-[90vh] overflow-y-auto">
+      <div
+        ref={modalRef}
+        role="dialog"
+        aria-modal="true"
+        aria-label={title}
+        className="bg-surface-1 border border-border rounded-xl p-6 w-full max-w-lg max-h-[90vh] overflow-y-auto shadow-xl shadow-black/50 animate-fade-in"
+      >
         <div className="flex items-center justify-between mb-4">
           <h2 className="text-lg font-semibold text-zinc-200">{title}</h2>
           <button
             onClick={onClose}
-            className="text-zinc-500 hover:text-zinc-300 text-xl leading-none"
+            aria-label="Закрыть"
+            className="w-8 h-8 flex items-center justify-center rounded-md hover:bg-surface-2 transition-colors text-zinc-500 hover:text-zinc-300 text-xl leading-none"
           >
             &times;
           </button>

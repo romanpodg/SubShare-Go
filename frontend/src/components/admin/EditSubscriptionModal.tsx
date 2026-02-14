@@ -3,6 +3,7 @@
 import { useState, FormEvent } from "react";
 import { Modal } from "@/components/ui/Modal";
 import { Input } from "@/components/ui/Input";
+import { Select } from "@/components/ui/Select";
 import { Button } from "@/components/ui/Button";
 import { useToast } from "@/components/ui/Toast";
 import { users as usersApi } from "@/lib/api";
@@ -32,11 +33,11 @@ export function EditSubscriptionModal({ user, onClose, onRefresh }: Props) {
         expires_at: expiresAt,
         blocked_reason: blockedReason,
       });
-      toast("Subscription updated", "success");
+      toast("Подписка обновлена", "success");
       onClose();
       await onRefresh();
     } catch (err: unknown) {
-      toast(err instanceof Error ? err.message : "Failed to update", "error");
+      toast(err instanceof Error ? err.message : "Не удалось обновить подписку", "error");
     } finally {
       setLoading(false);
     }
@@ -45,18 +46,16 @@ export function EditSubscriptionModal({ user, onClose, onRefresh }: Props) {
   return (
     <Modal open onClose={onClose} title={`Подписка — ${user.name}`}>
       <form onSubmit={handleSubmit} className="flex flex-col gap-4">
-        <div className="flex flex-col gap-1.5">
-          <label className="text-sm text-zinc-400">Статус</label>
-          <select
-            value={status}
-            onChange={(e) => setStatus(e.target.value as "active" | "paused" | "blocked")}
-            className="bg-surface-2 border border-border rounded-lg px-3 py-2 text-sm text-zinc-200"
-          >
-            <option value="active">active</option>
-            <option value="paused">paused</option>
-            <option value="blocked">blocked</option>
-          </select>
-        </div>
+        <Select
+          label="Статус"
+          value={status}
+          onChange={(e) => setStatus(e.target.value as "active" | "paused" | "blocked")}
+          options={[
+            { value: "active", label: "Активен" },
+            { value: "paused", label: "Приостановлен" },
+            { value: "blocked", label: "Заблокирован" },
+          ]}
+        />
         <Input
           label="Начало"
           type="datetime-local"

@@ -32,11 +32,11 @@ export class ErrorBoundary extends React.Component<Props, State> {
   render() {
     if (this.state.hasError) {
       return (
-        <div className="min-h-screen flex items-center justify-center bg-[#0a0a0f] px-4">
-          <div className="w-full max-w-md bg-[#13131a] border border-white/[0.04] rounded-2xl p-8 text-center">
-            <div className="mx-auto mb-6 flex h-16 w-16 items-center justify-center rounded-full bg-[#6366f1]/10">
+        <div role="alert" className="min-h-screen flex items-center justify-center bg-bg px-4">
+          <div className="w-full max-w-md bg-surface-1 border border-border rounded-2xl p-8 text-center">
+            <div className="mx-auto mb-6 flex h-16 w-16 items-center justify-center rounded-full bg-accent/10">
               <svg
-                className="h-8 w-8 text-[#6366f1]"
+                className="h-8 w-8 text-accent"
                 fill="none"
                 viewBox="0 0 24 24"
                 strokeWidth={1.5}
@@ -63,13 +63,13 @@ export class ErrorBoundary extends React.Component<Props, State> {
             <div className="flex flex-col gap-3">
               <button
                 onClick={this.handleReset}
-                className="w-full rounded-lg bg-[#6366f1] px-4 py-2.5 text-sm font-medium text-white transition-colors hover:bg-[#818cf8]"
+                className="w-full rounded-lg bg-accent px-4 py-2.5 text-sm font-medium text-white transition-colors hover:bg-accent-hover"
               >
                 Попробовать снова
               </button>
               <button
                 onClick={this.handleReload}
-                className="w-full rounded-lg bg-white/[0.04] px-4 py-2.5 text-sm font-medium text-zinc-400 transition-colors hover:text-zinc-200 hover:bg-white/[0.08]"
+                className="w-full rounded-lg bg-surface-2 px-4 py-2.5 text-sm font-medium text-zinc-400 transition-colors hover:text-zinc-200 hover:bg-white/10"
               >
                 Перезагрузить страницу
               </button>

@@ -1,5 +1,24 @@
 "use client";
 
+function isTechnicalError(message: string): boolean {
+  const patterns = [
+    /Error:/i,
+    /at\s+\w+\s*\(/,
+    /stack\s*trace/i,
+    /TypeError/i,
+    /ReferenceError/i,
+    /SyntaxError/i,
+    /Cannot read propert/i,
+    /undefined is not/i,
+    /NEXT_/,
+    /webpack/i,
+    /node_modules/,
+    /\.js:\d+/,
+    /\.tsx?:\d+/,
+  ];
+  return patterns.some((p) => p.test(message));
+}
+
 export default function Error({
   error,
   reset,
@@ -7,8 +26,12 @@ export default function Error({
   error: Error & { digest?: string };
   reset: () => void;
 }) {
+  const displayMessage = isTechnicalError(error.message)
+    ? "Что-то пошло не так"
+    : error.message;
+
   return (
-    <div className="min-h-screen flex items-center justify-center bg-bg px-4">
+    <div role="alert" className="min-h-screen flex items-center justify-center bg-bg px-4">
       <div className="w-full max-w-md bg-surface-1 border border-border rounded-2xl p-8 text-center">
         <div className="mx-auto mb-6 flex h-16 w-16 items-center justify-center rounded-full bg-accent/10">
           <svg
@@ -31,7 +54,7 @@ export default function Error({
         </h2>
 
         <p className="text-sm text-zinc-400 mb-6 break-words">
-          {error.message}
+          {displayMessage}
         </p>
 
         <button

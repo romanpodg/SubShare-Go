@@ -1,6 +1,7 @@
 "use client";
 
-import { useState, FormEvent } from "react";
+import { useState, useEffect, FormEvent } from "react";
+import Link from "next/link";
 import { Card } from "@/components/ui/Card";
 import { Input } from "@/components/ui/Input";
 import { Button } from "@/components/ui/Button";
@@ -13,6 +14,10 @@ export default function SubscriptionPage() {
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
   const [copied, setCopied] = useState(false);
+
+  useEffect(() => {
+    document.title = "VPN-подписка — Xray Sub";
+  }, []);
 
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();
@@ -32,9 +37,13 @@ export default function SubscriptionPage() {
   };
 
   const handleCopy = async () => {
-    await navigator.clipboard.writeText(subscriptionUrl);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
+    try {
+      await navigator.clipboard.writeText(subscriptionUrl);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch {
+      setError("Не удалось скопировать");
+    }
   };
 
   return (
@@ -73,12 +82,12 @@ export default function SubscriptionPage() {
         )}
 
         <div className="mt-6 text-center">
-          <a
+          <Link
             href="/admin/login"
-            className="text-sm text-zinc-500 hover:text-zinc-300 transition-colors"
+            className="text-sm text-zinc-400 hover:text-zinc-300 transition-colors"
           >
             Панель управления
-          </a>
+          </Link>
         </div>
       </Card>
     </div>
