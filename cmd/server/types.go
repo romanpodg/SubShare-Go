@@ -2,14 +2,12 @@ package main
 
 import (
 	"database/sql"
-	"html/template"
 	"sync"
 	"time"
 )
 
 type App struct {
 	db                 *sql.DB
-	templates          *template.Template
 	adminUser          string
 	adminPass          string
 	deviceLimitMessage string
@@ -32,60 +30,90 @@ const (
 )
 
 type User struct {
-	ID                   int64
-	Name                 string
-	Email                string
-	ActivationCode       string
-	SubscriptionID       string
-	ActivationUsedAt     string
-	Status               string
-	StartsAtInput        string
-	ExpiresAtInput       string
-	BlockedReason        string
-	AssignedKeyIDs       string
-	MaxDevices           int
-	ConnectedDeviceCount int
-	ConnectedHWIDs       []string
-	CreatedAt            time.Time
+	ID                   int64    `json:"id"`
+	Name                 string   `json:"name"`
+	Email                string   `json:"email"`
+	ActivationCode       string   `json:"activation_code"`
+	SubscriptionID       string   `json:"subscription_id"`
+	ActivationUsedAt     string   `json:"activation_used_at"`
+	Status               string   `json:"status"`
+	StartsAtInput        string   `json:"starts_at"`
+	ExpiresAtInput       string   `json:"expires_at"`
+	BlockedReason        string   `json:"blocked_reason"`
+	AssignedKeyIDs       string   `json:"assigned_key_ids"`
+	MaxDevices           int      `json:"max_devices"`
+	ConnectedDeviceCount int      `json:"connected_device_count"`
+	ConnectedHWIDs       []string `json:"connected_hwids"`
+	CreatedAt            time.Time `json:"created_at"`
 }
 
 type VLESSKey struct {
-	ID                int64
-	Label             string
-	URL               string
-	URLShort          string
-	Status            string
-	StatusLabel       string
-	CheckStatus       string
-	CheckStatusLabel  string
-	CheckError        string
-	LastLatencyMS     int64
-	LastCheckedAtText string
-	EditUUID          string
-	EditHost          string
-	EditPort          string
-	EditQuery         string
-	EditFragment      string
-	CreatedAt         time.Time
+	ID                int64     `json:"id"`
+	Label             string    `json:"label"`
+	URL               string    `json:"url"`
+	URLShort          string    `json:"url_short"`
+	Status            string    `json:"status"`
+	StatusLabel       string    `json:"status_label"`
+	CheckStatus       string    `json:"check_status"`
+	CheckStatusLabel  string    `json:"check_status_label"`
+	CheckError        string    `json:"check_error"`
+	LastLatencyMS     int64     `json:"last_latency_ms"`
+	LastCheckedAtText string    `json:"last_checked_at"`
+	EditUUID          string    `json:"edit_uuid"`
+	EditHost          string    `json:"edit_host"`
+	EditPort          string    `json:"edit_port"`
+	EditQuery         string    `json:"edit_query"`
+	EditFragment      string    `json:"edit_fragment"`
+	CreatedAt         time.Time `json:"created_at"`
 }
 
-type AdminPageData struct {
-	Users          []User
-	Keys           []VLESSKey
-	AssignableKeys []VLESSKey
-	BaseURL        string
-	CSRFToken      string
-	Message        string
-	Error          string
+// API request types
+
+type LoginRequest struct {
+	Username string `json:"username"`
+	Password string `json:"password"`
 }
 
-type LoginPageData struct {
-	Error string
+type CreateUserRequest struct {
+	Name           string `json:"name"`
+	Email          string `json:"email"`
+	ActivationCode string `json:"activation_code"`
+	Status         string `json:"status"`
+	IssueDays      int    `json:"issue_days"`
+	BlockedReason  string `json:"blocked_reason"`
 }
 
-type SubscriptionPageData struct {
-	Token           string
-	SubscriptionURL string
-	Message         string
-	Error           string
+type UpdateUserKeysRequest struct {
+	KeyIDs []int64 `json:"key_ids"`
+}
+
+type UpdateSubscriptionRequest struct {
+	Status        string `json:"status"`
+	StartsAt      string `json:"starts_at"`
+	ExpiresAt     string `json:"expires_at"`
+	BlockedReason string `json:"blocked_reason"`
+}
+
+type UpdateHWIDRequest struct {
+	MaxDevices int `json:"max_devices"`
+}
+
+type CreateKeyRequest struct {
+	Label  string `json:"label"`
+	URL    string `json:"url"`
+	Status string `json:"status"`
+}
+
+type UpdateKeyRequest struct {
+	Label    string `json:"label"`
+	Status   string `json:"status"`
+	UUID     string `json:"uuid"`
+	Host     string `json:"host"`
+	Port     string `json:"port"`
+	Query    string `json:"query"`
+	Fragment string `json:"fragment"`
+}
+
+type ActivateRequest struct {
+	ActivationCode string `json:"activation_code"`
 }

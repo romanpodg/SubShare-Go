@@ -14,35 +14,13 @@ func (a *App) requireAdmin(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		session, _, ok := a.adminSessionFromRequest(r)
 		if !ok {
-			if prefersJSONResponse(r) {
-				a.writeJSON(w, http.StatusUnauthorized, map[string]any{"error": "unauthorized"})
-				return
-			}
-			http.Redirect(w, r, "/admin/login", http.StatusFound)
+			writeJSON(w, http.StatusUnauthorized, map[string]any{"error": "unauthorized"})
 			return
 		}
 		if isUnsafeHTTPMethod(r.Method) {
-			if err := r.ParseForm(); err != nil {
-				if prefersJSONResponse(r) {
-					a.writeJSON(w, http.StatusBadRequest, map[string]any{"error": "invalid form"})
-					return
-				}
-				a.redirectAdmin(w, r, "", "invalid form")
-				return
-			}
-
-			csrfToken := strings.TrimSpace(r.FormValue("csrf_token"))
-			if csrfToken == "" {
-				_ = r.ParseMultipartForm(8 << 20)
-				csrfToken = strings.TrimSpace(r.FormValue("csrf_token"))
-			}
-
+			csrfToken := strings.TrimSpace(r.Header.Get("X-CSRF-Token"))
 			if !secureEqual(csrfToken, session.CSRFToken) {
-				if prefersJSONResponse(r) {
-					a.writeJSON(w, http.StatusForbidden, map[string]any{"error": "invalid csrf token"})
-					return
-				}
-				a.redirectAdmin(w, r, "", "invalid csrf token")
+				writeJSON(w, http.StatusForbidden, map[string]any{"error": "invalid csrf token"})
 				return
 			}
 		}

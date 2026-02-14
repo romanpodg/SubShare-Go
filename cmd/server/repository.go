@@ -410,44 +410,52 @@ func (a *App) registerHWID(userID int64, hwid string) (bool, error) {
 		return true, nil
 	}
 
-	var maxDevices int64
-	if err := a.db.QueryRow(`SELECT COALESCE(NULLIF(max_devices, 0), 1) FROM users WHERE id = ?`, userID).Scan(&maxDevices); err != nil {
+	tx, err := a.db.Begin()
+	if err != nil {
 		return false, err
 	}
-	if maxDevices < 1 {
-		maxDevices = 1
+	defer tx.Rollback()
+
+	// Try to update existing device
+	res, err := tx.Exec(`UPDATE user_devices SET last_seen_at = CURRENT_TIMESTAMP WHERE user_id = ? AND hwid = ?`, userID, hwid)
+	if err != nil {
+		return false, err
+	}
+	rows, _ := res.RowsAffected()
+	if rows > 0 {
+		return tx.Commit() == nil, nil // known device, just updated
 	}
 
-	if _, err := a.db.Exec(
-		`UPDATE user_devices SET last_seen_at = CURRENT_TIMESTAMP WHERE user_id = ? AND hwid = ?`,
-		userID,
-		hwid,
-	); err != nil {
+	// Check device limit and get max_devices atomically within transaction
+	var maxDevices int
+	err = tx.QueryRow(`SELECT max_devices FROM users WHERE id = ?`, userID).Scan(&maxDevices)
+	if err != nil {
 		return false, err
 	}
 
-	var existing int64
-	if err := a.db.QueryRow(`SELECT COUNT(1) FROM user_devices WHERE user_id = ? AND hwid = ?`, userID, hwid).Scan(&existing); err != nil {
-		return false, err
-	}
-	if existing > 0 {
-		return true, nil
-	}
-
-	var devicesCount int64
-	if err := a.db.QueryRow(`SELECT COUNT(1) FROM user_devices WHERE user_id = ?`, userID).Scan(&devicesCount); err != nil {
-		return false, err
-	}
-	if devicesCount >= maxDevices {
-		return false, nil
+	if maxDevices <= 0 {
+		// No limit set, allow
+		_, err = tx.Exec(`INSERT INTO user_devices (user_id, hwid) VALUES (?, ?)`, userID, hwid)
+		if err != nil {
+			return false, err
+		}
+		return tx.Commit() == nil, nil
 	}
 
-	if _, err := a.db.Exec(
-		`INSERT INTO user_devices(user_id, hwid) VALUES(?, ?)`,
-		userID,
-		hwid,
-	); err != nil {
+	var count int
+	err = tx.QueryRow(`SELECT COUNT(*) FROM user_devices WHERE user_id = ?`, userID).Scan(&count)
+	if err != nil {
 		return false, err
 	}
-	return true, nil
+
+	if count >= maxDevices {
+		return false, nil // limit exceeded
+	}
+
+	_, err = tx.Exec(`INSERT INTO user_devices (user_id, hwid) VALUES (?, ?)`, userID, hwid)
+	if err != nil {
+		return false, err
+	}
+
+	return tx.Commit() == nil, nil
 }
