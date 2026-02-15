@@ -48,6 +48,12 @@ export function UsersSection({ users, assignableKeys, onRefresh }: Props) {
     }
   };
 
+  const resolveSubscriptionURL = (subscriptionID: string) => {
+    if (!subscriptionID) return "";
+    if (typeof window === "undefined") return `/sub/${subscriptionID}`;
+    return `${window.location.origin}/sub/${subscriptionID}`;
+  };
+
   return (
     <Card>
       <div className="flex items-center justify-between mb-4">
@@ -86,8 +92,18 @@ export function UsersSection({ users, assignableKeys, onRefresh }: Props) {
                   <td className="py-3 pr-4 font-mono text-xs">{user.activation_code}</td>
                   <td className="py-3 pr-4"><StatusBadge status={user.status} /></td>
                   <td className="py-3 pr-4 text-xs text-zinc-400">
-                    {user.starts_at && <div>с {user.starts_at}</div>}
-                    {user.expires_at && <div>до {user.expires_at}</div>}
+                    {user.subscription_id && (
+                      <a
+                        href={resolveSubscriptionURL(user.subscription_id)}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="font-mono underline hover:text-zinc-200 break-all"
+                      >
+                        {resolveSubscriptionURL(user.subscription_id)}
+                      </a>
+                    )}
+                    {user.starts_at && <div className="mt-1">с {user.starts_at}</div>}
+                    {user.expires_at && <div>Истекает: {user.expires_at}</div>}
                   </td>
                   <td className="py-3">
                     <div className="flex gap-1.5">

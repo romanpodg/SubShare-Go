@@ -7,6 +7,7 @@ import { Select } from "@/components/ui/Select";
 import { Button } from "@/components/ui/Button";
 import { useToast } from "@/components/ui/Toast";
 import { keys as keysApi } from "@/lib/api";
+import { keyTemplateVariables } from "./keyTemplateVariables";
 
 interface Props {
   open: boolean;
@@ -20,11 +21,15 @@ export function AddKeyModal({ open, onClose, onRefresh }: Props) {
   const [label, setLabel] = useState("");
   const [url, setUrl] = useState("");
   const [status, setStatus] = useState("active");
+  const [kind, setKind] = useState<"real" | "informational">("real");
+  const [templateText, setTemplateText] = useState("");
 
   const resetForm = () => {
     setLabel("");
     setUrl("");
     setStatus("active");
+    setKind("real");
+    setTemplateText("");
   };
 
   useEffect(() => {
@@ -37,7 +42,13 @@ export function AddKeyModal({ open, onClose, onRefresh }: Props) {
     e.preventDefault();
     setLoading(true);
     try {
-      await keysApi.create({ label, url, status });
+      await keysApi.create({
+        label,
+        url: kind === "real" ? url : undefined,
+        status,
+        kind,
+        template_text: kind === "informational" ? templateText : undefined,
+      });
       toast("Ключ добавлен", "success");
       resetForm();
       onClose();
@@ -58,13 +69,43 @@ export function AddKeyModal({ open, onClose, onRefresh }: Props) {
           onChange={(e) => setLabel(e.target.value)}
           required
         />
-        <Input
-          label="VLESS URL"
-          value={url}
-          onChange={(e) => setUrl(e.target.value)}
-          placeholder="vless://..."
-          required
+        <Select
+          label="Тип"
+          value={kind}
+          onChange={(e) => setKind(e.target.value as "real" | "informational")}
+          options={[
+            { value: "real", label: "Настоящий ключ" },
+            { value: "informational", label: "Информационный ключ" },
+          ]}
         />
+        {kind === "real" ? (
+          <Input
+            label="VLESS URL"
+            value={url}
+            onChange={(e) => setUrl(e.target.value)}
+            placeholder="vless://..."
+            required
+          />
+        ) : (
+          <>
+            <Input
+              label="Шаблон текста"
+              value={templateText}
+              onChange={(e) => setTemplateText(e.target.value)}
+              placeholder="User: @{telegram}"
+            />
+            <div className="rounded-lg bg-surface-2 p-3 text-xs text-zinc-400">
+              <div className="mb-1 font-medium text-zinc-300">Переменные:</div>
+              <div className="grid grid-cols-1 gap-1">
+                {keyTemplateVariables.map((item) => (
+                  <div key={item.token}>
+                    {item.token} — {item.description}
+                  </div>
+                ))}
+              </div>
+            </div>
+          </>
+        )}
         <Select
           label="Статус"
           value={status}

@@ -2,10 +2,12 @@ package main
 
 import (
 	"database/sql"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"log"
 	"net/http"
+	"net/url"
 	"strconv"
 	"strings"
 	"sync"
@@ -325,9 +327,71 @@ func (a *App) apiUpdateUserSubscription(w http.ResponseWriter, r *http.Request) 
 		blockedReason = ""
 	}
 
+	subscriptionName := strings.TrimSpace(req.SubscriptionName)
+	if len(subscriptionName) > 120 {
+		writeError(w, http.StatusBadRequest, "subscription_name is too long (max 120 characters)")
+		return
+	}
+
+	subscriptionRefreshHours := req.SubscriptionRefreshHours
+	if subscriptionRefreshHours <= 0 {
+		subscriptionRefreshHours = 12
+	}
+	if subscriptionRefreshHours > 720 {
+		writeError(w, http.StatusBadRequest, "subscription_refresh_hours must be between 1 and 720")
+		return
+	}
+
+	normalizeURL := func(raw string, field string) (string, bool) {
+		raw = strings.TrimSpace(raw)
+		if raw == "" {
+			return "", true
+		}
+		parsed, err := url.ParseRequestURI(raw)
+		if err != nil || parsed.Scheme == "" || parsed.Host == "" {
+			writeError(w, http.StatusBadRequest, field+" must be a valid absolute URL")
+			return "", false
+		}
+		return raw, true
+	}
+
+	subscriptionInfoURL, ok := normalizeURL(req.SubscriptionInfoURL, "subscription_info_url")
+	if !ok {
+		return
+	}
+	subscriptionExtraURL, ok := normalizeURL(req.SubscriptionExtraURL, "subscription_extra_url")
+	if !ok {
+		return
+	}
+
+	subscriptionExtraStatus := strings.TrimSpace(req.SubscriptionExtraStatus)
+	if len(subscriptionExtraStatus) > 255 {
+		writeError(w, http.StatusBadRequest, "subscription_extra_status is too long (max 255 characters)")
+		return
+	}
+
 	_, err = a.db.Exec(
-		`UPDATE users SET status = ?, starts_at = ?, expires_at = ?, blocked_reason = ? WHERE id = ?`,
-		status, nullTimeValue(startsAt), nullTimeValue(expiresAt), nullStringValue(blockedReason), id,
+		`UPDATE users
+		 SET status = ?,
+		     starts_at = ?,
+		     expires_at = ?,
+		     blocked_reason = ?,
+		     subscription_name = ?,
+		     subscription_refresh_hours = ?,
+		     subscription_info_url = ?,
+		     subscription_extra_url = ?,
+		     subscription_extra_status = ?
+		 WHERE id = ?`,
+		status,
+		nullTimeValue(startsAt),
+		nullTimeValue(expiresAt),
+		nullStringValue(blockedReason),
+		nullStringValue(subscriptionName),
+		subscriptionRefreshHours,
+		nullStringValue(subscriptionInfoURL),
+		nullStringValue(subscriptionExtraURL),
+		nullStringValue(subscriptionExtraStatus),
+		id,
 	)
 	if err != nil {
 		log.Printf("apiUpdateUserSubscription: %v", err)
@@ -336,6 +400,87 @@ func (a *App) apiUpdateUserSubscription(w http.ResponseWriter, r *http.Request) 
 	}
 	log.Printf("AUDIT: update subscription user_id=%d status=%s", id, status)
 	writeMessage(w, "subscription updated")
+}
+
+func (a *App) apiGetSubscriptionSettings(w http.ResponseWriter, r *http.Request) {
+	settings, err := a.getSubscriptionSettings()
+	if err != nil {
+		log.Printf("apiGetSubscriptionSettings: %v", err)
+		writeError(w, http.StatusInternalServerError, "failed to load subscription settings")
+		return
+	}
+	writeJSON(w, http.StatusOK, settings)
+}
+
+func (a *App) apiUpdateSubscriptionSettings(w http.ResponseWriter, r *http.Request) {
+	var req model.UpdateSubscriptionSettingsRequest
+	if err := readJSON(r, &req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+
+	title := strings.TrimSpace(req.Title)
+	if title == "" {
+		title = "AllKeys"
+	}
+	if len(title) > 120 {
+		writeError(w, http.StatusBadRequest, "title is too long (max 120 characters)")
+		return
+	}
+
+	refreshHours := req.RefreshHours
+	if refreshHours <= 0 {
+		refreshHours = 12
+	}
+	if refreshHours > 720 {
+		writeError(w, http.StatusBadRequest, "refresh_hours must be between 1 and 720")
+		return
+	}
+
+	normalizeURL := func(raw string, field string) (string, bool) {
+		raw = strings.TrimSpace(raw)
+		if raw == "" {
+			return "", true
+		}
+		parsed, err := url.ParseRequestURI(raw)
+		if err != nil || parsed.Scheme == "" || parsed.Host == "" {
+			writeError(w, http.StatusBadRequest, field+" must be a valid absolute URL")
+			return "", false
+		}
+		return raw, true
+	}
+
+	infoURL, ok := normalizeURL(req.InfoURL, "info_url")
+	if !ok {
+		return
+	}
+	extraURL, ok := normalizeURL(req.ExtraURL, "extra_url")
+	if !ok {
+		return
+	}
+
+	extraStatus := strings.TrimSpace(req.ExtraStatus)
+	if len(extraStatus) > 255 {
+		writeError(w, http.StatusBadRequest, "extra_status is too long (max 255 characters)")
+		return
+	}
+
+	if _, err := a.db.Exec(
+		`UPDATE subscription_settings
+		 SET title = ?, refresh_hours = ?, info_url = ?, extra_url = ?, extra_status = ?, updated_at = CURRENT_TIMESTAMP
+		 WHERE id = 1`,
+		title,
+		refreshHours,
+		nullStringValue(infoURL),
+		nullStringValue(extraURL),
+		nullStringValue(extraStatus),
+	); err != nil {
+		log.Printf("apiUpdateSubscriptionSettings: %v", err)
+		writeError(w, http.StatusInternalServerError, "failed to update subscription settings")
+		return
+	}
+
+	writeMessage(w, "subscription settings updated")
 }
 
 func (a *App) apiUpdateUserHWID(w http.ResponseWriter, r *http.Request) {
@@ -414,31 +559,59 @@ func (a *App) apiCreateKey(w http.ResponseWriter, r *http.Request) {
 
 	label := strings.TrimSpace(req.Label)
 	keyURL := strings.TrimSpace(req.URL)
+	templateText := strings.TrimSpace(req.TemplateText)
+	kind, kindOK := model.NormalizeKeyKind(req.Kind)
+	if !kindOK {
+		writeError(w, http.StatusBadRequest, "invalid key kind")
+		return
+	}
 	status, ok := model.NormalizeKeyStatus(req.Status)
 	if !ok {
 		writeError(w, http.StatusBadRequest, "invalid key status")
 		return
 	}
-	if label == "" || keyURL == "" {
-		writeError(w, http.StatusBadRequest, "label and url are required")
+	if label == "" {
+		writeError(w, http.StatusBadRequest, "label is required")
 		return
 	}
-	if !strings.HasPrefix(strings.ToLower(keyURL), "vless://") {
-		writeError(w, http.StatusBadRequest, "url must start with vless://")
-		return
+	if kind == model.KeyKindReal {
+		if keyURL == "" {
+			writeError(w, http.StatusBadRequest, "url is required for real keys")
+			return
+		}
+		if !strings.HasPrefix(strings.ToLower(keyURL), "vless://") {
+			writeError(w, http.StatusBadRequest, "url must start with vless://")
+			return
+		}
+	} else {
+		if templateText == "" {
+			templateText = label
+		}
+		token, err := generateToken(12)
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, "failed to generate key")
+			return
+		}
+		keyURL = "info://" + token
 	}
 	if len(label) > 255 {
 		writeError(w, http.StatusBadRequest, "label is too long (max 255 characters)")
 		return
 	}
-	if len(keyURL) > 2048 {
+	if len(keyURL) > 2048 || len(templateText) > 2048 {
 		writeError(w, http.StatusBadRequest, "url is too long (max 2048 characters)")
 		return
 	}
 
+	var nextSortOrder int64
+	if err := a.db.QueryRow(`SELECT COALESCE(MAX(sort_order), 0) + 1 FROM vless_keys`).Scan(&nextSortOrder); err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to prepare key order")
+		return
+	}
+
 	if _, err := a.db.Exec(
-		`INSERT INTO vless_keys(label, url, status, check_status) VALUES(?, ?, ?, 'unknown')`,
-		label, keyURL, status,
+		`INSERT INTO vless_keys(label, url, status, check_status, key_kind, template_text, sort_order) VALUES(?, ?, ?, 'unknown', ?, ?, ?)`,
+		label, keyURL, status, kind, nullStringValue(templateText), nextSortOrder,
 	); err != nil {
 		log.Printf("apiCreateKey: %v", err)
 		writeError(w, http.StatusConflict, "failed to add key (maybe duplicate)")
@@ -461,6 +634,12 @@ func (a *App) apiUpdateKey(w http.ResponseWriter, r *http.Request) {
 	}
 
 	label := strings.TrimSpace(req.Label)
+	templateText := strings.TrimSpace(req.TemplateText)
+	kind, kindOK := model.NormalizeKeyKind(req.Kind)
+	if !kindOK {
+		writeError(w, http.StatusBadRequest, "invalid key kind")
+		return
+	}
 	status, ok := model.NormalizeKeyStatus(req.Status)
 	if !ok {
 		writeError(w, http.StatusBadRequest, "invalid key status")
@@ -475,15 +654,52 @@ func (a *App) apiUpdateKey(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	builtURL, err := vless.BuildVLESSURL(req.UUID, req.Host, req.Port, req.Query, req.Fragment)
-	if err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
+	var existingURL sql.NullString
+	var existingKind sql.NullString
+	var existingSort sql.NullInt64
+	if err := a.db.QueryRow(`SELECT url, key_kind, sort_order FROM vless_keys WHERE id = ?`, id).Scan(&existingURL, &existingKind, &existingSort); err != nil {
+		writeError(w, http.StatusNotFound, "key not found")
 		return
+	}
+	existingKindNormalized, _ := model.NormalizeKeyKind(existingKind.String)
+	if existingKindNormalized == "" {
+		existingKindNormalized = model.KeyKindReal
+	}
+
+	builtURL := ""
+	if kind == model.KeyKindReal {
+		var err error
+		builtURL, err = vless.BuildVLESSURL(req.UUID, req.Host, req.Port, req.Query, req.Fragment)
+		if err != nil {
+			writeError(w, http.StatusBadRequest, err.Error())
+			return
+		}
+	} else {
+		if templateText == "" {
+			templateText = label
+		}
+		builtURL = strings.TrimSpace(existingURL.String)
+		if builtURL == "" {
+			token, err := generateToken(12)
+			if err != nil {
+				writeError(w, http.StatusInternalServerError, "failed to generate key")
+				return
+			}
+			builtURL = "info://" + token
+		}
+	}
+
+	sortOrder := existingSort.Int64
+	if !existingSort.Valid || sortOrder <= 0 || existingKindNormalized != kind {
+		if err := a.db.QueryRow(`SELECT COALESCE(MAX(sort_order), 0) + 1 FROM vless_keys`).Scan(&sortOrder); err != nil {
+			writeError(w, http.StatusInternalServerError, "failed to prepare key order")
+			return
+		}
 	}
 
 	if _, err := a.db.Exec(
-		`UPDATE vless_keys SET label = ?, url = ?, status = ? WHERE id = ?`,
-		label, builtURL, status, id,
+		`UPDATE vless_keys SET label = ?, url = ?, status = ?, key_kind = ?, template_text = ?, sort_order = ? WHERE id = ?`,
+		label, builtURL, status, kind, nullStringValue(templateText), sortOrder, id,
 	); err != nil {
 		log.Printf("apiUpdateKey: %v", err)
 		writeError(w, http.StatusInternalServerError, "failed to update key")
@@ -491,6 +707,87 @@ func (a *App) apiUpdateKey(w http.ResponseWriter, r *http.Request) {
 	}
 	log.Printf("AUDIT: update key id=%d label=%q", id, label)
 	writeMessage(w, "key updated")
+}
+
+
+func (a *App) apiReorderKeys(w http.ResponseWriter, r *http.Request) {
+	var req model.ReorderKeysRequest
+	if err := readJSON(r, &req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+
+	rows, err := a.db.Query(`SELECT id FROM vless_keys ORDER BY sort_order, id`)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to load keys")
+		return
+	}
+	defer rows.Close()
+
+	existingIDs := make([]int64, 0)
+	for rows.Next() {
+		var id int64
+		if err := rows.Scan(&id); err != nil {
+			writeError(w, http.StatusInternalServerError, "failed to read keys")
+			return
+		}
+		existingIDs = append(existingIDs, id)
+	}
+	if err := rows.Err(); err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to read keys")
+		return
+	}
+
+	if len(existingIDs) != len(req.IDs) {
+		writeError(w, http.StatusBadRequest, "ids list must include all keys")
+		return
+	}
+
+	allowed := make(map[int64]struct{}, len(existingIDs))
+	for _, id := range existingIDs {
+		allowed[id] = struct{}{}
+	}
+	seen := make(map[int64]struct{}, len(req.IDs))
+	for _, id := range req.IDs {
+		if _, ok := allowed[id]; !ok {
+			writeError(w, http.StatusBadRequest, "ids list contains unknown key")
+			return
+		}
+		if _, ok := seen[id]; ok {
+			writeError(w, http.StatusBadRequest, "ids list contains duplicates")
+			return
+		}
+		seen[id] = struct{}{}
+	}
+
+	tx, err := a.db.Begin()
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to reorder keys")
+		return
+	}
+	defer tx.Rollback()
+
+	stmt, err := tx.Prepare(`UPDATE vless_keys SET sort_order = ? WHERE id = ?`)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to reorder keys")
+		return
+	}
+	defer stmt.Close()
+
+	for index, id := range req.IDs {
+		if _, err := stmt.Exec(index+1, id); err != nil {
+			writeError(w, http.StatusInternalServerError, "failed to reorder keys")
+			return
+		}
+	}
+
+	if err := tx.Commit(); err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to reorder keys")
+		return
+	}
+
+	log.Printf("AUDIT: reorder keys count=%d", len(req.IDs))
+	writeMessage(w, "keys reordered")
 }
 
 func (a *App) apiDeleteKey(w http.ResponseWriter, r *http.Request) {
@@ -520,8 +817,13 @@ func (a *App) apiCheckKey(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var rawURL string
-	if err := a.db.QueryRow(`SELECT url FROM vless_keys WHERE id = ?`, id).Scan(&rawURL); err != nil {
+	var kind string
+	if err := a.db.QueryRow(`SELECT url, key_kind FROM vless_keys WHERE id = ?`, id).Scan(&rawURL, &kind); err != nil {
 		writeError(w, http.StatusNotFound, "key not found")
+		return
+	}
+	if normalizedKind, _ := model.NormalizeKeyKind(kind); normalizedKind == model.KeyKindInformational {
+		writeError(w, http.StatusBadRequest, "informational keys do not require checks")
 		return
 	}
 
@@ -534,7 +836,7 @@ func (a *App) apiCheckKey(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *App) apiCheckAllKeys(w http.ResponseWriter, r *http.Request) {
-	rows, err := a.db.Query(`SELECT id, url FROM vless_keys ORDER BY id`)
+	rows, err := a.db.Query(`SELECT id, url, key_kind FROM vless_keys ORDER BY CASE WHEN key_kind = 'real' THEN 0 ELSE 1 END, sort_order, id`)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to load keys")
 		return
@@ -542,13 +844,14 @@ func (a *App) apiCheckAllKeys(w http.ResponseWriter, r *http.Request) {
 	defer rows.Close()
 
 	type keyRow struct {
-		id  int64
-		url string
+		id   int64
+		url  string
+		kind string
 	}
 	keys := make([]keyRow, 0)
 	for rows.Next() {
 		var row keyRow
-		if err := rows.Scan(&row.id, &row.url); err != nil {
+		if err := rows.Scan(&row.id, &row.url, &row.kind); err != nil {
 			writeError(w, http.StatusInternalServerError, "failed to read keys")
 			return
 		}
@@ -561,7 +864,13 @@ func (a *App) apiCheckAllKeys(w http.ResponseWriter, r *http.Request) {
 
 	var wg sync.WaitGroup
 	sem := make(chan struct{}, 10) // max 10 concurrent checks
+	checked := 0
 	for _, key := range keys {
+		normalizedKind, _ := model.NormalizeKeyKind(key.kind)
+		if normalizedKind == model.KeyKindInformational {
+			continue
+		}
+		checked++
 		wg.Add(1)
 		sem <- struct{}{}
 		go func(id int64, url string) {
@@ -573,11 +882,10 @@ func (a *App) apiCheckAllKeys(w http.ResponseWriter, r *http.Request) {
 		}(key.id, key.url)
 	}
 	wg.Wait()
-	checked := len(keys)
 
 	updatedRows, err := a.db.Query(`
 		SELECT id, check_status, check_error, last_checked_at, last_latency_ms
-		FROM vless_keys ORDER BY id
+		FROM vless_keys ORDER BY CASE WHEN key_kind = 'real' THEN 0 ELSE 1 END, sort_order, id
 	`)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to load key checks")
@@ -647,6 +955,11 @@ func (a *App) apiActivateSubscription(w http.ResponseWriter, r *http.Request) {
 	}
 
 	subscriptionURL := fmt.Sprintf("%s/sub/%s", a.resolveBaseURL(r), subscriptionID)
+	if encryptedURL, err := a.encryptSubscriptionURL(subscriptionURL); err == nil && strings.TrimSpace(encryptedURL) != "" {
+		subscriptionURL = encryptedURL
+	} else if err != nil {
+		log.Printf("apiActivateSubscription: failed to encrypt url via happ api: %v", err)
+	}
 	writeJSON(w, http.StatusOK, map[string]any{
 		"subscription_url": subscriptionURL,
 		"message":          "Ключ активирован. Ссылка готова — скопируйте и вставьте её в VPN-клиент",
@@ -686,6 +999,8 @@ func (a *App) handleSubscription(w http.ResponseWriter, r *http.Request) {
 	}
 	if hwid != "" {
 		meta := extractDeviceMeta(r)
+		parsed := ParseDeviceInfo(hwid, r.UserAgent(), r.Header, r.URL.Query())
+		meta = mergeDeviceMeta(meta, parsed)
 		allowedDevice, err := a.registerHWID(userID, hwid, meta)
 		if err != nil {
 			http.Error(w, "failed to validate hwid", http.StatusInternalServerError)
@@ -708,14 +1023,14 @@ func (a *App) handleSubscription(w http.ResponseWriter, r *http.Request) {
 	}
 
 	dbRows, err := a.db.Query(`
-		SELECT k.url
+		SELECT k.url, k.key_kind, k.template_text, k.label
 		FROM users u
 		JOIN user_keys uk ON uk.user_id = u.id
 		JOIN vless_keys k ON k.id = uk.key_id
 		WHERE u.subscription_id = ?
 		  AND k.status = 'active'
-		  AND k.check_status != 'down'
-		ORDER BY k.id
+		  AND (k.key_kind = 'informational' OR k.check_status != 'down')
+		ORDER BY k.sort_order, k.id
 	`, subscriptionID)
 	if err != nil {
 		http.Error(w, "failed to load subscription", http.StatusInternalServerError)
@@ -723,12 +1038,33 @@ func (a *App) handleSubscription(w http.ResponseWriter, r *http.Request) {
 	}
 	defer dbRows.Close()
 
+	templateData, err := a.buildSubscriptionTemplateData(subscriptionID)
+	if err != nil {
+		http.Error(w, "failed to build subscription context", http.StatusInternalServerError)
+		return
+	}
+
 	var lines []string
 	for dbRows.Next() {
 		var keyURL string
-		if err := dbRows.Scan(&keyURL); err != nil {
+		var keyKind string
+		var templateText sql.NullString
+		var keyLabel sql.NullString
+		if err := dbRows.Scan(&keyURL, &keyKind, &templateText, &keyLabel); err != nil {
 			http.Error(w, "failed to read subscription", http.StatusInternalServerError)
 			return
+		}
+		normalizedKind, _ := model.NormalizeKeyKind(keyKind)
+		if normalizedKind == model.KeyKindInformational {
+			textTemplate := strings.TrimSpace(templateText.String)
+			if textTemplate == "" {
+				textTemplate = strings.TrimSpace(keyLabel.String)
+			}
+			rendered := renderInfoTemplate(textTemplate, templateData)
+			if strings.TrimSpace(rendered) != "" {
+				lines = append(lines, buildInformationalVLESSURL(rendered))
+			}
+			continue
 		}
 		lines = append(lines, keyURL)
 	}
@@ -741,8 +1077,57 @@ func (a *App) handleSubscription(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	settings, err := a.getSubscriptionSettings()
+	if err != nil {
+		http.Error(w, "failed to load subscription settings", http.StatusInternalServerError)
+		return
+	}
+
+	prefix := []string{}
+	if title := strings.TrimSpace(settings.Title); title != "" {
+		prefix = append(prefix, "#profile-title: "+title)
+	}
+	if settings.RefreshHours > 0 {
+		prefix = append(prefix, fmt.Sprintf("#profile-update-interval: %d", settings.RefreshHours))
+	}
+	if infoURL := strings.TrimSpace(settings.InfoURL); infoURL != "" {
+		prefix = append(prefix, "#profile-web-page-url: "+infoURL)
+	}
+	if extraURL := strings.TrimSpace(settings.ExtraURL); extraURL != "" {
+		prefix = append(prefix, "#support-url: "+extraURL)
+	}
+	if extraStatus := strings.TrimSpace(settings.ExtraStatus); extraStatus != "" {
+		prefix = append(prefix, "#profile-desc: "+extraStatus)
+		prefix = append(prefix, "#profile-status: "+extraStatus)
+		prefix = append(prefix, "#description: "+extraStatus)
+		prefix = append(prefix, "# "+extraStatus)
+	}
+	if len(prefix) > 0 {
+		prefix = append(prefix, "")
+		lines = append(prefix, lines...)
+	}
+
 	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
-	_, _ = w.Write([]byte(strings.Join(lines, "\n")))
+	if title := strings.TrimSpace(settings.Title); title != "" {
+		w.Header().Set("profile-title", "base64:"+base64.StdEncoding.EncodeToString([]byte(title)))
+	}
+	if settings.RefreshHours > 0 {
+		w.Header().Set("profile-update-interval", strconv.Itoa(settings.RefreshHours))
+	}
+	if infoURL := strings.TrimSpace(settings.InfoURL); infoURL != "" {
+		w.Header().Set("profile-web-page-url", infoURL)
+	}
+	if extraURL := strings.TrimSpace(settings.ExtraURL); extraURL != "" {
+		w.Header().Set("support-url", extraURL)
+	}
+	if extraStatus := strings.TrimSpace(settings.ExtraStatus); extraStatus != "" {
+		w.Header().Set("announce", "base64:"+base64.StdEncoding.EncodeToString([]byte(extraStatus)))
+	}
+	body := strings.Join(lines, "\n")
+	if a.subscriptionBodyEncoding == "base64" {
+		body = base64.StdEncoding.EncodeToString([]byte(body))
+	}
+	_, _ = w.Write([]byte(body))
 }
 
 // --- Data export API ---

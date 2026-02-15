@@ -46,6 +46,15 @@ func migrate(db *sql.DB) error {
 			PRIMARY KEY (user_id, hwid),
 			FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
 		);`,
+		`CREATE TABLE IF NOT EXISTS subscription_settings (
+			id INTEGER PRIMARY KEY CHECK (id = 1),
+			title TEXT,
+			refresh_hours INTEGER NOT NULL DEFAULT 12,
+			info_url TEXT,
+			extra_url TEXT,
+			extra_status TEXT,
+			updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+		);`,
 	}
 
 	for _, q := range queries {
@@ -78,6 +87,21 @@ func migrate(db *sql.DB) error {
 	if err := ensureColumn(db, "users", "max_devices", "INTEGER NOT NULL DEFAULT 1"); err != nil {
 		return err
 	}
+	if err := ensureColumn(db, "users", "subscription_name", "TEXT"); err != nil {
+		return err
+	}
+	if err := ensureColumn(db, "users", "subscription_refresh_hours", "INTEGER NOT NULL DEFAULT 12"); err != nil {
+		return err
+	}
+	if err := ensureColumn(db, "users", "subscription_info_url", "TEXT"); err != nil {
+		return err
+	}
+	if err := ensureColumn(db, "users", "subscription_extra_url", "TEXT"); err != nil {
+		return err
+	}
+	if err := ensureColumn(db, "users", "subscription_extra_status", "TEXT"); err != nil {
+		return err
+	}
 	if err := ensureColumn(db, "vless_keys", "check_status", "TEXT NOT NULL DEFAULT 'unknown'"); err != nil {
 		return err
 	}
@@ -91,6 +115,15 @@ func migrate(db *sql.DB) error {
 		return err
 	}
 	if err := ensureColumn(db, "vless_keys", "status", "TEXT NOT NULL DEFAULT 'active'"); err != nil {
+		return err
+	}
+	if err := ensureColumn(db, "vless_keys", "key_kind", "TEXT NOT NULL DEFAULT 'real'"); err != nil {
+		return err
+	}
+	if err := ensureColumn(db, "vless_keys", "template_text", "TEXT"); err != nil {
+		return err
+	}
+	if err := ensureColumn(db, "vless_keys", "sort_order", "INTEGER NOT NULL DEFAULT 0"); err != nil {
 		return err
 	}
 	if err := ensureColumn(db, "vless_keys", "starts_at", "DATETIME"); err != nil {
@@ -123,6 +156,9 @@ func migrate(db *sql.DB) error {
 	if err := ensureColumn(db, "user_devices", "user_agent", "TEXT"); err != nil {
 		return err
 	}
+	if err := ensureColumn(db, "user_devices", "normalized_hwid", "TEXT"); err != nil {
+		return err
+	}
 
 	if _, err := db.Exec(`UPDATE users SET status = 'active' WHERE status IS NULL OR TRIM(status) = ''`); err != nil {
 		return err
@@ -139,6 +175,9 @@ func migrate(db *sql.DB) error {
 	if _, err := db.Exec(`UPDATE users SET max_devices = 1 WHERE max_devices IS NULL OR max_devices < 1`); err != nil {
 		return err
 	}
+	if _, err := db.Exec(`UPDATE users SET subscription_refresh_hours = 12 WHERE subscription_refresh_hours IS NULL OR subscription_refresh_hours < 1`); err != nil {
+		return err
+	}
 	if _, err := db.Exec(`CREATE UNIQUE INDEX IF NOT EXISTS idx_users_activation_code ON users(activation_code)`); err != nil {
 		return err
 	}
@@ -148,7 +187,13 @@ func migrate(db *sql.DB) error {
 	if _, err := db.Exec(`CREATE INDEX IF NOT EXISTS idx_user_devices_user_id ON user_devices(user_id)`); err != nil {
 		return err
 	}
+	if _, err := db.Exec(`CREATE INDEX IF NOT EXISTS idx_user_devices_user_norm ON user_devices(user_id, normalized_hwid)`); err != nil {
+		return err
+	}
 	if _, err := db.Exec(`CREATE INDEX IF NOT EXISTS idx_user_keys_key_id ON user_keys(key_id)`); err != nil {
+		return err
+	}
+	if _, err := db.Exec(`UPDATE user_devices SET normalized_hwid = LOWER(TRIM(hwid)) WHERE normalized_hwid IS NULL OR TRIM(normalized_hwid) = ''`); err != nil {
 		return err
 	}
 	if _, err := db.Exec(`UPDATE vless_keys SET check_status = 'unknown' WHERE check_status IS NULL OR TRIM(check_status) = ''`); err != nil {
@@ -160,7 +205,22 @@ func migrate(db *sql.DB) error {
 	if _, err := db.Exec(`UPDATE vless_keys SET status = 'active' WHERE status IS NULL OR TRIM(status) = ''`); err != nil {
 		return err
 	}
+	if _, err := db.Exec(`UPDATE vless_keys SET key_kind = 'real' WHERE key_kind IS NULL OR TRIM(key_kind) = ''`); err != nil {
+		return err
+	}
+	if _, err := db.Exec(`UPDATE vless_keys SET sort_order = id WHERE sort_order IS NULL OR sort_order <= 0`); err != nil {
+		return err
+	}
 	if _, err := db.Exec(`UPDATE vless_keys SET starts_at = created_at WHERE starts_at IS NULL`); err != nil {
+		return err
+	}
+	if _, err := db.Exec(`CREATE INDEX IF NOT EXISTS idx_vless_keys_kind_sort ON vless_keys(key_kind, sort_order, id)`); err != nil {
+		return err
+	}
+	if _, err := db.Exec(`INSERT OR IGNORE INTO subscription_settings(id, title, refresh_hours) VALUES(1, 'AllKeys', 12)`); err != nil {
+		return err
+	}
+	if _, err := db.Exec(`UPDATE subscription_settings SET refresh_hours = 12 WHERE refresh_hours < 1`); err != nil {
 		return err
 	}
 	return nil
@@ -219,6 +279,8 @@ func (a *App) listUsers() ([]model.User, error) {
 		)
 		SELECT
 			u.id, u.name, u.email, u.activation_code, u.subscription_id,
+			u.subscription_name, COALESCE(NULLIF(u.subscription_refresh_hours, 0), 12) AS subscription_refresh_hours,
+			u.subscription_info_url, u.subscription_extra_url, u.subscription_extra_status,
 			u.activation_used_at, u.status, u.starts_at, u.expires_at,
 			u.blocked_reason,
 			COALESCE(NULLIF(u.max_devices, 0), 1) AS max_devices,
@@ -242,6 +304,11 @@ func (a *App) listUsers() ([]model.User, error) {
 		var status sql.NullString
 		var activationCode sql.NullString
 		var subscriptionID sql.NullString
+		var subscriptionName sql.NullString
+		var subscriptionRefreshHours sql.NullInt64
+		var subscriptionInfoURL sql.NullString
+		var subscriptionExtraURL sql.NullString
+		var subscriptionExtraStatus sql.NullString
 		var activationUsedAt sql.NullTime
 		var startsAt sql.NullTime
 		var expiresAt sql.NullTime
@@ -256,6 +323,11 @@ func (a *App) listUsers() ([]model.User, error) {
 			&u.Email,
 			&activationCode,
 			&subscriptionID,
+			&subscriptionName,
+			&subscriptionRefreshHours,
+			&subscriptionInfoURL,
+			&subscriptionExtraURL,
+			&subscriptionExtraStatus,
 			&activationUsedAt,
 			&status,
 			&startsAt,
@@ -271,6 +343,14 @@ func (a *App) listUsers() ([]model.User, error) {
 		}
 		u.ActivationCode = strings.TrimSpace(activationCode.String)
 		u.SubscriptionID = strings.TrimSpace(subscriptionID.String)
+		u.SubscriptionName = strings.TrimSpace(subscriptionName.String)
+		u.SubscriptionRefreshHours = 12
+		if subscriptionRefreshHours.Valid && subscriptionRefreshHours.Int64 > 0 {
+			u.SubscriptionRefreshHours = int(subscriptionRefreshHours.Int64)
+		}
+		u.SubscriptionInfoURL = strings.TrimSpace(subscriptionInfoURL.String)
+		u.SubscriptionExtraURL = strings.TrimSpace(subscriptionExtraURL.String)
+		u.SubscriptionExtraStatus = strings.TrimSpace(subscriptionExtraStatus.String)
 		if activationUsedAt.Valid {
 			u.ActivationUsedAt = activationUsedAt.Time.Local().Format("2006-01-02 15:04:05")
 		}
@@ -301,7 +381,7 @@ func (a *App) listUsers() ([]model.User, error) {
 	}
 
 	deviceRows, err := a.db.Query(`
-		SELECT user_id, hwid, device_name, device_model, platform, os_version, app_name, app_version, user_agent, created_at, last_seen_at
+		SELECT user_id, hwid, normalized_hwid, device_name, device_model, platform, os_version, app_name, app_version, user_agent, created_at, last_seen_at
 		FROM user_devices
 		ORDER BY last_seen_at DESC
 	`)
@@ -314,6 +394,7 @@ func (a *App) listUsers() ([]model.User, error) {
 	for deviceRows.Next() {
 		var userID int64
 		var hwid sql.NullString
+		var normalizedHWID sql.NullString
 		var deviceName sql.NullString
 		var deviceModel sql.NullString
 		var platform sql.NullString
@@ -324,19 +405,35 @@ func (a *App) listUsers() ([]model.User, error) {
 		var createdAt sql.NullTime
 		var lastSeenAt sql.NullTime
 
-		if err := deviceRows.Scan(&userID, &hwid, &deviceName, &deviceModel, &platform, &osVersion, &appName, &appVersion, &userAgent, &createdAt, &lastSeenAt); err != nil {
+		if err := deviceRows.Scan(&userID, &hwid, &normalizedHWID, &deviceName, &deviceModel, &platform, &osVersion, &appName, &appVersion, &userAgent, &createdAt, &lastSeenAt); err != nil {
 			return nil, err
 		}
 
+		parsed := ParseDeviceInfo(hwid.String, userAgent.String, nil, nil)
+		normalizedID := strings.TrimSpace(normalizedHWID.String)
+		if normalizedID == "" {
+			normalizedID = parsed.NormalizedID
+		}
+		app := firstNonEmpty(strings.TrimSpace(appName.String), parsed.ClientApp)
+		appVersionText := firstNonEmpty(strings.TrimSpace(appVersion.String), parsed.ClientVersion)
+		platformText := firstNonEmpty(strings.TrimSpace(platform.String), parsed.Platform)
+		osVersionText := firstNonEmpty(strings.TrimSpace(osVersion.String), parsed.OSVersion)
+		deviceModelText := firstNonEmpty(strings.TrimSpace(deviceModel.String), parsed.DeviceModel)
+		deviceBrandText := firstNonEmpty(parsed.DeviceBrand)
+
 		device := model.ConnectedDevice{
-			HWID:        strings.TrimSpace(hwid.String),
-			DeviceName:  strings.TrimSpace(deviceName.String),
-			DeviceModel: strings.TrimSpace(deviceModel.String),
-			Platform:    strings.TrimSpace(platform.String),
-			OSVersion:   strings.TrimSpace(osVersion.String),
-			AppName:     strings.TrimSpace(appName.String),
-			AppVersion:  strings.TrimSpace(appVersion.String),
-			UserAgent:   strings.TrimSpace(userAgent.String),
+			HWID:           strings.TrimSpace(hwid.String),
+			NormalizedHWID: normalizedID,
+			DeviceName:     strings.TrimSpace(deviceName.String),
+			DeviceModel:    deviceModelText,
+			DeviceBrand:    deviceBrandText,
+			Platform:       platformText,
+			OSVersion:      osVersionText,
+			AppName:        app,
+			AppVersion:     appVersionText,
+			ClientApp:      parsed.ClientApp,
+			ClientVersion:  parsed.ClientVersion,
+			UserAgent:      strings.TrimSpace(userAgent.String),
 		}
 		if createdAt.Valid {
 			device.CreatedAt = createdAt.Time.Local().Format("2006-01-02 15:04:05")
@@ -359,9 +456,9 @@ func (a *App) listUsers() ([]model.User, error) {
 
 func (a *App) listKeys() ([]model.VLESSKey, error) {
 	rows, err := a.db.Query(`
-		SELECT id, label, url, status, check_status, check_error, last_checked_at, last_latency_ms, created_at
+		SELECT id, label, url, key_kind, template_text, status, check_status, check_error, last_checked_at, last_latency_ms, created_at
 		FROM vless_keys
-		ORDER BY id DESC
+		ORDER BY sort_order, id
 	`)
 	if err != nil {
 		return nil, err
@@ -371,24 +468,40 @@ func (a *App) listKeys() ([]model.VLESSKey, error) {
 	var out []model.VLESSKey
 	for rows.Next() {
 		var key model.VLESSKey
+		var kind sql.NullString
+		var templateText sql.NullString
 		var status sql.NullString
 		var checkStatus sql.NullString
 		var checkError sql.NullString
 		var lastCheckedAt sql.NullTime
 		var latency sql.NullInt64
-		if err := rows.Scan(&key.ID, &key.Label, &key.URL, &status, &checkStatus, &checkError, &lastCheckedAt, &latency, &key.CreatedAt); err != nil {
+		if err := rows.Scan(&key.ID, &key.Label, &key.URL, &kind, &templateText, &status, &checkStatus, &checkError, &lastCheckedAt, &latency, &key.CreatedAt); err != nil {
 			return nil, err
 		}
+		key.Kind, _ = model.NormalizeKeyKind(kind.String)
+		if key.Kind == "" {
+			key.Kind = model.KeyKindReal
+		}
+		key.TemplateText = strings.TrimSpace(templateText.String)
 		key.Status, _ = model.NormalizeKeyStatus(status.String)
 		if key.Status == "" {
 			key.Status = model.KeyStatusActive
 		}
 		key.StatusLabel = model.KeyStatusLabel(key.Status)
-		key.URLShort = vless.TruncateMiddle(key.URL, 88)
+		if key.Kind == model.KeyKindInformational {
+			key.URLShort = "Информационный ключ"
+			if key.TemplateText != "" {
+				key.URLShort = vless.TruncateMiddle(key.TemplateText, 88)
+			}
+		} else {
+			key.URLShort = vless.TruncateMiddle(key.URL, 88)
+		}
 		key.CheckStatus = model.NormalizeCheckStatus(checkStatus.String)
 		key.CheckStatusLabel = model.CheckStatusLabel(key.CheckStatus)
 		key.CheckError = strings.TrimSpace(checkError.String)
-		key.EditUUID, key.EditHost, key.EditPort, key.EditQuery, key.EditFragment, _ = vless.ParseVLESSParts(key.URL)
+		if key.Kind == model.KeyKindReal {
+			key.EditUUID, key.EditHost, key.EditPort, key.EditQuery, key.EditFragment, _ = vless.ParseVLESSParts(key.URL)
+		}
 		if latency.Valid {
 			key.LastLatencyMS = latency.Int64
 		}
@@ -398,6 +511,36 @@ func (a *App) listKeys() ([]model.VLESSKey, error) {
 		out = append(out, key)
 	}
 	return out, rows.Err()
+}
+
+func (a *App) getSubscriptionSettings() (model.SubscriptionSettings, error) {
+	var title sql.NullString
+	var refreshHours sql.NullInt64
+	var infoURL sql.NullString
+	var extraURL sql.NullString
+	var extraStatus sql.NullString
+
+	err := a.db.QueryRow(
+		`SELECT title, refresh_hours, info_url, extra_url, extra_status FROM subscription_settings WHERE id = 1`,
+	).Scan(&title, &refreshHours, &infoURL, &extraURL, &extraStatus)
+	if err != nil {
+		return model.SubscriptionSettings{}, err
+	}
+
+	settings := model.SubscriptionSettings{
+		Title:        strings.TrimSpace(title.String),
+		RefreshHours: 12,
+		InfoURL:      strings.TrimSpace(infoURL.String),
+		ExtraURL:     strings.TrimSpace(extraURL.String),
+		ExtraStatus:  strings.TrimSpace(extraStatus.String),
+	}
+	if refreshHours.Valid && refreshHours.Int64 > 0 {
+		settings.RefreshHours = int(refreshHours.Int64)
+	}
+	if settings.Title == "" {
+		settings.Title = "AllKeys"
+	}
+	return settings, nil
 }
 
 func (a *App) subscriptionAccessAllowed(subscriptionID string) (bool, int64, int, string, error) {
@@ -486,7 +629,8 @@ func (a *App) redeemActivationCode(code string) (string, int, string, error) {
 
 func (a *App) registerHWID(userID int64, hwid string, meta deviceMeta) (bool, error) {
 	hwid = strings.TrimSpace(hwid)
-	if hwid == "" {
+	meta.NormalizedHWID = normalizeHWID(firstNonEmpty(meta.NormalizedHWID, hwid))
+	if meta.NormalizedHWID == "" {
 		return true, nil
 	}
 
@@ -500,6 +644,7 @@ func (a *App) registerHWID(userID int64, hwid string, meta deviceMeta) (bool, er
 	res, err := tx.Exec(
 		`UPDATE user_devices
 		 SET last_seen_at = CURRENT_TIMESTAMP,
+		     normalized_hwid = ?,
 		     device_name = COALESCE(NULLIF(?, ''), device_name),
 		     device_model = COALESCE(NULLIF(?, ''), device_model),
 		     platform = COALESCE(NULLIF(?, ''), platform),
@@ -507,7 +652,8 @@ func (a *App) registerHWID(userID int64, hwid string, meta deviceMeta) (bool, er
 		     app_name = COALESCE(NULLIF(?, ''), app_name),
 		     app_version = COALESCE(NULLIF(?, ''), app_version),
 		     user_agent = COALESCE(NULLIF(?, ''), user_agent)
-		 WHERE user_id = ? AND hwid = ?`,
+		 WHERE user_id = ? AND normalized_hwid = ?`,
+		meta.NormalizedHWID,
 		meta.DeviceName,
 		meta.DeviceModel,
 		meta.Platform,
@@ -516,7 +662,7 @@ func (a *App) registerHWID(userID int64, hwid string, meta deviceMeta) (bool, er
 		meta.AppVersion,
 		meta.UserAgent,
 		userID,
-		hwid,
+		meta.NormalizedHWID,
 	)
 	if err != nil {
 		return false, err
@@ -539,10 +685,11 @@ func (a *App) registerHWID(userID int64, hwid string, meta deviceMeta) (bool, er
 	if maxDevices <= 0 {
 		// No limit set, allow
 		_, err = tx.Exec(
-			`INSERT INTO user_devices (user_id, hwid, device_name, device_model, platform, os_version, app_name, app_version, user_agent)
-			 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+			`INSERT INTO user_devices (user_id, hwid, normalized_hwid, device_name, device_model, platform, os_version, app_name, app_version, user_agent)
+			 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 			userID,
 			hwid,
+			meta.NormalizedHWID,
 			meta.DeviceName,
 			meta.DeviceModel,
 			meta.Platform,
@@ -561,7 +708,10 @@ func (a *App) registerHWID(userID int64, hwid string, meta deviceMeta) (bool, er
 	}
 
 	var count int
-	err = tx.QueryRow(`SELECT COUNT(*) FROM user_devices WHERE user_id = ?`, userID).Scan(&count)
+	err = tx.QueryRow(
+		`SELECT COUNT(DISTINCT COALESCE(NULLIF(normalized_hwid, ''), LOWER(TRIM(hwid)))) FROM user_devices WHERE user_id = ?`,
+		userID,
+	).Scan(&count)
 	if err != nil {
 		return false, err
 	}
@@ -571,10 +721,11 @@ func (a *App) registerHWID(userID int64, hwid string, meta deviceMeta) (bool, er
 	}
 
 	_, err = tx.Exec(
-		`INSERT INTO user_devices (user_id, hwid, device_name, device_model, platform, os_version, app_name, app_version, user_agent)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		`INSERT INTO user_devices (user_id, hwid, normalized_hwid, device_name, device_model, platform, os_version, app_name, app_version, user_agent)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		userID,
 		hwid,
+		meta.NormalizedHWID,
 		meta.DeviceName,
 		meta.DeviceModel,
 		meta.Platform,

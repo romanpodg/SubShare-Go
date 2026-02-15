@@ -4,6 +4,11 @@ export interface User {
   email: string;
   activation_code: string;
   subscription_id: string;
+  subscription_name: string;
+  subscription_refresh_hours: number;
+  subscription_info_url: string;
+  subscription_extra_url: string;
+  subscription_extra_status: string;
   activation_used_at: string;
   status: "active" | "paused" | "blocked";
   starts_at: string;
@@ -19,12 +24,16 @@ export interface User {
 
 export interface ConnectedDevice {
   hwid: string;
+  normalized_hwid: string;
   device_name: string;
   device_model: string;
+  device_brand: string;
   platform: string;
   os_version: string;
   app_name: string;
   app_version: string;
+  client_app: string;
+  client_version: string;
   user_agent: string;
   created_at: string;
   last_seen_at: string;
@@ -34,6 +43,8 @@ export interface VLESSKey {
   id: number;
   label: string;
   url: string;
+  kind: "real" | "informational";
+  template_text: string;
   url_short: string;
   status: "active" | "non-active";
   status_label: string;
@@ -57,4 +68,12 @@ export interface KeyCheckResult {
   check_error: string;
   last_checked_at: string;
   last_latency_ms: number;
+}
+
+export interface SubscriptionSettings {
+  title: string;
+  refresh_hours: number;
+  info_url: string;
+  extra_url: string;
+  extra_status: string;
 }

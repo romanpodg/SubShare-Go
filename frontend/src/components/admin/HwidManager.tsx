@@ -39,12 +39,16 @@ export function HwidManager({ user, onClose, onRefresh }: Props) {
     if (user.connected_hwids && user.connected_hwids.length > 0) {
       return user.connected_hwids.map((hwid) => ({
         hwid,
+        normalized_hwid: "",
         device_name: "",
         device_model: "",
+        device_brand: "",
         platform: "",
         os_version: "",
         app_name: "",
         app_version: "",
+        client_app: "",
+        client_version: "",
         user_agent: "",
         created_at: "",
         last_seen_at: "",
@@ -162,6 +166,11 @@ export function HwidManager({ user, onClose, onRefresh }: Props) {
               const title = [device.device_name, device.device_model, inferDeviceKind(sourceText || device.hwid)]
                 .filter(Boolean)
                 .join(" · ") || `Устройство ${index + 1}`;
+              const clientLabel = [device.client_app || device.app_name, device.client_version || device.app_version]
+                .filter(Boolean)
+                .join(" ");
+              const platformLabel = [device.platform, device.os_version].filter(Boolean).join(" ");
+              const modelLabel = [device.device_brand, device.device_model].filter(Boolean).join(" ");
 
               return (
               <div
@@ -172,13 +181,24 @@ export function HwidManager({ user, onClose, onRefresh }: Props) {
                   <div className="text-sm text-zinc-200 truncate">
                     {title}
                   </div>
+                  {(clientLabel || platformLabel || modelLabel) && (
+                    <div className="text-xs text-zinc-400 truncate mt-0.5">
+                      {clientLabel || "Клиент не определен"}
+                      {platformLabel ? ` · ${platformLabel}` : ""}
+                      {modelLabel ? ` · ${modelLabel}` : ""}
+                    </div>
+                  )}
                   <div className="font-mono text-xs text-zinc-500 truncate" title={device.hwid}>
                     {shortHwid(device.hwid)}
                   </div>
-                  {(device.app_name || device.last_seen_at) && (
+                  {device.normalized_hwid && device.normalized_hwid !== device.hwid && (
+                    <div className="font-mono text-xs text-zinc-600 truncate" title={device.normalized_hwid}>
+                      normalized: {shortHwid(device.normalized_hwid)}
+                    </div>
+                  )}
+                  {device.last_seen_at && (
                     <div className="text-xs text-zinc-500 truncate mt-0.5">
-                      {device.app_name ? `${device.app_name}${device.app_version ? ` ${device.app_version}` : ""}` : "Клиент не определен"}
-                      {device.last_seen_at ? ` · Last seen: ${device.last_seen_at}` : ""}
+                      Last seen: {device.last_seen_at}
                     </div>
                   )}
                 </div>

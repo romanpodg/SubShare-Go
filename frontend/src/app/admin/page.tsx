@@ -9,6 +9,7 @@ import { users as usersApi, keys as keysApi } from "@/lib/api";
 import type { User, VLESSKey } from "@/lib/types";
 import { UsersSection } from "@/components/admin/UsersSection";
 import { KeysSection } from "@/components/admin/KeysSection";
+import { GlobalSubscriptionSettingsModal } from "@/components/admin/GlobalSubscriptionSettingsModal";
 import { LoadingSpinner } from "@/components/ui/LoadingSpinner";
 
 export default function AdminPage() {
@@ -18,6 +19,7 @@ export default function AdminPage() {
   const [usersList, setUsersList] = useState<User[]>([]);
   const [keysList, setKeysList] = useState<VLESSKey[]>([]);
   const [loading, setLoading] = useState(true);
+  const [showGlobalSubscriptionSettings, setShowGlobalSubscriptionSettings] = useState(false);
 
   useEffect(() => {
     document.title = "Панель управления — Xray Sub";
@@ -66,6 +68,12 @@ export default function AdminPage() {
       <header className="border-b border-border px-6 py-4 flex items-center justify-between">
         <h1 className="text-xl font-bold">Xray Sub</h1>
         <div className="flex items-center gap-4">
+          <button
+            onClick={() => setShowGlobalSubscriptionSettings(true)}
+            className="text-sm text-zinc-400 hover:text-zinc-200 transition-colors"
+          >
+            Редактор подписки
+          </button>
           <Link href="/subscription" className="text-sm text-zinc-400 hover:text-zinc-200 transition-colors">
             Клиентская страница
           </Link>
@@ -86,6 +94,11 @@ export default function AdminPage() {
           onRefresh={fetchData}
         />
       </main>
+
+      <GlobalSubscriptionSettingsModal
+        open={showGlobalSubscriptionSettings}
+        onClose={() => setShowGlobalSubscriptionSettings(false)}
+      />
     </div>
   );
 }

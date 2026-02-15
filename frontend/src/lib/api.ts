@@ -1,4 +1,4 @@
-import type { User, VLESSKey, KeyCheckResult } from "./types";
+import type { User, VLESSKey, KeyCheckResult, SubscriptionSettings } from "./types";
 
 let csrfToken: string | null = null;
 
@@ -73,6 +73,11 @@ export const users = {
       starts_at: string;
       expires_at: string;
       blocked_reason?: string;
+      subscription_name?: string;
+      subscription_refresh_hours?: number;
+      subscription_info_url?: string;
+      subscription_extra_url?: string;
+      subscription_extra_status?: string;
     }
   ) => request<{ message: string }>("PUT", `/api/admin/users/${id}/subscription`, data),
   updateHwid: (id: number, max_devices: number) =>
@@ -87,7 +92,7 @@ export const users = {
 // Keys
 export const keys = {
   list: () => request<{ keys: VLESSKey[] }>("GET", "/api/admin/keys"),
-  create: (data: { label: string; url: string; status: string }) =>
+  create: (data: { label: string; url?: string; status: string; kind: string; template_text?: string }) =>
     request<{ message: string }>("POST", "/api/admin/keys", data),
   update: (
     id: number,
@@ -99,12 +104,16 @@ export const keys = {
       port: string;
       query: string;
       fragment: string;
+      kind: string;
+      template_text?: string;
     }
   ) => request<{ message: string }>("PUT", `/api/admin/keys/${id}`, data),
   delete: (id: number) => request<{ message: string }>("DELETE", `/api/admin/keys/${id}`),
   check: (id: number) => request<KeyCheckResult>("POST", `/api/admin/keys/${id}/check`),
   checkAll: () =>
     request<{ checked: number; keys: KeyCheckResult[] }>("POST", "/api/admin/keys/check-all"),
+  reorder: (ids: number[]) =>
+    request<{ message: string }>("PUT", "/api/admin/keys/order", { ids }),
 };
 
 // Subscription
@@ -115,4 +124,10 @@ export const subscription = {
       "/api/subscription/activate",
       { activation_code }
     ),
+};
+
+export const subscriptionSettings = {
+  get: () => request<SubscriptionSettings>("GET", "/api/admin/subscription-settings"),
+  update: (data: SubscriptionSettings) =>
+    request<{ message: string }>("PUT", "/api/admin/subscription-settings", data),
 };

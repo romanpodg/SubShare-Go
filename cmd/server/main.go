@@ -85,6 +85,18 @@ func run() error {
 
 	baseURL := strings.TrimSpace(os.Getenv("BASE_URL"))
 	baseURL = strings.TrimRight(baseURL, "/")
+	happCryptoAPIURL := strings.TrimSpace(os.Getenv("HAPP_CRYPTO_API_URL"))
+	if happCryptoAPIURL == "" {
+		happCryptoAPIURL = "https://crypto.happ.su/api-v2.php"
+	}
+
+	subscriptionBodyEncoding := strings.ToLower(strings.TrimSpace(os.Getenv("SUBSCRIPTION_BODY_ENCODING")))
+	if subscriptionBodyEncoding == "" {
+		subscriptionBodyEncoding = "base64"
+	}
+	if subscriptionBodyEncoding != "base64" {
+		subscriptionBodyEncoding = "plain"
+	}
 
 	var corsOrigins []string
 	if raw := strings.TrimSpace(os.Getenv("CORS_ORIGINS")); raw != "" {
@@ -97,12 +109,14 @@ func run() error {
 	}
 
 	app := &App{
-		db:                 db,
-		adminUser:          adminUser,
-		adminPassHash:      adminPassHash,
-		deviceLimitMessage: deviceLimitMessage,
-		baseURL:            baseURL,
-		sessions:           make(map[string]model.AdminSession),
+		db:                       db,
+		adminUser:                adminUser,
+		adminPassHash:            adminPassHash,
+		deviceLimitMessage:       deviceLimitMessage,
+		baseURL:                  baseURL,
+		happCryptoAPIURL:         happCryptoAPIURL,
+		subscriptionBodyEncoding: subscriptionBodyEncoding,
+		sessions:                 make(map[string]model.AdminSession),
 	}
 
 	go app.cleanupExpiredSessions(5 * time.Minute)
@@ -140,6 +154,7 @@ func run() error {
 	// Keys API
 	mux.Handle("GET /api/admin/keys", app.requireAdmin(http.HandlerFunc(app.apiListKeys)))
 	mux.Handle("POST /api/admin/keys", app.requireAdmin(http.HandlerFunc(app.apiCreateKey)))
+	mux.Handle("PUT /api/admin/keys/order", app.requireAdmin(http.HandlerFunc(app.apiReorderKeys)))
 	mux.Handle("PUT /api/admin/keys/{id}", app.requireAdmin(http.HandlerFunc(app.apiUpdateKey)))
 	mux.Handle("DELETE /api/admin/keys/{id}", app.requireAdmin(http.HandlerFunc(app.apiDeleteKey)))
 	mux.Handle("POST /api/admin/keys/{id}/check", app.requireAdmin(http.HandlerFunc(app.apiCheckKey)))
@@ -148,6 +163,8 @@ func run() error {
 	// Export API
 	mux.Handle("GET /api/admin/export/users", app.requireAdmin(http.HandlerFunc(app.apiExportUsers)))
 	mux.Handle("GET /api/admin/export/keys", app.requireAdmin(http.HandlerFunc(app.apiExportKeys)))
+	mux.Handle("GET /api/admin/subscription-settings", app.requireAdmin(http.HandlerFunc(app.apiGetSubscriptionSettings)))
+	mux.Handle("PUT /api/admin/subscription-settings", app.requireAdmin(http.HandlerFunc(app.apiUpdateSubscriptionSettings)))
 
 	// Subscription API
 	mux.HandleFunc("POST /api/subscription/activate", activationLimiter.Wrap(writeError, app.apiActivateSubscription))

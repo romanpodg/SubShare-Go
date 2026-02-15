@@ -36,6 +36,8 @@ go run ./cmd/server
 - `ADMIN_USER` — логин администратора (по умолчанию `admin`)
 - `ADMIN_PASSWORD` — пароль администратора (по умолчанию `admin123`, только для локального запуска)
 - `DEVICE_LIMIT_MESSAGE` — текст сообщения при превышении лимита устройств
+- `HAPP_CRYPTO_API_URL` — API для шифрования subscription-ссылки (по умолчанию `https://crypto.happ.su/api-v2.php`)
+- `SUBSCRIPTION_BODY_ENCODING` — формат выдачи тела подписки: `base64` (по умолчанию) или `plain`
 
 ## Основные маршруты
 

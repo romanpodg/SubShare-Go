@@ -23,9 +23,20 @@
     0% { opacity: 1; transform: translateY(0); }
     100% { opacity: 0; transform: translateY(8px); }
   }
+
+  @keyframes subtle-pulse {
+    0% { transform: scale(1); opacity: 0.85; }
+    50% { transform: scale(1.25); opacity: 1; }
+    100% { transform: scale(1); opacity: 0.85; }
+  }
 }
 
 body {
   background-color: var(--color-bg);
   color: #e4e4e7;
+}
+
+.status-pulse {
+  animation: subtle-pulse 2.8s ease-in-out infinite;
+  transform-origin: center;
 }
