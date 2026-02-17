@@ -38,6 +38,8 @@ type User struct {
 	ID                       int64             `json:"id"`
 	Name                     string            `json:"name"`
 	Email                    string            `json:"email"`
+	TimeZone                 string            `json:"time_zone"`
+	Language                 string            `json:"language"`
 	ActivationCode           string            `json:"activation_code"`
 	SubscriptionID           string            `json:"subscription_id"`
 	SubscriptionName         string            `json:"subscription_name"`
@@ -133,6 +135,12 @@ type UpdateSubscriptionRequest struct {
 	SubscriptionExtraStatus  string `json:"subscription_extra_status"`
 }
 
+// UpdateUserSettingsRequest is the payload for PUT /api/admin/users/{id}/settings.
+type UpdateUserSettingsRequest struct {
+	TimeZone string `json:"time_zone"`
+	Language string `json:"language"`
+}
+
 // UpdateHWIDRequest is the payload for PUT /api/admin/users/{id}/hwid.
 type UpdateHWIDRequest struct {
 	MaxDevices int `json:"max_devices"`
@@ -177,6 +185,8 @@ type SubscriptionSettings struct {
 	InfoURL      string `json:"info_url"`
 	ExtraURL     string `json:"extra_url"`
 	ExtraStatus  string `json:"extra_status"`
+	TimeZone     string `json:"time_zone"`
+	Language     string `json:"language"`
 }
 
 // UpdateSubscriptionSettingsRequest is the payload for PUT /api/admin/subscription-settings.
@@ -186,6 +196,8 @@ type UpdateSubscriptionSettingsRequest struct {
 	InfoURL      string `json:"info_url"`
 	ExtraURL     string `json:"extra_url"`
 	ExtraStatus  string `json:"extra_status"`
+	TimeZone     string `json:"time_zone"`
+	Language     string `json:"language"`
 }
 
 // NormalizeUserStatus validates and normalizes a user status string.

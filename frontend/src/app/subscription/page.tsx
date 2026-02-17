@@ -6,6 +6,7 @@ import { Card } from "@/components/ui/Card";
 import { Input } from "@/components/ui/Input";
 import { Button } from "@/components/ui/Button";
 import { subscription } from "@/lib/api";
+import { copyToClipboard } from "@/lib/clipboard";
 
 export default function SubscriptionPage() {
   const [code, setCode] = useState("");
@@ -38,10 +39,26 @@ export default function SubscriptionPage() {
 
   const handleCopy = async () => {
     try {
-      await navigator.clipboard.writeText(subscriptionUrl);
+      const copied = await copyToClipboard(subscriptionUrl);
+      if (!copied) {
+        if (typeof window !== "undefined") {
+          window.prompt("Скопируйте ссылку вручную:", subscriptionUrl);
+          setCopied(true);
+          setTimeout(() => setCopied(false), 2000);
+          return;
+        }
+        setError("Не удалось скопировать");
+        return;
+      }
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
     } catch {
+      if (typeof window !== "undefined") {
+        window.prompt("Скопируйте ссылку вручную:", subscriptionUrl);
+        setCopied(true);
+        setTimeout(() => setCopied(false), 2000);
+        return;
+      }
       setError("Не удалось скопировать");
     }
   };

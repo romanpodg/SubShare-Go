@@ -3,9 +3,32 @@
 import { FormEvent, useEffect, useMemo, useState } from "react";
 import { Modal } from "@/components/ui/Modal";
 import { Input } from "@/components/ui/Input";
+import { AppleEmojiInput } from "@/components/ui/AppleEmojiInput";
+import { Select } from "@/components/ui/Select";
 import { Button } from "@/components/ui/Button";
+import { EmojiPickerButton } from "@/components/ui/EmojiPickerButton";
 import { useToast } from "@/components/ui/Toast";
 import { subscriptionSettings as subscriptionSettingsApi } from "@/lib/api";
+
+const CUSTOM_TIMEZONE_VALUE = "__custom_timezone__";
+
+const POPULAR_TIMEZONES = [
+  "Europe/Moscow",
+  "Europe/Kaliningrad",
+  "Europe/Samara",
+  "Asia/Yekaterinburg",
+  "Asia/Omsk",
+  "Asia/Krasnoyarsk",
+  "Asia/Irkutsk",
+  "Asia/Yakutsk",
+  "Asia/Vladivostok",
+  "Asia/Tokyo",
+  "Asia/Almaty",
+  "Asia/Dubai",
+  "Europe/Berlin",
+  "Europe/Istanbul",
+  "UTC",
+];
 
 interface Props {
   open: boolean;
@@ -22,6 +45,9 @@ export function GlobalSubscriptionSettingsModal({ open, onClose }: Props) {
   const [infoURL, setInfoURL] = useState("");
   const [extraURL, setExtraURL] = useState("");
   const [extraStatus, setExtraStatus] = useState("");
+  const [timeZoneChoice, setTimeZoneChoice] = useState("Europe/Moscow");
+  const [customTimeZone, setCustomTimeZone] = useState("");
+  const [language, setLanguage] = useState("ru");
 
   const [initialState, setInitialState] = useState({
     title: "",
@@ -29,6 +55,8 @@ export function GlobalSubscriptionSettingsModal({ open, onClose }: Props) {
     infoURL: "",
     extraURL: "",
     extraStatus: "",
+    timeZone: "Europe/Moscow",
+    language: "ru",
   });
 
   useEffect(() => {
@@ -44,12 +72,19 @@ export function GlobalSubscriptionSettingsModal({ open, onClose }: Props) {
           infoURL: data.info_url || "",
           extraURL: data.extra_url || "",
           extraStatus: data.extra_status || "",
+          timeZone: data.time_zone || "Europe/Moscow",
+          language: data.language || "ru",
         };
+        const normalizedTimeZone = next.timeZone.trim() || "Europe/Moscow";
+        const hasPresetTimeZone = POPULAR_TIMEZONES.includes(normalizedTimeZone);
         setTitle(next.title);
         setRefreshHours(next.refreshHours);
         setInfoURL(next.infoURL);
         setExtraURL(next.extraURL);
         setExtraStatus(next.extraStatus);
+        setTimeZoneChoice(hasPresetTimeZone ? normalizedTimeZone : CUSTOM_TIMEZONE_VALUE);
+        setCustomTimeZone(hasPresetTimeZone ? "" : normalizedTimeZone);
+        setLanguage(next.language);
         setInitialState(next);
         setInitialLoaded(true);
       } catch {
@@ -68,15 +103,29 @@ export function GlobalSubscriptionSettingsModal({ open, onClose }: Props) {
     return parsed;
   }, [refreshHours]);
 
+  const effectiveTimeZone = useMemo(() => {
+    if (timeZoneChoice === CUSTOM_TIMEZONE_VALUE) {
+      return customTimeZone.trim();
+    }
+    return timeZoneChoice;
+  }, [timeZoneChoice, customTimeZone]);
+
   const hasChanges = useMemo(() => {
     return (
       title !== initialState.title ||
       refreshHours !== initialState.refreshHours ||
       infoURL !== initialState.infoURL ||
       extraURL !== initialState.extraURL ||
-      extraStatus !== initialState.extraStatus
+      extraStatus !== initialState.extraStatus ||
+      effectiveTimeZone !== initialState.timeZone ||
+      language !== initialState.language
     );
-  }, [title, refreshHours, infoURL, extraURL, extraStatus, initialState]);
+  }, [title, refreshHours, infoURL, extraURL, extraStatus, effectiveTimeZone, language, initialState]);
+
+  const canSubmit =
+    initialLoaded &&
+    hasChanges &&
+    !(timeZoneChoice === CUSTOM_TIMEZONE_VALUE && effectiveTimeZone === "");
 
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();
@@ -90,6 +139,8 @@ export function GlobalSubscriptionSettingsModal({ open, onClose }: Props) {
         info_url: infoURL,
         extra_url: extraURL,
         extra_status: extraStatus,
+        time_zone: effectiveTimeZone,
+        language,
       });
       toast("Общие настройки подписки обновлены", "success");
       setInitialState({
@@ -98,6 +149,8 @@ export function GlobalSubscriptionSettingsModal({ open, onClose }: Props) {
         infoURL,
         extraURL,
         extraStatus,
+        timeZone: effectiveTimeZone,
+        language,
       });
       onClose();
     } catch (err: unknown) {
@@ -108,8 +161,9 @@ export function GlobalSubscriptionSettingsModal({ open, onClose }: Props) {
   };
 
   return (
-    <Modal open={open} onClose={onClose} title="Общий редактор подписки">
-      <form onSubmit={handleSubmit} className="flex flex-col gap-4">
+    <Modal open={open} onClose={onClose} title="Настройки сервиса">
+      <form onSubmit={handleSubmit} className="flex flex-col gap-2.5">
+        <div className="text-sm font-semibold text-zinc-200">Редактор подписки</div>
         <Input
           label="Название подписки"
           value={title}
@@ -138,13 +192,41 @@ export function GlobalSubscriptionSettingsModal({ open, onClose }: Props) {
           onChange={(e) => setExtraURL(e.target.value)}
           placeholder="https://example.com"
         />
-        <Input
+        <AppleEmojiInput
           label="Описание/доп. статус"
           value={extraStatus}
           onChange={(e) => setExtraStatus(e.target.value)}
           placeholder="✅ Active, истекает через 85 дн"
         />
-        <Button type="submit" loading={loading} disabled={!initialLoaded || !hasChanges}>
+        <div className="-mt-1">
+          <EmojiPickerButton inline onSelect={(emoji) => setExtraStatus((prev) => `${prev}${emoji}`)} />
+        </div>
+        <div className="border-t border-border" />
+        <div className="text-sm font-semibold text-zinc-200">Локализация сервиса</div>
+        <Select
+          label="Часовой пояс"
+          value={timeZoneChoice}
+          onChange={(e) => setTimeZoneChoice(e.target.value)}
+          options={[
+            ...POPULAR_TIMEZONES.map((zone) => ({ value: zone, label: zone })),
+            { value: CUSTOM_TIMEZONE_VALUE, label: "Другой (ввести вручную)" },
+          ]}
+        />
+        {timeZoneChoice === CUSTOM_TIMEZONE_VALUE && (
+          <Input
+            label="Часовой пояс вручную (IANA)"
+            value={customTimeZone}
+            onChange={(e) => setCustomTimeZone(e.target.value)}
+            placeholder="Europe/Moscow"
+          />
+        )}
+        <div className="flex flex-col gap-1.5">
+          <label className="text-sm text-zinc-400">Язык интерфейса</label>
+          <div className="bg-surface-2 border border-border rounded-lg px-3 py-2 text-sm text-zinc-500 cursor-not-allowed">
+            Недоступно
+          </div>
+        </div>
+        <Button type="submit" loading={loading} disabled={!canSubmit}>
           Сохранить
         </Button>
       </form>

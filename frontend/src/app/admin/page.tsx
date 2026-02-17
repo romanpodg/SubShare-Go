@@ -72,7 +72,7 @@ export default function AdminPage() {
             onClick={() => setShowGlobalSubscriptionSettings(true)}
             className="text-sm text-zinc-400 hover:text-zinc-200 transition-colors"
           >
-            Редактор подписки
+            Настройки
           </button>
           <Link href="/subscription" className="text-sm text-zinc-400 hover:text-zinc-200 transition-colors">
             Клиентская страница
@@ -83,7 +83,7 @@ export default function AdminPage() {
         </div>
       </header>
 
-      <main id="main-content" className="max-w-6xl mx-auto p-6 flex flex-col gap-8">
+      <main id="main-content" className="mx-auto w-full max-w-[96rem] p-6 flex flex-col gap-8">
         <UsersSection
           users={usersList}
           assignableKeys={assignableKeys}

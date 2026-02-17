@@ -80,6 +80,15 @@ export const users = {
       subscription_extra_status?: string;
     }
   ) => request<{ message: string }>("PUT", `/api/admin/users/${id}/subscription`, data),
+  getSubscriptionURLs: (id: number) =>
+    request<{ plain_url: string; encrypted_url: string }>("GET", `/api/admin/users/${id}/subscription-urls`),
+  updateSettings: (
+    id: number,
+    data: {
+      time_zone: string;
+      language: string;
+    }
+  ) => request<{ message: string }>("PUT", `/api/admin/users/${id}/settings`, data),
   updateHwid: (id: number, max_devices: number) =>
     request<{ message: string }>("PUT", `/api/admin/users/${id}/hwid`, { max_devices }),
   deleteHwid: (id: number, hwid: string) =>

@@ -34,9 +34,95 @@
 body {
   background-color: var(--color-bg);
   color: #e4e4e7;
+  font-family: "Inter", "Segoe UI", "Helvetica Neue", "Apple Color Emoji", "Segoe UI Emoji", "Noto Color Emoji", sans-serif;
+}
+
+.emoji-text {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.125rem;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.emoji-image {
+  width: 1em;
+  height: 1em;
+  margin: 0 0.03em;
+  vertical-align: -0.12em;
+  flex: 0 0 auto;
+}
+
+/* contentEditable input with inline Apple emoji */
+.apple-emoji-input {
+  white-space: nowrap;
+  overflow: hidden;
+  min-height: 2.375rem;
+  line-height: 1.25rem;
+  cursor: text;
+}
+
+.apple-emoji-input .emoji-image {
+  display: inline;
+  width: 1.15em;
+  height: 1.15em;
+  vertical-align: -0.15em;
+  margin: 0 0.05em;
+}
+
+/* emoji-mart picker customization */
+em-emoji-picker {
+  width: 100% !important;
+  height: 100% !important;
+  --em-rgb-background: 26, 26, 36;
+  --em-rgb-input: 19, 19, 26;
+  --em-rgb-color: 228, 228, 231;
+  --category-icon-size: 18px;
+  --font-size: 14px;
+}
+
+em-emoji-picker .padding {
+  padding: 8px !important;
+}
+
+em-emoji-picker input.search {
+  padding: 6px 8px !important;
+  font-size: 13px !important;
+}
+
+em-emoji-picker .category {
+  margin-bottom: 4px !important;
+}
+
+em-emoji-picker .category-name {
+  font-size: 12px !important;
+  padding: 4px 0 !important;
 }
 
 .status-pulse {
   animation: subtle-pulse 2.8s ease-in-out infinite;
   transform-origin: center;
+}
+
+/* Custom scrollbar that matches the dark theme. */
+:root {
+  scrollbar-color: var(--color-surface-2) var(--color-bg);
+}
+
+body::-webkit-scrollbar {
+  width: 10px;
+}
+
+body::-webkit-scrollbar-track {
+  background: var(--color-bg);
+}
+
+body::-webkit-scrollbar-thumb {
+  background: var(--color-surface-2);
+  border-radius: 999px;
+  border: 2px solid var(--color-bg);
+}
+
+body::-webkit-scrollbar-thumb:hover {
+  background: var(--color-surface-1);
 }

@@ -4,6 +4,7 @@ import { useState } from "react";
 import { Modal } from "@/components/ui/Modal";
 import { Button } from "@/components/ui/Button";
 import { useToast } from "@/components/ui/Toast";
+import { EmojiText } from "@/components/ui/EmojiText";
 import { users as usersApi } from "@/lib/api";
 import type { User, VLESSKey } from "@/lib/types";
 
@@ -81,7 +82,7 @@ export function KeyAssignerModal({ user, assignableKeys, onClose, onRefresh }: P
                 onClick={() => toggle(key.id)}
                 className="px-2.5 py-1 rounded-md bg-surface-1 text-xs text-zinc-300 hover:bg-accent/20 transition-colors"
               >
-                {key.label}
+                <EmojiText text={key.label} />
               </button>
             ))}
             {available.length === 0 && <span className="text-xs text-zinc-500">Пусто</span>}
@@ -96,7 +97,7 @@ export function KeyAssignerModal({ user, assignableKeys, onClose, onRefresh }: P
                 onClick={() => toggle(key.id)}
                 className="px-2.5 py-1 rounded-md bg-accent/20 text-xs text-indigo-300 hover:bg-accent/30 transition-colors"
               >
-                {key.label}
+                <EmojiText text={key.label} />
               </button>
             ))}
             {assigned.length === 0 && <span className="text-xs text-zinc-500">Пусто</span>}

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import type { User, VLESSKey } from "@/lib/types";
 import { users as usersApi } from "@/lib/api";
 import { useToast } from "@/components/ui/Toast";
@@ -12,12 +12,43 @@ import { AddUserModal } from "./AddUserModal";
 import { EditSubscriptionModal } from "./EditSubscriptionModal";
 import { KeyAssignerModal } from "./KeyAssignerModal";
 import { HwidManager } from "./HwidManager";
+import { copyToClipboard } from "@/lib/clipboard";
+import { EmojiText } from "@/components/ui/EmojiText";
 
 interface Props {
   users: User[];
   assignableKeys: VLESSKey[];
   onRefresh: () => Promise<void>;
 }
+
+const formatDateTime = (value: string | null) => {
+  if (!value) {
+    return null;
+  }
+
+  const isoMatch = value.match(/^(\d{4}-\d{2}-\d{2})(?:[T\s](\d{2}:\d{2})(?::\d{2})?)?/);
+  if (isoMatch) {
+    const parsed = new Date(value.replace(/-/g, "/"));
+    if (!Number.isNaN(parsed.getTime())) {
+      return parsed
+        .toLocaleString("en-GB", {
+          day: "2-digit",
+          month: "2-digit",
+          year: "numeric",
+          hour: isoMatch[2] ? "2-digit" : undefined,
+          minute: isoMatch[2] ? "2-digit" : undefined,
+        })
+        .replace(",", "");
+    }
+  }
+
+  const slashMatch = value.match(/^(\d{2})\/(\d{2})\/(\d{4})\s+(\d{2}):(\d{2})$/);
+  if (slashMatch) {
+    return `${slashMatch[1]}/${slashMatch[2]}/${slashMatch[3]} ${slashMatch[4]}:${slashMatch[5]}`;
+  }
+
+  return value;
+};
 
 export function UsersSection({ users, assignableKeys, onRefresh }: Props) {
   const { toast } = useToast();
@@ -28,6 +59,27 @@ export function UsersSection({ users, assignableKeys, onRefresh }: Props) {
   const [hwidUser, setHwidUser] = useState<User | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<{id: number, name: string} | null>(null);
   const [deleting, setDeleting] = useState(false);
+  const [copyingEncryptedFor, setCopyingEncryptedFor] = useState<number | null>(null);
+
+  useEffect(() => {
+    const syncSelectedUser = (selected: User | null, setSelected: (value: User | null) => void) => {
+      if (!selected) {
+        return;
+      }
+      const fresh = users.find((item) => item.id === selected.id);
+      if (!fresh) {
+        setSelected(null);
+        return;
+      }
+      if (fresh !== selected) {
+        setSelected(fresh);
+      }
+    };
+
+    syncSelectedUser(editSubUser, setEditSubUser);
+    syncSelectedUser(editKeysUser, setEditKeysUser);
+    syncSelectedUser(hwidUser, setHwidUser);
+  }, [users, editSubUser, editKeysUser, hwidUser]);
 
   const handleDelete = (id: number, name: string) => {
     setDeleteTarget({ id, name });
@@ -54,17 +106,75 @@ export function UsersSection({ users, assignableKeys, onRefresh }: Props) {
     return `${window.location.origin}/sub/${subscriptionID}`;
   };
 
+  const copyText = async (value: string, successMessage: string) => {
+    try {
+      const copied = await copyToClipboard(value);
+      if (copied) {
+        toast(successMessage, "success");
+        return;
+      }
+
+      if (typeof window !== "undefined") {
+        window.prompt("Скопируйте ссылку вручную:", value);
+        toast("Буфер обмена недоступен: ссылка показана для ручного копирования", "info");
+        return;
+      }
+
+      toast("Не удалось скопировать ссылку", "error");
+    } catch {
+      if (typeof window !== "undefined") {
+        window.prompt("Скопируйте ссылку вручную:", value);
+        toast("Буфер обмена недоступен: ссылка показана для ручного копирования", "info");
+        return;
+      }
+
+      toast("Не удалось скопировать ссылку", "error");
+    }
+  };
+
+  const handleCopySubscriptionURL = async (user: User) => {
+    if (!user.subscription_id) {
+      toast("У пользователя нет ссылки подписки", "error");
+      return;
+    }
+    await copyText(resolveSubscriptionURL(user.subscription_id), "URL подписки скопирован");
+  };
+
+  const handleCopyEncryptedSubscriptionURL = async (user: User) => {
+    if (!user.subscription_id) {
+      toast("У пользователя нет ссылки подписки", "error");
+      return;
+    }
+
+    setCopyingEncryptedFor(user.id);
+    try {
+      const result = await usersApi.getSubscriptionURLs(user.id);
+      if (!result.encrypted_url) {
+        toast("Зашифрованная ссылка недоступна: проверьте настройку HAPP API", "error");
+        return;
+      }
+      await copyText(result.encrypted_url, "URL зашифрованной подписки скопирован");
+    } catch (error: unknown) {
+      toast(error instanceof Error ? error.message : "Не удалось получить зашифрованную ссылку", "error");
+    } finally {
+      setCopyingEncryptedFor(null);
+    }
+  };
+
   return (
     <Card>
       <div className="flex items-center justify-between mb-4">
-        <button
-          onClick={() => setCollapsed(!collapsed)}
-          className="flex items-center gap-2 text-lg font-semibold"
-          aria-expanded={!collapsed}
-        >
-          <span className={`transition-transform ${collapsed ? "" : "rotate-90"}`}>&#9654;</span>
-          Пользователи ({users.length})
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={() => setCollapsed(!collapsed)}
+            className="h-8 w-8 flex items-center justify-center rounded-lg border border-border bg-surface-2 transition-all hover:bg-surface-1"
+            aria-expanded={!collapsed}
+            aria-label={collapsed ? "Развернуть" : "Свернуть"}
+          >
+            <span className={`text-zinc-400 transition-transform ${collapsed ? "-rotate-90" : ""}`}>▼</span>
+          </button>
+          <h2 className="text-lg font-semibold"><EmojiText text="😄 Пользователи" /> ({users.length})</h2>
+        </div>
         <Button onClick={() => setShowAddUser(true)} className="text-xs">
           + Добавить
         </Button>
@@ -72,8 +182,16 @@ export function UsersSection({ users, assignableKeys, onRefresh }: Props) {
 
       {!collapsed && (
         <div className="overflow-x-auto">
-          <table className="w-full text-sm">
+          <table className="w-full table-fixed text-sm">
             <caption className="sr-only">Список пользователей</caption>
+            <colgroup>
+              <col style={{ width: "8.5rem" }} />
+              <col style={{ width: "10rem" }} />
+              <col style={{ width: "8.5rem" }} />
+              <col style={{ width: "6.5rem" }} />
+              <col style={{ width: "20rem" }} />
+              <col style={{ width: "20rem" }} />
+            </colgroup>
             <thead>
               <tr className="text-left text-zinc-400 border-b border-border">
                 <th scope="col" className="pb-2 pr-4">Имя</th>
@@ -87,54 +205,68 @@ export function UsersSection({ users, assignableKeys, onRefresh }: Props) {
             <tbody>
               {users.map((user) => (
                 <tr key={user.id} className="border-b border-border last:border-0">
-                  <td className="py-3 pr-4">{user.name}</td>
+                  <td className="py-3 pr-4"><EmojiText text={user.name} /></td>
                   <td className="py-3 pr-4 text-zinc-400">{user.email ? `@${user.email.replace(/^@+/, "")}` : "—"}</td>
-                  <td className="py-3 pr-4 font-mono text-xs">{user.activation_code}</td>
-                  <td className="py-3 pr-4"><StatusBadge status={user.status} /></td>
-                  <td className="py-3 pr-4 text-xs text-zinc-400">
-                    {user.subscription_id && (
-                      <a
-                        href={resolveSubscriptionURL(user.subscription_id)}
-                        target="_blank"
-                        rel="noreferrer"
-                        className="font-mono underline hover:text-zinc-200 break-all"
-                      >
-                        {resolveSubscriptionURL(user.subscription_id)}
-                      </a>
-                    )}
-                    {user.starts_at && <div className="mt-1">с {user.starts_at}</div>}
-                    {user.expires_at && <div>Истекает: {user.expires_at}</div>}
+                  <td className="py-3 pr-4 font-mono text-xs">
+                    {user.activation_code}
+                    <div className="text-[0.68rem] text-zinc-500">Активирован: {formatDateTime(user.activation_used_at) ?? "—"}</div>
                   </td>
-                  <td className="py-3">
-                    <div className="flex gap-1.5">
+                  <td className="py-3 pr-4"><StatusBadge status={user.status} /></td>
+                  <td className="py-3 pr-4 align-top text-xs text-zinc-400">
+                    <div className="mb-2 flex w-full flex-col items-stretch gap-1.5">
                       <Button
                         variant="ghost"
-                        className="text-xs"
-                        onClick={() => setEditKeysUser(user)}
+                        className="w-full text-xs"
+                        onClick={() => void handleCopySubscriptionURL(user)}
+                        disabled={!user.subscription_id}
                       >
-                        Ключи
+                        Скопировать URL подписки
                       </Button>
                       <Button
                         variant="ghost"
-                        className="text-xs"
+                        className="w-full text-xs"
+                        onClick={() => void handleCopyEncryptedSubscriptionURL(user)}
+                        loading={copyingEncryptedFor === user.id}
+                        disabled={!user.subscription_id || (copyingEncryptedFor !== null && copyingEncryptedFor !== user.id)}
+                      >
+                        Скопировать URL зашифрованной подписки
+                      </Button>
+                    </div>
+                    <div>Выдана: {user.starts_at || "—"}</div>
+                    <div>Истекает: {user.expires_at || "—"}</div>
+                  </td>
+                  <td className="py-3 align-top">
+                    <div className="flex w-full flex-col items-stretch gap-1.5">
+                      <Button
+                        variant="ghost"
+                        className="w-full text-xs"
                         onClick={() => setEditSubUser(user)}
                       >
-                        Подписка
+                        Редактировать
                       </Button>
-                      <Button
-                        variant="ghost"
-                        className="text-xs"
-                        onClick={() => setHwidUser(user)}
-                      >
-                        HWID
-                      </Button>
-                      <Button
-                        variant="danger"
-                        className="text-xs"
-                        onClick={() => handleDelete(user.id, user.name)}
-                      >
-                        Удалить
-                      </Button>
+                      <div className="grid grid-cols-3 gap-1.5">
+                        <Button
+                          variant="ghost"
+                          className="w-full text-xs"
+                          onClick={() => setEditKeysUser(user)}
+                        >
+                          Ключи
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          className="w-full text-xs"
+                          onClick={() => setHwidUser(user)}
+                        >
+                          HWID
+                        </Button>
+                        <Button
+                          variant="danger"
+                          className="w-full text-xs"
+                          onClick={() => handleDelete(user.id, user.name)}
+                        >
+                          Удалить
+                        </Button>
+                      </div>
                     </div>
                   </td>
                 </tr>

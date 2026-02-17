@@ -95,7 +95,8 @@ func formatDateTimeInput(value sql.NullTime) string {
 	if !value.Valid {
 		return ""
 	}
-	return value.Time.Local().Format("2006-01-02T15:04")
+	local := value.Time.Local()
+	return local.Format("02/01/2006 15:04")
 }
 
 func nullTimeValue(value sql.NullTime) any {
@@ -194,8 +195,8 @@ func (a *App) buildSubscriptionTemplateData(subscriptionID string) (subscription
 	out.Telegram = telegram
 	if expiresAt.Valid {
 		local := expiresAt.Time.Local()
-		out.ExpiryDate = local.Format("2006-01-02")
-		out.ExpiryDateTime = local.Format("2006-01-02 15:04")
+		out.ExpiryDate = local.Format("02/01/2006")
+		out.ExpiryDateTime = local.Format("02/01/2006 15:04")
 	}
 
 	var realCount int

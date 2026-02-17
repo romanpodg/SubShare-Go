@@ -3,8 +3,10 @@
 import { useState, useEffect, FormEvent } from "react";
 import { Modal } from "@/components/ui/Modal";
 import { Input } from "@/components/ui/Input";
+import { AppleEmojiInput } from "@/components/ui/AppleEmojiInput";
 import { Select } from "@/components/ui/Select";
 import { Button } from "@/components/ui/Button";
+import { EmojiPickerButton } from "@/components/ui/EmojiPickerButton";
 import { useToast } from "@/components/ui/Toast";
 import { keys as keysApi } from "@/lib/api";
 import { keyTemplateVariables } from "./keyTemplateVariables";
@@ -88,12 +90,15 @@ export function AddKeyModal({ open, onClose, onRefresh }: Props) {
           />
         ) : (
           <>
-            <Input
+            <AppleEmojiInput
               label="Шаблон текста"
               value={templateText}
               onChange={(e) => setTemplateText(e.target.value)}
               placeholder="User: @{telegram}"
             />
+            <div className="-mt-2">
+              <EmojiPickerButton inline onSelect={(emoji) => setTemplateText((prev) => `${prev}${emoji}`)} />
+            </div>
             <div className="rounded-lg bg-surface-2 p-3 text-xs text-zinc-400">
               <div className="mb-1 font-medium text-zinc-300">Переменные:</div>
               <div className="grid grid-cols-1 gap-1">

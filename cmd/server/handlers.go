@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log"
 	"net/http"
@@ -402,6 +403,95 @@ func (a *App) apiUpdateUserSubscription(w http.ResponseWriter, r *http.Request) 
 	writeMessage(w, "subscription updated")
 }
 
+func (a *App) apiGetUserSubscriptionURLs(w http.ResponseWriter, r *http.Request) {
+	id, ok := pathID(w, r, "id")
+	if !ok {
+		return
+	}
+
+	var subscriptionID sql.NullString
+	if err := a.db.QueryRow(`SELECT subscription_id FROM users WHERE id = ?`, id).Scan(&subscriptionID); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			writeError(w, http.StatusNotFound, "user not found")
+			return
+		}
+		log.Printf("apiGetUserSubscriptionURLs: %v", err)
+		writeError(w, http.StatusInternalServerError, "failed to load user subscription")
+		return
+	}
+
+	subID := strings.TrimSpace(subscriptionID.String)
+	if subID == "" {
+		writeError(w, http.StatusBadRequest, "subscription id is empty")
+		return
+	}
+
+	plainURL := fmt.Sprintf("%s/sub/%s", a.resolveBaseURL(r), subID)
+	encryptedURL := ""
+	if encrypted, err := a.encryptSubscriptionURL(plainURL); err == nil {
+		encryptedURL = strings.TrimSpace(encrypted)
+	} else {
+		log.Printf("apiGetUserSubscriptionURLs: encrypt failed for user_id=%d: %v", id, err)
+	}
+
+	writeJSON(w, http.StatusOK, map[string]any{
+		"plain_url":     plainURL,
+		"encrypted_url": encryptedURL,
+	})
+}
+
+func (a *App) apiUpdateUserSettings(w http.ResponseWriter, r *http.Request) {
+	id, ok := pathID(w, r, "id")
+	if !ok {
+		return
+	}
+
+	var req model.UpdateUserSettingsRequest
+	if err := readJSON(r, &req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+
+	timeZone := strings.TrimSpace(req.TimeZone)
+	if timeZone == "" {
+		timeZone = "Europe/Moscow"
+	}
+	if len(timeZone) > 64 {
+		writeError(w, http.StatusBadRequest, "time_zone is too long (max 64 characters)")
+		return
+	}
+	if _, err := time.LoadLocation(timeZone); err != nil {
+		writeError(w, http.StatusBadRequest, "time_zone must be a valid IANA timezone")
+		return
+	}
+
+	language := strings.ToLower(strings.TrimSpace(req.Language))
+	if language == "" {
+		language = "ru"
+	}
+	switch language {
+	case "ru", "en":
+	default:
+		writeError(w, http.StatusBadRequest, "language must be one of: ru, en")
+		return
+	}
+
+	res, err := a.db.Exec(`UPDATE users SET time_zone = ?, language = ? WHERE id = ?`, timeZone, language, id)
+	if err != nil {
+		log.Printf("apiUpdateUserSettings: %v", err)
+		writeError(w, http.StatusInternalServerError, "failed to update user settings")
+		return
+	}
+	updated, _ := res.RowsAffected()
+	if updated == 0 {
+		writeError(w, http.StatusNotFound, "user not found")
+		return
+	}
+
+	log.Printf("AUDIT: update user settings user_id=%d time_zone=%s language=%s", id, timeZone, language)
+	writeMessage(w, "user settings updated")
+}
+
 func (a *App) apiGetSubscriptionSettings(w http.ResponseWriter, r *http.Request) {
 	settings, err := a.getSubscriptionSettings()
 	if err != nil {
@@ -465,15 +555,41 @@ func (a *App) apiUpdateSubscriptionSettings(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
+	timeZone := strings.TrimSpace(req.TimeZone)
+	if timeZone == "" {
+		timeZone = "Europe/Moscow"
+	}
+	if len(timeZone) > 64 {
+		writeError(w, http.StatusBadRequest, "time_zone is too long (max 64 characters)")
+		return
+	}
+	if _, err := time.LoadLocation(timeZone); err != nil {
+		writeError(w, http.StatusBadRequest, "time_zone must be a valid IANA timezone")
+		return
+	}
+
+	language := strings.ToLower(strings.TrimSpace(req.Language))
+	if language == "" {
+		language = "ru"
+	}
+	switch language {
+	case "ru", "en":
+	default:
+		writeError(w, http.StatusBadRequest, "language must be one of: ru, en")
+		return
+	}
+
 	if _, err := a.db.Exec(
 		`UPDATE subscription_settings
-		 SET title = ?, refresh_hours = ?, info_url = ?, extra_url = ?, extra_status = ?, updated_at = CURRENT_TIMESTAMP
+		 SET title = ?, refresh_hours = ?, info_url = ?, extra_url = ?, extra_status = ?, time_zone = ?, language = ?, updated_at = CURRENT_TIMESTAMP
 		 WHERE id = 1`,
 		title,
 		refreshHours,
 		nullStringValue(infoURL),
 		nullStringValue(extraURL),
 		nullStringValue(extraStatus),
+		timeZone,
+		language,
 	); err != nil {
 		log.Printf("apiUpdateSubscriptionSettings: %v", err)
 		writeError(w, http.StatusInternalServerError, "failed to update subscription settings")

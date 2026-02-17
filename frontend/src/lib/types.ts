@@ -2,6 +2,8 @@ export interface User {
   id: number;
   name: string;
   email: string;
+  time_zone: string;
+  language: string;
   activation_code: string;
   subscription_id: string;
   subscription_name: string;
@@ -76,4 +78,6 @@ export interface SubscriptionSettings {
   info_url: string;
   extra_url: string;
   extra_status: string;
+  time_zone: string;
+  language: string;
 }

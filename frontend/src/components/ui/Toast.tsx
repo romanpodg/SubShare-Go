@@ -1,6 +1,7 @@
 "use client";
 
 import { createContext, useContext, useState, useCallback, ReactNode } from "react";
+import { EmojiText } from "@/components/ui/EmojiText";
 
 type ToastType = "success" | "error" | "info";
 
@@ -54,7 +55,7 @@ export function ToastProvider({ children }: { children: ReactNode }) {
             key={t.id}
             className={`px-4 py-3 rounded-lg border text-sm ${t.exiting ? "animate-fade-out" : "animate-fade-in"} ${colors[t.type]}`}
           >
-            {t.message}
+            <EmojiText text={t.message} />
           </div>
         ))}
       </div>

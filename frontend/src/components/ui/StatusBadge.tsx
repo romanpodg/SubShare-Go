@@ -1,3 +1,5 @@
+import { EmojiText } from "./EmojiText";
+
 interface StatusBadgeProps {
   status: string;
   className?: string;
@@ -17,7 +19,7 @@ export function StatusBadge({ status, className = "" }: StatusBadgeProps) {
       role="status"
       className={`text-xs px-2 py-0.5 rounded-full ${config.className} ${className}`}
     >
-      {config.label}
+      <EmojiText text={config.label} />
     </span>
   );
 }

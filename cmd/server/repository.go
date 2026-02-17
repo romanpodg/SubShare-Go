@@ -102,6 +102,12 @@ func migrate(db *sql.DB) error {
 	if err := ensureColumn(db, "users", "subscription_extra_status", "TEXT"); err != nil {
 		return err
 	}
+	if err := ensureColumn(db, "users", "time_zone", "TEXT NOT NULL DEFAULT 'Europe/Moscow'"); err != nil {
+		return err
+	}
+	if err := ensureColumn(db, "users", "language", "TEXT NOT NULL DEFAULT 'ru'"); err != nil {
+		return err
+	}
 	if err := ensureColumn(db, "vless_keys", "check_status", "TEXT NOT NULL DEFAULT 'unknown'"); err != nil {
 		return err
 	}
@@ -178,6 +184,12 @@ func migrate(db *sql.DB) error {
 	if _, err := db.Exec(`UPDATE users SET subscription_refresh_hours = 12 WHERE subscription_refresh_hours IS NULL OR subscription_refresh_hours < 1`); err != nil {
 		return err
 	}
+	if _, err := db.Exec(`UPDATE users SET time_zone = 'Europe/Moscow' WHERE time_zone IS NULL OR TRIM(time_zone) = ''`); err != nil {
+		return err
+	}
+	if _, err := db.Exec(`UPDATE users SET language = 'ru' WHERE language IS NULL OR TRIM(language) = ''`); err != nil {
+		return err
+	}
 	if _, err := db.Exec(`CREATE UNIQUE INDEX IF NOT EXISTS idx_users_activation_code ON users(activation_code)`); err != nil {
 		return err
 	}
@@ -220,7 +232,19 @@ func migrate(db *sql.DB) error {
 	if _, err := db.Exec(`INSERT OR IGNORE INTO subscription_settings(id, title, refresh_hours) VALUES(1, 'AllKeys', 12)`); err != nil {
 		return err
 	}
+	if err := ensureColumn(db, "subscription_settings", "time_zone", "TEXT NOT NULL DEFAULT 'Europe/Moscow'"); err != nil {
+		return err
+	}
+	if err := ensureColumn(db, "subscription_settings", "language", "TEXT NOT NULL DEFAULT 'ru'"); err != nil {
+		return err
+	}
 	if _, err := db.Exec(`UPDATE subscription_settings SET refresh_hours = 12 WHERE refresh_hours < 1`); err != nil {
+		return err
+	}
+	if _, err := db.Exec(`UPDATE subscription_settings SET time_zone = 'Europe/Moscow' WHERE time_zone IS NULL OR TRIM(time_zone) = ''`); err != nil {
+		return err
+	}
+	if _, err := db.Exec(`UPDATE subscription_settings SET language = 'ru' WHERE language IS NULL OR TRIM(language) = ''`); err != nil {
 		return err
 	}
 	return nil
@@ -278,7 +302,10 @@ func (a *App) listUsers() ([]model.User, error) {
 			GROUP BY user_id
 		)
 		SELECT
-			u.id, u.name, u.email, u.activation_code, u.subscription_id,
+			u.id, u.name, u.email,
+			COALESCE(NULLIF(TRIM(u.time_zone), ''), 'Europe/Moscow') AS time_zone,
+			COALESCE(NULLIF(TRIM(u.language), ''), 'ru') AS language,
+			u.activation_code, u.subscription_id,
 			u.subscription_name, COALESCE(NULLIF(u.subscription_refresh_hours, 0), 12) AS subscription_refresh_hours,
 			u.subscription_info_url, u.subscription_extra_url, u.subscription_extra_status,
 			u.activation_used_at, u.status, u.starts_at, u.expires_at,
@@ -302,6 +329,8 @@ func (a *App) listUsers() ([]model.User, error) {
 	for rows.Next() {
 		var u model.User
 		var status sql.NullString
+		var timeZone sql.NullString
+		var language sql.NullString
 		var activationCode sql.NullString
 		var subscriptionID sql.NullString
 		var subscriptionName sql.NullString
@@ -321,6 +350,8 @@ func (a *App) listUsers() ([]model.User, error) {
 			&u.ID,
 			&u.Name,
 			&u.Email,
+			&timeZone,
+			&language,
 			&activationCode,
 			&subscriptionID,
 			&subscriptionName,
@@ -342,6 +373,14 @@ func (a *App) listUsers() ([]model.User, error) {
 			return nil, err
 		}
 		u.ActivationCode = strings.TrimSpace(activationCode.String)
+		u.TimeZone = strings.TrimSpace(timeZone.String)
+		if u.TimeZone == "" {
+			u.TimeZone = "Europe/Moscow"
+		}
+		u.Language = strings.TrimSpace(language.String)
+		if u.Language == "" {
+			u.Language = "ru"
+		}
 		u.SubscriptionID = strings.TrimSpace(subscriptionID.String)
 		u.SubscriptionName = strings.TrimSpace(subscriptionName.String)
 		u.SubscriptionRefreshHours = 12
@@ -352,7 +391,7 @@ func (a *App) listUsers() ([]model.User, error) {
 		u.SubscriptionExtraURL = strings.TrimSpace(subscriptionExtraURL.String)
 		u.SubscriptionExtraStatus = strings.TrimSpace(subscriptionExtraStatus.String)
 		if activationUsedAt.Valid {
-			u.ActivationUsedAt = activationUsedAt.Time.Local().Format("2006-01-02 15:04:05")
+			u.ActivationUsedAt = activationUsedAt.Time.Local().Format("02/01/2006 15:04")
 		}
 		u.Status = model.NormalizeStoredStatus(status.String)
 		u.StartsAtInput = formatDateTimeInput(startsAt)
@@ -519,10 +558,12 @@ func (a *App) getSubscriptionSettings() (model.SubscriptionSettings, error) {
 	var infoURL sql.NullString
 	var extraURL sql.NullString
 	var extraStatus sql.NullString
+	var timeZone sql.NullString
+	var language sql.NullString
 
 	err := a.db.QueryRow(
-		`SELECT title, refresh_hours, info_url, extra_url, extra_status FROM subscription_settings WHERE id = 1`,
-	).Scan(&title, &refreshHours, &infoURL, &extraURL, &extraStatus)
+		`SELECT title, refresh_hours, info_url, extra_url, extra_status, time_zone, language FROM subscription_settings WHERE id = 1`,
+	).Scan(&title, &refreshHours, &infoURL, &extraURL, &extraStatus, &timeZone, &language)
 	if err != nil {
 		return model.SubscriptionSettings{}, err
 	}
@@ -533,12 +574,20 @@ func (a *App) getSubscriptionSettings() (model.SubscriptionSettings, error) {
 		InfoURL:      strings.TrimSpace(infoURL.String),
 		ExtraURL:     strings.TrimSpace(extraURL.String),
 		ExtraStatus:  strings.TrimSpace(extraStatus.String),
+		TimeZone:     strings.TrimSpace(timeZone.String),
+		Language:     strings.TrimSpace(language.String),
 	}
 	if refreshHours.Valid && refreshHours.Int64 > 0 {
 		settings.RefreshHours = int(refreshHours.Int64)
 	}
 	if settings.Title == "" {
 		settings.Title = "AllKeys"
+	}
+	if settings.TimeZone == "" {
+		settings.TimeZone = "Europe/Moscow"
+	}
+	if settings.Language == "" {
+		settings.Language = "ru"
 	}
 	return settings, nil
 }
