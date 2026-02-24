@@ -15,9 +15,13 @@ interface Props {
   open: boolean;
   onClose: () => void;
   onRefresh: () => Promise<void>;
+  /** When set, the newly created key should be inserted at this row index. */
+  insertAtIndex?: number | null;
+  /** Called after key is successfully created so the parent can reorder. */
+  onCreated?: () => void;
 }
 
-export function AddKeyModal({ open, onClose, onRefresh }: Props) {
+export function AddKeyModal({ open, onClose, onRefresh, insertAtIndex, onCreated }: Props) {
   const { toast } = useToast();
   const [loading, setLoading] = useState(false);
   const [label, setLabel] = useState("");
@@ -55,6 +59,7 @@ export function AddKeyModal({ open, onClose, onRefresh }: Props) {
       resetForm();
       onClose();
       await onRefresh();
+      if (onCreated) onCreated();
     } catch (err: unknown) {
       toast(err instanceof Error ? err.message : "Не удалось добавить ключ", "error");
     } finally {

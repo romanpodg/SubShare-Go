@@ -64,7 +64,7 @@ export function EmojiPickerButton({ onSelect, className = "", inline = false }: 
         locale: "ru",
         spritesheet: false,
         getImageURL: (set: string, unified: string) =>
-          `https://unpkg.com/emoji-datasource-${set}@15.0.1/img/${set}/64/${unified}.png`,
+          `https://cdn.jsdelivr.net/npm/emoji-datasource-${set}@15.0.1/img/${set}/64/${unified}.png`,
         previewPosition: "none",
         skinTonePosition: "none",
         maxFrequentRows: 1,

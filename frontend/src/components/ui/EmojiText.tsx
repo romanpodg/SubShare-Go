@@ -1,6 +1,6 @@
 "use client";
 
-import type { ReactNode } from "react";
+import { type ReactNode, useState } from "react";
 import emojiRegex from "emoji-regex";
 
 interface EmojiTextProps {
@@ -8,13 +8,29 @@ interface EmojiTextProps {
   className?: string;
 }
 
-const APPLE_EMOJI_BASE_URL = "https://unpkg.com/emoji-datasource-apple@15.0.1/img/apple/64/";
+const APPLE_EMOJI_BASE_URL = "https://cdn.jsdelivr.net/npm/emoji-datasource-apple@15.0.1/img/apple/64/";
 
 function toUnified(emoji: string): string {
   return Array.from(emoji)
     .map((char) => char.codePointAt(0)?.toString(16) ?? "")
     .filter(Boolean)
     .join("-");
+}
+
+function AppleEmojiImg({ emoji, unified }: { emoji: string; unified: string }) {
+  const [failed, setFailed] = useState(false);
+  if (failed) return <span>{emoji}</span>;
+  return (
+    // eslint-disable-next-line @next/next/no-img-element
+    <img
+      src={`${APPLE_EMOJI_BASE_URL}${unified}.png`}
+      alt={emoji}
+      className="emoji-image"
+      draggable={false}
+      loading="lazy"
+      onError={() => setFailed(true)}
+    />
+  );
 }
 
 export function EmojiText({ text, className = "" }: EmojiTextProps) {
@@ -40,14 +56,7 @@ export function EmojiText({ text, className = "" }: EmojiTextProps) {
     const nativeEmoji = match[0];
     const unified = toUnified(nativeEmoji);
     nodes.push(
-      // eslint-disable-next-line @next/next/no-img-element
-      <img
-        key={`emoji-${keyIndex++}`}
-        src={`${APPLE_EMOJI_BASE_URL}${unified}.png`}
-        alt={nativeEmoji}
-        className="emoji-image"
-        draggable={false}
-      />
+      <AppleEmojiImg key={`emoji-${keyIndex++}`} emoji={nativeEmoji} unified={unified} />
     );
 
     lastIndex = matchIndex + nativeEmoji.length;

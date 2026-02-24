@@ -55,6 +55,16 @@ func migrate(db *sql.DB) error {
 			extra_status TEXT,
 			updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
 		);`,
+		`CREATE TABLE IF NOT EXISTS panel_settings (
+			id INTEGER PRIMARY KEY CHECK (id = 1),
+			panel_title TEXT NOT NULL DEFAULT 'Xray Sub',
+			logo_data TEXT NOT NULL DEFAULT '',
+			favicon_data TEXT NOT NULL DEFAULT '',
+			page_title_admin TEXT NOT NULL DEFAULT 'Панель управления — Xray Sub',
+			page_title_admin_login TEXT NOT NULL DEFAULT 'Вход — Xray Sub',
+			page_title_subscription TEXT NOT NULL DEFAULT 'VPN-подписка — Xray Sub',
+			updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+		);`,
 	}
 
 	for _, q := range queries {
@@ -175,9 +185,6 @@ func migrate(db *sql.DB) error {
 	if _, err := db.Exec(`UPDATE users SET subscription_id = token WHERE subscription_id IS NULL OR TRIM(subscription_id) = ''`); err != nil {
 		return err
 	}
-	if _, err := db.Exec(`UPDATE users SET activation_used_at = CURRENT_TIMESTAMP WHERE activation_used_at IS NULL AND subscription_id IS NOT NULL AND TRIM(subscription_id) <> ''`); err != nil {
-		return err
-	}
 	if _, err := db.Exec(`UPDATE users SET max_devices = 1 WHERE max_devices IS NULL OR max_devices < 1`); err != nil {
 		return err
 	}
@@ -230,6 +237,9 @@ func migrate(db *sql.DB) error {
 		return err
 	}
 	if _, err := db.Exec(`INSERT OR IGNORE INTO subscription_settings(id, title, refresh_hours) VALUES(1, 'AllKeys', 12)`); err != nil {
+		return err
+	}
+	if _, err := db.Exec(`INSERT OR IGNORE INTO panel_settings(id) VALUES(1)`); err != nil {
 		return err
 	}
 	if err := ensureColumn(db, "subscription_settings", "time_zone", "TEXT NOT NULL DEFAULT 'Europe/Moscow'"); err != nil {
@@ -302,7 +312,7 @@ func (a *App) listUsers() ([]model.User, error) {
 			GROUP BY user_id
 		)
 		SELECT
-			u.id, u.name, u.email,
+			u.id, u.name, u.email, u.token,
 			COALESCE(NULLIF(TRIM(u.time_zone), ''), 'Europe/Moscow') AS time_zone,
 			COALESCE(NULLIF(TRIM(u.language), ''), 'ru') AS language,
 			u.activation_code, u.subscription_id,
@@ -350,6 +360,7 @@ func (a *App) listUsers() ([]model.User, error) {
 			&u.ID,
 			&u.Name,
 			&u.Email,
+&u.Token,
 			&timeZone,
 			&language,
 			&activationCode,
@@ -590,6 +601,58 @@ func (a *App) getSubscriptionSettings() (model.SubscriptionSettings, error) {
 		settings.Language = "ru"
 	}
 	return settings, nil
+}
+
+func (a *App) getPanelSettings() (model.PanelSettings, error) {
+	var panelTitle, logoData, faviconData sql.NullString
+	var pageTitleAdmin, pageTitleAdminLogin, pageTitleSubscription sql.NullString
+
+	err := a.db.QueryRow(
+		`SELECT panel_title, logo_data, favicon_data, page_title_admin, page_title_admin_login, page_title_subscription
+		 FROM panel_settings WHERE id = 1`,
+	).Scan(&panelTitle, &logoData, &faviconData, &pageTitleAdmin, &pageTitleAdminLogin, &pageTitleSubscription)
+	if err != nil {
+		return model.PanelSettings{}, err
+	}
+
+	s := model.PanelSettings{
+		PanelTitle:            strings.TrimSpace(panelTitle.String),
+		LogoDataURL:           logoData.String,
+		FaviconDataURL:        faviconData.String,
+		PageTitleAdmin:        strings.TrimSpace(pageTitleAdmin.String),
+		PageTitleAdminLogin:   strings.TrimSpace(pageTitleAdminLogin.String),
+		PageTitleSubscription: strings.TrimSpace(pageTitleSubscription.String),
+	}
+	if s.PanelTitle == "" {
+		s.PanelTitle = "Xray Sub"
+	}
+	if s.PageTitleAdmin == "" {
+		s.PageTitleAdmin = "Панель управления — Xray Sub"
+	}
+	if s.PageTitleAdminLogin == "" {
+		s.PageTitleAdminLogin = "Вход — Xray Sub"
+	}
+	if s.PageTitleSubscription == "" {
+		s.PageTitleSubscription = "VPN-подписка — Xray Sub"
+	}
+	return s, nil
+}
+
+func (a *App) updatePanelSettings(s model.PanelSettings) error {
+	_, err := a.db.Exec(
+		`UPDATE panel_settings SET
+			panel_title = ?,
+			logo_data = ?,
+			favicon_data = ?,
+			page_title_admin = ?,
+			page_title_admin_login = ?,
+			page_title_subscription = ?,
+			updated_at = CURRENT_TIMESTAMP
+		 WHERE id = 1`,
+		s.PanelTitle, s.LogoDataURL, s.FaviconDataURL,
+		s.PageTitleAdmin, s.PageTitleAdminLogin, s.PageTitleSubscription,
+	)
+	return err
 }
 
 func (a *App) subscriptionAccessAllowed(subscriptionID string) (bool, int64, int, string, error) {

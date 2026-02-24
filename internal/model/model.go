@@ -38,6 +38,7 @@ type User struct {
 	ID                       int64             `json:"id"`
 	Name                     string            `json:"name"`
 	Email                    string            `json:"email"`
+Token                    string            `json:"token"`
 	TimeZone                 string            `json:"time_zone"`
 	Language                 string            `json:"language"`
 	ActivationCode           string            `json:"activation_code"`
@@ -198,6 +199,16 @@ type UpdateSubscriptionSettingsRequest struct {
 	ExtraStatus  string `json:"extra_status"`
 	TimeZone     string `json:"time_zone"`
 	Language     string `json:"language"`
+}
+
+// PanelSettings stores admin panel UI customization (title, logo, favicon, page titles).
+type PanelSettings struct {
+	PanelTitle         string `json:"panelTitle"`
+	LogoDataURL        string `json:"logoDataUrl"`
+	FaviconDataURL     string `json:"faviconDataUrl"`
+	PageTitleAdmin     string `json:"pageTitleAdmin"`
+	PageTitleAdminLogin string `json:"pageTitleAdminLogin"`
+	PageTitleSubscription string `json:"pageTitleSubscription"`
 }
 
 // NormalizeUserStatus validates and normalizes a user status string.

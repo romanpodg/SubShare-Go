@@ -92,7 +92,7 @@ export function Modal({ open, onClose, title, children }: ModalProps) {
         role="dialog"
         aria-modal="true"
         aria-label={title}
-        className="bg-surface-1 border border-border rounded-xl p-5 w-full max-w-lg max-h-[95vh] overflow-y-auto shadow-xl shadow-black/50 animate-fade-in"
+        className="bg-surface-1 border border-border rounded-xl p-4 w-full max-w-lg max-h-[88vh] overflow-y-auto shadow-xl shadow-black/50 animate-fade-in"
       >
         <div className="flex items-center justify-between mb-3">
           <h2 className="text-lg font-semibold text-zinc-200"><EmojiText text={title} /></h2>

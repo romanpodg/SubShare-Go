@@ -2,14 +2,50 @@ import type { Metadata } from "next";
 import { Inter } from "next/font/google";
 import { ToastProvider } from "@/components/ui/Toast";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
+import { PanelSettingsProvider } from "@/context/PanelSettingsContext";
 import "./globals.css";
 
 const inter = Inter({ subsets: ["latin", "cyrillic"] });
 
 export const metadata: Metadata = {
-  title: "Xray Sub",
   description: "VLESS subscription management",
 };
+
+// Runs synchronously before React hydrates — eliminates title/favicon flash on every page.
+const STORAGE_KEY = "xray_sub_panel_settings";
+const earlyInitScript = `(function(){try{
+  var s=JSON.parse(localStorage.getItem('${STORAGE_KEY}')||'{}');
+  if(s.faviconDataUrl){
+    var links=document.querySelectorAll("link[rel~='icon']");
+    if(!links.length){
+      var icon=document.createElement('link');
+      icon.rel='icon';
+      icon.href=s.faviconDataUrl;
+      document.head.appendChild(icon);
+      var shortcut=document.createElement('link');
+      shortcut.rel='shortcut icon';
+      shortcut.href=s.faviconDataUrl;
+      document.head.appendChild(shortcut);
+    }else{
+      for(var i=0;i<links.length;i++){links[i].href=s.faviconDataUrl;}
+      var hasShortcut=false;
+      for(var j=0;j<links.length;j++){if((links[j].rel||'').toLowerCase()==='shortcut icon'){hasShortcut=true;break;}}
+      if(!hasShortcut){
+        var sc=document.createElement('link');
+        sc.rel='shortcut icon';
+        sc.href=s.faviconDataUrl;
+        document.head.appendChild(sc);
+      }
+    }
+  }
+  var p=window.location.pathname;
+  var t=s.pageTitles||{};
+  var title;
+  if(p==='/admin/login'||p==='/admin/login/')title=t.adminLogin;
+  else if(p.indexOf('/subscription')===0)title=t.subscription;
+  else if(p.indexOf('/admin')===0)title=t.admin;
+  if(title)document.title=title;
+}catch(e){}})();`;
 
 export default function RootLayout({
   children,
@@ -18,6 +54,9 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="ru" className="dark">
+      <head>
+        <script dangerouslySetInnerHTML={{ __html: earlyInitScript }} />
+      </head>
       <body className={`${inter.className} bg-bg text-zinc-200 min-h-screen`}>
         <a
           href="#main-content"
@@ -26,7 +65,9 @@ export default function RootLayout({
           Перейти к содержимому
         </a>
         <ToastProvider>
-          <ErrorBoundary>{children}</ErrorBoundary>
+          <PanelSettingsProvider>
+            <ErrorBoundary>{children}</ErrorBoundary>
+          </PanelSettingsProvider>
         </ToastProvider>
       </body>
     </html>

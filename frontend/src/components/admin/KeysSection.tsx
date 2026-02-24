@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
+import React, { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import type { VLESSKey } from "@/lib/types";
 import { keys as keysApi } from "@/lib/api";
 import { useToast } from "@/components/ui/Toast";
@@ -47,6 +47,35 @@ interface Props {
   onRefresh: () => Promise<void>;
 }
 
+/** Semi-transparent "+ Добавить" button shown in the gap between key rows on hover. */
+function InsertGapButton({ index, onInsert }: { index: number; onInsert: (index: number) => void }) {
+  const [hovered, setHovered] = useState(false);
+
+  return (
+    <div
+      className="relative flex items-center justify-center"
+      style={{ height: hovered ? "32px" : "6px", transition: "height 150ms ease" }}
+      onMouseEnter={() => setHovered(true)}
+      onMouseLeave={() => setHovered(false)}
+    >
+      <button
+        type="button"
+        onClick={() => onInsert(index)}
+        className="absolute inset-0 flex items-center justify-center rounded-md text-xs font-medium transition-opacity duration-150"
+        style={{ opacity: hovered ? 0.7 : 0, pointerEvents: hovered ? "auto" : "none" }}
+      >
+        <span className="flex items-center gap-1 rounded-md bg-zinc-700 px-3 py-1 text-zinc-300 shadow-sm">
+          + Добавить
+        </span>
+      </button>
+      {/* Thin line hint visible on hover */}
+      {!hovered && (
+        <div className="absolute inset-x-4 top-1/2 -translate-y-1/2 h-px bg-transparent group-hover:bg-zinc-700 transition-colors" />
+      )}
+    </div>
+  );
+}
+
 export function KeysSection({ keys, onRefresh }: Props) {
   const { toast } = useToast();
   const [collapsed, setCollapsed] = useState(false);
@@ -60,6 +89,7 @@ export function KeysSection({ keys, onRefresh }: Props) {
   const [dragging, setDragging] = useState<{ id: number; rowIndex: number } | null>(null);
   const [reordering, setReordering] = useState(false);
   const [hasUnsavedOrder, setHasUnsavedOrder] = useState(false);
+  const [insertAtIndex, setInsertAtIndex] = useState<number | null>(null);
   const cardHeightsRef = useRef<Record<string, HTMLDivElement | null>>({});
   const [rowHeights, setRowHeights] = useState<Record<number, { informational: number; real: number }>>({});
 
@@ -68,6 +98,37 @@ export function KeysSection({ keys, onRefresh }: Props) {
       setOrderedKeys(keys);
     }
   }, [keys, hasUnsavedOrder]);
+
+  // Auto-scroll the page while dragging near edges
+  useEffect(() => {
+    if (!dragging) return;
+    let rafId = 0;
+    const EDGE = 80; // px from viewport edge to start scrolling
+    const SPEED = 18; // px per frame at the very edge
+    let lastY = 0;
+
+    const onDragOver = (e: DragEvent) => {
+      lastY = e.clientY;
+    };
+
+    const tick = () => {
+      const vh = window.innerHeight;
+      if (lastY > 0 && lastY < EDGE) {
+        window.scrollBy(0, -SPEED * (1 - lastY / EDGE));
+      } else if (lastY > vh - EDGE) {
+        window.scrollBy(0, SPEED * (1 - (vh - lastY) / EDGE));
+      }
+      rafId = requestAnimationFrame(tick);
+    };
+
+    window.addEventListener("dragover", onDragOver);
+    rafId = requestAnimationFrame(tick);
+
+    return () => {
+      window.removeEventListener("dragover", onDragOver);
+      cancelAnimationFrame(rafId);
+    };
+  }, [dragging]);
 
   const handleDelete = (id: number, label: string) => {
     setDeleteTarget({ id, label });
@@ -383,7 +444,7 @@ export function KeysSection({ keys, onRefresh }: Props) {
           >
             <span className={`text-zinc-400 transition-transform ${collapsed ? "-rotate-90" : ""}`}>▼</span>
           </button>
-          <h2 className="text-lg font-semibold"><EmojiText text="🔐 Ключи" /> ({orderedKeys.length})</h2>
+          <h2 className="text-lg font-semibold"><EmojiText text={`🔐 Ключи (${orderedKeys.length})`} /></h2>
         </div>
         <div className="flex gap-2">
           <Button variant="ghost" onClick={handleCheckAll} loading={checkingAll} className="text-xs">
@@ -432,7 +493,16 @@ export function KeysSection({ keys, onRefresh }: Props) {
 
           <div className="space-y-2">
             {rows.map((row, index) => (
-              <div key={`row-${index}`} className="grid" style={gridLayoutStyle}>
+              <React.Fragment key={`row-${index}`}>
+                {/* Hover gap button before this row */}
+                <InsertGapButton
+                  index={index}
+                  onInsert={(idx) => {
+                    setInsertAtIndex(idx);
+                    setShowAddKey(true);
+                  }}
+                />
+              <div className="grid" style={gridLayoutStyle}>
                   <div
                     className={`flex h-full flex-col gap-2 overflow-hidden transition-all duration-300 ${informationalHidden ? "-translate-x-10 opacity-0 pointer-events-none" : "translate-x-0 opacity-100"}`}
                     onDragOver={(event) => {
@@ -506,7 +576,19 @@ export function KeysSection({ keys, onRefresh }: Props) {
                   )}
                 </div>
               </div>
+              </React.Fragment>
             ))}
+
+            {/* Trailing gap button after last row */}
+            {rows.length > 0 && (
+              <InsertGapButton
+                index={rows.length}
+                onInsert={(idx) => {
+                  setInsertAtIndex(idx);
+                  setShowAddKey(true);
+                }}
+              />
+            )}
 
             {rows.length === 0 && (
               <div className="py-8 text-center text-zinc-500">Нет ключей</div>
@@ -537,7 +619,35 @@ export function KeysSection({ keys, onRefresh }: Props) {
         loading={deleting}
       />
 
-      <AddKeyModal open={showAddKey} onClose={() => setShowAddKey(false)} onRefresh={onRefresh} />
+      <AddKeyModal
+        open={showAddKey}
+        onClose={() => { setShowAddKey(false); setInsertAtIndex(null); }}
+        onRefresh={onRefresh}
+        insertAtIndex={insertAtIndex}
+        onCreated={() => {
+          if (insertAtIndex !== null) {
+            // After refresh, reorder to place new key at desired position.
+            setTimeout(async () => {
+              try {
+                const { keys: freshKeys } = await keysApi.list();
+                if (freshKeys.length === 0) return;
+                // Keys are returned sorted by sort_order (ascending).
+                // The newest key is the last one (appended at end by backend).
+                const newKey = freshKeys[freshKeys.length - 1];
+                // Build the desired order: remove the new key, then splice it in.
+                const withoutNew = freshKeys.filter((k: VLESSKey) => k.id !== newKey.id);
+                const targetIdx = Math.min(insertAtIndex, withoutNew.length);
+                withoutNew.splice(targetIdx, 0, newKey);
+                await keysApi.reorder(withoutNew.map((k: VLESSKey) => k.id));
+                await onRefresh();
+              } catch {
+                // Reorder failed — key is still created, just at end.
+              }
+              setInsertAtIndex(null);
+            }, 100);
+          }
+        }}
+      />
       {editKey && (
         <EditKeyModal keyData={editKey} onClose={() => setEditKey(null)} onRefresh={onRefresh} />
       )}

@@ -6,6 +6,7 @@ import { Card } from "@/components/ui/Card";
 import { Input } from "@/components/ui/Input";
 import { Button } from "@/components/ui/Button";
 import { subscription } from "@/lib/api";
+import { usePanelSettings } from "@/context/PanelSettingsContext";
 import { copyToClipboard } from "@/lib/clipboard";
 
 export default function SubscriptionPage() {
@@ -16,9 +17,11 @@ export default function SubscriptionPage() {
   const [loading, setLoading] = useState(false);
   const [copied, setCopied] = useState(false);
 
+  const { settings } = usePanelSettings();
+
   useEffect(() => {
-    document.title = "VPN-подписка — Xray Sub";
-  }, []);
+    document.title = settings.pageTitles.subscription;
+  }, [settings.pageTitles.subscription]);
 
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();

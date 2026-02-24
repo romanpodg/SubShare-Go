@@ -42,7 +42,6 @@ export function GlobalSubscriptionSettingsModal({ open, onClose }: Props) {
 
   const [title, setTitle] = useState("");
   const [refreshHours, setRefreshHours] = useState("12");
-  const [infoURL, setInfoURL] = useState("");
   const [extraURL, setExtraURL] = useState("");
   const [extraStatus, setExtraStatus] = useState("");
   const [timeZoneChoice, setTimeZoneChoice] = useState("Europe/Moscow");
@@ -52,7 +51,6 @@ export function GlobalSubscriptionSettingsModal({ open, onClose }: Props) {
   const [initialState, setInitialState] = useState({
     title: "",
     refreshHours: "12",
-    infoURL: "",
     extraURL: "",
     extraStatus: "",
     timeZone: "Europe/Moscow",
@@ -69,7 +67,6 @@ export function GlobalSubscriptionSettingsModal({ open, onClose }: Props) {
         const next = {
           title: data.title || "",
           refreshHours: String(data.refresh_hours || 12),
-          infoURL: data.info_url || "",
           extraURL: data.extra_url || "",
           extraStatus: data.extra_status || "",
           timeZone: data.time_zone || "Europe/Moscow",
@@ -79,7 +76,6 @@ export function GlobalSubscriptionSettingsModal({ open, onClose }: Props) {
         const hasPresetTimeZone = POPULAR_TIMEZONES.includes(normalizedTimeZone);
         setTitle(next.title);
         setRefreshHours(next.refreshHours);
-        setInfoURL(next.infoURL);
         setExtraURL(next.extraURL);
         setExtraStatus(next.extraStatus);
         setTimeZoneChoice(hasPresetTimeZone ? normalizedTimeZone : CUSTOM_TIMEZONE_VALUE);
@@ -114,13 +110,12 @@ export function GlobalSubscriptionSettingsModal({ open, onClose }: Props) {
     return (
       title !== initialState.title ||
       refreshHours !== initialState.refreshHours ||
-      infoURL !== initialState.infoURL ||
       extraURL !== initialState.extraURL ||
       extraStatus !== initialState.extraStatus ||
       effectiveTimeZone !== initialState.timeZone ||
       language !== initialState.language
     );
-  }, [title, refreshHours, infoURL, extraURL, extraStatus, effectiveTimeZone, language, initialState]);
+  }, [title, refreshHours, extraURL, extraStatus, effectiveTimeZone, language, initialState]);
 
   const canSubmit =
     initialLoaded &&
@@ -136,7 +131,7 @@ export function GlobalSubscriptionSettingsModal({ open, onClose }: Props) {
       await subscriptionSettingsApi.update({
         title,
         refresh_hours: parsedRefreshHours,
-        info_url: infoURL,
+        info_url: "",
         extra_url: extraURL,
         extra_status: extraStatus,
         time_zone: effectiveTimeZone,
@@ -146,7 +141,6 @@ export function GlobalSubscriptionSettingsModal({ open, onClose }: Props) {
       setInitialState({
         title,
         refreshHours,
-        infoURL,
         extraURL,
         extraStatus,
         timeZone: effectiveTimeZone,
@@ -177,13 +171,6 @@ export function GlobalSubscriptionSettingsModal({ open, onClose }: Props) {
           max="720"
           value={refreshHours}
           onChange={(e) => setRefreshHours(e.target.value)}
-        />
-        <Input
-          label="Инфо-ссылка"
-          type="url"
-          value={infoURL}
-          onChange={(e) => setInfoURL(e.target.value)}
-          placeholder="https://example.com/subscription/info"
         />
         <Input
           label="Дополнительная ссылка"

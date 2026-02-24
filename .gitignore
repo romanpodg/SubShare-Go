@@ -27,3 +27,13 @@ data/*.db-wal
 .DS_Store
 .vscode/
 .idea/
+
+# SSL certificates (never commit private keys)
+certs/live/
+certs/archive/
+certs/accounts/
+certs/*.pem
+*.key
+data/*.db
+data/*.db-shm
+data/*.db-wal

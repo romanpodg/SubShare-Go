@@ -173,7 +173,7 @@ export function UsersSection({ users, assignableKeys, onRefresh }: Props) {
           >
             <span className={`text-zinc-400 transition-transform ${collapsed ? "-rotate-90" : ""}`}>▼</span>
           </button>
-          <h2 className="text-lg font-semibold"><EmojiText text="😄 Пользователи" /> ({users.length})</h2>
+          <h2 className="text-lg font-semibold"><EmojiText text={`😄 Пользователи (${users.length})`} /></h2>
         </div>
         <Button onClick={() => setShowAddUser(true)} className="text-xs">
           + Добавить
@@ -210,6 +210,7 @@ export function UsersSection({ users, assignableKeys, onRefresh }: Props) {
                   <td className="py-3 pr-4 font-mono text-xs">
                     {user.activation_code}
                     <div className="text-[0.68rem] text-zinc-500">Активирован: {formatDateTime(user.activation_used_at) ?? "—"}</div>
+                    <div className="text-[0.68rem] text-zinc-500 break-all">Токен: {user.subscription_id || "—"}</div>
                   </td>
                   <td className="py-3 pr-4"><StatusBadge status={user.status} /></td>
                   <td className="py-3 pr-4 align-top text-xs text-zinc-400">

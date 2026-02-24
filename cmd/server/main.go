@@ -168,11 +168,16 @@ func run() error {
 	mux.Handle("GET /api/admin/subscription-settings", app.requireAdmin(http.HandlerFunc(app.apiGetSubscriptionSettings)))
 	mux.Handle("PUT /api/admin/subscription-settings", app.requireAdmin(http.HandlerFunc(app.apiUpdateSubscriptionSettings)))
 
+	// Panel settings API (GET is public so login/subscription pages can load branding)
+	mux.HandleFunc("GET /api/panel-settings", app.apiGetPanelSettings)
+	mux.Handle("PUT /api/admin/panel-settings", app.requireAdmin(http.HandlerFunc(app.apiUpdatePanelSettings)))
+
 	// Subscription API
 	mux.HandleFunc("POST /api/subscription/activate", activationLimiter.Wrap(writeError, app.apiActivateSubscription))
 
 	// Subscription delivery (VPN clients hit this directly)
 	mux.HandleFunc("GET /sub/{subscription_id}", subscriptionLimiter.Wrap(writeError, app.handleSubscription))
+	mux.HandleFunc("GET /api/sub/{subscription_id}/info", subscriptionLimiter.Wrap(writeError, app.apiGetSubscriptionInfo))
 
 	// Serve frontend static files in production (if frontend/out exists)
 	frontendDir := "frontend/out"

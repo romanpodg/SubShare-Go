@@ -4,7 +4,7 @@ import { useRef, useCallback, useEffect } from "react";
 import emojiRegex from "emoji-regex";
 
 const APPLE_CDN =
-  "https://unpkg.com/emoji-datasource-apple@15.0.1/img/apple/64/";
+  "https://cdn.jsdelivr.net/npm/emoji-datasource-apple@15.0.1/img/apple/64/";
 
 function toUnified(emoji: string): string {
   return [...emoji]
@@ -30,7 +30,7 @@ function toHtml(text: string): string {
     const i = m.index!;
     if (i > last) out += esc(text.slice(last, i));
     const e = m[0];
-    out += `<img src="${APPLE_CDN}${toUnified(e)}.png" alt="${e}" class="emoji-image" draggable="false">`;
+    out += `<img src="${APPLE_CDN}${toUnified(e)}.png" alt="${e}" class="emoji-image" draggable="false" loading="lazy" onerror="this.outerHTML=this.alt">`;
     last = i + e.length;
   }
   if (last < text.length) out += esc(text.slice(last));

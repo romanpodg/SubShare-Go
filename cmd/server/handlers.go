@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"html"
 	"log"
 	"net/http"
 	"net/url"
@@ -19,6 +20,8 @@ import (
 	"xary-sub/internal/model"
 	"xary-sub/internal/vless"
 )
+
+const appleEmojiBaseURL = "https://cdn.jsdelivr.net/npm/emoji-datasource-apple@15.0.1/img/apple/64/"
 
 // --- JSON helpers ---
 
@@ -128,6 +131,10 @@ func (a *App) apiMe(w http.ResponseWriter, r *http.Request) {
 // --- Users API ---
 
 func (a *App) apiListUsers(w http.ResponseWriter, r *http.Request) {
+	if _, err := a.db.Exec(`UPDATE users SET subscription_id = token WHERE subscription_id IS NULL OR TRIM(subscription_id) = ''`); err != nil {
+		log.Printf("apiListUsers: failed to backfill subscription tokens: %v", err)
+	}
+
 	users, err := a.listUsers()
 	if err != nil {
 		log.Printf("apiListUsers: %v", err)
@@ -197,19 +204,41 @@ func (a *App) apiCreateUser(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	subscriptionID, err := generateToken(24)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to generate subscription token")
+		return
+	}
+
 	now := time.Now().UTC()
 	expiresAt := now.AddDate(0, 0, issueDays)
 
-	_, err = a.db.Exec(
-		`INSERT INTO users(name, email, token, activation_code, status, starts_at, expires_at, blocked_reason, max_devices) VALUES(?, ?, ?, ?, ?, ?, ?, ?, 1)`,
-		name, email, legacyToken, activationCode, status, now, expiresAt, blockedReason,
-	)
+	for attempt := 0; attempt < 5; attempt++ {
+		_, err = a.db.Exec(
+			`INSERT INTO users(name, email, token, activation_code, subscription_id, status, starts_at, expires_at, blocked_reason, max_devices) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, 1)`,
+			name, email, legacyToken, activationCode, subscriptionID, status, now, expiresAt, blockedReason,
+		)
+		if err == nil {
+			break
+		}
+
+		errText := strings.ToLower(err.Error())
+		if strings.Contains(errText, "users.subscription_id") || strings.Contains(errText, "idx_users_subscription_id") {
+			subscriptionID, err = generateToken(24)
+			if err != nil {
+				writeError(w, http.StatusInternalServerError, "failed to generate subscription token")
+				return
+			}
+			continue
+		}
+		break
+	}
 	if err != nil {
 		log.Printf("apiCreateUser: %v", err)
 		writeError(w, http.StatusConflict, "failed to create user (check activation code uniqueness)")
 		return
 	}
-	log.Printf("AUDIT: create user name=%q activation_code=%q", name, activationCode)
+	log.Printf("AUDIT: create user name=%q activation_code=%q subscription_id=%q", name, activationCode, subscriptionID)
 	writeMessage(w, "user created")
 }
 
@@ -492,6 +521,45 @@ func (a *App) apiUpdateUserSettings(w http.ResponseWriter, r *http.Request) {
 	writeMessage(w, "user settings updated")
 }
 
+func (a *App) apiGetPanelSettings(w http.ResponseWriter, r *http.Request) {
+	settings, err := a.getPanelSettings()
+	if err != nil {
+		log.Printf("apiGetPanelSettings: %v", err)
+		writeError(w, http.StatusInternalServerError, "failed to load panel settings")
+		return
+	}
+	writeJSON(w, http.StatusOK, settings)
+}
+
+func (a *App) apiUpdatePanelSettings(w http.ResponseWriter, r *http.Request) {
+	// Panel settings may contain base64-encoded images — allow up to 16 MB.
+	r.Body = http.MaxBytesReader(w, r.Body, 16<<20)
+	var req model.PanelSettings
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+	req.PanelTitle = strings.TrimSpace(req.PanelTitle)
+	if req.PanelTitle == "" {
+		req.PanelTitle = "Xray Sub"
+	}
+	if req.PageTitleAdmin == "" {
+		req.PageTitleAdmin = "Панель управления — Xray Sub"
+	}
+	if req.PageTitleAdminLogin == "" {
+		req.PageTitleAdminLogin = "Вход — Xray Sub"
+	}
+	if req.PageTitleSubscription == "" {
+		req.PageTitleSubscription = "VPN-подписка — Xray Sub"
+	}
+	if err := a.updatePanelSettings(req); err != nil {
+		log.Printf("apiUpdatePanelSettings: %v", err)
+		writeError(w, http.StatusInternalServerError, "failed to save panel settings")
+		return
+	}
+	writeJSON(w, http.StatusOK, req)
+}
+
 func (a *App) apiGetSubscriptionSettings(w http.ResponseWriter, r *http.Request) {
 	settings, err := a.getSubscriptionSettings()
 	if err != nil {
@@ -725,15 +793,38 @@ func (a *App) apiCreateKey(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if _, err := a.db.Exec(
+	result, err := a.db.Exec(
 		`INSERT INTO vless_keys(label, url, status, check_status, key_kind, template_text, sort_order) VALUES(?, ?, ?, 'unknown', ?, ?, ?)`,
 		label, keyURL, status, kind, nullStringValue(templateText), nextSortOrder,
-	); err != nil {
+	)
+	if err != nil {
 		log.Printf("apiCreateKey: %v", err)
 		writeError(w, http.StatusConflict, "failed to add key (maybe duplicate)")
 		return
 	}
-	log.Printf("AUDIT: create key label=%q", label)
+
+	// Получаем ID нового ключа
+	keyID, err := result.LastInsertId()
+	if err != nil {
+		log.Printf("apiCreateKey: failed to get key ID: %v", err)
+		writeError(w, http.StatusInternalServerError, "failed to get key ID")
+		return
+	}
+
+	// Автоматически добавляем новый ключ всем существующим пользователям
+	_, err = a.db.Exec(
+		`INSERT INTO user_keys(user_id, key_id)
+		 SELECT id, ? FROM users`,
+		keyID,
+	)
+	if err != nil {
+		log.Printf("apiCreateKey: failed to add key to users: %v", err)
+		// Не возвращаем ошибку пользователю, так как ключ уже создан
+		// Просто логируем для отладки
+	} else {
+		log.Printf("AUDIT: create key label=%q, auto-assigned to all users", label)
+	}
+
 	writeMessage(w, "key added")
 }
 
@@ -824,7 +915,6 @@ func (a *App) apiUpdateKey(w http.ResponseWriter, r *http.Request) {
 	log.Printf("AUDIT: update key id=%d label=%q", id, label)
 	writeMessage(w, "key updated")
 }
-
 
 func (a *App) apiReorderKeys(w http.ResponseWriter, r *http.Request) {
 	var req model.ReorderKeysRequest
@@ -1092,6 +1182,11 @@ func (a *App) handleSubscription(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if isBrowserSubscriptionRequest(r) {
+		a.renderSubscriptionBrowserPage(w, r, subscriptionID)
+		return
+	}
+
 	allowed, userID, code, reason, err := a.subscriptionAccessAllowed(subscriptionID)
 	if err != nil {
 		http.Error(w, "failed to load subscription", http.StatusInternalServerError)
@@ -1206,9 +1301,7 @@ func (a *App) handleSubscription(w http.ResponseWriter, r *http.Request) {
 	if settings.RefreshHours > 0 {
 		prefix = append(prefix, fmt.Sprintf("#profile-update-interval: %d", settings.RefreshHours))
 	}
-	if infoURL := strings.TrimSpace(settings.InfoURL); infoURL != "" {
-		prefix = append(prefix, "#profile-web-page-url: "+infoURL)
-	}
+	prefix = append(prefix, "#profile-web-page-url: "+fmt.Sprintf("%s/sub/%s", a.resolveBaseURL(r), subscriptionID))
 	if extraURL := strings.TrimSpace(settings.ExtraURL); extraURL != "" {
 		prefix = append(prefix, "#support-url: "+extraURL)
 	}
@@ -1230,9 +1323,7 @@ func (a *App) handleSubscription(w http.ResponseWriter, r *http.Request) {
 	if settings.RefreshHours > 0 {
 		w.Header().Set("profile-update-interval", strconv.Itoa(settings.RefreshHours))
 	}
-	if infoURL := strings.TrimSpace(settings.InfoURL); infoURL != "" {
-		w.Header().Set("profile-web-page-url", infoURL)
-	}
+	w.Header().Set("profile-web-page-url", fmt.Sprintf("%s/sub/%s", a.resolveBaseURL(r), subscriptionID))
 	if extraURL := strings.TrimSpace(settings.ExtraURL); extraURL != "" {
 		w.Header().Set("support-url", extraURL)
 	}
@@ -1244,6 +1335,403 @@ func (a *App) handleSubscription(w http.ResponseWriter, r *http.Request) {
 		body = base64.StdEncoding.EncodeToString([]byte(body))
 	}
 	_, _ = w.Write([]byte(body))
+}
+
+func isBrowserSubscriptionRequest(r *http.Request) bool {
+	accept := strings.ToLower(strings.TrimSpace(r.Header.Get("Accept")))
+	if !strings.Contains(accept, "text/html") {
+		return false
+	}
+
+	secFetchDest := strings.ToLower(strings.TrimSpace(r.Header.Get("Sec-Fetch-Dest")))
+	if secFetchDest != "" && secFetchDest != "document" {
+		return false
+	}
+
+	return true
+}
+
+func emojiToUnified(emoji string) string {
+	parts := make([]string, 0, len(emoji))
+	for _, r := range emoji {
+		parts = append(parts, fmt.Sprintf("%x", r))
+	}
+	return strings.Join(parts, "-")
+}
+
+func renderAppleEmojiImage(emoji string, className string) string {
+	escapedEmoji := html.EscapeString(emoji)
+	unified := emojiToUnified(emoji)
+	return fmt.Sprintf(
+		`<img src="%s%s.png" alt="%s" class="%s" draggable="false" loading="lazy" onerror="this.outerHTML=this.alt">`,
+		appleEmojiBaseURL,
+		unified,
+		escapedEmoji,
+		html.EscapeString(className),
+	)
+}
+
+func (a *App) renderSubscriptionBrowserPage(w http.ResponseWriter, r *http.Request, subscriptionID string) {
+	allowed, _, code, reason, err := a.subscriptionAccessAllowed(subscriptionID)
+	if err != nil {
+		http.Error(w, "failed to load subscription", http.StatusInternalServerError)
+		return
+	}
+	if !allowed {
+		http.Error(w, reason, code)
+		return
+	}
+
+	var name sql.NullString
+	var email sql.NullString
+	var status sql.NullString
+	var expiresAt sql.NullTime
+	if err := a.db.QueryRow(
+		`SELECT name, email, status, expires_at FROM users WHERE subscription_id = ?`,
+		subscriptionID,
+	).Scan(&name, &email, &status, &expiresAt); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			http.NotFound(w, r)
+			return
+		}
+		http.Error(w, "failed to load subscription", http.StatusInternalServerError)
+		return
+	}
+
+	panelSettings, err := a.getPanelSettings()
+	if err != nil {
+		panelSettings = model.PanelSettings{
+			PanelTitle:            "Xray Sub",
+			PageTitleSubscription: "VPN-подписка — Xray Sub",
+		}
+	}
+
+	userName := html.EscapeString(strings.TrimSpace(name.String))
+	if userName == "" {
+		userName = "Пользователь"
+	}
+	statusValue := model.NormalizeStoredStatus(status.String)
+	statusLabel := "Active"
+	switch statusValue {
+	case model.UserStatusPaused:
+		statusLabel = "Paused"
+	case model.UserStatusBlocked:
+		statusLabel = "Blocked"
+	}
+	statusEmoji := "✅"
+	if statusValue != model.UserStatusActive {
+		statusEmoji = "🛑"
+	}
+	summaryStatusIcon := renderAppleEmojiImage(statusEmoji, "emoji-image emoji-summary")
+	usernameIcon := renderAppleEmojiImage("😃", "emoji-image emoji-info")
+	statusIcon := renderAppleEmojiImage(statusEmoji, "emoji-image emoji-info")
+	expiresIcon := renderAppleEmojiImage("🗓️", "emoji-image emoji-info")
+	installStep1Icon := renderAppleEmojiImage("1️⃣", "emoji-image emoji-step")
+	installStep2Icon := renderAppleEmojiImage("2️⃣", "emoji-image emoji-step")
+	installStep3Icon := renderAppleEmojiImage("3️⃣", "emoji-image emoji-step")
+	langRuIcon := renderAppleEmojiImage("🇷🇺", "emoji-image emoji-step emoji-lang")
+
+	telegramValue := strings.TrimPrefix(strings.TrimSpace(email.String), "@")
+	telegramDisplay := "—"
+	if telegramValue != "" {
+		telegramDisplay = "@" + telegramValue
+	}
+
+	expiresLabel := "Бессрочно"
+	if expiresAt.Valid {
+		expiresLabel = expiresAt.Time.Local().Format("02.01.2006")
+	}
+
+	expiresHint := "Бессрочная подписка"
+	if expiresAt.Valid {
+		now := time.Now().In(time.Local)
+		exp := expiresAt.Time.In(time.Local)
+
+		nowDate := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, time.Local)
+		expDate := time.Date(exp.Year(), exp.Month(), exp.Day(), 0, 0, 0, 0, time.Local)
+		daysLeft := int(expDate.Sub(nowDate).Hours() / 24)
+
+		switch {
+		case daysLeft < 0:
+			expiresHint = "Подписка истекла"
+		case daysLeft == 0:
+			expiresHint = "Истекает сегодня"
+		case daysLeft == 1:
+			expiresHint = "Истекает завтра"
+		default:
+			monthsLeft := (expDate.Year()-nowDate.Year())*12 + int(expDate.Month()-nowDate.Month())
+			if expDate.Day() < nowDate.Day() {
+				monthsLeft--
+			}
+
+			if monthsLeft >= 12 {
+				yearsLeft := monthsLeft / 12
+				if yearsLeft == 1 {
+					expiresHint = "Истекает через год"
+				} else if yearsLeft >= 2 && yearsLeft <= 4 {
+					expiresHint = fmt.Sprintf("Истекает через %d года", yearsLeft)
+				} else {
+					expiresHint = fmt.Sprintf("Истекает через %d лет", yearsLeft)
+				}
+			} else if monthsLeft >= 1 {
+				if monthsLeft == 1 {
+					expiresHint = "Истекает через месяц"
+				} else if monthsLeft >= 2 && monthsLeft <= 4 {
+					expiresHint = fmt.Sprintf("Истекает через %d месяца", monthsLeft)
+				} else {
+					expiresHint = fmt.Sprintf("Истекает через %d месяцев", monthsLeft)
+				}
+			} else {
+				if daysLeft%10 == 1 && daysLeft%100 != 11 {
+					expiresHint = fmt.Sprintf("Истекает через %d день", daysLeft)
+				} else if (daysLeft%10 >= 2 && daysLeft%10 <= 4) && (daysLeft%100 < 12 || daysLeft%100 > 14) {
+					expiresHint = fmt.Sprintf("Истекает через %d дня", daysLeft)
+				} else {
+					expiresHint = fmt.Sprintf("Истекает через %d дней", daysLeft)
+				}
+			}
+		}
+	}
+
+	pageTitle := strings.TrimSpace(panelSettings.PageTitleSubscription)
+	if pageTitle == "" {
+		pageTitle = "VPN-подписка — Xray Sub"
+	}
+
+	panelTitle := html.EscapeString(strings.TrimSpace(panelSettings.PanelTitle))
+	if panelTitle == "" {
+		panelTitle = "Xray Sub"
+	}
+
+	logoURL := html.EscapeString(strings.TrimSpace(panelSettings.LogoDataURL))
+	faviconURL := html.EscapeString(strings.TrimSpace(panelSettings.FaviconDataURL))
+	subscriptionURL := fmt.Sprintf("%s/sub/%s", a.resolveBaseURL(r), subscriptionID)
+	importSubscriptionURL := subscriptionURL
+	if encryptedURL, err := a.encryptSubscriptionURL(subscriptionURL); err == nil && strings.TrimSpace(encryptedURL) != "" {
+		importSubscriptionURL = encryptedURL
+	} else if err != nil {
+		log.Printf("renderSubscriptionBrowserPage: failed to encrypt url via happ api: %v", err)
+	}
+
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	w.Header().Set("Cache-Control", "no-store, no-cache, must-revalidate, max-age=0")
+	w.Header().Set("Pragma", "no-cache")
+	_, _ = w.Write([]byte(fmt.Sprintf(`<!doctype html>
+<html lang="ru">
+<head>
+	<meta charset="utf-8" />
+	<meta name="viewport" content="width=device-width, initial-scale=1" />
+	<title>%s</title>
+	%s
+	<style>
+		:root { color-scheme: dark; }
+		body { margin: 0; background: #0f172a; color: #e5e7eb; font-family: Inter, system-ui, -apple-system, Segoe UI, Roboto, sans-serif; }
+		.wrap { max-width: 760px; margin: 0 auto; padding: 24px 16px 40px; }
+		.head { display: flex; align-items: center; gap: 12px; margin-bottom: 20px; }
+		.logo { width: 36px; height: 36px; border-radius: 10px; object-fit: cover; background: #1f2937; }
+		.title { font-size: 24px; font-weight: 700; margin: 0; }
+		.card { background: #111827; border: 1px solid #334155; border-radius: 12px; overflow: hidden; }
+		.summary { display: flex; justify-content: space-between; align-items: center; padding: 14px 16px; cursor: pointer; }
+		.summary-left { display: flex; align-items: center; gap: 12px; }
+		.summary-icon { width: 34px; height: 34px; border-radius: 10px; background: #0f3f38; display: flex; align-items: center; justify-content: center; font-size: 18px; }
+		.toggle-btn { width: 32px; height: 32px; border-radius: 10px; border: 1px solid #334155; background: #111827; color: #9ca3af; display: inline-flex; align-items: center; justify-content: center; cursor: pointer; transition: all .15s ease; }
+		.toggle-btn:hover { background: #1f2937; }
+		.toggle-arrow { display: inline-block; transition: transform .15s ease; }
+		.toggle-arrow.collapsed { transform: rotate(-90deg); }
+		.muted { color: #9ca3af; font-size: 14px; }
+		.details { padding: 14px 16px 16px; display: none; border-top: 1px solid #334155; }
+		.details.open { display: block; }
+		.grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px 18px; }
+		.info-item { display: flex; align-items: flex-start; gap: 10px; min-height: 54px; }
+		.info-icon { width: 30px; height: 30px; border-radius: 9px; background: #1f2937; display: flex; align-items: center; justify-content: center; font-size: 17px; }
+		.emoji-image { display: inline-block; object-fit: contain; }
+		.emoji-summary { width: 18px; height: 18px; }
+		.emoji-info { width: 17px; height: 17px; }
+		.emoji-step { width: 14px; height: 14px; }
+		.emoji-lang { margin-right: 6px; }
+		.info-label { color: #e2e8f0; font-size: 15px; line-height: 1.2; font-weight: 600; }
+		.info-value { color: #94a3b8; font-size: 13px; line-height: 1.25; margin-top: 4px; }
+		.section { margin-top: 24px; }
+		.section h2 { margin: 0; font-size: 40px; font-weight: 700; }
+		.controls { display: flex; justify-content: space-between; gap: 12px; align-items: center; margin-bottom: 14px; }
+		.install-steps { position: relative; margin-left: 8px; padding-left: 24px; }
+		.step { position: relative; margin: 16px 0 22px; }
+		.step:not(:last-child)::after { content: ""; position: absolute; left: -24px; top: 14px; width: 2px; height: calc(100%% + 22px); background: #334155; z-index: 0; }
+		.step-node { position: absolute; left: -39px; top: -1px; width: 30px; height: 30px; border-radius: 9px; background: #1f2937; border: 1px solid #334155; display: flex; align-items: center; justify-content: center; z-index: 1; }
+		.step-title { font-size: 17px; font-weight: 700; margin: 0 0 4px; }
+		.step-desc { color: #9ca3af; font-size: 13px; margin: 0 0 10px; line-height: 1.35; }
+		.btn { display: inline-flex; align-items: center; justify-content: center; gap: 8px; border: none; border-radius: 10px; padding: 10px 14px; font-weight: 600; font-family: inherit; font-size: 16px; cursor: pointer; text-decoration: none; }
+		.btn-primary { background: #06b6d4; color: #fff; }
+		.btn-soft { background: #164e63; color: #67e8f9; }
+		.btn-action { width: 210px; height: 40px; padding: 0 14px; box-sizing: border-box; background: #164e63; color: #67e8f9; white-space: nowrap; }
+		.btn-icon { width: 16px; height: 16px; display: inline-block; flex: 0 0 auto; }
+		#step1-primary, #add-sub-btn { width: 248px; }
+		.btn-row { display: flex; gap: 8px; flex-wrap: wrap; }
+		.btn-disabled { opacity: .5; cursor: not-allowed; }
+		.lang { margin-top: 28px; display: flex; justify-content: center; }
+	</style>
+</head>
+<body>
+	<div class="wrap">
+		<header class="head">
+			%s
+			<h1 class="title">%s</h1>
+		</header>
+
+		<section class="card">
+			<div class="summary" id="toggle-summary">
+				<div class="summary-left">
+					<div class="summary-icon">%s</div>
+					<div>
+						<div style="font-size:15px;font-weight:700;line-height:1.25;">%s</div>
+						<div class="muted" style="font-size:13px;">%s</div>
+					</div>
+				</div>
+				<button class="toggle-btn" id="toggle-icon" type="button" aria-expanded="false" aria-label="Развернуть">
+					<span class="toggle-arrow collapsed" id="toggle-arrow">▼</span>
+				</button>
+			</div>
+			<div class="details" id="details">
+				<div class="grid">
+					<div class="info-item">
+						<div class="info-icon">%s</div>
+						<div>
+							<div class="info-label">Username</div>
+							<div class="info-value">%s</div>
+						</div>
+					</div>
+					<div class="info-item">
+						<div class="info-icon">%s</div>
+						<div>
+							<div class="info-label">Status</div>
+							<div class="info-value">%s</div>
+						</div>
+					</div>
+					<div class="info-item">
+						<div class="info-icon">%s</div>
+						<div>
+							<div class="info-label">Expires</div>
+							<div class="info-value">%s</div>
+						</div>
+					</div>
+				</div>
+			</div>
+		</section>
+
+		<section class="section">
+			<div class="controls">
+				<h2>Установка</h2>
+			</div>
+
+			<div class="install-steps">
+				<div class="step">
+					<div class="step-node">%s</div>
+					<div class="step-title" id="step1-title">Установите и откройте Happ</div>
+					<p class="step-desc" id="step1-desc">Откройте страницу в Google Play и установите приложение. Или установите приложение напрямую из APK, если Google Play недоступен.</p>
+					<div class="btn-row">
+						<a class="btn btn-action" id="step1-primary" href="https://play.google.com/store/apps/details?id=com.happ.vpn" target="_blank" rel="noopener noreferrer"><svg class="btn-icon" viewBox="0 0 15 15" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true"><path fill-rule="evenodd" clip-rule="evenodd" d="M3 2C2.44772 2 2 2.44772 2 3V12C2 12.5523 2.44772 13 3 13H12C12.5523 13 13 12.5523 13 12V8.5C13 8.22386 12.7761 8 12.5 8C12.2239 8 12 8.22386 12 8.5V12H3V3L6.5 3C6.77614 3 7 2.77614 7 2.5C7 2.22386 6.77614 2 6.5 2H3ZM12.8536 2.14645C12.9015 2.19439 12.9377 2.24964 12.9621 2.30861C12.9861 2.36669 12.9996 2.4303 13 2.497L13 2.49749V5.5C13 5.77614 12.7761 6 12.5 6C12.2239 6 12 5.77614 12 5.5V3.70711L6.85355 8.85355C6.65829 9.04882 6.34171 9.04882 6.14645 8.85355C5.95118 8.65829 5.95118 8.34171 6.14645 8.14645L11.2929 3H9.5C9.22386 3 9 2.77614 9 2.5C9 2.22386 9.22386 2 9.5 2H12.4999H12.5C12.5678 2 12.6324 2.01349 12.6914 2.03794C12.7504 2.06234 12.8056 2.09851 12.8536 2.14645Z" fill="currentColor"/></svg>Открыть в Google Play</a>
+						<a class="btn btn-action" id="step1-secondary" href="https://github.com/happ-proxy/happ-android/releases/latest" target="_blank" rel="noopener noreferrer"><svg class="btn-icon" viewBox="0 0 15 15" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true"><path fill-rule="evenodd" clip-rule="evenodd" d="M3 2C2.44772 2 2 2.44772 2 3V12C2 12.5523 2.44772 13 3 13H12C12.5523 13 13 12.5523 13 12V8.5C13 8.22386 12.7761 8 12.5 8C12.2239 8 12 8.22386 12 8.5V12H3V3L6.5 3C6.77614 3 7 2.77614 7 2.5C7 2.22386 6.77614 2 6.5 2H3ZM12.8536 2.14645C12.9015 2.19439 12.9377 2.24964 12.9621 2.30861C12.9861 2.36669 12.9996 2.4303 13 2.497L13 2.49749V5.5C13 5.77614 12.7761 6 12.5 6C12.2239 6 12 5.77614 12 5.5V3.70711L6.85355 8.85355C6.65829 9.04882 6.34171 9.04882 6.14645 8.85355C5.95118 8.65829 5.95118 8.34171 6.14645 8.14645L11.2929 3H9.5C9.22386 3 9 2.77614 9 2.5C9 2.22386 9.22386 2 9.5 2H12.4999H12.5C12.5678 2 12.6324 2.01349 12.6914 2.03794C12.7504 2.06234 12.8056 2.09851 12.8536 2.14645Z" fill="currentColor"/></svg>Скачать APK</a>
+					</div>
+				</div>
+
+				<div class="step">
+					<div class="step-node">%s</div>
+					<div class="step-title">Добавьте подписку</div>
+					<p class="step-desc">Нажмите кнопку ниже, чтобы добавить подписку</p>
+					<button class="btn btn-action" id="add-sub-btn" type="button">Добавить подписку в Happ</button>
+				</div>
+
+				<div class="step" style="margin-bottom: 0;">
+					<div class="step-node">%s</div>
+					<div class="step-title">Подключитесь и пользуйтесь</div>
+					<p class="step-desc">Откройте приложение и подключитесь к серверу</p>
+				</div>
+			</div>
+		</section>
+
+		<div class="lang">
+			<button class="btn btn-soft btn-disabled" disabled>%s Русский (Недоступно)</button>
+		</div>
+	</div>
+
+	<script>
+		const details = document.getElementById("details");
+		const toggle = document.getElementById("toggle-summary");
+		const iconBtn = document.getElementById("toggle-icon");
+		const icon = document.getElementById("toggle-arrow");
+		toggle.addEventListener("click", () => {
+			const isOpen = details.classList.toggle("open");
+			icon.classList.toggle("collapsed", !isOpen);
+			iconBtn.setAttribute("aria-expanded", String(isOpen));
+			iconBtn.setAttribute("aria-label", isOpen ? "Свернуть" : "Развернуть");
+		});
+
+		// subUrl is either happ://crypt5/{...} (when crypto API is configured)
+		// or the plain https:// subscription URL (fallback).
+		const subUrl = %q;
+
+		document.getElementById("add-sub-btn").addEventListener("click", () => {
+			// If crypto API returned a happ:// deeplink — use it directly.
+			// Otherwise build happ://add/{encoded plain URL}.
+			const deepLink = subUrl.startsWith("happ://")
+				? subUrl
+				: "happ://add/" + encodeURIComponent(subUrl);
+
+			// "blur" fires when the browser hands focus to the native app — the most
+			// reliable cross-browser signal that a deeplink was handled.
+			let appOpened = false;
+			const onBlur = () => { appOpened = true; };
+			window.addEventListener("blur", onBlur, { once: true });
+
+			window.location.href = deepLink;
+
+			setTimeout(() => {
+				window.removeEventListener("blur", onBlur);
+				if (appOpened) return;
+
+				// App didn't open — offer the plain URL for manual paste.
+				const copyUrl = subUrl.startsWith("happ://") ? deepLink : subUrl;
+				if (navigator.clipboard) {
+					navigator.clipboard.writeText(copyUrl)
+						.then(() => alert("Ссылка скопирована. Вставьте её в поле «Добавить подписку» в приложении Happ."))
+						.catch(() => prompt("Happ не найден. Скопируйте ссылку и вставьте в приложение:", copyUrl));
+				} else {
+					prompt("Happ не найден. Скопируйте ссылку и вставьте в приложение:", copyUrl);
+				}
+			}, 1500);
+		});
+	</script>
+</body>
+</html>`,
+		html.EscapeString(pageTitle),
+		func() string {
+			if faviconURL == "" {
+				return ""
+			}
+			return `<link rel="icon" href="` + faviconURL + `" />`
+		}(),
+		func() string {
+			if logoURL == "" {
+				return `<div class="logo"></div>`
+			}
+			return `<img class="logo" src="` + logoURL + `" alt="logo" />`
+		}(),
+		panelTitle,
+		summaryStatusIcon,
+		userName,
+		html.EscapeString(expiresHint),
+		usernameIcon,
+		html.EscapeString(telegramDisplay),
+		statusIcon,
+		html.EscapeString(statusLabel),
+		expiresIcon,
+		html.EscapeString(expiresLabel),
+		installStep1Icon,
+		installStep2Icon,
+		installStep3Icon,
+		langRuIcon,
+		importSubscriptionURL,
+	)))
 }
 
 // --- Data export API ---
@@ -1305,4 +1793,41 @@ func (a *App) respondJSONKeyCheck(w http.ResponseWriter, keyID int64) {
 		payload["last_latency_ms"] = latency.Int64
 	}
 	writeJSON(w, http.StatusOK, payload)
+}
+func (a *App) apiGetSubscriptionInfo(w http.ResponseWriter, r *http.Request) {
+	subscriptionID := r.PathValue("subscription_id")
+	subscriptionID = strings.TrimSpace(subscriptionID)
+	if subscriptionID == "" || strings.Contains(subscriptionID, "/") {
+		http.NotFound(w, r)
+		return
+	}
+
+	var user struct {
+		Name      string `json:"name"`
+		Status    string `json:"status"`
+		ExpiresAt string `json:"expires_at,omitempty"`
+	}
+
+	var expiresAt sql.NullTime
+	err := a.db.QueryRow(`
+SELECT name, status, expires_at
+FROM users
+WHERE subscription_id = ?
+`, subscriptionID).Scan(&user.Name, &user.Status, &expiresAt)
+
+	if err != nil {
+		if err == sql.ErrNoRows {
+			http.NotFound(w, r)
+			return
+		}
+		log.Printf("apiGetSubscriptionInfo: %v", err)
+		http.Error(w, "failed to load subscription info", http.StatusInternalServerError)
+		return
+	}
+
+	if expiresAt.Valid {
+		user.ExpiresAt = expiresAt.Time.Format(time.RFC3339)
+	}
+
+	writeJSON(w, http.StatusOK, user)
 }

@@ -39,7 +39,7 @@ services:
     #   - "127.0.0.1:8081:8080"
 
     volumes:
-      - app-data:/app/data
+      - ./data:/app/data
 
     # -------------------------------------------------------------------------
     # Security hardening
@@ -110,12 +110,22 @@ services:
 
     # The frontend is the public-facing entry point.
     # nginx reverse-proxies /api/* and /sub/* to the backend.
+    # port 80  → HTTP (ACME challenge + redirect to HTTPS)
+    # port 443 → HTTPS (SSL terminated by nginx)
     ports:
-      - "${HOST_PORT:-8080}:3000"
+      - "80:3000"
+      - "443:3443"
 
     depends_on:
       backend:
         condition: service_healthy
+
+    volumes:
+      # SSL certificates (place fullchain.pem + privkey.pem here, or run
+      # docker compose run --rm certbot to obtain them automatically)
+      - ./certs:/etc/nginx/certs:ro
+      # Shared webroot for Let's Encrypt ACME HTTP-01 challenge
+      - certbot-webroot:/var/www/certbot:ro
 
     # -------------------------------------------------------------------------
     # Security hardening
@@ -134,11 +144,11 @@ services:
     # Health check
     # -------------------------------------------------------------------------
     healthcheck:
-      test: ["CMD", "wget", "-qO", "/dev/null", "http://127.0.0.1:3000/"]
+      test: ["CMD", "wget", "-qO", "/dev/null", "--no-check-certificate", "https://127.0.0.1:3443/"]
       interval: 30s
       timeout: 5s
       retries: 3
-      start_period: 5s
+      start_period: 10s
 
     # -------------------------------------------------------------------------
     # Resource limits
@@ -167,8 +177,34 @@ services:
     networks:
       - internal
 
+  # ---------------------------------------------------------------------------
+  # Certbot — obtains and renews Let's Encrypt certificates
+  # Usage:
+  #   First time:  docker compose run --rm certbot
+  #   Renewal:     docker compose run --rm certbot renew
+  # ---------------------------------------------------------------------------
+  certbot:
+    image: certbot/certbot:latest
+    container_name: xray-sub-certbot
+    profiles:
+      - certbot
+    volumes:
+      - ./certs:/etc/letsencrypt
+      - certbot-webroot:/var/www/certbot
+    env_file:
+      - .env
+    command: >
+      certonly
+      --webroot
+      --webroot-path=/var/www/certbot
+      --cert-name cert-0001
+      --email ${SSL_EMAIL}
+      --agree-tos
+      --no-eff-email
+      -d ${DOMAIN}
+
 volumes:
-  app-data:
+  certbot-webroot:
     driver: local
 
 networks:
