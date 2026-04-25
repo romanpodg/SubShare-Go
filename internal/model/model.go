@@ -38,7 +38,7 @@ type User struct {
 	ID                       int64             `json:"id"`
 	Name                     string            `json:"name"`
 	Email                    string            `json:"email"`
-Token                    string            `json:"token"`
+	Token                    string            `json:"token"`
 	TimeZone                 string            `json:"time_zone"`
 	Language                 string            `json:"language"`
 	ActivationCode           string            `json:"activation_code"`
@@ -160,6 +160,7 @@ type CreateKeyRequest struct {
 type UpdateKeyRequest struct {
 	Label        string `json:"label"`
 	Status       string `json:"status"`
+	RawURL       string `json:"raw_url"`
 	UUID         string `json:"uuid"`
 	Host         string `json:"host"`
 	Port         string `json:"port"`
@@ -181,33 +182,51 @@ type ActivateRequest struct {
 
 // SubscriptionSettings contains global subscription metadata shown to clients.
 type SubscriptionSettings struct {
-	Title        string `json:"title"`
-	RefreshHours int    `json:"refresh_hours"`
-	InfoURL      string `json:"info_url"`
-	ExtraURL     string `json:"extra_url"`
-	ExtraStatus  string `json:"extra_status"`
-	TimeZone     string `json:"time_zone"`
-	Language     string `json:"language"`
+	Title                    string `json:"title"`
+	RefreshHours             int    `json:"refresh_hours"`
+	InfoURL                  string `json:"info_url"`
+	ExtraURL                 string `json:"extra_url"`
+	ExtraStatus              string `json:"extra_status"`
+	TimeZone                 string `json:"time_zone"`
+	Language                 string `json:"language"`
+	ProviderID               string `json:"provider_id"`
+	HappNoLimitMode          bool   `json:"happ_no_limit_mode"`
+	HappNoLimitModeXHTTPOnly bool   `json:"happ_no_limit_mode_xhttp_only"`
+	HappMandatoryHWID        bool   `json:"happ_mandatory_hwid"`
+	HappNotifyExpiration     bool   `json:"happ_notify_expiration"`
+	HappHideServerSettings   bool   `json:"happ_hide_server_settings"`
+	HappSubscriptionBody     string `json:"happ_subscription_body"`
 }
 
 // UpdateSubscriptionSettingsRequest is the payload for PUT /api/admin/subscription-settings.
 type UpdateSubscriptionSettingsRequest struct {
-	Title        string `json:"title"`
-	RefreshHours int    `json:"refresh_hours"`
-	InfoURL      string `json:"info_url"`
-	ExtraURL     string `json:"extra_url"`
-	ExtraStatus  string `json:"extra_status"`
-	TimeZone     string `json:"time_zone"`
-	Language     string `json:"language"`
+	Title                    string `json:"title"`
+	RefreshHours             int    `json:"refresh_hours"`
+	InfoURL                  string `json:"info_url"`
+	ExtraURL                 string `json:"extra_url"`
+	ExtraStatus              string `json:"extra_status"`
+	TimeZone                 string `json:"time_zone"`
+	Language                 string `json:"language"`
+	ProviderID               string `json:"provider_id"`
+	HappNoLimitMode          bool   `json:"happ_no_limit_mode"`
+	HappNoLimitModeXHTTPOnly bool   `json:"happ_no_limit_mode_xhttp_only"`
+	HappMandatoryHWID        bool   `json:"happ_mandatory_hwid"`
+	HappNotifyExpiration     bool   `json:"happ_notify_expiration"`
+	HappHideServerSettings   bool   `json:"happ_hide_server_settings"`
+	HappSubscriptionBody     string `json:"happ_subscription_body"`
+}
+
+type RoutingSettings struct {
+	ConfigJSON string `json:"config_json"`
 }
 
 // PanelSettings stores admin panel UI customization (title, logo, favicon, page titles).
 type PanelSettings struct {
-	PanelTitle         string `json:"panelTitle"`
-	LogoDataURL        string `json:"logoDataUrl"`
-	FaviconDataURL     string `json:"faviconDataUrl"`
-	PageTitleAdmin     string `json:"pageTitleAdmin"`
-	PageTitleAdminLogin string `json:"pageTitleAdminLogin"`
+	PanelTitle            string `json:"panelTitle"`
+	LogoDataURL           string `json:"logoDataUrl"`
+	FaviconDataURL        string `json:"faviconDataUrl"`
+	PageTitleAdmin        string `json:"pageTitleAdmin"`
+	PageTitleAdminLogin   string `json:"pageTitleAdminLogin"`
 	PageTitleSubscription string `json:"pageTitleSubscription"`
 }
 

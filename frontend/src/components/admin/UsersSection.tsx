@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { User, VLESSKey } from "@/lib/types";
 import { users as usersApi } from "@/lib/api";
 import { useToast } from "@/components/ui/Toast";
@@ -9,6 +9,7 @@ import { Card } from "@/components/ui/Card";
 import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 import { StatusBadge } from "@/components/ui/StatusBadge";
 import { AddUserModal } from "./AddUserModal";
+import { BulkEditUsersModal } from "./BulkEditUsersModal";
 import { EditSubscriptionModal } from "./EditSubscriptionModal";
 import { KeyAssignerModal } from "./KeyAssignerModal";
 import { HwidManager } from "./HwidManager";
@@ -54,12 +55,18 @@ export function UsersSection({ users, assignableKeys, onRefresh }: Props) {
   const { toast } = useToast();
   const [collapsed, setCollapsed] = useState(false);
   const [showAddUser, setShowAddUser] = useState(false);
+  const [showBulkEdit, setShowBulkEdit] = useState(false);
   const [editSubUser, setEditSubUser] = useState<User | null>(null);
   const [editKeysUser, setEditKeysUser] = useState<User | null>(null);
   const [hwidUser, setHwidUser] = useState<User | null>(null);
-  const [deleteTarget, setDeleteTarget] = useState<{id: number, name: string} | null>(null);
+  const [selectedUserIDs, setSelectedUserIDs] = useState<number[]>([]);
+  const [deleteTargetIDs, setDeleteTargetIDs] = useState<number[] | null>(null);
   const [deleting, setDeleting] = useState(false);
   const [copyingEncryptedFor, setCopyingEncryptedFor] = useState<number | null>(null);
+  const selectAllRef = useRef<HTMLInputElement | null>(null);
+  const selectedCount = selectedUserIDs.length;
+  const allSelected = users.length > 0 && selectedCount === users.length;
+  const partiallySelected = selectedCount > 0 && !allSelected;
 
   useEffect(() => {
     const syncSelectedUser = (selected: User | null, setSelected: (value: User | null) => void) => {
@@ -81,22 +88,57 @@ export function UsersSection({ users, assignableKeys, onRefresh }: Props) {
     syncSelectedUser(hwidUser, setHwidUser);
   }, [users, editSubUser, editKeysUser, hwidUser]);
 
-  const handleDelete = (id: number, name: string) => {
-    setDeleteTarget({ id, name });
+  useEffect(() => {
+    setSelectedUserIDs((prev) => prev.filter((id) => users.some((user) => user.id === id)));
+  }, [users]);
+
+  useEffect(() => {
+    if (!selectAllRef.current) {
+      return;
+    }
+    selectAllRef.current.indeterminate = selectedCount > 0 && !allSelected;
+  }, [selectedCount, allSelected]);
+
+  const toggleUserSelection = (id: number) => {
+    setSelectedUserIDs((prev) => (prev.includes(id) ? prev.filter((value) => value !== id) : [...prev, id]));
+  };
+
+  const toggleSelectAllUsers = () => {
+    setSelectedUserIDs(allSelected ? [] : users.map((user) => user.id));
+  };
+
+  const openDeleteSelectedDialog = () => {
+    if (selectedUserIDs.length === 0) {
+      return;
+    }
+    setDeleteTargetIDs([...selectedUserIDs]);
   };
 
   const confirmDelete = async () => {
-    if (!deleteTarget) return;
+    if (!deleteTargetIDs || deleteTargetIDs.length === 0) return;
     setDeleting(true);
     try {
-      await usersApi.delete(deleteTarget.id);
-      toast("Пользователь удален", "success");
+      const results = await Promise.allSettled(deleteTargetIDs.map((id) => usersApi.delete(id)));
+      const failedIDs = results
+        .map((result, index) => (result.status === "rejected" ? deleteTargetIDs[index] : null))
+        .filter((id): id is number => id !== null);
+      const successCount = deleteTargetIDs.length - failedIDs.length;
+
+      if (successCount > 0 && failedIDs.length === 0) {
+        toast(successCount === 1 ? "Пользователь удален" : `Удалено пользователей: ${successCount}`, "success");
+      } else if (successCount > 0) {
+        toast(`Удалено ${successCount} из ${deleteTargetIDs.length}. Проверьте оставшихся пользователей.`, "error");
+      } else {
+        toast("Не удалось удалить выбранных пользователей", "error");
+      }
+
+      setSelectedUserIDs(failedIDs);
       await onRefresh();
     } catch {
-      toast("Не удалось удалить пользователя", "error");
+      toast("Не удалось удалить выбранных пользователей", "error");
     } finally {
       setDeleting(false);
-      setDeleteTarget(null);
+      setDeleteTargetIDs(null);
     }
   };
 
@@ -161,6 +203,28 @@ export function UsersSection({ users, assignableKeys, onRefresh }: Props) {
     }
   };
 
+  const deleteTargetUsers = deleteTargetIDs
+    ? users.filter((user) => deleteTargetIDs.includes(user.id))
+    : [];
+  const selectedUsers = users.filter((user) => selectedUserIDs.includes(user.id));
+  const deleteTargetNames = deleteTargetUsers.map((user) => user.name);
+  const deleteTargetLabel = (() => {
+    if (!deleteTargetIDs || deleteTargetIDs.length === 0) {
+      return "";
+    }
+    if (deleteTargetIDs.length === 1) {
+      return `Вы уверены, что хотите удалить пользователя "${deleteTargetNames[0] ?? "—"}"?`;
+    }
+
+    const preview = deleteTargetNames.slice(0, 3).map((name) => `"${name}"`).join(", ");
+    const extraCount = deleteTargetIDs.length - Math.min(deleteTargetNames.length, 3);
+    const extraSuffix = extraCount > 0 ? ` и еще ${extraCount}` : "";
+    if (!preview) {
+      return `Вы уверены, что хотите удалить ${deleteTargetIDs.length} пользователей?`;
+    }
+    return `Вы уверены, что хотите удалить ${deleteTargetIDs.length} пользователей (${preview}${extraSuffix})?`;
+  })();
+
   return (
     <Card>
       <div className="flex items-center justify-between mb-4">
@@ -175,9 +239,19 @@ export function UsersSection({ users, assignableKeys, onRefresh }: Props) {
           </button>
           <h2 className="text-lg font-semibold"><EmojiText text={`😄 Пользователи (${users.length})`} /></h2>
         </div>
-        <Button onClick={() => setShowAddUser(true)} className="text-xs">
-          + Добавить
-        </Button>
+        <div className="flex items-center gap-2">
+          <Button variant="ghost" onClick={() => setShowBulkEdit(true)} className="text-xs" disabled={selectedCount === 0}>
+            Изменить
+          </Button>
+          {selectedCount > 0 && (
+            <Button variant="danger" onClick={openDeleteSelectedDialog} className="text-xs">
+              Удалить ({selectedCount})
+            </Button>
+          )}
+          <Button onClick={() => setShowAddUser(true)} className="text-xs">
+            + Добавить
+          </Button>
+        </div>
       </div>
 
       {!collapsed && (
@@ -185,6 +259,7 @@ export function UsersSection({ users, assignableKeys, onRefresh }: Props) {
           <table className="w-full table-fixed text-sm">
             <caption className="sr-only">Список пользователей</caption>
             <colgroup>
+              <col style={{ width: "2.5rem" }} />
               <col style={{ width: "8.5rem" }} />
               <col style={{ width: "10rem" }} />
               <col style={{ width: "8.5rem" }} />
@@ -194,6 +269,44 @@ export function UsersSection({ users, assignableKeys, onRefresh }: Props) {
             </colgroup>
             <thead>
               <tr className="text-left text-zinc-400 border-b border-border">
+                <th scope="col" className="pb-2 pr-2">
+                  <label className="flex h-9 w-9 cursor-pointer items-center justify-center rounded-xl border border-transparent transition-colors hover:border-border/70 hover:bg-surface-2/60">
+                    <input
+                      ref={selectAllRef}
+                      type="checkbox"
+                      checked={allSelected}
+                      onChange={toggleSelectAllUsers}
+                      aria-label={allSelected ? "Снять выбор со всех пользователей" : "Выбрать всех пользователей"}
+                      className="peer sr-only"
+                    />
+                    <span
+                      className={`flex h-5 w-5 items-center justify-center rounded-md border shadow-[inset_0_1px_0_rgba(255,255,255,0.04)] transition-all ${
+                        allSelected || partiallySelected
+                          ? "border-accent/80 bg-accent/20 text-accent"
+                          : "border-border bg-surface-2 text-transparent"
+                      } peer-focus-visible:ring-2 peer-focus-visible:ring-accent peer-focus-visible:ring-offset-2 peer-focus-visible:ring-offset-surface-1`}
+                    >
+                      {partiallySelected ? (
+                        <span className="h-0.5 w-2.5 rounded-full bg-current" />
+                      ) : (
+                        <svg
+                          viewBox="0 0 16 16"
+                          aria-hidden="true"
+                          className={`h-3.5 w-3.5 transition-opacity ${allSelected ? "opacity-100" : "opacity-0"}`}
+                        >
+                          <path
+                            d="M4 8.25 6.5 10.75 12 5.25"
+                            fill="none"
+                            stroke="currentColor"
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                            strokeWidth="2"
+                          />
+                        </svg>
+                      )}
+                    </span>
+                  </label>
+                </th>
                 <th scope="col" className="pb-2 pr-4">Имя</th>
                 <th scope="col" className="pb-2 pr-4">Имя пользователя Telegram</th>
                 <th scope="col" className="pb-2 pr-4">Код активации</th>
@@ -203,8 +316,44 @@ export function UsersSection({ users, assignableKeys, onRefresh }: Props) {
               </tr>
             </thead>
             <tbody>
-              {users.map((user) => (
+              {users.map((user) => {
+                const isSelected = selectedUserIDs.includes(user.id);
+
+                return (
                 <tr key={user.id} className="border-b border-border last:border-0">
+                  <td className="py-3 pr-2 align-middle">
+                    <label className="flex h-full min-h-24 w-full cursor-pointer items-center justify-center rounded-xl border border-transparent transition-colors hover:border-border/70 hover:bg-surface-2/40">
+                      <input
+                        type="checkbox"
+                        checked={isSelected}
+                        onChange={() => toggleUserSelection(user.id)}
+                        aria-label={`Выбрать пользователя ${user.name}`}
+                        className="peer sr-only"
+                      />
+                      <span
+                        className={`flex h-5 w-5 items-center justify-center rounded-md border shadow-[inset_0_1px_0_rgba(255,255,255,0.04)] transition-all peer-focus-visible:ring-2 peer-focus-visible:ring-accent peer-focus-visible:ring-offset-2 peer-focus-visible:ring-offset-surface-1 ${
+                          isSelected
+                            ? "border-accent/80 bg-accent/20 text-accent"
+                            : "border-border bg-surface-2 text-transparent"
+                        }`}
+                      >
+                        <svg
+                          viewBox="0 0 16 16"
+                          aria-hidden="true"
+                          className={`h-3.5 w-3.5 transition-opacity ${isSelected ? "opacity-100" : "opacity-0"}`}
+                        >
+                          <path
+                            d="M4 8.25 6.5 10.75 12 5.25"
+                            fill="none"
+                            stroke="currentColor"
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                            strokeWidth="2"
+                          />
+                        </svg>
+                      </span>
+                    </label>
+                  </td>
                   <td className="py-3 pr-4"><EmojiText text={user.name} /></td>
                   <td className="py-3 pr-4 text-zinc-400">{user.email ? `@${user.email.replace(/^@+/, "")}` : "—"}</td>
                   <td className="py-3 pr-4 font-mono text-xs">
@@ -245,7 +394,7 @@ export function UsersSection({ users, assignableKeys, onRefresh }: Props) {
                       >
                         Редактировать
                       </Button>
-                      <div className="grid grid-cols-3 gap-1.5">
+                      <div className="grid grid-cols-2 gap-1.5">
                         <Button
                           variant="ghost"
                           className="w-full text-xs"
@@ -260,21 +409,15 @@ export function UsersSection({ users, assignableKeys, onRefresh }: Props) {
                         >
                           HWID
                         </Button>
-                        <Button
-                          variant="danger"
-                          className="w-full text-xs"
-                          onClick={() => handleDelete(user.id, user.name)}
-                        >
-                          Удалить
-                        </Button>
                       </div>
                     </div>
                   </td>
                 </tr>
-              ))}
+                );
+              })}
               {users.length === 0 && (
                 <tr>
-                  <td colSpan={6} className="py-8 text-center text-zinc-400">
+                  <td colSpan={7} className="py-8 text-center text-zinc-400">
                     <svg
                       xmlns="http://www.w3.org/2000/svg"
                       className="mx-auto mb-2 h-8 w-8 text-zinc-500"
@@ -299,15 +442,22 @@ export function UsersSection({ users, assignableKeys, onRefresh }: Props) {
       )}
 
       <ConfirmDialog
-        open={!!deleteTarget}
-        title="Удаление пользователя"
-        message={`Вы уверены, что хотите удалить пользователя "${deleteTarget?.name}"?`}
+        open={!!deleteTargetIDs}
+        title={deleteTargetIDs && deleteTargetIDs.length > 1 ? "Удаление пользователей" : "Удаление пользователя"}
+        message={deleteTargetLabel}
         onConfirm={confirmDelete}
-        onCancel={() => setDeleteTarget(null)}
+        onCancel={() => setDeleteTargetIDs(null)}
         loading={deleting}
       />
 
       <AddUserModal open={showAddUser} onClose={() => setShowAddUser(false)} onRefresh={onRefresh} />
+      {showBulkEdit && selectedUsers.length > 0 && (
+        <BulkEditUsersModal
+          users={selectedUsers}
+          onClose={() => setShowBulkEdit(false)}
+          onRefresh={onRefresh}
+        />
+      )}
       {editSubUser && (
         <EditSubscriptionModal
           user={editSubUser}

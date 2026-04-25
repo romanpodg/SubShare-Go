@@ -55,11 +55,21 @@ body {
 
 /* contentEditable input with inline Apple emoji */
 .apple-emoji-input {
+  display: block;
   white-space: nowrap;
   overflow: hidden;
   min-height: 2.375rem;
   line-height: 1.25rem;
   cursor: text;
+}
+
+.apple-emoji-input--multiline {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+  overflow-x: hidden;
+  overflow-y: auto;
+  align-content: start;
 }
 
 .apple-emoji-input .emoji-image {
@@ -125,4 +135,14 @@ body::-webkit-scrollbar-thumb {
 
 body::-webkit-scrollbar-thumb:hover {
   background: var(--color-surface-1);
+}
+
+.input-calendar-emoji::-webkit-calendar-picker-indicator {
+  opacity: 0;
+  cursor: pointer;
+}
+
+.input-calendar-emoji::-webkit-clear-button,
+.input-calendar-emoji::-webkit-inner-spin-button {
+  display: none;
 }

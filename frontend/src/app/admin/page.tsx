@@ -11,6 +11,7 @@ import { UsersSection } from "@/components/admin/UsersSection";
 import { KeysSection } from "@/components/admin/KeysSection";
 import { GlobalSubscriptionSettingsModal } from "@/components/admin/GlobalSubscriptionSettingsModal";
 import { PanelSettingsModal } from "@/components/admin/PanelSettingsModal";
+import { RoutingSettingsModal } from "@/components/admin/RoutingSettingsModal";
 import { LoadingSpinner } from "@/components/ui/LoadingSpinner";
 import { EmojiText } from "@/components/ui/EmojiText";
 import { usePanelSettings } from "@/context/PanelSettingsContext";
@@ -24,6 +25,7 @@ export default function AdminPage() {
   const [keysList, setKeysList] = useState<VLESSKey[]>([]);
   const [loading, setLoading] = useState(true);
   const [showGlobalSubscriptionSettings, setShowGlobalSubscriptionSettings] = useState(false);
+  const [showRoutingSettings, setShowRoutingSettings] = useState(false);
   const [showPanelSettings, setShowPanelSettings] = useState(false);
 
   useEffect(() => {
@@ -67,11 +69,15 @@ export default function AdminPage() {
   if (!authenticated) return null;
 
   const assignableKeys = keysList.filter((k) => k.status === "active");
+  const navItemClass =
+    "inline-flex h-9 items-center rounded-lg border border-border bg-surface-2 px-3 text-sm text-zinc-200 transition-colors hover:bg-surface-1 hover:border-zinc-500";
+  const navDangerClass =
+    "inline-flex h-9 items-center rounded-lg border border-red-500/25 bg-red-500/15 px-3 text-sm text-red-300 transition-colors hover:bg-red-500/20 hover:border-red-500/40";
 
   return (
     <div className="min-h-screen">
-      <header className="border-b border-border px-6 py-4 flex items-center justify-between">
-        <div className="flex items-center gap-2">
+      <header className="border-b border-border px-6 py-4 flex items-center justify-between gap-6">
+        <div className="flex min-w-0 flex-1 items-center gap-2">
           {/* Логотип */}
           {settings.logoDataUrl && (
             // eslint-disable-next-line @next/next/no-img-element
@@ -94,18 +100,24 @@ export default function AdminPage() {
           >
             <EmojiText text="⚙️" />
           </button>
+          <Link href="/subscription" className={`${navItemClass} ml-6 shrink-0`}>
+            Перейти в клиентскую панель
+          </Link>
         </div>
-        <div className="flex items-center gap-4">
+        <div className="flex shrink-0 items-center gap-2">
+          <button
+            onClick={() => setShowRoutingSettings(true)}
+            className={navItemClass}
+          >
+            Роутинг
+          </button>
           <button
             onClick={() => setShowGlobalSubscriptionSettings(true)}
-            className="text-sm text-zinc-400 hover:text-zinc-200 transition-colors"
+            className={navItemClass}
           >
-            Настройки
+            Настройки подписки
           </button>
-          <Link href="/subscription" className="text-sm text-zinc-400 hover:text-zinc-200 transition-colors">
-            Клиентская страница
-          </Link>
-          <button onClick={handleLogout} className="text-sm text-zinc-400 hover:text-zinc-200 transition-colors">
+          <button onClick={handleLogout} className={navDangerClass}>
             Выйти
           </button>
         </div>
@@ -126,6 +138,10 @@ export default function AdminPage() {
       <GlobalSubscriptionSettingsModal
         open={showGlobalSubscriptionSettings}
         onClose={() => setShowGlobalSubscriptionSettings(false)}
+      />
+      <RoutingSettingsModal
+        open={showRoutingSettings}
+        onClose={() => setShowRoutingSettings(false)}
       />
       <PanelSettingsModal
         open={showPanelSettings}

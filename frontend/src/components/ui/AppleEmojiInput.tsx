@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useCallback, useEffect } from "react";
+import { forwardRef, useRef, useCallback, useEffect, useImperativeHandle } from "react";
 import emojiRegex from "emoji-regex";
 
 const APPLE_CDN =
@@ -28,12 +28,12 @@ function toHtml(text: string): string {
   let last = 0;
   for (const m of text.matchAll(re)) {
     const i = m.index!;
-    if (i > last) out += esc(text.slice(last, i));
+    if (i > last) out += esc(text.slice(last, i)).replace(/\n/g, "<br>");
     const e = m[0];
     out += `<img src="${APPLE_CDN}${toUnified(e)}.png" alt="${e}" class="emoji-image" draggable="false" loading="lazy" onerror="this.outerHTML=this.alt">`;
     last = i + e.length;
   }
-  if (last < text.length) out += esc(text.slice(last));
+  if (last < text.length) out += esc(text.slice(last)).replace(/\n/g, "<br>");
   return out;
 }
 
@@ -42,8 +42,13 @@ function getText(node: Node): string {
   let s = "";
   for (const c of node.childNodes) {
     if (c.nodeType === Node.TEXT_NODE) s += c.textContent ?? "";
+    else if (c instanceof HTMLBRElement) s += "\n";
     else if (c instanceof HTMLImageElement) s += c.alt;
-    else if (c instanceof HTMLElement) s += getText(c);
+    else if (c instanceof HTMLDivElement || c instanceof HTMLParagraphElement) {
+      const nested = getText(c);
+      s += nested;
+      if (nested && !nested.endsWith("\n")) s += "\n";
+    } else if (c instanceof HTMLElement) s += getText(c);
   }
   return s;
 }
@@ -146,9 +151,17 @@ interface AppleEmojiInputProps {
   onChange?: (e: { target: { value: string } }) => void;
   className?: string;
   id?: string;
+  multiline?: boolean;
+  maxLength?: number;
+  showCounter?: boolean;
 }
 
-export function AppleEmojiInput({
+export interface AppleEmojiInputHandle {
+  insertEmoji: (emoji: string) => void;
+  focus: () => void;
+}
+
+export const AppleEmojiInput = forwardRef<AppleEmojiInputHandle, AppleEmojiInputProps>(function AppleEmojiInput({
   label,
   error,
   value = "",
@@ -156,20 +169,74 @@ export function AppleEmojiInput({
   onChange,
   className = "",
   id,
-}: AppleEmojiInputProps) {
+  multiline = false,
+  maxLength,
+  showCounter = false,
+}, forwardedRef) {
   const ref = useRef<HTMLDivElement>(null);
   const lastVal = useRef(value);
+  const savedCursorPosRef = useRef<number>(value.length);
+  const pendingCursorPosRef = useRef<number | null>(null);
   const inputId = id || label?.toLowerCase().replace(/\s+/g, "-");
+
+  const syncSelection = useCallback(() => {
+    const el = ref.current;
+    if (!el) return;
+    const nextPos = saveCursor(el);
+    if (nextPos >= 0) {
+      savedCursorPosRef.current = nextPos;
+    }
+  }, []);
+
+  const emitNextValue = useCallback((nextValue: string, nextCursorPos?: number) => {
+    const limitedValue =
+      typeof maxLength === "number" ? nextValue.slice(0, maxLength) : nextValue;
+    lastVal.current = limitedValue;
+    if (typeof nextCursorPos === "number") {
+      pendingCursorPosRef.current = Math.min(nextCursorPos, limitedValue.length);
+      savedCursorPosRef.current = pendingCursorPosRef.current;
+    }
+    onChange?.({ target: { value: limitedValue } });
+  }, [maxLength, onChange]);
+
+  useImperativeHandle(forwardedRef, () => ({
+    insertEmoji: (emoji: string) => {
+      const el = ref.current;
+      const baseValue = lastVal.current;
+      const insertionPoint = el && document.activeElement === el
+        ? Math.max(0, saveCursor(el))
+        : savedCursorPosRef.current;
+      const normalizedPoint = Math.min(Math.max(insertionPoint, 0), baseValue.length);
+      emitNextValue(
+        `${baseValue.slice(0, normalizedPoint)}${emoji}${baseValue.slice(normalizedPoint)}`,
+        normalizedPoint + emoji.length
+      );
+    },
+    focus: () => {
+      ref.current?.focus();
+    },
+  }), [emitNextValue]);
 
   /* Sync external value → DOM (e.g. emoji picker appends emoji) */
   useEffect(() => {
     const el = ref.current;
     if (!el) return;
-    if (value === lastVal.current) return;
+    const restorePos = pendingCursorPosRef.current;
+    if (value === lastVal.current && restorePos === null) return;
     lastVal.current = value;
-    const isFocused = el === document.activeElement;
+    const isFocused = el === document.activeElement || restorePos !== null;
     el.innerHTML = toHtml(value);
-    if (isFocused) restoreCursor(el, value.length);
+    if (isFocused) {
+      if (restorePos !== null) {
+        el.focus();
+        restoreCursor(el, restorePos);
+        savedCursorPosRef.current = restorePos;
+        pendingCursorPosRef.current = null;
+      } else {
+        restoreCursor(el, value.length);
+        savedCursorPosRef.current = value.length;
+      }
+    }
   }, [value]);
 
   /* Initial render */
@@ -178,6 +245,7 @@ export function AppleEmojiInput({
     if (!el) return;
     el.innerHTML = toHtml(value);
     lastVal.current = value;
+    savedCursorPosRef.current = value.length;
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -186,8 +254,9 @@ export function AppleEmojiInput({
     const el = ref.current;
     if (!el) return;
 
-    const text = getText(el);
-    lastVal.current = text;
+    const text = getText(el).replace(/\u00a0/g, " ").replace(/\n{3,}/g, "\n\n");
+    const nextValue = typeof maxLength === "number" ? text.slice(0, maxLength) : text;
+    lastVal.current = nextValue;
 
     // Only rewrite the DOM if raw emoji glyphs exist as text nodes
     let needsUpdate = false;
@@ -201,16 +270,23 @@ export function AppleEmojiInput({
       tn = tw.nextNode();
     }
 
-    if (needsUpdate) {
+    if (needsUpdate || nextValue !== text) {
       const pos = saveCursor(el);
-      el.innerHTML = toHtml(text);
+      el.innerHTML = toHtml(nextValue);
       restoreCursor(el, pos);
+      savedCursorPosRef.current = Math.min(pos, nextValue.length);
+    } else {
+      const pos = saveCursor(el);
+      if (pos >= 0) {
+        savedCursorPosRef.current = Math.min(pos, nextValue.length);
+      }
     }
 
-    onChange?.({ target: { value: text } });
-  }, [onChange]);
+    onChange?.({ target: { value: nextValue } });
+  }, [maxLength, onChange]);
 
   const hasValue = value.length > 0;
+  const currentLength = value.length;
 
   return (
     <div className="flex flex-col gap-1.5">
@@ -224,7 +300,7 @@ export function AppleEmojiInput({
         {/* Placeholder (visible only when empty) */}
         {!hasValue && placeholder && (
           <div
-            className="pointer-events-none absolute inset-0 flex items-center px-3 text-sm text-zinc-500"
+            className={`pointer-events-none absolute inset-0 px-3 text-sm text-zinc-500 ${multiline ? "pt-2.5" : "flex items-center"}`}
             aria-hidden="true"
           >
             {placeholder}
@@ -236,23 +312,47 @@ export function AppleEmojiInput({
           id={inputId}
           contentEditable
           role="textbox"
+          aria-multiline={multiline}
           suppressContentEditableWarning
           onInput={onInput}
+          onBlur={syncSelection}
+          onKeyUp={syncSelection}
+          onMouseUp={syncSelection}
+          onFocus={syncSelection}
           onKeyDown={(e) => {
-            if (e.key === "Enter") e.preventDefault();
+            if (!multiline && e.key === "Enter") {
+              e.preventDefault();
+              return;
+            }
+            if (multiline && e.key === "Enter" && !e.shiftKey) {
+              e.preventDefault();
+              document.execCommand("insertLineBreak");
+            }
           }}
           onPaste={(e) => {
             e.preventDefault();
-            const t = e.clipboardData
-              .getData("text/plain")
-              .replace(/[\r\n]+/g, " ");
-            document.execCommand("insertText", false, t);
+            const text = e.clipboardData.getData("text/plain");
+            const normalized = multiline ? text.replace(/\r\n/g, "\n") : text.replace(/[\r\n]+/g, " ");
+            const truncated =
+              typeof maxLength === "number"
+                ? normalized.slice(0, Math.max(0, maxLength - getText(ref.current ?? document.createElement("div")).length))
+                : normalized;
+            document.execCommand(
+              multiline ? "insertHTML" : "insertText",
+              false,
+              multiline ? esc(truncated).replace(/\n/g, "<br>") : truncated
+            );
           }}
-          className={`apple-emoji-input w-full rounded-lg border border-border bg-surface-2 px-3 py-2 text-sm text-zinc-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-bg ${error ? "ring-1 ring-red-500" : ""} ${className}`}
+          className={`apple-emoji-input w-full rounded-lg border border-border bg-surface-2 px-3 py-2 text-sm text-zinc-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-bg ${multiline ? "apple-emoji-input--multiline min-h-[8.5rem]" : ""} ${error ? "ring-1 ring-red-500" : ""} ${className}`}
         />
       </div>
 
       {error && <p className="text-xs text-red-400">{error}</p>}
+      {showCounter && typeof maxLength === "number" && (
+        <div className="-mt-0.5 text-right text-xs text-zinc-500">
+          {currentLength}/{maxLength}
+        </div>
+      )}
     </div>
   );
-}
+});

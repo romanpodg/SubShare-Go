@@ -7,8 +7,6 @@ import (
 	"net/url"
 	"strings"
 	"time"
-
-	"xary-sub/internal/vless"
 )
 
 type deviceMeta struct {
@@ -84,11 +82,23 @@ func parseOptionalDateTimeLocal(raw string) (sql.NullTime, error) {
 	if raw == "" {
 		return sql.NullTime{}, nil
 	}
-	t, err := time.ParseInLocation("2006-01-02T15:04", raw, time.Local)
-	if err != nil {
-		return sql.NullTime{}, err
+
+	layouts := []string{
+		"2006-01-02T15:04",
+		"2006-01-02 15:04",
+		"02/01/2006 15:04",
 	}
-	return sql.NullTime{Time: t.UTC(), Valid: true}, nil
+
+	var lastErr error
+	for _, layout := range layouts {
+		t, err := time.ParseInLocation(layout, raw, time.Local)
+		if err == nil {
+			return sql.NullTime{Time: t.UTC(), Valid: true}, nil
+		}
+		lastErr = err
+	}
+
+	return sql.NullTime{}, lastErr
 }
 
 func formatDateTimeInput(value sql.NullTime) string {
@@ -121,8 +131,35 @@ func nullInt64Value(value int64) any {
 	return value
 }
 
+func boolToInt(value bool) int {
+	if value {
+		return 1
+	}
+	return 0
+}
+
+func containsLegacySubscriptionBodyMarkers(body string) bool {
+	legacyMarkers := []string{
+		"#profile-desc:",
+		"#profile-status:",
+		"#description:",
+		"#happ-provider-id:",
+		"#happ-no-limit-mode:",
+		"#happ-no-limit-mode-xhttp-only:",
+		"#happ-mandatory-hwid:",
+		"#happ-notify-expiration:",
+		"#happ-hide-server-settings:",
+	}
+	for _, marker := range legacyMarkers {
+		if strings.Contains(body, marker) {
+			return true
+		}
+	}
+	return false
+}
+
 func (a *App) checkAndPersistKey(keyID int64, rawURL string) error {
-	status, checkErr, latency := vless.CheckVLESSAvailability(rawURL)
+	status, checkErr, latency := checkConfigurationAvailability(rawURL)
 	_, err := a.db.Exec(
 		`UPDATE vless_keys SET check_status = ?, check_error = ?, last_latency_ms = ?, last_checked_at = CURRENT_TIMESTAMP WHERE id = ?`,
 		status,

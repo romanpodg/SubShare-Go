@@ -80,4 +80,11 @@ export interface SubscriptionSettings {
   extra_status: string;
   time_zone: string;
   language: string;
+  provider_id: string;
+  happ_no_limit_mode: boolean;
+  happ_no_limit_mode_xhttp_only: boolean;
+  happ_mandatory_hwid: boolean;
+  happ_notify_expiration: boolean;
+  happ_hide_server_settings: boolean;
+  happ_subscription_body: string;
 }

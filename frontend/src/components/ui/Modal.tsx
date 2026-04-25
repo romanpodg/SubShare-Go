@@ -8,12 +8,14 @@ interface ModalProps {
   onClose: () => void;
   title: string;
   children: ReactNode;
+  className?: string;
 }
 
-export function Modal({ open, onClose, title, children }: ModalProps) {
+export function Modal({ open, onClose, title, children, className = "" }: ModalProps) {
   const overlayRef = useRef<HTMLDivElement>(null);
   const modalRef = useRef<HTMLDivElement>(null);
   const previousFocusRef = useRef<Element | null>(null);
+  const sizeClasses = className ? className : "max-w-lg max-h-[88vh] overflow-y-auto";
 
   const getFocusableElements = useCallback(() => {
     if (!modalRef.current) return [];
@@ -92,7 +94,7 @@ export function Modal({ open, onClose, title, children }: ModalProps) {
         role="dialog"
         aria-modal="true"
         aria-label={title}
-        className="bg-surface-1 border border-border rounded-xl p-4 w-full max-w-lg max-h-[88vh] overflow-y-auto shadow-xl shadow-black/50 animate-fade-in"
+        className={`bg-surface-1 border border-border rounded-xl p-4 w-full shadow-xl shadow-black/50 animate-fade-in ${sizeClasses}`}
       >
         <div className="flex items-center justify-between mb-3">
           <h2 className="text-lg font-semibold text-zinc-200"><EmojiText text={title} /></h2>

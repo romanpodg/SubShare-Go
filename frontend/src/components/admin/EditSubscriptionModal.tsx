@@ -6,7 +6,9 @@ import { Input } from "@/components/ui/Input";
 import { Select } from "@/components/ui/Select";
 import { Button } from "@/components/ui/Button";
 import { useToast } from "@/components/ui/Toast";
+import { EmojiText } from "@/components/ui/EmojiText";
 import { users as usersApi } from "@/lib/api";
+import { normalizeDateTimeLocalValue } from "@/lib/datetime";
 import type { User } from "@/lib/types";
 
 interface Props {
@@ -19,9 +21,9 @@ export function EditSubscriptionModal({ user, onClose, onRefresh }: Props) {
   const { toast } = useToast();
   const [loading, setLoading] = useState(false);
   const [status, setStatus] = useState<"active" | "paused" | "blocked">(user.status);
-  const [startsAt, setStartsAt] = useState(user.starts_at);
-  const [expiresAt, setExpiresAt] = useState(user.expires_at);
+  const [expiresAt, setExpiresAt] = useState(() => normalizeDateTimeLocalValue(user.expires_at));
   const [blockedReason, setBlockedReason] = useState(user.blocked_reason);
+  const startsAt = normalizeDateTimeLocalValue(user.starts_at);
 
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();
@@ -56,18 +58,23 @@ export function EditSubscriptionModal({ user, onClose, onRefresh }: Props) {
             { value: "blocked", label: "Заблокирован" },
           ]}
         />
-        <Input
-          label="Начало"
-          type="datetime-local"
-          value={startsAt}
-          onChange={(e) => setStartsAt(e.target.value)}
-        />
-        <Input
-          label="Окончание"
-          type="datetime-local"
-          value={expiresAt}
-          onChange={(e) => setExpiresAt(e.target.value)}
-        />
+        <div className="flex flex-col gap-1.5">
+          <label htmlFor="subscription-expires-at" className="text-sm text-zinc-400">
+            Окончание
+          </label>
+          <div className="relative">
+            <input
+              id="subscription-expires-at"
+              type="datetime-local"
+              value={expiresAt}
+              onChange={(e) => setExpiresAt(e.target.value)}
+              className="input-calendar-emoji bg-surface-2 border border-border rounded-lg px-3 py-2 pr-11 text-sm text-zinc-200 placeholder:text-zinc-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-bg w-full"
+            />
+            <span className="pointer-events-none absolute inset-y-0 right-0 flex w-11 items-center justify-center text-lg">
+              <EmojiText text="🗓️" />
+            </span>
+          </div>
+        </div>
         {status === "blocked" && (
           <Input
             label="Причина блокировки"

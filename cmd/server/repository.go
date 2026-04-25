@@ -17,7 +17,6 @@ var validSQLIdentifier = regexp.MustCompile(`^[a-zA-Z_][a-zA-Z0-9_]*$`)
 
 func migrate(db *sql.DB) error {
 	queries := []string{
-		`PRAGMA journal_mode = WAL;`,
 		`CREATE TABLE IF NOT EXISTS users (
 			id INTEGER PRIMARY KEY AUTOINCREMENT,
 			name TEXT NOT NULL,
@@ -53,6 +52,13 @@ func migrate(db *sql.DB) error {
 			info_url TEXT,
 			extra_url TEXT,
 			extra_status TEXT,
+			provider_id TEXT,
+			happ_no_limit_mode INTEGER NOT NULL DEFAULT 0,
+			happ_no_limit_mode_xhttp_only INTEGER NOT NULL DEFAULT 0,
+			happ_mandatory_hwid INTEGER NOT NULL DEFAULT 0,
+			happ_notify_expiration INTEGER NOT NULL DEFAULT 0,
+			happ_hide_server_settings INTEGER NOT NULL DEFAULT 0,
+			happ_subscription_body TEXT,
 			updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
 		);`,
 		`CREATE TABLE IF NOT EXISTS panel_settings (
@@ -63,6 +69,11 @@ func migrate(db *sql.DB) error {
 			page_title_admin TEXT NOT NULL DEFAULT 'Панель управления — Xray Sub',
 			page_title_admin_login TEXT NOT NULL DEFAULT 'Вход — Xray Sub',
 			page_title_subscription TEXT NOT NULL DEFAULT 'VPN-подписка — Xray Sub',
+			updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+		);`,
+		`CREATE TABLE IF NOT EXISTS routing_settings (
+			id INTEGER PRIMARY KEY CHECK (id = 1),
+			config_json TEXT NOT NULL DEFAULT '',
 			updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
 		);`,
 	}
@@ -242,10 +253,34 @@ func migrate(db *sql.DB) error {
 	if _, err := db.Exec(`INSERT OR IGNORE INTO panel_settings(id) VALUES(1)`); err != nil {
 		return err
 	}
+	if _, err := db.Exec(`INSERT OR IGNORE INTO routing_settings(id, config_json) VALUES(1, '')`); err != nil {
+		return err
+	}
 	if err := ensureColumn(db, "subscription_settings", "time_zone", "TEXT NOT NULL DEFAULT 'Europe/Moscow'"); err != nil {
 		return err
 	}
 	if err := ensureColumn(db, "subscription_settings", "language", "TEXT NOT NULL DEFAULT 'ru'"); err != nil {
+		return err
+	}
+	if err := ensureColumn(db, "subscription_settings", "provider_id", "TEXT"); err != nil {
+		return err
+	}
+	if err := ensureColumn(db, "subscription_settings", "happ_no_limit_mode", "INTEGER NOT NULL DEFAULT 0"); err != nil {
+		return err
+	}
+	if err := ensureColumn(db, "subscription_settings", "happ_no_limit_mode_xhttp_only", "INTEGER NOT NULL DEFAULT 0"); err != nil {
+		return err
+	}
+	if err := ensureColumn(db, "subscription_settings", "happ_mandatory_hwid", "INTEGER NOT NULL DEFAULT 0"); err != nil {
+		return err
+	}
+	if err := ensureColumn(db, "subscription_settings", "happ_notify_expiration", "INTEGER NOT NULL DEFAULT 0"); err != nil {
+		return err
+	}
+	if err := ensureColumn(db, "subscription_settings", "happ_hide_server_settings", "INTEGER NOT NULL DEFAULT 0"); err != nil {
+		return err
+	}
+	if err := ensureColumn(db, "subscription_settings", "happ_subscription_body", "TEXT"); err != nil {
 		return err
 	}
 	if _, err := db.Exec(`UPDATE subscription_settings SET refresh_hours = 12 WHERE refresh_hours < 1`); err != nil {
@@ -360,7 +395,7 @@ func (a *App) listUsers() ([]model.User, error) {
 			&u.ID,
 			&u.Name,
 			&u.Email,
-&u.Token,
+			&u.Token,
 			&timeZone,
 			&language,
 			&activationCode,
@@ -571,22 +606,54 @@ func (a *App) getSubscriptionSettings() (model.SubscriptionSettings, error) {
 	var extraStatus sql.NullString
 	var timeZone sql.NullString
 	var language sql.NullString
+	var providerID sql.NullString
+	var happNoLimitMode sql.NullInt64
+	var happNoLimitModeXHTTPOnly sql.NullInt64
+	var happMandatoryHWID sql.NullInt64
+	var happNotifyExpiration sql.NullInt64
+	var happHideServerSettings sql.NullInt64
+	var happSubscriptionBody sql.NullString
 
 	err := a.db.QueryRow(
-		`SELECT title, refresh_hours, info_url, extra_url, extra_status, time_zone, language FROM subscription_settings WHERE id = 1`,
-	).Scan(&title, &refreshHours, &infoURL, &extraURL, &extraStatus, &timeZone, &language)
+		`SELECT title, refresh_hours, info_url, extra_url, extra_status, time_zone, language,
+		        provider_id, happ_no_limit_mode, happ_no_limit_mode_xhttp_only, happ_mandatory_hwid,
+		        happ_notify_expiration, happ_hide_server_settings, happ_subscription_body
+		   FROM subscription_settings WHERE id = 1`,
+	).Scan(
+		&title,
+		&refreshHours,
+		&infoURL,
+		&extraURL,
+		&extraStatus,
+		&timeZone,
+		&language,
+		&providerID,
+		&happNoLimitMode,
+		&happNoLimitModeXHTTPOnly,
+		&happMandatoryHWID,
+		&happNotifyExpiration,
+		&happHideServerSettings,
+		&happSubscriptionBody,
+	)
 	if err != nil {
 		return model.SubscriptionSettings{}, err
 	}
 
 	settings := model.SubscriptionSettings{
-		Title:        strings.TrimSpace(title.String),
-		RefreshHours: 12,
-		InfoURL:      strings.TrimSpace(infoURL.String),
-		ExtraURL:     strings.TrimSpace(extraURL.String),
-		ExtraStatus:  strings.TrimSpace(extraStatus.String),
-		TimeZone:     strings.TrimSpace(timeZone.String),
-		Language:     strings.TrimSpace(language.String),
+		Title:                    strings.TrimSpace(title.String),
+		RefreshHours:             12,
+		InfoURL:                  strings.TrimSpace(infoURL.String),
+		ExtraURL:                 strings.TrimSpace(extraURL.String),
+		ExtraStatus:              strings.TrimSpace(extraStatus.String),
+		TimeZone:                 strings.TrimSpace(timeZone.String),
+		Language:                 strings.TrimSpace(language.String),
+		ProviderID:               strings.TrimSpace(providerID.String),
+		HappNoLimitMode:          happNoLimitMode.Valid && happNoLimitMode.Int64 != 0,
+		HappNoLimitModeXHTTPOnly: happNoLimitModeXHTTPOnly.Valid && happNoLimitModeXHTTPOnly.Int64 != 0,
+		HappMandatoryHWID:        happMandatoryHWID.Valid && happMandatoryHWID.Int64 != 0,
+		HappNotifyExpiration:     happNotifyExpiration.Valid && happNotifyExpiration.Int64 != 0,
+		HappHideServerSettings:   happHideServerSettings.Valid && happHideServerSettings.Int64 != 0,
+		HappSubscriptionBody:     happSubscriptionBody.String,
 	}
 	if refreshHours.Valid && refreshHours.Int64 > 0 {
 		settings.RefreshHours = int(refreshHours.Int64)
@@ -638,6 +705,20 @@ func (a *App) getPanelSettings() (model.PanelSettings, error) {
 	return s, nil
 }
 
+func (a *App) getRoutingSettings() (model.RoutingSettings, error) {
+	var configJSON sql.NullString
+	if err := a.db.QueryRow(`SELECT config_json FROM routing_settings WHERE id = 1`).Scan(&configJSON); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return model.RoutingSettings{ConfigJSON: ""}, nil
+		}
+		return model.RoutingSettings{}, err
+	}
+
+	return model.RoutingSettings{
+		ConfigJSON: strings.TrimSpace(configJSON.String),
+	}, nil
+}
+
 func (a *App) updatePanelSettings(s model.PanelSettings) error {
 	_, err := a.db.Exec(
 		`UPDATE panel_settings SET
@@ -651,6 +732,16 @@ func (a *App) updatePanelSettings(s model.PanelSettings) error {
 		 WHERE id = 1`,
 		s.PanelTitle, s.LogoDataURL, s.FaviconDataURL,
 		s.PageTitleAdmin, s.PageTitleAdminLogin, s.PageTitleSubscription,
+	)
+	return err
+}
+
+func (a *App) updateRoutingSettings(s model.RoutingSettings) error {
+	_, err := a.db.Exec(
+		`INSERT INTO routing_settings(id, config_json, updated_at)
+		 VALUES(1, ?, CURRENT_TIMESTAMP)
+		 ON CONFLICT(id) DO UPDATE SET config_json = excluded.config_json, updated_at = CURRENT_TIMESTAMP`,
+		strings.TrimSpace(s.ConfigJSON),
 	)
 	return err
 }

@@ -9,6 +9,7 @@ import { Card } from "@/components/ui/Card";
 import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 import { StatusBadge } from "@/components/ui/StatusBadge";
 import { AddKeyModal } from "./AddKeyModal";
+import { BulkEditKeysModal } from "./BulkEditKeysModal";
 import { EditKeyModal } from "./EditKeyModal";
 import { copyToClipboard } from "@/lib/clipboard";
 import { EmojiText } from "@/components/ui/EmojiText";
@@ -82,22 +83,42 @@ export function KeysSection({ keys, onRefresh }: Props) {
   const [hiddenCategory, setHiddenCategory] = useState<"informational" | "real" | null>(null);
   const [orderedKeys, setOrderedKeys] = useState<VLESSKey[]>(keys);
   const [showAddKey, setShowAddKey] = useState(false);
+  const [showBulkEdit, setShowBulkEdit] = useState(false);
   const [editKey, setEditKey] = useState<VLESSKey | null>(null);
   const [checkingAll, setCheckingAll] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState<{id: number, label: string} | null>(null);
   const [deleting, setDeleting] = useState(false);
+  const [bulkDeleteTargetIDs, setBulkDeleteTargetIDs] = useState<number[] | null>(null);
+  const [bulkDeleting, setBulkDeleting] = useState(false);
+  const [selectedKeyIDs, setSelectedKeyIDs] = useState<number[]>([]);
   const [dragging, setDragging] = useState<{ id: number; rowIndex: number } | null>(null);
   const [reordering, setReordering] = useState(false);
   const [hasUnsavedOrder, setHasUnsavedOrder] = useState(false);
   const [insertAtIndex, setInsertAtIndex] = useState<number | null>(null);
   const cardHeightsRef = useRef<Record<string, HTMLDivElement | null>>({});
+  const selectAllRef = useRef<HTMLInputElement | null>(null);
   const [rowHeights, setRowHeights] = useState<Record<number, { informational: number; real: number }>>({});
+  const selectedCount = selectedKeyIDs.length;
+  const allSelected = orderedKeys.length > 0 && selectedCount === orderedKeys.length;
+  const partiallySelected = selectedCount > 0 && !allSelected;
+  const selectedKeys = orderedKeys.filter((key) => selectedKeyIDs.includes(key.id));
 
   useEffect(() => {
     if (!hasUnsavedOrder) {
       setOrderedKeys(keys);
     }
   }, [keys, hasUnsavedOrder]);
+
+  useEffect(() => {
+    setSelectedKeyIDs((prev) => prev.filter((id) => orderedKeys.some((key) => key.id === id)));
+  }, [orderedKeys]);
+
+  useEffect(() => {
+    if (!selectAllRef.current) {
+      return;
+    }
+    selectAllRef.current.indeterminate = selectedCount > 0 && !allSelected;
+  }, [selectedCount, allSelected]);
 
   // Auto-scroll the page while dragging near edges
   useEffect(() => {
@@ -139,23 +160,69 @@ export function KeysSection({ keys, onRefresh }: Props) {
     setDeleting(true);
     try {
       await keysApi.delete(deleteTarget.id);
-      toast("Ключ удален", "success");
+      toast("Конфигурация удалена", "success");
       await onRefresh();
     } catch {
-      toast("Не удалось удалить ключ", "error");
+      toast("Не удалось удалить конфигурацию", "error");
     } finally {
       setDeleting(false);
       setDeleteTarget(null);
     }
   };
 
+  const toggleKeySelection = (id: number) => {
+    setSelectedKeyIDs((prev) => (prev.includes(id) ? prev.filter((value) => value !== id) : [...prev, id]));
+  };
+
+  const toggleSelectAllKeys = () => {
+    setSelectedKeyIDs(allSelected ? [] : orderedKeys.map((key) => key.id));
+  };
+
+  const openDeleteSelectedDialog = () => {
+    if (selectedKeyIDs.length === 0) {
+      return;
+    }
+    setBulkDeleteTargetIDs([...selectedKeyIDs]);
+  };
+
+  const confirmBulkDelete = async () => {
+    if (!bulkDeleteTargetIDs || bulkDeleteTargetIDs.length === 0) {
+      return;
+    }
+
+    setBulkDeleting(true);
+    try {
+      const results = await Promise.allSettled(bulkDeleteTargetIDs.map((id) => keysApi.delete(id)));
+      const failedIDs = results
+        .map((result, index) => (result.status === "rejected" ? bulkDeleteTargetIDs[index] : null))
+        .filter((id): id is number => id !== null);
+      const successCount = bulkDeleteTargetIDs.length - failedIDs.length;
+
+      if (successCount > 0 && failedIDs.length === 0) {
+        toast(successCount === 1 ? "Конфигурация удалена" : `Удалено конфигураций: ${successCount}`, "success");
+      } else if (successCount > 0) {
+        toast(`Удалено ${successCount} из ${bulkDeleteTargetIDs.length}. Проверьте оставшиеся конфигурации.`, "error");
+      } else {
+        toast("Не удалось удалить выбранные конфигурации", "error");
+      }
+
+      setSelectedKeyIDs(failedIDs);
+      await onRefresh();
+    } catch {
+      toast("Не удалось удалить выбранные конфигурации", "error");
+    } finally {
+      setBulkDeleting(false);
+      setBulkDeleteTargetIDs(null);
+    }
+  };
+
   const handleCheck = async (id: number) => {
     try {
       await keysApi.check(id);
-      toast("Ключ проверен", "success");
+      toast("Конфигурация проверена", "success");
       await onRefresh();
     } catch {
-      toast("Не удалось проверить ключ", "error");
+      toast("Не удалось проверить конфигурацию", "error");
     }
   };
 
@@ -163,10 +230,10 @@ export function KeysSection({ keys, onRefresh }: Props) {
     setCheckingAll(true);
     try {
       const result = await keysApi.checkAll();
-      toast(`Проверено ключей: ${result.checked}`, "success");
+      toast(`Проверено конфигураций: ${result.checked}`, "success");
       await onRefresh();
     } catch {
-      toast("Не удалось проверить ключи", "error");
+      toast("Не удалось проверить конфигурации", "error");
     } finally {
       setCheckingAll(false);
     }
@@ -296,9 +363,9 @@ export function KeysSection({ keys, onRefresh }: Props) {
       await keysApi.reorder(ids);
       await onRefresh();
       setHasUnsavedOrder(false);
-      toast("Порядок ключей сохранен", "success");
+      toast("Порядок конфигураций сохранен", "success");
     } catch {
-      toast("Не удалось изменить порядок ключей", "error");
+      toast("Не удалось изменить порядок конфигураций", "error");
     } finally {
       setReordering(false);
     }
@@ -329,6 +396,7 @@ export function KeysSection({ keys, onRefresh }: Props) {
   const keyCard = (key: VLESSKey, rowIndex: number) => {
     const isReal = key.kind !== "informational";
     const isDragging = dragging?.id === key.id;
+    const isSelected = selectedKeyIDs.includes(key.id);
     const lastChecked = formatDateTime(key.last_checked_at);
     const statusParts = [key.check_status_label];
 
@@ -348,13 +416,46 @@ export function KeysSection({ keys, onRefresh }: Props) {
           event.dataTransfer.setData("text/plain", String(key.id));
         }}
         onDragEnd={() => setDragging(null)}
-        className={`group rounded-lg border border-border bg-surface-2 px-3 py-2 transition-opacity ${isDragging ? "opacity-40" : "opacity-100"}`}
+        className={`group rounded-lg border px-3 py-2 transition-opacity ${isDragging ? "opacity-40" : "opacity-100"} ${
+          isSelected ? "border-accent/60 bg-accent/5" : "border-border bg-surface-2"
+        }`}
       >
         <div className="mb-1 flex items-center justify-between gap-2">
           <div className="flex items-center gap-2">
+            <label className="flex h-7 w-7 cursor-pointer items-center justify-center rounded-xl border border-transparent transition-colors hover:border-border/70 hover:bg-surface-2/60">
+              <input
+                type="checkbox"
+                checked={isSelected}
+                onChange={() => toggleKeySelection(key.id)}
+                aria-label={`Выбрать конфигурацию ${key.label}`}
+                className="peer sr-only"
+              />
+              <span
+                className={`flex h-5 w-5 items-center justify-center rounded-md border shadow-[inset_0_1px_0_rgba(255,255,255,0.04)] transition-all peer-focus-visible:ring-2 peer-focus-visible:ring-accent peer-focus-visible:ring-offset-2 peer-focus-visible:ring-offset-surface-1 ${
+                  isSelected
+                    ? "border-accent/80 bg-accent/20 text-accent"
+                    : "border-border bg-surface-2 text-transparent"
+                }`}
+              >
+                <svg
+                  viewBox="0 0 16 16"
+                  aria-hidden="true"
+                  className={`h-3.5 w-3.5 transition-opacity ${isSelected ? "opacity-100" : "opacity-0"}`}
+                >
+                  <path
+                    d="M4 8.25 6.5 10.75 12 5.25"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth="2"
+                  />
+                </svg>
+              </span>
+            </label>
             <span
               className="text-zinc-500 group-hover:text-zinc-300 cursor-grab active:cursor-grabbing"
-              aria-label="Перетащить ключ"
+              aria-label="Перетащить конфигурацию"
               title="Перетащите для изменения порядка"
             >
               <svg width="14" height="14" viewBox="0 0 14 14" fill="currentColor" aria-hidden>
@@ -444,9 +545,53 @@ export function KeysSection({ keys, onRefresh }: Props) {
           >
             <span className={`text-zinc-400 transition-transform ${collapsed ? "-rotate-90" : ""}`}>▼</span>
           </button>
+          <label className="flex h-9 w-9 cursor-pointer items-center justify-center rounded-xl border border-transparent transition-colors hover:border-border/70 hover:bg-surface-2/60">
+            <input
+              ref={selectAllRef}
+              type="checkbox"
+              checked={allSelected}
+              onChange={toggleSelectAllKeys}
+              aria-label={allSelected ? "Снять выбор со всех конфигураций" : "Выбрать все конфигурации"}
+              className="peer sr-only"
+            />
+            <span
+              className={`flex h-5 w-5 items-center justify-center rounded-md border shadow-[inset_0_1px_0_rgba(255,255,255,0.04)] transition-all ${
+                allSelected || partiallySelected
+                  ? "border-accent/80 bg-accent/20 text-accent"
+                  : "border-border bg-surface-2 text-transparent"
+              } peer-focus-visible:ring-2 peer-focus-visible:ring-accent peer-focus-visible:ring-offset-2 peer-focus-visible:ring-offset-surface-1`}
+            >
+              {partiallySelected ? (
+                <span className="h-0.5 w-2.5 rounded-full bg-current" />
+              ) : (
+                <svg
+                  viewBox="0 0 16 16"
+                  aria-hidden="true"
+                  className={`h-3.5 w-3.5 transition-opacity ${allSelected ? "opacity-100" : "opacity-0"}`}
+                >
+                  <path
+                    d="M4 8.25 6.5 10.75 12 5.25"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth="2"
+                  />
+                </svg>
+              )}
+            </span>
+          </label>
           <h2 className="text-lg font-semibold"><EmojiText text={`🔐 Ключи (${orderedKeys.length})`} /></h2>
         </div>
         <div className="flex gap-2">
+          <Button variant="ghost" className="text-xs" onClick={() => setShowBulkEdit(true)} disabled={selectedCount === 0}>
+            Изменить
+          </Button>
+          {selectedCount > 0 && (
+            <Button variant="danger" className="text-xs" onClick={openDeleteSelectedDialog}>
+              Удалить ({selectedCount})
+            </Button>
+          )}
           <Button variant="ghost" onClick={handleCheckAll} loading={checkingAll} className="text-xs">
             Проверить все
           </Button>
@@ -477,7 +622,7 @@ export function KeysSection({ keys, onRefresh }: Props) {
             <div
               className={`flex items-center justify-between gap-2 overflow-hidden transition-all duration-300 ${realHidden ? "translate-x-10 opacity-0 pointer-events-none" : "translate-x-0 opacity-100"}`}
             >
-              <div>VLESS ключи ({realKeys.length})</div>
+              <div>Конфигурации ({realKeys.length})</div>
               {hiddenCategory === null && (
                 <Button variant="ghost" className="text-xs" onClick={() => setHiddenCategory("real")}>
                   Скрыть категорию
@@ -591,7 +736,7 @@ export function KeysSection({ keys, onRefresh }: Props) {
             )}
 
             {rows.length === 0 && (
-              <div className="py-8 text-center text-zinc-500">Нет ключей</div>
+              <div className="py-8 text-center text-zinc-500">Нет конфигураций</div>
             )}
 
             {rows.length > 0 && (
@@ -612,11 +757,26 @@ export function KeysSection({ keys, onRefresh }: Props) {
 
       <ConfirmDialog
         open={!!deleteTarget}
-        title="Удаление ключа"
-        message={`Вы уверены, что хотите удалить ключ "${deleteTarget?.label}"?`}
+        title="Удаление конфигурации"
+        message={`Вы уверены, что хотите удалить конфигурацию "${deleteTarget?.label}"?`}
         onConfirm={confirmDelete}
         onCancel={() => setDeleteTarget(null)}
         loading={deleting}
+      />
+
+      <ConfirmDialog
+        open={!!bulkDeleteTargetIDs && bulkDeleteTargetIDs.length > 0}
+        title="Удаление конфигураций"
+        message={
+          bulkDeleteTargetIDs && bulkDeleteTargetIDs.length > 0
+            ? bulkDeleteTargetIDs.length === 1
+              ? "Вы уверены, что хотите удалить выбранную конфигурацию?"
+              : `Вы уверены, что хотите удалить ${bulkDeleteTargetIDs.length} выбранных конфигураций?`
+            : ""
+        }
+        onConfirm={confirmBulkDelete}
+        onCancel={() => setBulkDeleteTargetIDs(null)}
+        loading={bulkDeleting}
       />
 
       <AddKeyModal
@@ -650,6 +810,13 @@ export function KeysSection({ keys, onRefresh }: Props) {
       />
       {editKey && (
         <EditKeyModal keyData={editKey} onClose={() => setEditKey(null)} onRefresh={onRefresh} />
+      )}
+      {showBulkEdit && selectedKeys.length > 0 && (
+        <BulkEditKeysModal
+          keys={selectedKeys}
+          onClose={() => setShowBulkEdit(false)}
+          onRefresh={onRefresh}
+        />
       )}
     </Card>
   );

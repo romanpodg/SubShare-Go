@@ -19,6 +19,10 @@
 
 ## Быстрый старт
 
+### 1. Локально: `go run` + `npm run dev`
+
+Backend:
+
 ```bash
 go mod tidy
 
@@ -29,7 +33,58 @@ export DEVICE_LIMIT_MESSAGE="You have reached the maximum number of allowed devi
 go run ./cmd/server
 ```
 
-Приложение запускается на `http://localhost:8080`.
+По умолчанию backend запускается на `http://localhost:8080`.
+
+Frontend:
+
+```bash
+cd frontend
+npm install
+npm run dev
+```
+
+Frontend dev-сервер будет доступен на `http://localhost:3000`.
+
+Если фронтенд в dev-режиме должен ходить в backend на другом адресе, убедитесь, что запросы к `/api/*` и `/sub/*` проксируются или backend доступен с того же origin.
+
+### 2. Через Docker
+
+1. Создайте `.env` из примера:
+
+```bash
+cp .env.example .env
+```
+
+2. Отредактируйте `.env` и задайте как минимум:
+
+```env
+ADMIN_PASSWORD=change-me
+DOMAIN=localhost
+SSL_EMAIL=admin@example.com
+```
+
+3. Запустите контейнеры:
+
+```bash
+docker compose up -d --build
+```
+
+4. Проверьте логи при необходимости:
+
+```bash
+docker compose logs -f
+```
+
+5. Остановите проект:
+
+```bash
+docker compose down
+```
+
+При запуске через Docker:
+
+- frontend публикуется на `http://localhost` и `https://localhost`
+- backend внутри compose-сети доступен контейнеру frontend и отдельно наружу не публикуется по умолчанию
 
 ## Переменные окружения
 

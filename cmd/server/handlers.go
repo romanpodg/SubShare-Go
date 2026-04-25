@@ -10,6 +10,7 @@ import (
 	"log"
 	"net/http"
 	"net/url"
+	"regexp"
 	"strconv"
 	"strings"
 	"sync"
@@ -22,6 +23,8 @@ import (
 )
 
 const appleEmojiBaseURL = "https://cdn.jsdelivr.net/npm/emoji-datasource-apple@15.0.1/img/apple/64/"
+
+var providerIDPattern = regexp.MustCompile(`^[A-Za-z0-9]{8}$`)
 
 // --- JSON helpers ---
 
@@ -213,12 +216,15 @@ func (a *App) apiCreateUser(w http.ResponseWriter, r *http.Request) {
 	now := time.Now().UTC()
 	expiresAt := now.AddDate(0, 0, issueDays)
 
+	var userID int64
 	for attempt := 0; attempt < 5; attempt++ {
-		_, err = a.db.Exec(
+		var res sql.Result
+		res, err = a.db.Exec(
 			`INSERT INTO users(name, email, token, activation_code, subscription_id, status, starts_at, expires_at, blocked_reason, max_devices) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, 1)`,
 			name, email, legacyToken, activationCode, subscriptionID, status, now, expiresAt, blockedReason,
 		)
 		if err == nil {
+			userID, _ = res.LastInsertId()
 			break
 		}
 
@@ -238,6 +244,15 @@ func (a *App) apiCreateUser(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusConflict, "failed to create user (check activation code uniqueness)")
 		return
 	}
+
+	// Assign all existing keys to the new user
+	if _, err := a.db.Exec(
+		`INSERT OR IGNORE INTO user_keys(user_id, key_id) SELECT ?, id FROM vless_keys`,
+		userID,
+	); err != nil {
+		log.Printf("apiCreateUser: failed to assign keys to user %d: %v", userID, err)
+	}
+
 	log.Printf("AUDIT: create user name=%q activation_code=%q subscription_id=%q", name, activationCode, subscriptionID)
 	writeMessage(w, "user created")
 }
@@ -647,9 +662,35 @@ func (a *App) apiUpdateSubscriptionSettings(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
+	providerID := strings.TrimSpace(req.ProviderID)
+	if providerID != "" && !providerIDPattern.MatchString(providerID) {
+		writeError(w, http.StatusBadRequest, "provider_id must match ^[A-Za-z0-9]{8}$")
+		return
+	}
+
+	happNoLimitMode := req.HappNoLimitMode
+	happNoLimitModeXHTTPOnly := req.HappNoLimitModeXHTTPOnly
+	happMandatoryHWID := req.HappMandatoryHWID
+	happNotifyExpiration := req.HappNotifyExpiration
+	happHideServerSettings := req.HappHideServerSettings
+	happSubscriptionBody := req.HappSubscriptionBody
+	if len(happSubscriptionBody) > 10000 {
+		writeError(w, http.StatusBadRequest, "happ_subscription_body is too long (max 10000 characters)")
+		return
+	}
+	if providerID == "" {
+		happNoLimitMode = false
+		happNoLimitModeXHTTPOnly = false
+		happMandatoryHWID = false
+		happNotifyExpiration = false
+		happHideServerSettings = false
+	}
+
 	if _, err := a.db.Exec(
 		`UPDATE subscription_settings
-		 SET title = ?, refresh_hours = ?, info_url = ?, extra_url = ?, extra_status = ?, time_zone = ?, language = ?, updated_at = CURRENT_TIMESTAMP
+		 SET title = ?, refresh_hours = ?, info_url = ?, extra_url = ?, extra_status = ?, time_zone = ?, language = ?,
+		     provider_id = ?, happ_no_limit_mode = ?, happ_no_limit_mode_xhttp_only = ?, happ_mandatory_hwid = ?,
+		     happ_notify_expiration = ?, happ_hide_server_settings = ?, happ_subscription_body = ?, updated_at = CURRENT_TIMESTAMP
 		 WHERE id = 1`,
 		title,
 		refreshHours,
@@ -658,6 +699,13 @@ func (a *App) apiUpdateSubscriptionSettings(w http.ResponseWriter, r *http.Reque
 		nullStringValue(extraStatus),
 		timeZone,
 		language,
+		nullStringValue(providerID),
+		boolToInt(happNoLimitMode),
+		boolToInt(happNoLimitModeXHTTPOnly),
+		boolToInt(happMandatoryHWID),
+		boolToInt(happNotifyExpiration),
+		boolToInt(happHideServerSettings),
+		nullStringValue(happSubscriptionBody),
 	); err != nil {
 		log.Printf("apiUpdateSubscriptionSettings: %v", err)
 		writeError(w, http.StatusInternalServerError, "failed to update subscription settings")
@@ -665,6 +713,41 @@ func (a *App) apiUpdateSubscriptionSettings(w http.ResponseWriter, r *http.Reque
 	}
 
 	writeMessage(w, "subscription settings updated")
+}
+
+func (a *App) apiGetRoutingSettings(w http.ResponseWriter, r *http.Request) {
+	settings, err := a.getRoutingSettings()
+	if err != nil {
+		log.Printf("apiGetRoutingSettings: %v", err)
+		writeError(w, http.StatusInternalServerError, "failed to load routing settings")
+		return
+	}
+	writeJSON(w, http.StatusOK, settings)
+}
+
+func (a *App) apiUpdateRoutingSettings(w http.ResponseWriter, r *http.Request) {
+	var req model.RoutingSettings
+	if err := readJSON(r, &req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+
+	configJSON := strings.TrimSpace(req.ConfigJSON)
+	if configJSON != "" {
+		var parsed map[string]any
+		if err := json.Unmarshal([]byte(configJSON), &parsed); err != nil {
+			writeError(w, http.StatusBadRequest, "config_json must be a valid JSON object")
+			return
+		}
+	}
+
+	if err := a.updateRoutingSettings(model.RoutingSettings{ConfigJSON: configJSON}); err != nil {
+		log.Printf("apiUpdateRoutingSettings: %v", err)
+		writeError(w, http.StatusInternalServerError, "failed to update routing settings")
+		return
+	}
+
+	writeMessage(w, "routing settings updated")
 }
 
 func (a *App) apiUpdateUserHWID(w http.ResponseWriter, r *http.Request) {
@@ -763,8 +846,8 @@ func (a *App) apiCreateKey(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusBadRequest, "url is required for real keys")
 			return
 		}
-		if !strings.HasPrefix(strings.ToLower(keyURL), "vless://") {
-			writeError(w, http.StatusBadRequest, "url must start with vless://")
+		if err := validateRealConfigURL(keyURL); err != nil {
+			writeError(w, http.StatusBadRequest, err.Error())
 			return
 		}
 	} else {
@@ -875,11 +958,19 @@ func (a *App) apiUpdateKey(w http.ResponseWriter, r *http.Request) {
 
 	builtURL := ""
 	if kind == model.KeyKindReal {
-		var err error
-		builtURL, err = vless.BuildVLESSURL(req.UUID, req.Host, req.Port, req.Query, req.Fragment)
-		if err != nil {
-			writeError(w, http.StatusBadRequest, err.Error())
-			return
+		if rawURL := strings.TrimSpace(req.RawURL); rawURL != "" {
+			if err := validateRealConfigURL(rawURL); err != nil {
+				writeError(w, http.StatusBadRequest, err.Error())
+				return
+			}
+			builtURL = rawURL
+		} else {
+			var err error
+			builtURL, err = vless.BuildVLESSURL(req.UUID, req.Host, req.Port, req.Query, req.Fragment)
+			if err != nil {
+				writeError(w, http.StatusBadRequest, err.Error())
+				return
+			}
 		}
 	} else {
 		if templateText == "" {
@@ -1233,6 +1324,104 @@ func (a *App) handleSubscription(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	bodyPlain, settings, denyCode, denyReason, err := a.buildSubscriptionBodyPlain(r, subscriptionID)
+	if err != nil {
+		http.Error(w, "failed to load subscription", http.StatusInternalServerError)
+		return
+	}
+	if denyCode != 0 {
+		http.Error(w, denyReason, denyCode)
+		return
+	}
+
+	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+	if title := strings.TrimSpace(settings.Title); title != "" {
+		w.Header().Set("profile-title", "base64:"+base64.StdEncoding.EncodeToString([]byte(title)))
+	}
+	if settings.RefreshHours > 0 {
+		w.Header().Set("profile-update-interval", strconv.Itoa(settings.RefreshHours))
+	}
+	subscriptionURL := fmt.Sprintf("%s/sub/%s", a.resolveBaseURL(r), subscriptionID)
+	w.Header().Set("profile-web-page-url", subscriptionURL)
+	if extraURL := strings.TrimSpace(settings.ExtraURL); extraURL != "" {
+		w.Header().Set("support-url", extraURL)
+	}
+	if extraStatus := strings.TrimSpace(settings.ExtraStatus); extraStatus != "" {
+		w.Header().Set("announce", "base64:"+base64.StdEncoding.EncodeToString([]byte(extraStatus)))
+	}
+	body := bodyPlain
+	if a.subscriptionBodyEncoding == "base64" {
+		body = base64.StdEncoding.EncodeToString([]byte(body))
+	}
+	_, _ = w.Write([]byte(body))
+}
+
+func (a *App) handleSubscriptionSubBody(w http.ResponseWriter, r *http.Request) {
+	subscriptionID := strings.TrimSpace(r.PathValue("subscription_id"))
+	if subscriptionID == "" || strings.Contains(subscriptionID, "/") {
+		http.NotFound(w, r)
+		return
+	}
+
+	allowed, _, code, reason, err := a.subscriptionAccessAllowed(subscriptionID)
+	if err != nil {
+		http.Error(w, "failed to load subscription", http.StatusInternalServerError)
+		return
+	}
+	if !allowed {
+		http.Error(w, reason, code)
+		return
+	}
+
+	bodyPlain, _, denyCode, denyReason, err := a.buildSubscriptionBodyPlain(r, subscriptionID)
+	if err != nil {
+		http.Error(w, "failed to load subscription", http.StatusInternalServerError)
+		return
+	}
+	if denyCode != 0 {
+		http.Error(w, denyReason, denyCode)
+		return
+	}
+
+	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+	_, _ = w.Write([]byte(base64.StdEncoding.EncodeToString([]byte(bodyPlain))))
+}
+
+func (a *App) handleSubscriptionSubBodyPlain(w http.ResponseWriter, r *http.Request) {
+	subscriptionID := strings.TrimSpace(r.PathValue("subscription_id"))
+	if subscriptionID == "" || strings.Contains(subscriptionID, "/") {
+		http.NotFound(w, r)
+		return
+	}
+
+	allowed, _, code, reason, err := a.subscriptionAccessAllowed(subscriptionID)
+	if err != nil {
+		http.Error(w, "failed to load subscription", http.StatusInternalServerError)
+		return
+	}
+	if !allowed {
+		http.Error(w, reason, code)
+		return
+	}
+
+	bodyPlain, _, denyCode, denyReason, err := a.buildSubscriptionBodyPlain(r, subscriptionID)
+	if err != nil {
+		http.Error(w, "failed to load subscription", http.StatusInternalServerError)
+		return
+	}
+	if denyCode != 0 {
+		http.Error(w, denyReason, denyCode)
+		return
+	}
+
+	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+	_, _ = w.Write([]byte(bodyPlain))
+}
+
+func (a *App) buildSubscriptionBodyPlain(
+	r *http.Request,
+	subscriptionID string,
+) (string, model.SubscriptionSettings, int, string, error) {
 	dbRows, err := a.db.Query(`
 		SELECT k.url, k.key_kind, k.template_text, k.label
 		FROM users u
@@ -1244,15 +1433,13 @@ func (a *App) handleSubscription(w http.ResponseWriter, r *http.Request) {
 		ORDER BY k.sort_order, k.id
 	`, subscriptionID)
 	if err != nil {
-		http.Error(w, "failed to load subscription", http.StatusInternalServerError)
-		return
+		return "", model.SubscriptionSettings{}, 0, "", err
 	}
 	defer dbRows.Close()
 
 	templateData, err := a.buildSubscriptionTemplateData(subscriptionID)
 	if err != nil {
-		http.Error(w, "failed to build subscription context", http.StatusInternalServerError)
-		return
+		return "", model.SubscriptionSettings{}, 0, "", err
 	}
 
 	var lines []string
@@ -1262,8 +1449,7 @@ func (a *App) handleSubscription(w http.ResponseWriter, r *http.Request) {
 		var templateText sql.NullString
 		var keyLabel sql.NullString
 		if err := dbRows.Scan(&keyURL, &keyKind, &templateText, &keyLabel); err != nil {
-			http.Error(w, "failed to read subscription", http.StatusInternalServerError)
-			return
+			return "", model.SubscriptionSettings{}, 0, "", err
 		}
 		normalizedKind, _ := model.NormalizeKeyKind(keyKind)
 		if normalizedKind == model.KeyKindInformational {
@@ -1280,61 +1466,61 @@ func (a *App) handleSubscription(w http.ResponseWriter, r *http.Request) {
 		lines = append(lines, keyURL)
 	}
 	if err := dbRows.Err(); err != nil {
-		http.Error(w, "failed to read subscription", http.StatusInternalServerError)
-		return
+		return "", model.SubscriptionSettings{}, 0, "", err
 	}
 	if len(lines) == 0 {
-		http.Error(w, "subscription has no available keys", http.StatusForbidden)
-		return
+		return "", model.SubscriptionSettings{}, http.StatusForbidden, "subscription has no available keys", nil
 	}
 
 	settings, err := a.getSubscriptionSettings()
 	if err != nil {
-		http.Error(w, "failed to load subscription settings", http.StatusInternalServerError)
-		return
+		return "", model.SubscriptionSettings{}, 0, "", err
 	}
 
+	subscriptionURL := fmt.Sprintf("%s/sub/%s", a.resolveBaseURL(r), subscriptionID)
 	prefix := []string{}
-	if title := strings.TrimSpace(settings.Title); title != "" {
-		prefix = append(prefix, "#profile-title: "+title)
-	}
-	if settings.RefreshHours > 0 {
-		prefix = append(prefix, fmt.Sprintf("#profile-update-interval: %d", settings.RefreshHours))
-	}
-	prefix = append(prefix, "#profile-web-page-url: "+fmt.Sprintf("%s/sub/%s", a.resolveBaseURL(r), subscriptionID))
-	if extraURL := strings.TrimSpace(settings.ExtraURL); extraURL != "" {
-		prefix = append(prefix, "#support-url: "+extraURL)
-	}
-	if extraStatus := strings.TrimSpace(settings.ExtraStatus); extraStatus != "" {
-		prefix = append(prefix, "#profile-desc: "+extraStatus)
-		prefix = append(prefix, "#profile-status: "+extraStatus)
-		prefix = append(prefix, "#description: "+extraStatus)
-		prefix = append(prefix, "# "+extraStatus)
+	if customBody := strings.TrimSpace(settings.HappSubscriptionBody); customBody != "" && !containsLegacySubscriptionBodyMarkers(customBody) {
+		rendered := strings.ReplaceAll(strings.ReplaceAll(customBody, "\r\n", "\n"), "{subscription_url}", subscriptionURL)
+		prefix = strings.Split(rendered, "\n")
+	} else {
+		if title := strings.TrimSpace(settings.Title); title != "" {
+			prefix = append(prefix, "#profile-title: "+title)
+		}
+		if settings.RefreshHours > 0 {
+			prefix = append(prefix, fmt.Sprintf("#profile-update-interval: %d", settings.RefreshHours))
+		}
+		prefix = append(prefix, "#profile-web-page-url: "+subscriptionURL)
+		if extraURL := strings.TrimSpace(settings.ExtraURL); extraURL != "" {
+			prefix = append(prefix, "#support-url: "+extraURL)
+		}
+		if extraStatus := strings.TrimSpace(settings.ExtraStatus); extraStatus != "" {
+			prefix = append(prefix, "#announce: base64:"+base64.StdEncoding.EncodeToString([]byte(extraStatus)))
+		}
+		if providerID := strings.TrimSpace(settings.ProviderID); providerID != "" {
+			prefix = append(prefix, "#providerid "+providerID)
+			if settings.HappNoLimitMode {
+				prefix = append(prefix, "#no-limit-enabled: 1")
+			}
+			if settings.HappNoLimitModeXHTTPOnly {
+				prefix = append(prefix, "#no-limit-xhttp-enabled: 1")
+			}
+			if settings.HappMandatoryHWID {
+				prefix = append(prefix, "#subscription-always-hwid-enable: 1")
+			}
+			if settings.HappNotifyExpiration {
+				prefix = append(prefix, "#notification-subs-expire: 1")
+			}
+			if settings.HappHideServerSettings {
+				prefix = append(prefix, "#hide-settings: 1")
+			}
+		}
 	}
 	if len(prefix) > 0 {
 		prefix = append(prefix, "")
 		lines = append(prefix, lines...)
 	}
 
-	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
-	if title := strings.TrimSpace(settings.Title); title != "" {
-		w.Header().Set("profile-title", "base64:"+base64.StdEncoding.EncodeToString([]byte(title)))
-	}
-	if settings.RefreshHours > 0 {
-		w.Header().Set("profile-update-interval", strconv.Itoa(settings.RefreshHours))
-	}
-	w.Header().Set("profile-web-page-url", fmt.Sprintf("%s/sub/%s", a.resolveBaseURL(r), subscriptionID))
-	if extraURL := strings.TrimSpace(settings.ExtraURL); extraURL != "" {
-		w.Header().Set("support-url", extraURL)
-	}
-	if extraStatus := strings.TrimSpace(settings.ExtraStatus); extraStatus != "" {
-		w.Header().Set("announce", "base64:"+base64.StdEncoding.EncodeToString([]byte(extraStatus)))
-	}
-	body := strings.Join(lines, "\n")
-	if a.subscriptionBodyEncoding == "base64" {
-		body = base64.StdEncoding.EncodeToString([]byte(body))
-	}
-	_, _ = w.Write([]byte(body))
+	return strings.Join(lines, "\n"), settings, 0, "", nil
 }
 
 func isBrowserSubscriptionRequest(r *http.Request) bool {

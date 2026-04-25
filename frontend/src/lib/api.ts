@@ -108,6 +108,7 @@ export const keys = {
     data: {
       label: string;
       status: string;
+      raw_url?: string;
       uuid: string;
       host: string;
       port: string;
@@ -139,4 +140,10 @@ export const subscriptionSettings = {
   get: () => request<SubscriptionSettings>("GET", "/api/admin/subscription-settings"),
   update: (data: SubscriptionSettings) =>
     request<{ message: string }>("PUT", "/api/admin/subscription-settings", data),
+};
+
+export const routingSettings = {
+  get: () => request<{ config_json: string }>("GET", "/api/admin/routing-settings"),
+  update: (config_json: string) =>
+    request<{ message: string }>("PUT", "/api/admin/routing-settings", { config_json }),
 };

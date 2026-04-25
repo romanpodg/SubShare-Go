@@ -36,33 +36,23 @@ func run() error {
 		return fmt.Errorf("create data dir: %w", err)
 	}
 
-	db, err := sql.Open("sqlite", filepath.ToSlash(dbPath))
+	db, err := initializeSQLite(dbPath)
 	if err != nil {
-		return fmt.Errorf("open db: %w", err)
-	}
-	defer db.Close()
+		if !isRecoverableSQLiteIO(err) {
+			return err
+		}
 
-	db.SetMaxOpenConns(4)
-	db.SetMaxIdleConns(4)
-	db.SetConnMaxLifetime(0)
+		log.Printf("SQLite startup failed (%v). Cleaning up WAL sidecars and retrying once...", err)
+		if cleanupErr := cleanupSQLiteSidecars(dbPath); cleanupErr != nil {
+			return fmt.Errorf("recover sqlite sidecars: %w", cleanupErr)
+		}
 
-	pragmas := []string{
-		"PRAGMA foreign_keys = ON",
-		"PRAGMA busy_timeout = 5000",
-		"PRAGMA synchronous = NORMAL",
-		"PRAGMA cache_size = -4000",
-		"PRAGMA mmap_size = 268435456",
-		"PRAGMA temp_store = MEMORY",
-	}
-	for _, p := range pragmas {
-		if _, err := db.Exec(p); err != nil {
-			return fmt.Errorf("exec %s: %w", p, err)
+		db, err = initializeSQLite(dbPath)
+		if err != nil {
+			return fmt.Errorf("initialize sqlite after sidecar cleanup: %w", err)
 		}
 	}
-
-	if err := migrate(db); err != nil {
-		return fmt.Errorf("migrate db: %w", err)
-	}
+	defer db.Close()
 
 	adminUser := strings.TrimSpace(os.Getenv("ADMIN_USER"))
 	if adminUser == "" {
@@ -167,6 +157,8 @@ func run() error {
 	mux.Handle("GET /api/admin/export/keys", app.requireAdmin(http.HandlerFunc(app.apiExportKeys)))
 	mux.Handle("GET /api/admin/subscription-settings", app.requireAdmin(http.HandlerFunc(app.apiGetSubscriptionSettings)))
 	mux.Handle("PUT /api/admin/subscription-settings", app.requireAdmin(http.HandlerFunc(app.apiUpdateSubscriptionSettings)))
+	mux.Handle("GET /api/admin/routing-settings", app.requireAdmin(http.HandlerFunc(app.apiGetRoutingSettings)))
+	mux.Handle("PUT /api/admin/routing-settings", app.requireAdmin(http.HandlerFunc(app.apiUpdateRoutingSettings)))
 
 	// Panel settings API (GET is public so login/subscription pages can load branding)
 	mux.HandleFunc("GET /api/panel-settings", app.apiGetPanelSettings)
@@ -177,6 +169,8 @@ func run() error {
 
 	// Subscription delivery (VPN clients hit this directly)
 	mux.HandleFunc("GET /sub/{subscription_id}", subscriptionLimiter.Wrap(writeError, app.handleSubscription))
+	mux.HandleFunc("GET /sub/{subscription_id}/subbody", subscriptionLimiter.Wrap(writeError, app.handleSubscriptionSubBody))
+	mux.HandleFunc("GET /sub/{subscription_id}/subbody/plain", subscriptionLimiter.Wrap(writeError, app.handleSubscriptionSubBodyPlain))
 	mux.HandleFunc("GET /api/sub/{subscription_id}/info", subscriptionLimiter.Wrap(writeError, app.apiGetSubscriptionInfo))
 
 	// Serve frontend static files in production (if frontend/out exists)
@@ -227,6 +221,88 @@ func run() error {
 
 	log.Println("Server stopped")
 	return nil
+}
+
+func initializeSQLite(dbPath string) (*sql.DB, error) {
+	db, err := sql.Open("sqlite", filepath.ToSlash(dbPath))
+	if err != nil {
+		return nil, fmt.Errorf("open db: %w", err)
+	}
+
+	db.SetMaxOpenConns(4)
+	db.SetMaxIdleConns(4)
+	db.SetConnMaxLifetime(0)
+
+	if err := configureSQLitePragmas(db); err != nil {
+		_ = db.Close()
+		return nil, err
+	}
+
+	if err := migrate(db); err != nil {
+		_ = db.Close()
+		return nil, fmt.Errorf("migrate db: %w", err)
+	}
+
+	return db, nil
+}
+
+func configureSQLitePragmas(db *sql.DB) error {
+	journalMode := normalizeSQLiteJournalMode(os.Getenv("DB_JOURNAL_MODE"))
+
+	// Some Docker bind mounts (especially non-native Linux filesystems) do not
+	// support SQLite WAL shared-memory file resizing and fail with IOERR_SHMSIZE.
+	// In that case we transparently fall back to DELETE mode.
+	if _, err := db.Exec(fmt.Sprintf("PRAGMA journal_mode = %s", journalMode)); err != nil {
+		if journalMode != "WAL" {
+			return fmt.Errorf("set journal mode %s: %w", journalMode, err)
+		}
+		log.Printf("WAL mode unavailable (%v), falling back to DELETE", err)
+		if _, fallbackErr := db.Exec("PRAGMA journal_mode = DELETE"); fallbackErr != nil {
+			return fmt.Errorf("set journal mode fallback DELETE: %w", fallbackErr)
+		}
+	}
+
+	pragmas := []string{
+		"PRAGMA foreign_keys = ON",
+		"PRAGMA busy_timeout = 5000",
+		"PRAGMA synchronous = NORMAL",
+		"PRAGMA cache_size = -4000",
+		"PRAGMA mmap_size = 268435456",
+		"PRAGMA temp_store = MEMORY",
+	}
+	for _, pragma := range pragmas {
+		if _, err := db.Exec(pragma); err != nil {
+			return fmt.Errorf("exec %s: %w", pragma, err)
+		}
+	}
+
+	return nil
+}
+
+func normalizeSQLiteJournalMode(raw string) string {
+	mode := strings.ToUpper(strings.TrimSpace(raw))
+	switch mode {
+	case "", "WAL":
+		return "WAL"
+	case "DELETE", "TRUNCATE", "PERSIST", "MEMORY", "OFF":
+		return mode
+	default:
+		return "WAL"
+	}
+}
+
+func cleanupSQLiteSidecars(dbPath string) error {
+	for _, suffix := range []string{"-shm", "-wal"} {
+		if err := os.Remove(filepath.ToSlash(dbPath) + suffix); err != nil && !os.IsNotExist(err) {
+			return err
+		}
+	}
+	return nil
+}
+
+func isRecoverableSQLiteIO(err error) bool {
+	msg := strings.ToLower(err.Error())
+	return strings.Contains(msg, "disk i/o error") || strings.Contains(msg, "(4874)")
 }
 
 func (a *App) startBackup() {
