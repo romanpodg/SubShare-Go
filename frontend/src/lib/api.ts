@@ -1,4 +1,13 @@
-import type { User, VLESSKey, KeyCheckResult, SubscriptionSettings } from "./types";
+import type {
+  User,
+  VLESSKey,
+  KeyCategory,
+  KeyCheckResult,
+  SubscriptionSettings,
+  ExternalSubscriptionSource,
+  ExternalSourceCategory,
+  ExternalSourcePreview,
+} from "./types";
 
 let csrfToken: string | null = null;
 
@@ -101,8 +110,24 @@ export const users = {
 // Keys
 export const keys = {
   list: () => request<{ keys: VLESSKey[] }>("GET", "/api/admin/keys"),
-  create: (data: { label: string; url?: string; status: string; kind: string; template_text?: string }) =>
+  listCategories: () =>
+    request<{ categories: KeyCategory[] }>("GET", "/api/admin/key-categories"),
+  createCategory: (name: string, color?: string) =>
+    request<{ category: KeyCategory; message: string }>("POST", "/api/admin/key-categories", { name, color }),
+  updateCategory: (old_name: string, new_name: string, color: string) =>
+    request<{ category: KeyCategory; message: string }>("PUT", "/api/admin/key-categories", { old_name, new_name, color }),
+  reorderCategories: (names: string[]) =>
+    request<{ message: string }>("PUT", "/api/admin/key-categories/order", { names }),
+  renameCategory: (old_name: string, new_name: string) =>
+    request<{ message: string }>("PUT", "/api/admin/key-categories/rename", { old_name, new_name }),
+  deleteCategory: (name: string, mode: "delete_with_keys" | "keep_keys") =>
+    request<{ message: string }>("POST", "/api/admin/key-categories/delete", { name, mode }),
+  create: (data: { label: string; url?: string; status: string; kind: string; category?: string; template_text?: string }) =>
     request<{ message: string }>("POST", "/api/admin/keys", data),
+  bulkUpdateStatus: (ids: number[], status: string, category?: string) =>
+    request<{ message: string; updated: number }>("POST", "/api/admin/keys/bulk/status", { ids, status, category }),
+  bulkDelete: (ids: number[]) =>
+    request<{ message: string; deleted: number }>("POST", "/api/admin/keys/bulk/delete", { ids }),
   update: (
     id: number,
     data: {
@@ -115,6 +140,7 @@ export const keys = {
       query: string;
       fragment: string;
       kind: string;
+      category?: string;
       template_text?: string;
     }
   ) => request<{ message: string }>("PUT", `/api/admin/keys/${id}`, data),
@@ -146,4 +172,91 @@ export const routingSettings = {
   get: () => request<{ config_json: string }>("GET", "/api/admin/routing-settings"),
   update: (config_json: string) =>
     request<{ message: string }>("PUT", "/api/admin/routing-settings", { config_json }),
+};
+
+export const subscriptionPageConfig = {
+  getPublic: () =>
+    request<{ config_json: string; default_config_json: string }>(
+      "GET",
+      "/api/subscription-page-config"
+    ),
+  getAdmin: () =>
+    request<{ config_json: string; default_config_json: string }>(
+      "GET",
+      "/api/admin/subscription-page-config"
+    ),
+  update: (config_json: string) =>
+    request<{ config_json: string }>(
+      "PUT",
+      "/api/admin/subscription-page-config",
+      { config_json }
+    ),
+};
+
+export const externalSources = {
+  list: () => request<{ sources: ExternalSubscriptionSource[] }>("GET", "/api/admin/external-sources"),
+  listCategories: () =>
+    request<{ categories: ExternalSourceCategory[] }>("GET", "/api/admin/external-sources/categories"),
+  createCategory: (name: string) =>
+    request<{ category: ExternalSourceCategory; message: string }>("POST", "/api/admin/external-sources/categories", { name }),
+  renameCategory: (old_name: string, new_name: string) =>
+    request<{ message: string }>("PUT", "/api/admin/external-sources/categories/rename", { old_name, new_name }),
+  preview: (data: {
+    source_url: string;
+    pass_hwid: boolean;
+    hwid_version: string;
+    hwid_model_name: string;
+    hwid_value: string;
+    raw_body?: string;
+    raw_content_type?: string;
+    raw_final_url?: string;
+  }) =>
+    request<ExternalSourcePreview>("POST", "/api/admin/external-sources/preview", data),
+  import: (data: {
+    name: string;
+    category: string;
+    key_category: string;
+    key_insert_mode: "top" | "bottom";
+    source_url: string;
+    enabled: boolean;
+    pass_hwid: boolean;
+    hwid_version: string;
+    hwid_model_name: string;
+    hwid_value: string;
+    raw_body?: string;
+    raw_content_type?: string;
+    raw_final_url?: string;
+  }) =>
+    request<{
+      message: string;
+      imported_count: number;
+      skipped_count: number;
+      warnings: string[];
+      detected_format: "links" | "xray-json";
+      source: ExternalSubscriptionSource;
+    }>("POST", "/api/admin/external-sources/import", data),
+  update: (
+    id: number,
+    data: {
+      name: string;
+      category: string;
+      key_category: string;
+      key_insert_mode: "top" | "bottom";
+      source_url: string;
+      enabled: boolean;
+      pass_hwid: boolean;
+      hwid_version: string;
+      hwid_model_name: string;
+      hwid_value: string;
+    }
+  ) => request<{ message: string }>("PUT", `/api/admin/external-sources/${id}`, data),
+  remove: (id: number) => request<{ message: string }>("DELETE", `/api/admin/external-sources/${id}`),
+  sync: (id: number) =>
+    request<{
+      message: string;
+      imported_count: number;
+      skipped_count: number;
+      warnings: string[];
+      source?: ExternalSubscriptionSource;
+    }>("POST", `/api/admin/external-sources/${id}/sync`),
 };

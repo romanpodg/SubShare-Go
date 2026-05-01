@@ -2,11 +2,14 @@ package main
 
 import (
 	"database/sql"
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"net/url"
 	"strings"
 	"time"
+
+	"xary-sub/internal/model"
 )
 
 type deviceMeta struct {
@@ -211,9 +214,13 @@ type subscriptionTemplateData struct {
 	RealKeysCount  int
 }
 
-func (a *App) buildSubscriptionTemplateData(subscriptionID string) (subscriptionTemplateData, error) {
+func (a *App) buildSubscriptionTemplateData(subscriptionID string, subscriptionFormat string) (subscriptionTemplateData, error) {
 	out := subscriptionTemplateData{
 		SubscriptionID: strings.TrimSpace(subscriptionID),
+	}
+	format, ok := model.NormalizeSubscriptionFormat(subscriptionFormat)
+	if !ok {
+		format = model.SubscriptionFormatLinks
 	}
 
 	var name sql.NullString
@@ -236,9 +243,8 @@ func (a *App) buildSubscriptionTemplateData(subscriptionID string) (subscription
 		out.ExpiryDateTime = local.Format("02/01/2006 15:04")
 	}
 
-	var realCount int
-	if err := a.db.QueryRow(
-		`SELECT COUNT(1)
+	rows, err := a.db.Query(
+		`SELECT k.url
 		 FROM users u
 		 JOIN user_keys uk ON uk.user_id = u.id
 		 JOIN vless_keys k ON k.id = uk.key_id
@@ -247,7 +253,24 @@ func (a *App) buildSubscriptionTemplateData(subscriptionID string) (subscription
 		   AND k.key_kind = 'real'
 		   AND k.check_status != 'down'`,
 		subscriptionID,
-	).Scan(&realCount); err != nil {
+	)
+	if err != nil {
+		return out, err
+	}
+	defer rows.Close()
+
+	realCount := 0
+	for rows.Next() {
+		var rawURL string
+		if err := rows.Scan(&rawURL); err != nil {
+			return out, err
+		}
+		if format == model.SubscriptionFormatLinks && supportedConfigScheme(rawURL) == model.SubscriptionFormatXrayJSON {
+			continue
+		}
+		realCount++
+	}
+	if err := rows.Err(); err != nil {
 		return out, err
 	}
 	out.RealKeysCount = realCount
@@ -280,4 +303,61 @@ func buildInformationalVLESSURL(displayText string) string {
 		displayText = "Info"
 	}
 	return "vless://00000000-0000-0000-0000-000000000000@info.invalid:443?type=tcp&security=none#" + url.QueryEscape(displayText)
+}
+
+func buildInformationalXrayJSON(displayText string) string {
+	displayText = strings.TrimSpace(displayText)
+	if displayText == "" {
+		displayText = "Info"
+	}
+
+	description := displayText
+	if newline := strings.Index(description, "\n"); newline >= 0 {
+		description = strings.TrimSpace(description[:newline])
+	}
+	if description == "" {
+		description = "Informational key"
+	}
+
+	payload := map[string]any{
+		"remarks": displayText,
+		"meta": map[string]any{
+			"serverDescription": description,
+			"informational":     true,
+		},
+		"log": map[string]any{
+			"loglevel": "warning",
+		},
+		"inbounds": []any{},
+		"outbounds": []any{
+			map[string]any{
+				"tag":      "proxy",
+				"protocol": "vless",
+				"settings": map[string]any{
+					"vnext": []any{
+						map[string]any{
+							"address": "info.invalid",
+							"port":    443,
+							"users": []any{
+								map[string]any{
+									"id":         "00000000-0000-0000-0000-000000000000",
+									"encryption": "none",
+								},
+							},
+						},
+					},
+				},
+				"streamSettings": map[string]any{
+					"network":  "tcp",
+					"security": "none",
+				},
+			},
+		},
+	}
+
+	encoded, err := json.Marshal(payload)
+	if err != nil {
+		return ""
+	}
+	return string(encoded)
 }

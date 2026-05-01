@@ -1,6 +1,6 @@
 "use client";
 
-import { forwardRef, useRef, useCallback, useEffect, useImperativeHandle } from "react";
+import { forwardRef, useRef, useCallback, useEffect, useImperativeHandle, type ReactNode } from "react";
 import emojiRegex from "emoji-regex";
 
 const APPLE_CDN =
@@ -154,6 +154,8 @@ interface AppleEmojiInputProps {
   multiline?: boolean;
   maxLength?: number;
   showCounter?: boolean;
+  rightSlot?: ReactNode;
+  rightSlotWidth?: number;
 }
 
 export interface AppleEmojiInputHandle {
@@ -172,6 +174,8 @@ export const AppleEmojiInput = forwardRef<AppleEmojiInputHandle, AppleEmojiInput
   multiline = false,
   maxLength,
   showCounter = false,
+  rightSlot,
+  rightSlotWidth = 46,
 }, forwardedRef) {
   const ref = useRef<HTMLDivElement>(null);
   const lastVal = useRef(value);
@@ -287,6 +291,8 @@ export const AppleEmojiInput = forwardRef<AppleEmojiInputHandle, AppleEmojiInput
 
   const hasValue = value.length > 0;
   const currentLength = value.length;
+  const hasRightSlot = Boolean(rightSlot);
+  const inputPaddingRight = hasRightSlot ? `${rightSlotWidth + 12}px` : undefined;
 
   return (
     <div className="flex flex-col gap-1.5">
@@ -301,6 +307,7 @@ export const AppleEmojiInput = forwardRef<AppleEmojiInputHandle, AppleEmojiInput
         {!hasValue && placeholder && (
           <div
             className={`pointer-events-none absolute inset-0 px-3 text-sm text-zinc-500 ${multiline ? "pt-2.5" : "flex items-center"}`}
+            style={hasRightSlot ? { paddingRight: inputPaddingRight } : undefined}
             aria-hidden="true"
           >
             {placeholder}
@@ -344,7 +351,17 @@ export const AppleEmojiInput = forwardRef<AppleEmojiInputHandle, AppleEmojiInput
             );
           }}
           className={`apple-emoji-input w-full rounded-lg border border-border bg-surface-2 px-3 py-2 text-sm text-zinc-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-bg ${multiline ? "apple-emoji-input--multiline min-h-[8.5rem]" : ""} ${error ? "ring-1 ring-red-500" : ""} ${className}`}
+          style={hasRightSlot ? { paddingRight: inputPaddingRight } : undefined}
         />
+
+        {hasRightSlot && (
+          <div
+            className="absolute right-0 top-0 bottom-0 flex w-[46px] items-center justify-center rounded-r-lg border-l border-border bg-surface-1/70"
+            style={{ width: `${rightSlotWidth}px` }}
+          >
+            {rightSlot}
+          </div>
+        )}
       </div>
 
       {error && <p className="text-xs text-red-400">{error}</p>}

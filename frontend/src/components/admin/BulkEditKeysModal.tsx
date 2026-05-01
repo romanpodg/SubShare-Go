@@ -1,11 +1,13 @@
 "use client";
 
-import { FormEvent, useState } from "react";
+import { FormEvent, useEffect, useState } from "react";
 import { Modal } from "@/components/ui/Modal";
 import { Button } from "@/components/ui/Button";
 import { useToast } from "@/components/ui/Toast";
 import { keys as keysApi } from "@/lib/api";
-import type { VLESSKey } from "@/lib/types";
+import type { KeyCategory, VLESSKey } from "@/lib/types";
+import { Select } from "@/components/ui/Select";
+import { CreateKeyCategoryModal } from "./CreateKeyCategoryModal";
 
 interface Props {
   keys: VLESSKey[];
@@ -16,7 +18,21 @@ interface Props {
 export function BulkEditKeysModal({ keys, onClose, onRefresh }: Props) {
   const { toast } = useToast();
   const [loading, setLoading] = useState(false);
+  const [categories, setCategories] = useState<KeyCategory[]>([]);
+  const [showCreateCategory, setShowCreateCategory] = useState(false);
   const [status, setStatus] = useState<"active" | "non-active">("active");
+  const [category, setCategory] = useState("");
+
+  useEffect(() => {
+    void keysApi
+      .listCategories()
+      .then((response) => setCategories(response.categories || []))
+      .catch(() => undefined);
+  }, []);
+
+  const categoryOptions = [{ value: "", label: "Не менять категорию" }].concat(
+    categories.map((item) => ({ value: item.name, label: item.name }))
+  );
 
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();
@@ -26,37 +42,11 @@ export function BulkEditKeysModal({ keys, onClose, onRefresh }: Props) {
 
     setLoading(true);
     try {
-      const results = await Promise.allSettled(
-        keys.map((key) =>
-          keysApi.update(key.id, {
-            label: key.label,
-            status,
-            raw_url: key.kind === "real" ? key.url : undefined,
-            uuid: key.edit_uuid || "",
-            host: key.edit_host || "",
-            port: key.edit_port || "",
-            query: key.edit_query || "",
-            fragment: key.edit_fragment || "",
-            kind: key.kind,
-            template_text: key.kind === "informational" ? (key.template_text || key.label) : undefined,
-          })
-        )
-      );
-
-      const failedKeys = results
-        .map((result, index) => (result.status === "rejected" ? keys[index] : null))
-        .filter((key): key is VLESSKey => key !== null);
-      const successCount = keys.length - failedKeys.length;
-
-      if (successCount > 0 && failedKeys.length === 0) {
-        toast(successCount === 1 ? "Конфигурация обновлена" : `Обновлено конфигураций: ${successCount}`, "success");
-        onClose();
-      } else if (successCount > 0) {
-        toast(`Обновлено ${successCount} из ${keys.length} конфигураций`, "error");
-      } else {
-        toast("Не удалось применить массовые изменения", "error");
-      }
-
+      const keyIDs = keys.map((key) => key.id);
+      const response = await keysApi.bulkUpdateStatus(keyIDs, status, category.trim() || undefined);
+      const updatedCount = response.updated ?? keyIDs.length;
+      toast(updatedCount === 1 ? "Конфигурация обновлена" : `Обновлено конфигураций: ${updatedCount}`, "success");
+      onClose();
       await onRefresh();
     } catch (err: unknown) {
       toast(err instanceof Error ? err.message : "Не удалось применить массовые изменения", "error");
@@ -87,11 +77,34 @@ export function BulkEditKeysModal({ keys, onClose, onRefresh }: Props) {
           </select>
         </div>
 
+        <div className="grid gap-2 md:grid-cols-[minmax(0,1fr)_auto] md:items-end">
+          <Select
+            label="Категория"
+            value={category}
+            onChange={(event) => setCategory(event.target.value)}
+            options={categoryOptions}
+          />
+          <Button type="button" variant="ghost" onClick={() => setShowCreateCategory(true)}>
+            + Добавить категорию
+          </Button>
+        </div>
+
         <Button type="submit" loading={loading}>
           Сохранить
         </Button>
+
+        <CreateKeyCategoryModal
+          open={showCreateCategory}
+          onClose={() => setShowCreateCategory(false)}
+          onCreated={(nextCategory) => {
+            setCategories((previous) => {
+              const next = previous.filter((item) => item.name !== nextCategory.name);
+              return [...next, nextCategory].sort((left, right) => left.name.localeCompare(right.name, "ru"));
+            });
+            setCategory(nextCategory.name);
+          }}
+        />
       </form>
     </Modal>
   );
 }
-

@@ -2,6 +2,7 @@ package main
 
 import (
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
@@ -14,6 +15,51 @@ import (
 )
 
 var validSQLIdentifier = regexp.MustCompile(`^[a-zA-Z_][a-zA-Z0-9_]*$`)
+
+func clientDisplayNameFromKeyURL(rawURL, fallback string) string {
+	rawURL = strings.TrimSpace(rawURL)
+	fallback = strings.TrimSpace(fallback)
+	if rawURL == "" {
+		return fallback
+	}
+
+	switch supportedConfigScheme(rawURL) {
+	case "vless", "vmess", "trojan":
+		draft, err := parseLinkConfiguration(rawURL)
+		if err != nil {
+			return fallback
+		}
+		name := strings.TrimSpace(firstNonEmpty(draft.Remark, draft.ServerDescription, fallback))
+		if name != "" {
+			return name
+		}
+	case "xray-json":
+		var parsed any
+		if err := json.Unmarshal([]byte(rawURL), &parsed); err != nil {
+			return fallback
+		}
+		switch typed := parsed.(type) {
+		case map[string]any:
+			name := strings.TrimSpace(extractJSONSubscriptionLabel(typed, fallback))
+			if name != "" {
+				return name
+			}
+		case []any:
+			for _, item := range typed {
+				obj, ok := item.(map[string]any)
+				if !ok {
+					continue
+				}
+				name := strings.TrimSpace(extractJSONSubscriptionLabel(obj, fallback))
+				if name != "" {
+					return name
+				}
+			}
+		}
+	}
+
+	return fallback
+}
 
 func migrate(db *sql.DB) error {
 	queries := []string{
@@ -52,6 +98,7 @@ func migrate(db *sql.DB) error {
 			info_url TEXT,
 			extra_url TEXT,
 			extra_status TEXT,
+			subscription_format TEXT NOT NULL DEFAULT 'links',
 			provider_id TEXT,
 			happ_no_limit_mode INTEGER NOT NULL DEFAULT 0,
 			happ_no_limit_mode_xhttp_only INTEGER NOT NULL DEFAULT 0,
@@ -69,13 +116,53 @@ func migrate(db *sql.DB) error {
 			page_title_admin TEXT NOT NULL DEFAULT 'Панель управления — Xray Sub',
 			page_title_admin_login TEXT NOT NULL DEFAULT 'Вход — Xray Sub',
 			page_title_subscription TEXT NOT NULL DEFAULT 'VPN-подписка — Xray Sub',
+			subscription_page_config TEXT NOT NULL DEFAULT '',
 			updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
 		);`,
 		`CREATE TABLE IF NOT EXISTS routing_settings (
-			id INTEGER PRIMARY KEY CHECK (id = 1),
-			config_json TEXT NOT NULL DEFAULT '',
-			updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
-		);`,
+				id INTEGER PRIMARY KEY CHECK (id = 1),
+				config_json TEXT NOT NULL DEFAULT '',
+				updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+			);`,
+		`CREATE TABLE IF NOT EXISTS external_subscription_sources (
+					id INTEGER PRIMARY KEY AUTOINCREMENT,
+					name TEXT NOT NULL,
+					category TEXT NOT NULL DEFAULT 'general',
+					key_category TEXT NOT NULL DEFAULT '',
+					key_insert_mode TEXT NOT NULL DEFAULT 'bottom',
+					source_url TEXT NOT NULL UNIQUE,
+					enabled INTEGER NOT NULL DEFAULT 1,
+					apply_remote_metadata INTEGER NOT NULL DEFAULT 1,
+					pass_hwid INTEGER NOT NULL DEFAULT 0,
+					hwid_version TEXT,
+					hwid_model_name TEXT,
+					hwid_value TEXT,
+					last_import_count INTEGER NOT NULL DEFAULT 0,
+					import_status TEXT NOT NULL DEFAULT 'idle',
+					last_error TEXT,
+					last_synced_at DATETIME,
+				meta_title TEXT,
+				meta_refresh_hours INTEGER,
+				meta_support_url TEXT,
+				meta_web_page_url TEXT,
+				meta_announce TEXT,
+				created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+				updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+			);`,
+		`CREATE TABLE IF NOT EXISTS external_source_categories (
+						id INTEGER PRIMARY KEY AUTOINCREMENT,
+						name TEXT NOT NULL UNIQUE,
+						created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+						updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+					);`,
+		`CREATE TABLE IF NOT EXISTS key_categories (
+						id INTEGER PRIMARY KEY AUTOINCREMENT,
+						name TEXT NOT NULL UNIQUE,
+						color TEXT NOT NULL DEFAULT '#d8b33d',
+						sort_order INTEGER NOT NULL DEFAULT 0,
+						created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+						updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+					);`,
 	}
 
 	for _, q := range queries {
@@ -162,6 +249,39 @@ func migrate(db *sql.DB) error {
 	if err := ensureColumn(db, "vless_keys", "blocked_reason", "TEXT"); err != nil {
 		return err
 	}
+	if err := ensureColumn(db, "vless_keys", "external_source_id", "INTEGER"); err != nil {
+		return err
+	}
+	if err := ensureColumn(db, "vless_keys", "external_key_ref", "TEXT"); err != nil {
+		return err
+	}
+	if err := ensureColumn(db, "vless_keys", "category", "TEXT NOT NULL DEFAULT ''"); err != nil {
+		return err
+	}
+	if err := ensureColumn(db, "key_categories", "color", "TEXT NOT NULL DEFAULT '#d8b33d'"); err != nil {
+		return err
+	}
+	if err := ensureColumn(db, "key_categories", "sort_order", "INTEGER NOT NULL DEFAULT 0"); err != nil {
+		return err
+	}
+	if err := ensureColumn(db, "external_subscription_sources", "key_category", "TEXT NOT NULL DEFAULT ''"); err != nil {
+		return err
+	}
+	if err := ensureColumn(db, "external_subscription_sources", "key_insert_mode", "TEXT NOT NULL DEFAULT 'bottom'"); err != nil {
+		return err
+	}
+	if err := ensureColumn(db, "external_subscription_sources", "pass_hwid", "INTEGER NOT NULL DEFAULT 0"); err != nil {
+		return err
+	}
+	if err := ensureColumn(db, "external_subscription_sources", "hwid_version", "TEXT"); err != nil {
+		return err
+	}
+	if err := ensureColumn(db, "external_subscription_sources", "hwid_model_name", "TEXT"); err != nil {
+		return err
+	}
+	if err := ensureColumn(db, "external_subscription_sources", "hwid_value", "TEXT"); err != nil {
+		return err
+	}
 	if err := ensureColumn(db, "user_devices", "device_name", "TEXT"); err != nil {
 		return err
 	}
@@ -241,16 +361,40 @@ func migrate(db *sql.DB) error {
 	if _, err := db.Exec(`UPDATE vless_keys SET sort_order = id WHERE sort_order IS NULL OR sort_order <= 0`); err != nil {
 		return err
 	}
+	if _, err := db.Exec(`UPDATE vless_keys SET category = TRIM(COALESCE(category, ''))`); err != nil {
+		return err
+	}
 	if _, err := db.Exec(`UPDATE vless_keys SET starts_at = created_at WHERE starts_at IS NULL`); err != nil {
 		return err
 	}
 	if _, err := db.Exec(`CREATE INDEX IF NOT EXISTS idx_vless_keys_kind_sort ON vless_keys(key_kind, sort_order, id)`); err != nil {
 		return err
 	}
+	if _, err := db.Exec(`CREATE INDEX IF NOT EXISTS idx_vless_keys_category_sort ON vless_keys(category, sort_order, id)`); err != nil {
+		return err
+	}
+	if _, err := db.Exec(`CREATE INDEX IF NOT EXISTS idx_vless_keys_external_source ON vless_keys(external_source_id)`); err != nil {
+		return err
+	}
+	if _, err := db.Exec(`CREATE UNIQUE INDEX IF NOT EXISTS idx_vless_keys_external_source_ref ON vless_keys(external_source_id, external_key_ref)`); err != nil {
+		return err
+	}
+	if _, err := db.Exec(`CREATE INDEX IF NOT EXISTS idx_external_subscription_sources_category ON external_subscription_sources(category, id)`); err != nil {
+		return err
+	}
+	if _, err := db.Exec(`CREATE UNIQUE INDEX IF NOT EXISTS idx_external_source_categories_name ON external_source_categories(name)`); err != nil {
+		return err
+	}
+	if _, err := db.Exec(`CREATE UNIQUE INDEX IF NOT EXISTS idx_key_categories_name ON key_categories(name)`); err != nil {
+		return err
+	}
 	if _, err := db.Exec(`INSERT OR IGNORE INTO subscription_settings(id, title, refresh_hours) VALUES(1, 'AllKeys', 12)`); err != nil {
 		return err
 	}
 	if _, err := db.Exec(`INSERT OR IGNORE INTO panel_settings(id) VALUES(1)`); err != nil {
+		return err
+	}
+	if err := ensureColumn(db, "panel_settings", "subscription_page_config", "TEXT NOT NULL DEFAULT ''"); err != nil {
 		return err
 	}
 	if _, err := db.Exec(`INSERT OR IGNORE INTO routing_settings(id, config_json) VALUES(1, '')`); err != nil {
@@ -260,6 +404,9 @@ func migrate(db *sql.DB) error {
 		return err
 	}
 	if err := ensureColumn(db, "subscription_settings", "language", "TEXT NOT NULL DEFAULT 'ru'"); err != nil {
+		return err
+	}
+	if err := ensureColumn(db, "subscription_settings", "subscription_format", "TEXT NOT NULL DEFAULT 'links'"); err != nil {
 		return err
 	}
 	if err := ensureColumn(db, "subscription_settings", "provider_id", "TEXT"); err != nil {
@@ -290,6 +437,52 @@ func migrate(db *sql.DB) error {
 		return err
 	}
 	if _, err := db.Exec(`UPDATE subscription_settings SET language = 'ru' WHERE language IS NULL OR TRIM(language) = ''`); err != nil {
+		return err
+	}
+	if _, err := db.Exec(`UPDATE external_subscription_sources SET category = 'Общее' WHERE category IS NULL OR TRIM(category) = ''`); err != nil {
+		return err
+	}
+	if _, err := db.Exec(`UPDATE external_subscription_sources SET category = 'Общее' WHERE LOWER(TRIM(category)) IN ('general', 'default')`); err != nil {
+		return err
+	}
+	if _, err := db.Exec(`INSERT OR IGNORE INTO external_source_categories(name) VALUES ('Общее')`); err != nil {
+		return err
+	}
+	if _, err := db.Exec(`UPDATE key_categories SET color = '#d8b33d' WHERE color IS NULL OR TRIM(color) = ''`); err != nil {
+		return err
+	}
+	if _, err := db.Exec(`UPDATE key_categories SET sort_order = id WHERE sort_order IS NULL OR sort_order <= 0`); err != nil {
+		return err
+	}
+	if _, err := db.Exec(`
+		INSERT OR IGNORE INTO external_source_categories(name)
+		SELECT DISTINCT TRIM(category)
+		FROM external_subscription_sources
+		WHERE TRIM(category) <> ''
+	`); err != nil {
+		return err
+	}
+	if _, err := db.Exec(`
+		INSERT OR IGNORE INTO key_categories(name)
+		SELECT DISTINCT TRIM(category)
+		FROM vless_keys
+		WHERE TRIM(category) <> ''
+	`); err != nil {
+		return err
+	}
+	if _, err := db.Exec(`UPDATE external_subscription_sources SET key_category = category WHERE key_category IS NULL OR TRIM(key_category) = ''`); err != nil {
+		return err
+	}
+	if _, err := db.Exec(`UPDATE external_subscription_sources SET key_category = TRIM(COALESCE(key_category, '')) WHERE key_category != TRIM(COALESCE(key_category, ''))`); err != nil {
+		return err
+	}
+	if _, err := db.Exec(`UPDATE external_subscription_sources SET key_insert_mode = 'bottom' WHERE LOWER(TRIM(COALESCE(key_insert_mode, ''))) NOT IN ('top','bottom')`); err != nil {
+		return err
+	}
+	if _, err := db.Exec(`UPDATE subscription_settings SET subscription_format = 'links' WHERE subscription_format IS NULL OR TRIM(subscription_format) = ''`); err != nil {
+		return err
+	}
+	if _, err := db.Exec(`UPDATE subscription_settings SET subscription_format = 'links' WHERE LOWER(TRIM(subscription_format)) NOT IN ('links','xray-json')`); err != nil {
 		return err
 	}
 	return nil
@@ -541,9 +734,10 @@ func (a *App) listUsers() ([]model.User, error) {
 
 func (a *App) listKeys() ([]model.VLESSKey, error) {
 	rows, err := a.db.Query(`
-		SELECT id, label, url, key_kind, template_text, status, check_status, check_error, last_checked_at, last_latency_ms, created_at
-		FROM vless_keys
-		ORDER BY sort_order, id
+		SELECT k.id, k.label, k.url, k.category, k.key_kind, k.template_text, k.status, k.check_status, k.check_error, k.last_checked_at, k.last_latency_ms, k.created_at, k.external_source_id, COALESCE(es.name, '')
+		FROM vless_keys k
+		LEFT JOIN external_subscription_sources es ON es.id = k.external_source_id
+		ORDER BY k.sort_order, k.id
 	`)
 	if err != nil {
 		return nil, err
@@ -553,6 +747,7 @@ func (a *App) listKeys() ([]model.VLESSKey, error) {
 	var out []model.VLESSKey
 	for rows.Next() {
 		var key model.VLESSKey
+		var category sql.NullString
 		var kind sql.NullString
 		var templateText sql.NullString
 		var status sql.NullString
@@ -560,9 +755,12 @@ func (a *App) listKeys() ([]model.VLESSKey, error) {
 		var checkError sql.NullString
 		var lastCheckedAt sql.NullTime
 		var latency sql.NullInt64
-		if err := rows.Scan(&key.ID, &key.Label, &key.URL, &kind, &templateText, &status, &checkStatus, &checkError, &lastCheckedAt, &latency, &key.CreatedAt); err != nil {
+		var externalSourceID sql.NullInt64
+		var externalSourceName sql.NullString
+		if err := rows.Scan(&key.ID, &key.Label, &key.URL, &category, &kind, &templateText, &status, &checkStatus, &checkError, &lastCheckedAt, &latency, &key.CreatedAt, &externalSourceID, &externalSourceName); err != nil {
 			return nil, err
 		}
+		key.Category = strings.TrimSpace(category.String)
 		key.Kind, _ = model.NormalizeKeyKind(kind.String)
 		if key.Kind == "" {
 			key.Kind = model.KeyKindReal
@@ -593,6 +791,11 @@ func (a *App) listKeys() ([]model.VLESSKey, error) {
 		if lastCheckedAt.Valid {
 			key.LastCheckedAtText = lastCheckedAt.Time.Local().Format("2006-01-02 15:04:05")
 		}
+		if externalSourceID.Valid && externalSourceID.Int64 > 0 {
+			key.ExternalSourceID = externalSourceID.Int64
+		}
+		key.ExternalSourceName = strings.TrimSpace(externalSourceName.String)
+		key.ClientDisplayName = clientDisplayNameFromKeyURL(key.URL, key.Label)
 		out = append(out, key)
 	}
 	return out, rows.Err()
@@ -604,6 +807,7 @@ func (a *App) getSubscriptionSettings() (model.SubscriptionSettings, error) {
 	var infoURL sql.NullString
 	var extraURL sql.NullString
 	var extraStatus sql.NullString
+	var subscriptionFormat sql.NullString
 	var timeZone sql.NullString
 	var language sql.NullString
 	var providerID sql.NullString
@@ -615,7 +819,7 @@ func (a *App) getSubscriptionSettings() (model.SubscriptionSettings, error) {
 	var happSubscriptionBody sql.NullString
 
 	err := a.db.QueryRow(
-		`SELECT title, refresh_hours, info_url, extra_url, extra_status, time_zone, language,
+		`SELECT title, refresh_hours, info_url, extra_url, extra_status, subscription_format, time_zone, language,
 		        provider_id, happ_no_limit_mode, happ_no_limit_mode_xhttp_only, happ_mandatory_hwid,
 		        happ_notify_expiration, happ_hide_server_settings, happ_subscription_body
 		   FROM subscription_settings WHERE id = 1`,
@@ -625,6 +829,7 @@ func (a *App) getSubscriptionSettings() (model.SubscriptionSettings, error) {
 		&infoURL,
 		&extraURL,
 		&extraStatus,
+		&subscriptionFormat,
 		&timeZone,
 		&language,
 		&providerID,
@@ -645,6 +850,7 @@ func (a *App) getSubscriptionSettings() (model.SubscriptionSettings, error) {
 		InfoURL:                  strings.TrimSpace(infoURL.String),
 		ExtraURL:                 strings.TrimSpace(extraURL.String),
 		ExtraStatus:              strings.TrimSpace(extraStatus.String),
+		SubscriptionFormat:       strings.TrimSpace(subscriptionFormat.String),
 		TimeZone:                 strings.TrimSpace(timeZone.String),
 		Language:                 strings.TrimSpace(language.String),
 		ProviderID:               strings.TrimSpace(providerID.String),
@@ -667,28 +873,35 @@ func (a *App) getSubscriptionSettings() (model.SubscriptionSettings, error) {
 	if settings.Language == "" {
 		settings.Language = "ru"
 	}
+	if normalizedFormat, ok := model.NormalizeSubscriptionFormat(settings.SubscriptionFormat); ok {
+		settings.SubscriptionFormat = normalizedFormat
+	} else {
+		settings.SubscriptionFormat = model.SubscriptionFormatLinks
+	}
 	return settings, nil
 }
 
 func (a *App) getPanelSettings() (model.PanelSettings, error) {
 	var panelTitle, logoData, faviconData sql.NullString
 	var pageTitleAdmin, pageTitleAdminLogin, pageTitleSubscription sql.NullString
+	var subscriptionPageConfig sql.NullString
 
 	err := a.db.QueryRow(
-		`SELECT panel_title, logo_data, favicon_data, page_title_admin, page_title_admin_login, page_title_subscription
+		`SELECT panel_title, logo_data, favicon_data, page_title_admin, page_title_admin_login, page_title_subscription, subscription_page_config
 		 FROM panel_settings WHERE id = 1`,
-	).Scan(&panelTitle, &logoData, &faviconData, &pageTitleAdmin, &pageTitleAdminLogin, &pageTitleSubscription)
+	).Scan(&panelTitle, &logoData, &faviconData, &pageTitleAdmin, &pageTitleAdminLogin, &pageTitleSubscription, &subscriptionPageConfig)
 	if err != nil {
 		return model.PanelSettings{}, err
 	}
 
 	s := model.PanelSettings{
-		PanelTitle:            strings.TrimSpace(panelTitle.String),
-		LogoDataURL:           logoData.String,
-		FaviconDataURL:        faviconData.String,
-		PageTitleAdmin:        strings.TrimSpace(pageTitleAdmin.String),
-		PageTitleAdminLogin:   strings.TrimSpace(pageTitleAdminLogin.String),
-		PageTitleSubscription: strings.TrimSpace(pageTitleSubscription.String),
+		PanelTitle:             strings.TrimSpace(panelTitle.String),
+		LogoDataURL:            logoData.String,
+		FaviconDataURL:         faviconData.String,
+		PageTitleAdmin:         strings.TrimSpace(pageTitleAdmin.String),
+		PageTitleAdminLogin:    strings.TrimSpace(pageTitleAdminLogin.String),
+		PageTitleSubscription:  strings.TrimSpace(pageTitleSubscription.String),
+		SubscriptionPageConfig: subscriptionPageConfig.String,
 	}
 	if s.PanelTitle == "" {
 		s.PanelTitle = "Xray Sub"
@@ -732,6 +945,17 @@ func (a *App) updatePanelSettings(s model.PanelSettings) error {
 		 WHERE id = 1`,
 		s.PanelTitle, s.LogoDataURL, s.FaviconDataURL,
 		s.PageTitleAdmin, s.PageTitleAdminLogin, s.PageTitleSubscription,
+	)
+	return err
+}
+
+func (a *App) updateSubscriptionPageConfig(configJSON string) error {
+	_, err := a.db.Exec(
+		`UPDATE panel_settings SET
+			subscription_page_config = ?,
+			updated_at = CURRENT_TIMESTAMP
+		 WHERE id = 1`,
+		strings.TrimSpace(configJSON),
 	)
 	return err
 }

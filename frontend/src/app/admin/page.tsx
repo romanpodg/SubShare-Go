@@ -5,13 +5,14 @@ import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { useAuth } from "@/hooks/useAuth";
 import { useToast } from "@/components/ui/Toast";
-import { users as usersApi, keys as keysApi } from "@/lib/api";
+import { users as usersApi, keys as keysApi, subscriptionSettings as subscriptionSettingsApi } from "@/lib/api";
 import type { User, VLESSKey } from "@/lib/types";
 import { UsersSection } from "@/components/admin/UsersSection";
 import { KeysSection } from "@/components/admin/KeysSection";
 import { GlobalSubscriptionSettingsModal } from "@/components/admin/GlobalSubscriptionSettingsModal";
 import { PanelSettingsModal } from "@/components/admin/PanelSettingsModal";
 import { RoutingSettingsModal } from "@/components/admin/RoutingSettingsModal";
+import { SubscriptionPageConfigModal } from "@/components/admin/SubscriptionPageConfigModal";
 import { LoadingSpinner } from "@/components/ui/LoadingSpinner";
 import { EmojiText } from "@/components/ui/EmojiText";
 import { usePanelSettings } from "@/context/PanelSettingsContext";
@@ -23,10 +24,12 @@ export default function AdminPage() {
   const { settings } = usePanelSettings();
   const [usersList, setUsersList] = useState<User[]>([]);
   const [keysList, setKeysList] = useState<VLESSKey[]>([]);
+  const [subscriptionFormat, setSubscriptionFormat] = useState<"links" | "xray-json">("links");
   const [loading, setLoading] = useState(true);
   const [showGlobalSubscriptionSettings, setShowGlobalSubscriptionSettings] = useState(false);
   const [showRoutingSettings, setShowRoutingSettings] = useState(false);
   const [showPanelSettings, setShowPanelSettings] = useState(false);
+  const [showSubscriptionPageConfig, setShowSubscriptionPageConfig] = useState(false);
 
   useEffect(() => {
     document.title = settings.pageTitles.admin;
@@ -34,9 +37,14 @@ export default function AdminPage() {
 
   const fetchData = useCallback(async () => {
     try {
-      const [usersRes, keysRes] = await Promise.all([usersApi.list(), keysApi.list()]);
+      const [usersRes, keysRes, subscriptionSettingsRes] = await Promise.all([
+        usersApi.list(),
+        keysApi.list(),
+        subscriptionSettingsApi.get(),
+      ]);
       setUsersList(usersRes.users);
       setKeysList(keysRes.keys);
+      setSubscriptionFormat(subscriptionSettingsRes.subscription_format === "xray-json" ? "xray-json" : "links");
     } catch {
       toast("Не удалось загрузить данные", "error");
     } finally {
@@ -117,6 +125,12 @@ export default function AdminPage() {
           >
             Настройки подписки
           </button>
+          <button
+            onClick={() => setShowSubscriptionPageConfig(true)}
+            className={navItemClass}
+          >
+            Дизайн /sub
+          </button>
           <button onClick={handleLogout} className={navDangerClass}>
             Выйти
           </button>
@@ -131,6 +145,7 @@ export default function AdminPage() {
         />
         <KeysSection
           keys={keysList}
+          subscriptionFormat={subscriptionFormat}
           onRefresh={fetchData}
         />
       </main>
@@ -138,6 +153,7 @@ export default function AdminPage() {
       <GlobalSubscriptionSettingsModal
         open={showGlobalSubscriptionSettings}
         onClose={() => setShowGlobalSubscriptionSettings(false)}
+        onSaved={fetchData}
       />
       <RoutingSettingsModal
         open={showRoutingSettings}
@@ -146,6 +162,10 @@ export default function AdminPage() {
       <PanelSettingsModal
         open={showPanelSettings}
         onClose={() => setShowPanelSettings(false)}
+      />
+      <SubscriptionPageConfigModal
+        open={showSubscriptionPageConfig}
+        onClose={() => setShowSubscriptionPageConfig(false)}
       />
     </div>
   );

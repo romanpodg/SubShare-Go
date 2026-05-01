@@ -8,9 +8,10 @@ interface Props {
   onSelect: (emoji: string) => void;
   className?: string;
   inline?: boolean;
+  iconOnly?: boolean;
 }
 
-export function EmojiPickerButton({ onSelect, className = "", inline = false }: Props) {
+export function EmojiPickerButton({ onSelect, className = "", inline = false, iconOnly = false }: Props) {
   const [open, setOpen] = useState(false);
   const rootRef = useRef<HTMLDivElement | null>(null);
   const pickerContainerRef = useRef<HTMLDivElement | null>(null);
@@ -96,15 +97,37 @@ export function EmojiPickerButton({ onSelect, className = "", inline = false }: 
   }, [open, onSelect, inline]);
 
   return (
-    <div ref={rootRef} className={className}>
+    <div ref={rootRef} className={`relative inline-block ${className}`}>
       <button
         type="button"
         onClick={() => setOpen((prev) => !prev)}
-        className="h-9 rounded-lg border border-border bg-surface-2 px-3 text-sm text-zinc-200 transition-colors hover:bg-surface-1"
+        className={
+          iconOnly
+            ? `flex h-8 w-8 items-center justify-center rounded-md border border-border bg-surface-2 text-zinc-100 transition-colors hover:bg-surface-1 ${open ? "bg-surface-1" : ""}`
+            : "h-9 rounded-lg border border-border bg-surface-2 px-3 text-sm text-zinc-200 transition-colors hover:bg-surface-1"
+        }
         aria-haspopup="dialog"
         aria-expanded={open}
+        aria-label={open ? "Скрыть эмодзи" : "Показать эмодзи"}
       >
-        {open ? "Скрыть" : "Эмодзи"}
+        {iconOnly ? (
+          <svg
+            xmlns="http://www.w3.org/2000/svg"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="1.8"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            className="h-4 w-4"
+            aria-hidden="true"
+          >
+            <circle cx="12" cy="12" r="9" />
+            <path d="M8.5 10h.01" />
+            <path d="M15.5 10h.01" />
+            <path d="M8.5 14.5c.9 1.2 2.2 1.8 3.5 1.8s2.6-.6 3.5-1.8" />
+          </svg>
+        ) : open ? "Скрыть" : "Эмодзи"}
       </button>
       {open && (
         <div

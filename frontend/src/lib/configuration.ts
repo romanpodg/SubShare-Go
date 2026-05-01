@@ -1,4 +1,7 @@
 export type ConfigurationProtocol = "vless" | "trojan" | "vmess";
+export type RealConfigurationMode = "link" | "xray-json";
+export type XrayJSONNetwork = "tcp" | "ws" | "grpc" | "httpupgrade" | "xhttp" | "h2" | "quic";
+export type XrayJSONSecurity = "none" | "tls" | "reality";
 
 export interface ConfigurationDraft {
   protocol: ConfigurationProtocol;
@@ -9,7 +12,41 @@ export interface ConfigurationDraft {
   remark: string;
 }
 
+export interface XrayJSONDraft {
+  protocol: ConfigurationProtocol;
+  server: string;
+  port: string;
+  identifier: string;
+  network: XrayJSONNetwork;
+  security: XrayJSONSecurity;
+  path: string;
+  host: string;
+  sni: string;
+  alpn: string;
+  remark: string;
+  flow?: string;
+  encryption?: string;
+  fingerprint?: string;
+  publicKey?: string;
+  shortId?: string;
+  spiderX?: string;
+  allowInsecure?: boolean;
+  grpcAuthority?: string;
+  headerType?: string;
+  vmessSecurity?: string;
+  vmessAlterId?: string;
+}
+
+export interface ParsedXrayJSONConfiguration {
+  draft: XrayJSONDraft;
+  config: Record<string, unknown>;
+  outboundIndex: number;
+}
+
 const DEFAULT_PORT = "443";
+const DEFAULT_NETWORK: XrayJSONNetwork = "tcp";
+const DEFAULT_SECURITY: XrayJSONSecurity = "none";
+const SUPPORTED_PROTOCOLS: ConfigurationProtocol[] = ["vless", "vmess", "trojan"];
 
 function decodeBase64(value: string) {
   const normalized = value.replace(/-/g, "+").replace(/_/g, "/");
@@ -27,6 +64,154 @@ function encodeBase64(value: string) {
     binary += String.fromCharCode(byte);
   });
   return btoa(binary);
+}
+
+function asRecord(value: unknown): Record<string, unknown> | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return null;
+  }
+  return value as Record<string, unknown>;
+}
+
+function asArray(value: unknown): unknown[] {
+  return Array.isArray(value) ? value : [];
+}
+
+function textValue(value: unknown): string {
+  if (typeof value === "string") {
+    return value.trim();
+  }
+  if (typeof value === "number" && Number.isFinite(value)) {
+    return String(value);
+  }
+  return "";
+}
+
+function portValue(value: unknown): string {
+  const text = textValue(value);
+  if (!text) {
+    return DEFAULT_PORT;
+  }
+  const numeric = Number.parseInt(text, 10);
+  if (!Number.isFinite(numeric) || numeric <= 0 || numeric > 65535) {
+    return DEFAULT_PORT;
+  }
+  return String(numeric);
+}
+
+function boolValue(value: unknown): boolean {
+  if (typeof value === "boolean") return value;
+  if (typeof value === "string") {
+    const normalized = value.trim().toLowerCase();
+    return normalized === "1" || normalized === "true" || normalized === "yes" || normalized === "on";
+  }
+  if (typeof value === "number") {
+    return value !== 0;
+  }
+  return false;
+}
+
+function splitCommaValues(raw: string) {
+  return raw
+    .split(",")
+    .map((entry) => entry.trim())
+    .filter(Boolean);
+}
+
+function parseHeaderType(value: unknown) {
+  const normalized = textValue(value).toLowerCase();
+  if (normalized === "none" || normalized === "http") {
+    return normalized;
+  }
+  return "";
+}
+
+function normalizeProtocol(value: string): ConfigurationProtocol {
+  const parsed = parseSupportedProtocol(value);
+  if (parsed) {
+    return parsed;
+  }
+  return "vless";
+}
+
+function parseSupportedProtocol(value: string): ConfigurationProtocol | null {
+  const normalized = value.toLowerCase().trim() as ConfigurationProtocol;
+  if (SUPPORTED_PROTOCOLS.includes(normalized)) {
+    return normalized;
+  }
+  return null;
+}
+
+function normalizeNetwork(value: string): XrayJSONNetwork {
+  const normalized = value.toLowerCase().trim() as XrayJSONNetwork;
+  switch (normalized) {
+    case "tcp":
+    case "ws":
+    case "grpc":
+    case "httpupgrade":
+    case "xhttp":
+    case "h2":
+    case "quic":
+      return normalized;
+    default:
+      return DEFAULT_NETWORK;
+  }
+}
+
+function normalizeSecurity(value: string): XrayJSONSecurity {
+  const normalized = value.toLowerCase().trim() as XrayJSONSecurity;
+  switch (normalized) {
+    case "none":
+    case "tls":
+    case "reality":
+      return normalized;
+    default:
+      return DEFAULT_SECURITY;
+  }
+}
+
+function findSupportedOutbound(config: Record<string, unknown>) {
+  const outbounds = asArray(config.outbounds);
+  for (let index = 0; index < outbounds.length; index += 1) {
+    const outbound = asRecord(outbounds[index]);
+    if (!outbound) continue;
+    const protocol = parseSupportedProtocol(textValue(outbound.protocol));
+    if (protocol) {
+      return { outbound, outboundIndex: index, protocol };
+    }
+  }
+  return null;
+}
+
+function parseVmessExtraParams(paramsRaw: string) {
+  const params = paramsRaw.trim();
+  if (!params) return {};
+  try {
+    const parsed = JSON.parse(params);
+    return asRecord(parsed) ?? {};
+  } catch {
+    throw new Error("JSON-параметры VMESS заполнены некорректно");
+  }
+}
+
+function parseQueryParams(paramsRaw: string) {
+  const search = new URLSearchParams(paramsRaw);
+  return {
+    network: normalizeNetwork(search.get("type") || DEFAULT_NETWORK),
+    security: normalizeSecurity(search.get("security") || DEFAULT_SECURITY),
+    path: (search.get("path") || "").trim(),
+    host: (search.get("host") || "").trim(),
+    sni: (search.get("sni") || "").trim(),
+    alpn: (search.get("alpn") || "").trim(),
+    encryption: (search.get("encryption") || "").trim(),
+    flow: (search.get("flow") || "").trim(),
+    fingerprint: (search.get("fp") || search.get("fingerprint") || "").trim(),
+    publicKey: (search.get("pbk") || search.get("publicKey") || search.get("password") || "").trim(),
+    shortId: (search.get("sid") || search.get("shortId") || "").trim(),
+    spiderX: (search.get("spx") || search.get("spiderX") || "").trim(),
+    allowInsecure: boolValue(search.get("allowInsecure") || search.get("allowinsecure") || search.get("allow_insecure")),
+    headerType: parseHeaderType(search.get("headerType") || search.get("header_type") || search.get("typeHeader")),
+  };
 }
 
 export function extractLabelFromConfiguration(raw: string) {
@@ -119,10 +304,815 @@ export function buildConfiguration(draft: ConfigurationDraft) {
   return url.toString();
 }
 
+export function parseXrayJSONConfiguration(raw: string): ParsedXrayJSONConfiguration | null {
+  const trimmed = raw.trim();
+  if (!trimmed) {
+    return null;
+  }
+
+  let parsedUnknown: unknown;
+  try {
+    parsedUnknown = JSON.parse(trimmed);
+  } catch {
+    throw new Error("XRAY-JSON содержит ошибку синтаксиса");
+  }
+
+  const config = asRecord(parsedUnknown);
+  if (!config) {
+    throw new Error("XRAY-JSON должен быть JSON-объектом");
+  }
+
+  const supportedOutbound = findSupportedOutbound(config);
+  if (!supportedOutbound) {
+    throw new Error("Не найден outbound с протоколом vless/vmess/trojan");
+  }
+
+  const { outbound, outboundIndex, protocol } = supportedOutbound;
+  const settings = asRecord(outbound.settings) ?? {};
+  const streamSettings = asRecord(outbound.streamSettings) ?? {};
+
+  let server = "";
+  let port = DEFAULT_PORT;
+  let identifier = "";
+
+  if (protocol === "trojan") {
+    const serverNode = asRecord(asArray(settings.servers)[0]);
+    server = textValue(serverNode?.address);
+    port = portValue(serverNode?.port);
+    identifier = textValue(serverNode?.password);
+  } else {
+    const vnextNode = asRecord(asArray(settings.vnext)[0]);
+    const userNode = asRecord(asArray(vnextNode?.users)[0]);
+    server = textValue(vnextNode?.address);
+    port = portValue(vnextNode?.port);
+    identifier = textValue(userNode?.id);
+  }
+
+  const network = normalizeNetwork(textValue(streamSettings.network));
+
+  let path = "";
+  let host = "";
+  let sni = "";
+  let alpn = "";
+  let flow = "";
+  let encryption = "";
+  let fingerprint = "";
+  let publicKey = "";
+  let shortId = "";
+  let spiderX = "";
+  let grpcAuthority = "";
+  let headerType = "";
+  let allowInsecure = false;
+  let vmessSecurity = "";
+  let vmessAlterId = "";
+
+  const wsSettings = asRecord(streamSettings.wsSettings);
+  const grpcSettings = asRecord(streamSettings.grpcSettings);
+  const httpUpgradeSettings = asRecord(streamSettings.httpupgradeSettings);
+  const xhttpSettings = asRecord(streamSettings.xhttpSettings);
+  const tlsSettings = asRecord(streamSettings.tlsSettings);
+  const realitySettings = asRecord(streamSettings.realitySettings);
+  const rawSettings = asRecord(streamSettings.rawSettings);
+  const tcpSettings = asRecord(streamSettings.tcpSettings);
+  const tcpHeader = asRecord(rawSettings?.header) ?? asRecord(tcpSettings?.header);
+
+  let security = normalizeSecurity(textValue(streamSettings.security));
+  if (security === "none" && realitySettings && Object.keys(realitySettings).length > 0) {
+    security = "reality";
+  } else if (security === "none" && tlsSettings && Object.keys(tlsSettings).length > 0) {
+    security = "tls";
+  }
+
+  if (protocol !== "trojan") {
+    const vnextNode = asRecord(asArray(settings.vnext)[0]);
+    const userNode = asRecord(asArray(vnextNode?.users)[0]);
+    flow = textValue(userNode?.flow);
+    encryption = textValue(userNode?.encryption);
+    vmessSecurity = textValue(userNode?.security);
+    vmessAlterId = textValue(userNode?.alterId);
+  }
+
+  if (network === "ws") {
+    path = textValue(wsSettings?.path);
+    const headers = asRecord(wsSettings?.headers);
+    host = textValue(headers?.Host) || textValue(headers?.host);
+  } else if (network === "grpc") {
+    path = textValue(grpcSettings?.serviceName);
+    grpcAuthority = textValue(grpcSettings?.authority);
+  } else if (network === "httpupgrade") {
+    path = textValue(httpUpgradeSettings?.path);
+    host = textValue(httpUpgradeSettings?.host);
+  } else if (network === "xhttp") {
+    path = textValue(xhttpSettings?.path);
+    host = textValue(xhttpSettings?.host);
+  } else if (network === "tcp") {
+    headerType = parseHeaderType(tcpHeader?.type);
+    if (headerType === "http") {
+      const request = asRecord(tcpHeader?.request);
+      const paths = asArray(request?.path).map((entry) => textValue(entry)).filter(Boolean);
+      if (paths.length > 0) {
+        path = paths.join(",");
+      }
+      const headers = asRecord(request?.headers);
+      const hosts = asArray(headers?.Host ?? headers?.host).map((entry) => textValue(entry)).filter(Boolean);
+      if (hosts.length > 0) {
+        host = hosts.join(",");
+      }
+    }
+  }
+
+  if (security === "tls") {
+    sni = textValue(tlsSettings?.serverName);
+    const alpnValues = asArray(tlsSettings?.alpn).map((entry) => textValue(entry)).filter(Boolean);
+    alpn = alpnValues.join(",");
+    allowInsecure = boolValue(tlsSettings?.allowInsecure);
+    fingerprint = textValue(tlsSettings?.fingerprint);
+  } else if (security === "reality") {
+    sni = textValue(realitySettings?.serverName);
+    fingerprint = textValue(realitySettings?.fingerprint);
+    publicKey = textValue(realitySettings?.publicKey) || textValue(realitySettings?.password);
+    shortId = textValue(realitySettings?.shortId);
+    spiderX = textValue(realitySettings?.spiderX);
+  }
+
+  const remark = textValue(outbound.tag);
+
+  return {
+    config,
+    outboundIndex,
+    draft: {
+      protocol,
+      server,
+      port,
+      identifier,
+      network,
+      security,
+      path,
+      host,
+      sni,
+      alpn,
+      remark,
+      flow,
+      encryption,
+      fingerprint,
+      publicKey,
+      shortId,
+      spiderX,
+      allowInsecure,
+      grpcAuthority,
+      headerType,
+      vmessSecurity,
+      vmessAlterId,
+    },
+  };
+}
+
+function cloneConfig(config: Record<string, unknown>) {
+  return JSON.parse(JSON.stringify(config)) as Record<string, unknown>;
+}
+
+function buildALPNValues(raw: string) {
+  return raw
+    .split(",")
+    .map((part) => part.trim())
+    .filter(Boolean);
+}
+
+function toPortNumber(rawPort: string) {
+  const parsedPort = Number.parseInt(rawPort.trim(), 10);
+  if (!Number.isFinite(parsedPort) || parsedPort <= 0 || parsedPort > 65535) {
+    return Number.parseInt(DEFAULT_PORT, 10);
+  }
+  return parsedPort;
+}
+
+function buildDefaultXrayJSONConfig(draft: XrayJSONDraft) {
+  const port = toPortNumber(draft.port || DEFAULT_PORT);
+  const outbound: Record<string, unknown> = {
+    tag: draft.remark.trim() || "proxy",
+    protocol: draft.protocol,
+    settings: {},
+    streamSettings: {
+      network: draft.network || DEFAULT_NETWORK,
+      security: draft.security || DEFAULT_SECURITY,
+    },
+  };
+
+  if (draft.protocol === "trojan") {
+    outbound.settings = {
+      servers: [
+        {
+          address: draft.server.trim(),
+          port,
+          password: draft.identifier.trim(),
+        },
+      ],
+    };
+  } else {
+    const userNode: Record<string, unknown> = {
+      id: draft.identifier.trim(),
+    };
+    if (draft.protocol === "vless") {
+      userNode.encryption = draft.encryption?.trim() || "none";
+      if (draft.flow?.trim()) {
+        userNode.flow = draft.flow.trim();
+      }
+    }
+    if (draft.protocol === "vmess") {
+      userNode.security = draft.vmessSecurity?.trim() || "auto";
+      if (draft.vmessAlterId?.trim()) {
+        const parsedAlterID = Number.parseInt(draft.vmessAlterId.trim(), 10);
+        if (Number.isFinite(parsedAlterID) && parsedAlterID >= 0) {
+          userNode.alterId = parsedAlterID;
+        } else {
+          userNode.alterId = draft.vmessAlterId.trim();
+        }
+      }
+    }
+    outbound.settings = {
+      vnext: [
+        {
+          address: draft.server.trim(),
+          port,
+          users: [userNode],
+        },
+      ],
+    };
+  }
+
+  const streamSettings = asRecord(outbound.streamSettings) ?? {};
+  if (draft.network === "ws") {
+    streamSettings.wsSettings = {
+      path: draft.path.trim(),
+      headers: draft.host.trim() ? { Host: draft.host.trim() } : {},
+    };
+  } else if (draft.network === "grpc") {
+    streamSettings.grpcSettings = {
+      serviceName: draft.path.trim(),
+      ...(draft.grpcAuthority?.trim() ? { authority: draft.grpcAuthority.trim() } : {}),
+    };
+  } else if (draft.network === "httpupgrade") {
+    streamSettings.httpupgradeSettings = {
+      path: draft.path.trim(),
+      host: draft.host.trim(),
+    };
+  } else if (draft.network === "xhttp") {
+    streamSettings.xhttpSettings = {
+      path: draft.path.trim(),
+      host: draft.host.trim(),
+    };
+  } else if (draft.network === "tcp") {
+    const normalizedHeaderType = parseHeaderType(draft.headerType);
+    if (normalizedHeaderType) {
+      const header: Record<string, unknown> = {
+        type: normalizedHeaderType,
+      };
+      if (normalizedHeaderType === "http") {
+        const request: Record<string, unknown> = {};
+        const paths = splitCommaValues(draft.path);
+        if (paths.length > 0) {
+          request.path = paths;
+        }
+        const hosts = splitCommaValues(draft.host);
+        if (hosts.length > 0) {
+          request.headers = { Host: hosts };
+        }
+        if (Object.keys(request).length > 0) {
+          header.request = request;
+        }
+      }
+      streamSettings.tcpSettings = { header };
+      streamSettings.rawSettings = { header };
+    } else {
+      streamSettings.tcpSettings = {};
+      delete streamSettings.rawSettings;
+    }
+  }
+  if (draft.security === "tls") {
+    const alpnValues = buildALPNValues(draft.alpn);
+    streamSettings.tlsSettings = {
+      serverName: draft.sni.trim(),
+      ...(alpnValues.length > 0 ? { alpn: alpnValues } : {}),
+      ...(draft.allowInsecure ? { allowInsecure: true } : {}),
+      ...(draft.fingerprint?.trim() ? { fingerprint: draft.fingerprint.trim() } : {}),
+    };
+  }
+  if (draft.security === "reality") {
+    streamSettings.realitySettings = {
+      serverName: draft.sni.trim(),
+      show: false,
+      ...(draft.fingerprint?.trim() ? { fingerprint: draft.fingerprint.trim() } : {}),
+      ...(draft.publicKey?.trim() ? { publicKey: draft.publicKey.trim(), password: draft.publicKey.trim() } : {}),
+      ...(draft.shortId?.trim() ? { shortId: draft.shortId.trim() } : {}),
+      ...(draft.spiderX?.trim() ? { spiderX: draft.spiderX.trim() } : {}),
+    };
+  }
+  outbound.streamSettings = streamSettings;
+
+  return {
+    dns: {
+      servers: ["1.1.1.1", "1.0.0.1"],
+      queryStrategy: "UseIP",
+    },
+    routing: {
+      rules: [
+        {
+          type: "field",
+          protocol: ["bittorrent"],
+          outboundTag: "direct",
+        },
+      ],
+      domainMatcher: "hybrid",
+      domainStrategy: "IPIfNonMatch",
+    },
+    inbounds: [
+      {
+        tag: "socks",
+        port: 10808,
+        listen: "127.0.0.1",
+        protocol: "socks",
+        settings: {
+          udp: true,
+          auth: "noauth",
+        },
+        sniffing: {
+          enabled: true,
+          routeOnly: false,
+          destOverride: ["http", "tls", "quic"],
+        },
+      },
+      {
+        tag: "http",
+        port: 10809,
+        listen: "127.0.0.1",
+        protocol: "http",
+        settings: {
+          allowTransparent: false,
+        },
+        sniffing: {
+          enabled: true,
+          routeOnly: false,
+          destOverride: ["http", "tls", "quic"],
+        },
+      },
+    ],
+    outbounds: [
+      outbound,
+      {
+        tag: "direct",
+        protocol: "freedom",
+      },
+      {
+        tag: "block",
+        protocol: "blackhole",
+      },
+    ],
+  } as Record<string, unknown>;
+}
+
+export function buildXrayJSONConfiguration(
+  draft: XrayJSONDraft,
+  baseConfig?: Record<string, unknown>,
+  outboundIndex?: number
+) {
+  const protocol = normalizeProtocol(draft.protocol);
+  const server = draft.server.trim();
+  const identifier = draft.identifier.trim();
+  const port = toPortNumber(draft.port || DEFAULT_PORT);
+  const network = normalizeNetwork(draft.network);
+  const security = normalizeSecurity(draft.security);
+
+  if (!server) {
+    throw new Error("Укажите сервер");
+  }
+  if (!identifier) {
+    throw new Error(protocol === "trojan" ? "Укажите пароль" : "Укажите UUID / ID");
+  }
+
+  const config = baseConfig ? cloneConfig(baseConfig) : buildDefaultXrayJSONConfig({ ...draft, protocol });
+  const outboundsRaw = asArray(config.outbounds);
+  const outbounds = [...outboundsRaw];
+
+  let targetIndex = typeof outboundIndex === "number" && outboundIndex >= 0 && outboundIndex < outbounds.length
+    ? outboundIndex
+    : -1;
+
+  if (targetIndex === -1) {
+    const found = findSupportedOutbound(config);
+    if (found) {
+      targetIndex = found.outboundIndex;
+    }
+  }
+  if (targetIndex === -1) {
+    targetIndex = 0;
+  }
+
+  const outbound = asRecord(outbounds[targetIndex]) ?? {};
+  outbound.protocol = protocol;
+  if (draft.remark.trim()) {
+    outbound.tag = draft.remark.trim();
+  }
+
+  const settings = asRecord(outbound.settings) ?? {};
+  if (protocol === "trojan") {
+    const existingServer = asRecord(asArray(settings.servers)[0]) ?? {};
+    const nextServer = {
+      ...existingServer,
+      address: server,
+      port,
+      password: identifier,
+    };
+    settings.servers = [nextServer];
+    delete settings.vnext;
+  } else {
+    const existingVnext = asRecord(asArray(settings.vnext)[0]) ?? {};
+    const existingUser = asRecord(asArray(existingVnext.users)[0]) ?? {};
+    const nextUser: Record<string, unknown> = {
+      ...existingUser,
+      id: identifier,
+    };
+    if (protocol === "vless") {
+      nextUser.encryption = draft.encryption?.trim() || textValue(nextUser.encryption) || "none";
+      if (draft.flow?.trim()) {
+        nextUser.flow = draft.flow.trim();
+      } else if (!textValue(nextUser.flow)) {
+        delete nextUser.flow;
+      }
+    }
+    if (protocol === "vmess") {
+      nextUser.security = draft.vmessSecurity?.trim() || textValue(nextUser.security) || "auto";
+      if (draft.vmessAlterId?.trim()) {
+        const parsedAlterID = Number.parseInt(draft.vmessAlterId.trim(), 10);
+        if (Number.isFinite(parsedAlterID) && parsedAlterID >= 0) {
+          nextUser.alterId = parsedAlterID;
+        } else {
+          nextUser.alterId = draft.vmessAlterId.trim();
+        }
+      } else if (!textValue(nextUser.alterId)) {
+        delete nextUser.alterId;
+      }
+    }
+    const nextVnext = {
+      ...existingVnext,
+      address: server,
+      port,
+      users: [nextUser],
+    };
+    settings.vnext = [nextVnext];
+    delete settings.servers;
+  }
+  outbound.settings = settings;
+
+  const streamSettings = asRecord(outbound.streamSettings) ?? {};
+  streamSettings.network = network;
+  streamSettings.security = security;
+
+  if (network === "ws") {
+    const wsSettings = asRecord(streamSettings.wsSettings) ?? {};
+    wsSettings.path = draft.path.trim();
+    const headers = asRecord(wsSettings.headers) ?? {};
+    if (draft.host.trim()) {
+      headers.Host = draft.host.trim();
+    } else {
+      delete headers.Host;
+      delete headers.host;
+    }
+    wsSettings.headers = headers;
+    streamSettings.wsSettings = wsSettings;
+  } else if (network === "grpc") {
+    const grpcSettings = asRecord(streamSettings.grpcSettings) ?? {};
+    grpcSettings.serviceName = draft.path.trim();
+    if (draft.grpcAuthority?.trim()) {
+      grpcSettings.authority = draft.grpcAuthority.trim();
+    } else {
+      delete grpcSettings.authority;
+    }
+    streamSettings.grpcSettings = grpcSettings;
+  } else if (network === "httpupgrade") {
+    const httpUpgradeSettings = asRecord(streamSettings.httpupgradeSettings) ?? {};
+    httpUpgradeSettings.path = draft.path.trim();
+    httpUpgradeSettings.host = draft.host.trim();
+    streamSettings.httpupgradeSettings = httpUpgradeSettings;
+  } else if (network === "xhttp") {
+    const xhttpSettings = asRecord(streamSettings.xhttpSettings) ?? {};
+    xhttpSettings.path = draft.path.trim();
+    xhttpSettings.host = draft.host.trim();
+    streamSettings.xhttpSettings = xhttpSettings;
+  } else if (network === "tcp") {
+    const normalizedHeaderType = parseHeaderType(draft.headerType);
+    if (normalizedHeaderType) {
+      const header: Record<string, unknown> = { type: normalizedHeaderType };
+      if (normalizedHeaderType === "http") {
+        const request: Record<string, unknown> = {};
+        const paths = splitCommaValues(draft.path);
+        if (paths.length > 0) {
+          request.path = paths;
+        }
+        const hosts = splitCommaValues(draft.host);
+        if (hosts.length > 0) {
+          request.headers = { Host: hosts };
+        }
+        if (Object.keys(request).length > 0) {
+          header.request = request;
+        }
+      }
+      streamSettings.tcpSettings = { header };
+      streamSettings.rawSettings = { header };
+    } else {
+      streamSettings.tcpSettings = {};
+      delete streamSettings.rawSettings;
+    }
+  }
+
+  if (security === "tls") {
+    const tlsSettings = asRecord(streamSettings.tlsSettings) ?? {};
+    if (draft.sni.trim()) {
+      tlsSettings.serverName = draft.sni.trim();
+    } else {
+      delete tlsSettings.serverName;
+    }
+    const alpnValues = buildALPNValues(draft.alpn);
+    if (alpnValues.length > 0) {
+      tlsSettings.alpn = alpnValues;
+    } else {
+      delete tlsSettings.alpn;
+    }
+    if (draft.allowInsecure) {
+      tlsSettings.allowInsecure = true;
+    } else {
+      delete tlsSettings.allowInsecure;
+    }
+    if (draft.fingerprint?.trim()) {
+      tlsSettings.fingerprint = draft.fingerprint.trim();
+    } else {
+      delete tlsSettings.fingerprint;
+    }
+    streamSettings.tlsSettings = tlsSettings;
+  } else if (security === "reality") {
+    const realitySettings = asRecord(streamSettings.realitySettings) ?? {};
+    realitySettings.show = false;
+    if (draft.sni.trim()) {
+      realitySettings.serverName = draft.sni.trim();
+    } else {
+      delete realitySettings.serverName;
+    }
+    if (draft.fingerprint?.trim()) {
+      realitySettings.fingerprint = draft.fingerprint.trim();
+    } else {
+      delete realitySettings.fingerprint;
+    }
+    if (draft.publicKey?.trim()) {
+      realitySettings.publicKey = draft.publicKey.trim();
+      realitySettings.password = draft.publicKey.trim();
+    } else {
+      delete realitySettings.publicKey;
+      delete realitySettings.password;
+    }
+    if (draft.shortId?.trim()) {
+      realitySettings.shortId = draft.shortId.trim();
+    } else {
+      delete realitySettings.shortId;
+    }
+    if (draft.spiderX?.trim()) {
+      realitySettings.spiderX = draft.spiderX.trim();
+    } else {
+      delete realitySettings.spiderX;
+    }
+    streamSettings.realitySettings = realitySettings;
+  }
+
+  outbound.streamSettings = streamSettings;
+  outbounds[targetIndex] = outbound;
+  config.outbounds = outbounds;
+
+  return JSON.stringify(config, null, 2);
+}
+
+export function createXrayJSONFromConfiguration(raw: string) {
+  const parsed = parseConfiguration(raw);
+  if (!parsed) {
+    throw new Error("Сначала заполните конфигурацию в формате ссылки");
+  }
+
+  const protocol = parsed.protocol;
+  let network: XrayJSONNetwork = DEFAULT_NETWORK;
+  let security: XrayJSONSecurity = DEFAULT_SECURITY;
+  let path = "";
+  let host = "";
+  let sni = "";
+  let alpn = "";
+  let flow = "";
+  let encryption = "";
+  let fingerprint = "";
+  let publicKey = "";
+  let shortId = "";
+  let spiderX = "";
+  let allowInsecure = false;
+  let grpcAuthority = "";
+  let headerType = "";
+  let vmessSecurity = "";
+  let vmessAlterId = "";
+
+  if (protocol === "vmess") {
+    const vmessParams = parseVmessExtraParams(parsed.params);
+    network = normalizeNetwork(textValue(vmessParams.net) || textValue(vmessParams.type) || DEFAULT_NETWORK);
+
+    const tlsFlag = textValue(vmessParams.tls).toLowerCase();
+    if (tlsFlag === "tls") {
+      security = "tls";
+    } else {
+      security = normalizeSecurity(textValue(vmessParams.security) || DEFAULT_SECURITY);
+    }
+
+    path = textValue(vmessParams.path);
+    host = textValue(vmessParams.host);
+    sni = textValue(vmessParams.sni);
+    alpn = textValue(vmessParams.alpn);
+    flow = textValue(vmessParams.flow);
+    fingerprint = textValue(vmessParams.fp) || textValue(vmessParams.fingerprint);
+    publicKey = textValue(vmessParams.pbk) || textValue(vmessParams.publicKey) || textValue(vmessParams.password);
+    shortId = textValue(vmessParams.sid) || textValue(vmessParams.shortId);
+    spiderX = textValue(vmessParams.spx) || textValue(vmessParams.spiderX);
+    allowInsecure = boolValue(vmessParams.allowInsecure) || boolValue(vmessParams.allowinsecure);
+    grpcAuthority = textValue(vmessParams.authority);
+    headerType = parseHeaderType(vmessParams.type) || parseHeaderType(vmessParams.headerType);
+    vmessSecurity = textValue(vmessParams.scy) || textValue(vmessParams.encryption) || textValue(vmessParams.securityType);
+    vmessAlterId = textValue(vmessParams.aid);
+  } else {
+    const parsedParams = parseQueryParams(parsed.params);
+    network = parsedParams.network;
+    security = parsedParams.security;
+    path = parsedParams.path;
+    host = parsedParams.host;
+    sni = parsedParams.sni;
+    alpn = parsedParams.alpn;
+    flow = parsedParams.flow;
+    encryption = parsedParams.encryption;
+    fingerprint = parsedParams.fingerprint;
+    publicKey = parsedParams.publicKey;
+    shortId = parsedParams.shortId;
+    spiderX = parsedParams.spiderX;
+    allowInsecure = parsedParams.allowInsecure;
+    headerType = parsedParams.headerType;
+  }
+
+  return buildXrayJSONConfiguration({
+    protocol,
+    server: parsed.server,
+    port: parsed.port,
+    identifier: parsed.identifier,
+    network,
+    security,
+    path,
+    host,
+    sni,
+    alpn,
+    remark: parsed.remark,
+    flow,
+    encryption,
+    fingerprint,
+    publicKey,
+    shortId,
+    spiderX,
+    allowInsecure,
+    grpcAuthority,
+    headerType,
+    vmessSecurity,
+    vmessAlterId,
+  });
+}
+
+export function createConfigurationFromXrayJSON(raw: string) {
+  const parsed = parseXrayJSONConfiguration(raw);
+  if (!parsed) {
+    throw new Error("Сначала заполните XRAY-JSON конфигурацию");
+  }
+
+  const draft = parsed.draft;
+  if (draft.protocol === "vmess") {
+    const vmessExtra: Record<string, unknown> = {};
+    if (draft.network && draft.network !== "tcp") {
+      vmessExtra.net = draft.network;
+    }
+    if (draft.security === "tls") {
+      vmessExtra.tls = "tls";
+    } else if (draft.security !== "none") {
+      vmessExtra.security = draft.security;
+    }
+    if (draft.path.trim()) vmessExtra.path = draft.path.trim();
+    if (draft.host.trim()) vmessExtra.host = draft.host.trim();
+    if (draft.sni.trim()) vmessExtra.sni = draft.sni.trim();
+    if (draft.alpn.trim()) vmessExtra.alpn = draft.alpn.trim();
+    if (draft.flow?.trim()) vmessExtra.flow = draft.flow.trim();
+    if (draft.fingerprint?.trim()) vmessExtra.fp = draft.fingerprint.trim();
+    if (draft.publicKey?.trim()) vmessExtra.pbk = draft.publicKey.trim();
+    if (draft.shortId?.trim()) vmessExtra.sid = draft.shortId.trim();
+    if (draft.spiderX?.trim()) vmessExtra.spx = draft.spiderX.trim();
+    if (draft.allowInsecure) vmessExtra.allowInsecure = "1";
+    if (draft.network === "tcp" && draft.headerType?.trim()) vmessExtra.type = draft.headerType.trim();
+    if (draft.grpcAuthority?.trim()) vmessExtra.authority = draft.grpcAuthority.trim();
+    if (draft.vmessSecurity?.trim()) vmessExtra.scy = draft.vmessSecurity.trim();
+    if (draft.vmessAlterId?.trim()) vmessExtra.aid = draft.vmessAlterId.trim();
+
+    return buildConfiguration({
+      protocol: draft.protocol,
+      server: draft.server,
+      port: draft.port,
+      identifier: draft.identifier,
+      params: Object.keys(vmessExtra).length > 0 ? JSON.stringify(vmessExtra, null, 2) : "",
+      remark: draft.remark,
+    });
+  }
+
+  const query = new URLSearchParams();
+  if (draft.network && draft.network !== "tcp") {
+    query.set("type", draft.network);
+  }
+  if (draft.security && draft.security !== "none") {
+    query.set("security", draft.security);
+  }
+  if (draft.path.trim()) query.set("path", draft.path.trim());
+  if (draft.host.trim()) query.set("host", draft.host.trim());
+  if (draft.sni.trim()) query.set("sni", draft.sni.trim());
+  if (draft.alpn.trim()) query.set("alpn", draft.alpn.trim());
+  if (draft.encryption?.trim()) query.set("encryption", draft.encryption.trim());
+  if (draft.flow?.trim()) query.set("flow", draft.flow.trim());
+  if (draft.fingerprint?.trim()) query.set("fp", draft.fingerprint.trim());
+  if (draft.publicKey?.trim()) query.set("pbk", draft.publicKey.trim());
+  if (draft.shortId?.trim()) query.set("sid", draft.shortId.trim());
+  if (draft.spiderX?.trim()) query.set("spx", draft.spiderX.trim());
+  if (draft.allowInsecure) query.set("allowInsecure", "1");
+  if (draft.network === "tcp" && draft.headerType?.trim()) query.set("headerType", draft.headerType.trim());
+  if (draft.network === "grpc" && draft.grpcAuthority?.trim()) query.set("authority", draft.grpcAuthority.trim());
+
+  return buildConfiguration({
+    protocol: draft.protocol,
+    server: draft.server,
+    port: draft.port,
+    identifier: draft.identifier,
+    params: query.toString(),
+    remark: draft.remark,
+  });
+}
+
+export function isXrayJSONConfiguration(raw: string) {
+  try {
+    return Boolean(parseXrayJSONConfiguration(raw));
+  } catch {
+    return false;
+  }
+}
+
 export function getConfigurationPlaceholder() {
   return [
     "vless://uuid@example.com:443?type=ws&security=tls#My Server",
     "vmess://eyJhZGQiOiJleGFtcGxlLmNvbSIsInBvcnQiOiI0NDMiLCJpZCI6InV1aWQifQ==",
     "trojan://password@example.com:443?security=tls#Trojan Server",
   ].join("\n");
+}
+
+export function getXrayJSONPlaceholder() {
+  return JSON.stringify(
+    {
+      log: {
+        loglevel: "warning",
+      },
+      inbounds: [],
+      outbounds: [
+        {
+          tag: "My Server",
+          protocol: "vless",
+          settings: {
+            vnext: [
+              {
+                address: "example.com",
+                port: 443,
+                users: [
+                  {
+                    id: "00000000-0000-0000-0000-000000000000",
+                    encryption: "none",
+                  },
+                ],
+              },
+            ],
+          },
+          streamSettings: {
+            network: "ws",
+            security: "tls",
+            wsSettings: {
+              path: "/",
+              headers: {
+                Host: "example.com",
+              },
+            },
+            tlsSettings: {
+              serverName: "example.com",
+            },
+          },
+        },
+      ],
+    },
+    null,
+    2
+  );
 }

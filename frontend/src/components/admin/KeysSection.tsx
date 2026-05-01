@@ -1,7 +1,7 @@
 "use client";
 
-import React, { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
-import type { VLESSKey } from "@/lib/types";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import type { KeyCategory, VLESSKey } from "@/lib/types";
 import { keys as keysApi } from "@/lib/api";
 import { useToast } from "@/components/ui/Toast";
 import { Button } from "@/components/ui/Button";
@@ -11,8 +11,18 @@ import { StatusBadge } from "@/components/ui/StatusBadge";
 import { AddKeyModal } from "./AddKeyModal";
 import { BulkEditKeysModal } from "./BulkEditKeysModal";
 import { EditKeyModal } from "./EditKeyModal";
-import { copyToClipboard } from "@/lib/clipboard";
+import { ExportSubscriptionModal } from "./ExportSubscriptionModal";
+import { ExternalSourcesManagerModal } from "./ExternalSourcesManagerModal";
+import { CreateKeyCategoryModal } from "./CreateKeyCategoryModal";
+import { KeyCategoryEditorModal } from "./KeyCategoryEditorModal";
 import { EmojiText } from "@/components/ui/EmojiText";
+import {
+  DEFAULT_KEY_CATEGORY_COLOR,
+  alphaHexColor,
+  normalizeKeyCategoryColor,
+} from "./keyCategoryColors";
+
+const UNCATEGORIZED_LABEL = "Без категории";
 
 const formatDateTime = (value: string | null) => {
   if (!value) {
@@ -43,65 +53,157 @@ const formatDateTime = (value: string | null) => {
   return value;
 };
 
-interface Props {
-  keys: VLESSKey[];
-  onRefresh: () => Promise<void>;
+function normalizeCategory(value: string | null | undefined): string {
+  return (value || "").trim();
 }
 
-/** Semi-transparent "+ Добавить" button shown in the gap between key rows on hover. */
-function InsertGapButton({ index, onInsert }: { index: number; onInsert: (index: number) => void }) {
+function categoryDisplayName(value: string) {
+  return value || UNCATEGORIZED_LABEL;
+}
+
+function detectConfigScheme(raw: string) {
+  const trimmed = raw.trim();
+  if (!trimmed) return "";
+  if (trimmed.startsWith("{")) return "xray-json";
+  if (trimmed.toLowerCase().startsWith("vmess://")) return "vmess";
+  try {
+    return new URL(trimmed).protocol.replace(":", "").toLowerCase();
+  } catch {
+    return "";
+  }
+}
+
+function moveArrayItem<T>(items: T[], fromIndex: number, toIndex: number): T[] {
+  if (fromIndex < 0 || fromIndex >= items.length) {
+    return items;
+  }
+
+  const next = [...items];
+  const [item] = next.splice(fromIndex, 1);
+
+  let targetIndex = toIndex;
+  if (fromIndex < targetIndex) {
+    targetIndex -= 1;
+  }
+  if (targetIndex < 0) {
+    targetIndex = 0;
+  }
+  if (targetIndex > next.length) {
+    targetIndex = next.length;
+  }
+
+  next.splice(targetIndex, 0, item);
+  return next;
+}
+
+interface InsertGapActionsProps {
+  index: number;
+  categoryHint?: string;
+  onAddConfiguration: (index: number, categoryHint?: string) => void;
+  onAddCategory: (initialName?: string) => void;
+  onDrop: (index: number) => void;
+}
+
+function InsertGapActions({
+  index,
+  categoryHint,
+  onAddConfiguration,
+  onAddCategory,
+  onDrop,
+}: InsertGapActionsProps) {
   const [hovered, setHovered] = useState(false);
 
   return (
     <div
       className="relative flex items-center justify-center"
-      style={{ height: hovered ? "32px" : "6px", transition: "height 150ms ease" }}
+      style={{ height: hovered ? "42px" : "8px", transition: "height 160ms ease" }}
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}
+      onDragOver={(event) => {
+        event.preventDefault();
+      }}
+      onDrop={(event) => {
+        event.preventDefault();
+        onDrop(index);
+      }}
     >
-      <button
-        type="button"
-        onClick={() => onInsert(index)}
-        className="absolute inset-0 flex items-center justify-center rounded-md text-xs font-medium transition-opacity duration-150"
-        style={{ opacity: hovered ? 0.7 : 0, pointerEvents: hovered ? "auto" : "none" }}
+      {!hovered ? <div className="pointer-events-none h-px w-full bg-zinc-800/70" /> : null}
+
+      <div
+        className="absolute inset-0 flex items-center justify-center gap-2 transition-opacity duration-150"
+        style={{ opacity: hovered ? 1 : 0, pointerEvents: hovered ? "auto" : "none" }}
       >
-        <span className="flex items-center gap-1 rounded-md bg-zinc-700 px-3 py-1 text-zinc-300 shadow-sm">
-          + Добавить
-        </span>
-      </button>
-      {/* Thin line hint visible on hover */}
-      {!hovered && (
-        <div className="absolute inset-x-4 top-1/2 -translate-y-1/2 h-px bg-transparent group-hover:bg-zinc-700 transition-colors" />
-      )}
+        <button
+          type="button"
+          onClick={() => onAddConfiguration(index, categoryHint)}
+          className="rounded-md border border-border bg-zinc-800/80 px-3 py-1 text-[11px] font-medium text-zinc-200 transition hover:bg-zinc-700"
+        >
+          Добавить конфигурацию
+        </button>
+        <button
+          type="button"
+          onClick={() => onAddCategory(categoryHint)}
+          className="rounded-md border border-amber-400/40 bg-amber-500/10 px-3 py-1 text-[11px] font-medium text-amber-200 transition hover:bg-amber-500/20"
+        >
+          Добавить категорию
+        </button>
+      </div>
     </div>
   );
 }
 
-export function KeysSection({ keys, onRefresh }: Props) {
+interface Props {
+  keys: VLESSKey[];
+  subscriptionFormat: "links" | "xray-json";
+  onRefresh: () => Promise<void>;
+}
+
+interface CategoryGroup {
+  category: string;
+  keys: VLESSKey[];
+}
+
+export function KeysSection({ keys, subscriptionFormat, onRefresh }: Props) {
   const { toast } = useToast();
+
   const [collapsed, setCollapsed] = useState(false);
-  const [hiddenCategory, setHiddenCategory] = useState<"informational" | "real" | null>(null);
+  const [hiddenPane, setHiddenPane] = useState<"informational" | "real" | null>(null);
+  const [hiddenCategories, setHiddenCategories] = useState<Record<string, boolean>>({});
+
   const [orderedKeys, setOrderedKeys] = useState<VLESSKey[]>(keys);
+  const [keyCategories, setKeyCategories] = useState<KeyCategory[]>([]);
+
   const [showAddKey, setShowAddKey] = useState(false);
   const [showBulkEdit, setShowBulkEdit] = useState(false);
   const [editKey, setEditKey] = useState<VLESSKey | null>(null);
+  const [showExportSubscription, setShowExportSubscription] = useState(false);
+  const [showExternalSourcesManager, setShowExternalSourcesManager] = useState(false);
+  const [showCreateCategory, setShowCreateCategory] = useState(false);
+  const [showCategoryEditor, setShowCategoryEditor] = useState(false);
+  const [activeCategoryName, setActiveCategoryName] = useState("");
+  const [createCategoryInitial, setCreateCategoryInitial] = useState("");
+
   const [checkingAll, setCheckingAll] = useState(false);
-  const [deleteTarget, setDeleteTarget] = useState<{id: number, label: string} | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<{ id: number; label: string } | null>(null);
   const [deleting, setDeleting] = useState(false);
   const [bulkDeleteTargetIDs, setBulkDeleteTargetIDs] = useState<number[] | null>(null);
   const [bulkDeleting, setBulkDeleting] = useState(false);
+
   const [selectedKeyIDs, setSelectedKeyIDs] = useState<number[]>([]);
-  const [dragging, setDragging] = useState<{ id: number; rowIndex: number } | null>(null);
+  const [dragging, setDragging] = useState<{ id: number } | null>(null);
   const [reordering, setReordering] = useState(false);
   const [hasUnsavedOrder, setHasUnsavedOrder] = useState(false);
   const [insertAtIndex, setInsertAtIndex] = useState<number | null>(null);
-  const cardHeightsRef = useRef<Record<string, HTMLDivElement | null>>({});
+  const [addKeyCategoryHint, setAddKeyCategoryHint] = useState<string | undefined>(undefined);
+
   const selectAllRef = useRef<HTMLInputElement | null>(null);
-  const [rowHeights, setRowHeights] = useState<Record<number, { informational: number; real: number }>>({});
+
   const selectedCount = selectedKeyIDs.length;
   const allSelected = orderedKeys.length > 0 && selectedCount === orderedKeys.length;
   const partiallySelected = selectedCount > 0 && !allSelected;
   const selectedKeys = orderedKeys.filter((key) => selectedKeyIDs.includes(key.id));
+  const informationalKeysCount = orderedKeys.filter((key) => key.kind === "informational").length;
+  const realKeysCount = orderedKeys.length - informationalKeysCount;
 
   useEffect(() => {
     if (!hasUnsavedOrder) {
@@ -110,7 +212,7 @@ export function KeysSection({ keys, onRefresh }: Props) {
   }, [keys, hasUnsavedOrder]);
 
   useEffect(() => {
-    setSelectedKeyIDs((prev) => prev.filter((id) => orderedKeys.some((key) => key.id === id)));
+    setSelectedKeyIDs((previous) => previous.filter((id) => orderedKeys.some((key) => key.id === id)));
   }, [orderedKeys]);
 
   useEffect(() => {
@@ -120,48 +222,161 @@ export function KeysSection({ keys, onRefresh }: Props) {
     selectAllRef.current.indeterminate = selectedCount > 0 && !allSelected;
   }, [selectedCount, allSelected]);
 
-  // Auto-scroll the page while dragging near edges
+  const loadKeyCategories = useCallback(async () => {
+    try {
+      const response = await keysApi.listCategories();
+      setKeyCategories(response.categories || []);
+    } catch {
+      // Categories are auxiliary UI data.
+    }
+  }, []);
+
   useEffect(() => {
-    if (!dragging) return;
-    let rafId = 0;
-    const EDGE = 80; // px from viewport edge to start scrolling
-    const SPEED = 18; // px per frame at the very edge
-    let lastY = 0;
+    void loadKeyCategories();
+  }, [loadKeyCategories]);
 
-    const onDragOver = (e: DragEvent) => {
-      lastY = e.clientY;
-    };
+  const keyIndexByID = useMemo(() => {
+    return new Map<number, number>(orderedKeys.map((key, index) => [key.id, index]));
+  }, [orderedKeys]);
 
-    const tick = () => {
-      const vh = window.innerHeight;
-      if (lastY > 0 && lastY < EDGE) {
-        window.scrollBy(0, -SPEED * (1 - lastY / EDGE));
-      } else if (lastY > vh - EDGE) {
-        window.scrollBy(0, SPEED * (1 - (vh - lastY) / EDGE));
+  const allCategoryNames = useMemo(() => {
+    const orderedNames: string[] = [];
+    const seen = new Set<string>();
+
+    for (const category of keyCategories) {
+      const name = normalizeCategory(category.name);
+      if (!name || seen.has(name)) {
+        continue;
       }
-      rafId = requestAnimationFrame(tick);
-    };
+      seen.add(name);
+      orderedNames.push(name);
+    }
 
-    window.addEventListener("dragover", onDragOver);
-    rafId = requestAnimationFrame(tick);
+    for (const key of orderedKeys) {
+      const category = normalizeCategory(key.category);
+      if (!category || seen.has(category)) {
+        continue;
+      }
+      seen.add(category);
+      orderedNames.push(category);
+    }
 
-    return () => {
-      window.removeEventListener("dragover", onDragOver);
-      cancelAnimationFrame(rafId);
-    };
-  }, [dragging]);
+    return orderedNames;
+  }, [orderedKeys, keyCategories]);
+
+  useEffect(() => {
+    setHiddenCategories((previous) => {
+      const next: Record<string, boolean> = {};
+      for (const categoryName of allCategoryNames) {
+        if (previous[categoryName]) {
+          next[categoryName] = true;
+        }
+      }
+      return next;
+    });
+  }, [allCategoryNames]);
+
+  const categoryCounts = useMemo(() => {
+    const counts = new Map<string, number>();
+    for (const key of orderedKeys) {
+      const category = normalizeCategory(key.category);
+      if (!category) {
+        continue;
+      }
+      counts.set(category, (counts.get(category) || 0) + 1);
+    }
+    return counts;
+  }, [orderedKeys]);
+
+  const uncategorizedKeys = useMemo(() => {
+    return orderedKeys.filter((key) => !normalizeCategory(key.category));
+  }, [orderedKeys]);
+
+  const uncategorizedCount = uncategorizedKeys.length;
+
+  const categoryMeta = useMemo(() => {
+    const map = new Map<string, KeyCategory>();
+    for (const category of keyCategories) {
+      map.set(normalizeCategory(category.name), category);
+    }
+    return map;
+  }, [keyCategories]);
+
+  const getCategoryColor = useCallback(
+    (categoryName: string) => normalizeKeyCategoryColor(categoryMeta.get(categoryName)?.color || DEFAULT_KEY_CATEGORY_COLOR),
+    [categoryMeta]
+  );
+
+  const categoryGroups = useMemo<CategoryGroup[]>(() => {
+    return allCategoryNames.map((categoryName) => ({
+      category: categoryName,
+      keys: orderedKeys.filter((key) => normalizeCategory(key.category) === categoryName),
+    }));
+  }, [allCategoryNames, orderedKeys]);
+
+  const activeCategoryKeys = useMemo(() => {
+    return orderedKeys.filter((key) => normalizeCategory(key.category) === activeCategoryName);
+  }, [orderedKeys, activeCategoryName]);
+
+  const gridLayoutStyle = {
+    gridTemplateColumns:
+      hiddenPane === "informational"
+        ? "minmax(0, 0fr) minmax(0, 1fr)"
+        : hiddenPane === "real"
+          ? "minmax(0, 1fr) minmax(0, 0fr)"
+          : "minmax(0, 0.75fr) minmax(0, 1.25fr)",
+    columnGap: hiddenPane ? "0px" : "0.75rem",
+    transition: "grid-template-columns 320ms ease, column-gap 320ms ease",
+  } as const;
+
+  const informationalHidden = hiddenPane === "informational";
+  const realHidden = hiddenPane === "real";
+
+  const moveKeyToIndex = useCallback((keyID: number, targetIndex: number) => {
+    setOrderedKeys((previous) => {
+      const fromIndex = previous.findIndex((item) => item.id === keyID);
+      if (fromIndex === -1) {
+        return previous;
+      }
+      const next = moveArrayItem(previous, fromIndex, targetIndex);
+      if (next === previous) {
+        return previous;
+      }
+      return next;
+    });
+    setHasUnsavedOrder(true);
+  }, []);
+
+  const dropDraggedAtIndex = useCallback(
+    (targetIndex: number) => {
+      if (!dragging) {
+        return;
+      }
+      moveKeyToIndex(dragging.id, targetIndex);
+      setDragging(null);
+    },
+    [dragging, moveKeyToIndex]
+  );
+
+  const refreshKeysData = useCallback(async () => {
+    await onRefresh();
+    await loadKeyCategories();
+  }, [onRefresh, loadKeyCategories]);
 
   const handleDelete = (id: number, label: string) => {
     setDeleteTarget({ id, label });
   };
 
   const confirmDelete = async () => {
-    if (!deleteTarget) return;
+    if (!deleteTarget) {
+      return;
+    }
+
     setDeleting(true);
     try {
       await keysApi.delete(deleteTarget.id);
       toast("Конфигурация удалена", "success");
-      await onRefresh();
+      await refreshKeysData();
     } catch {
       toast("Не удалось удалить конфигурацию", "error");
     } finally {
@@ -171,7 +386,9 @@ export function KeysSection({ keys, onRefresh }: Props) {
   };
 
   const toggleKeySelection = (id: number) => {
-    setSelectedKeyIDs((prev) => (prev.includes(id) ? prev.filter((value) => value !== id) : [...prev, id]));
+    setSelectedKeyIDs((previous) =>
+      previous.includes(id) ? previous.filter((value) => value !== id) : [...previous, id]
+    );
   };
 
   const toggleSelectAllKeys = () => {
@@ -192,24 +409,17 @@ export function KeysSection({ keys, onRefresh }: Props) {
 
     setBulkDeleting(true);
     try {
-      const results = await Promise.allSettled(bulkDeleteTargetIDs.map((id) => keysApi.delete(id)));
-      const failedIDs = results
-        .map((result, index) => (result.status === "rejected" ? bulkDeleteTargetIDs[index] : null))
-        .filter((id): id is number => id !== null);
-      const successCount = bulkDeleteTargetIDs.length - failedIDs.length;
-
-      if (successCount > 0 && failedIDs.length === 0) {
-        toast(successCount === 1 ? "Конфигурация удалена" : `Удалено конфигураций: ${successCount}`, "success");
-      } else if (successCount > 0) {
-        toast(`Удалено ${successCount} из ${bulkDeleteTargetIDs.length}. Проверьте оставшиеся конфигурации.`, "error");
-      } else {
-        toast("Не удалось удалить выбранные конфигурации", "error");
-      }
-
-      setSelectedKeyIDs(failedIDs);
-      await onRefresh();
-    } catch {
-      toast("Не удалось удалить выбранные конфигурации", "error");
+      const targetIDs = [...bulkDeleteTargetIDs];
+      const response = await keysApi.bulkDelete(targetIDs);
+      const deletedCount = response.deleted ?? targetIDs.length;
+      toast(
+        deletedCount === 1 ? "Конфигурация удалена" : `Удалено конфигураций: ${deletedCount}`,
+        "success"
+      );
+      setSelectedKeyIDs([]);
+      await refreshKeysData();
+    } catch (error: unknown) {
+      toast(error instanceof Error ? error.message : "Не удалось удалить выбранные конфигурации", "error");
     } finally {
       setBulkDeleting(false);
       setBulkDeleteTargetIDs(null);
@@ -239,123 +449,6 @@ export function KeysSection({ keys, onRefresh }: Props) {
     }
   };
 
-  const handleCopy = async (url: string) => {
-    try {
-      const copied = await copyToClipboard(url);
-      if (!copied) {
-        if (typeof window !== "undefined") {
-          window.prompt("Скопируйте ссылку вручную:", url);
-          toast("Буфер обмена недоступен: ссылка показана для ручного копирования", "info");
-          return;
-        }
-        toast("Не удалось скопировать", "error");
-        return;
-      }
-      toast("URL скопирован", "info");
-    } catch {
-      if (typeof window !== "undefined") {
-        window.prompt("Скопируйте ссылку вручную:", url);
-        toast("Буфер обмена недоступен: ссылка показана для ручного копирования", "info");
-        return;
-      }
-      toast("Не удалось скопировать", "error");
-    }
-  };
-
-  const healthDot = (status: string, label: string) => {
-    const colors: Record<string, string> = {
-      up: "bg-green-500",
-      down: "bg-red-500",
-      unknown: "bg-zinc-500",
-    };
-    const pulseClass = status === "up" ? "status-pulse" : "";
-    return (
-      <span
-        className={`inline-block w-2 h-2 rounded-full ${colors[status] || colors.unknown} ${pulseClass}`}
-        title={label}
-      />
-    );
-  };
-
-  const realKeys = orderedKeys.filter((item) => item.kind !== "informational");
-  const informationalKeys = orderedKeys.filter((item) => item.kind === "informational");
-  const informationalHidden = hiddenCategory === "informational";
-  const realHidden = hiddenCategory === "real";
-
-  const gridLayoutStyle = {
-    gridTemplateColumns: informationalHidden
-      ? "minmax(0, 0fr) minmax(0, 1fr)"
-      : realHidden
-        ? "minmax(0, 1fr) minmax(0, 0fr)"
-        : "minmax(0, 0.75fr) minmax(0, 1.25fr)",
-    columnGap: hiddenCategory ? "0px" : "0.75rem",
-    transition: "grid-template-columns 320ms ease, column-gap 320ms ease",
-  } as const;
-
-  const buildRows = () =>
-    orderedKeys.map((item) =>
-      item.kind === "informational"
-        ? { informational: item }
-        : { real: item }
-    );
-
-  const rows = buildRows();
-
-  const recalculateRowHeights = useCallback(() => {
-    setRowHeights((previous) => {
-      const next: Record<number, { informational: number; real: number }> = {};
-
-      rows.forEach((_, index) => {
-        const informational = cardHeightsRef.current[`informational-${index}`]?.offsetHeight ?? 0;
-        const real = cardHeightsRef.current[`real-${index}`]?.offsetHeight ?? 0;
-        next[index] = { informational, real };
-      });
-
-      const previousKeys = Object.keys(previous);
-      const nextKeys = Object.keys(next);
-      if (previousKeys.length !== nextKeys.length) {
-        return next;
-      }
-
-      for (const rowIndexText of nextKeys) {
-        const rowIndex = Number(rowIndexText);
-        if (
-          previous[rowIndex]?.informational !== next[rowIndex].informational ||
-          previous[rowIndex]?.real !== next[rowIndex].real
-        ) {
-          return next;
-        }
-      }
-
-      return previous;
-    });
-  }, [rows]);
-
-  useLayoutEffect(() => {
-    recalculateRowHeights();
-  }, [recalculateRowHeights, hiddenCategory]);
-
-  useEffect(() => {
-    const transitionTimer = window.setTimeout(() => {
-      recalculateRowHeights();
-    }, 360);
-
-    return () => {
-      window.clearTimeout(transitionTimer);
-    };
-  }, [hiddenCategory, recalculateRowHeights]);
-
-  useEffect(() => {
-    const onResize = () => {
-      recalculateRowHeights();
-    };
-
-    window.addEventListener("resize", onResize);
-    return () => {
-      window.removeEventListener("resize", onResize);
-    };
-  }, [recalculateRowHeights]);
-
   const saveOrder = async () => {
     const ids = orderedKeys.map((item) => item.id);
     setReordering(true);
@@ -371,57 +464,129 @@ export function KeysSection({ keys, onRefresh }: Props) {
     }
   };
 
-  const flattenRows = (nextRows: Array<{ informational?: VLESSKey; real?: VLESSKey }>) =>
-    nextRows
-      .map((row) => row.informational ?? row.real)
-      .filter((item): item is VLESSKey => Boolean(item));
-
-  const onDropRow = async (targetRowIndex: number) => {
-    if (!dragging) return;
-    const sourceRowIndex = dragging.rowIndex;
-    if (sourceRowIndex < 0 || targetRowIndex < 0 || sourceRowIndex === targetRowIndex) {
-      setDragging(null);
+  const moveCategoryBlock = async (categoryName: string, direction: -1 | 1) => {
+    const currentIndex = allCategoryNames.findIndex((item) => item === categoryName);
+    const targetIndex = currentIndex + direction;
+    if (currentIndex < 0 || targetIndex < 0 || targetIndex >= allCategoryNames.length) {
       return;
     }
 
-    const nextRows = [...rows];
-    [nextRows[sourceRowIndex], nextRows[targetRowIndex]] = [nextRows[targetRowIndex], nextRows[sourceRowIndex]];
-    const next = flattenRows(nextRows);
+    const nextOrder = [...allCategoryNames];
+    const [item] = nextOrder.splice(currentIndex, 1);
+    nextOrder.splice(targetIndex, 0, item);
 
-    setOrderedKeys(next);
-    setHasUnsavedOrder(true);
-    setDragging(null);
+    try {
+      await keysApi.reorderCategories(nextOrder);
+      toast(`Категория "${categoryName}" перемещена`, "success");
+      await refreshKeysData();
+    } catch (error: unknown) {
+      toast(error instanceof Error ? error.message : "Не удалось изменить порядок категорий", "error");
+    }
   };
 
-  const keyCard = (key: VLESSKey, rowIndex: number) => {
+  const startAddConfiguration = (index: number, categoryHint?: string) => {
+    setInsertAtIndex(index);
+    setAddKeyCategoryHint(categoryHint ? normalizeCategory(categoryHint) : undefined);
+    setShowAddKey(true);
+  };
+
+  const openCreateCategory = (initialName?: string) => {
+    setCreateCategoryInitial(initialName?.trim() || "");
+    setShowCreateCategory(true);
+  };
+
+  const openCategoryEditor = (categoryName: string) => {
+    setActiveCategoryName(categoryName);
+    setShowCategoryEditor(true);
+  };
+
+  const openAddConfigurationForCategory = (categoryName: string) => {
+    setShowCategoryEditor(false);
+    setInsertAtIndex(null);
+    setAddKeyCategoryHint(categoryName);
+    setShowAddKey(true);
+  };
+
+  const moveKeyToCategory = async (key: VLESSKey, nextCategory: string) => {
+    await keysApi.update(key.id, {
+      label: key.label,
+      status: key.status,
+      kind: key.kind,
+      category: nextCategory,
+      raw_url: key.kind === "real" ? key.url : undefined,
+      uuid: "",
+      host: "",
+      port: "",
+      query: "",
+      fragment: "",
+      template_text: key.kind === "informational" ? key.template_text : undefined,
+    });
+    await refreshKeysData();
+  };
+
+  const healthDot = (status: string, label: string) => {
+    const colors: Record<string, string> = {
+      up: "bg-green-500",
+      down: "bg-red-500",
+      unknown: "bg-zinc-500",
+    };
+    const pulseClass = status === "up" ? "status-pulse" : "";
+    return (
+      <span
+        className={`inline-block h-2 w-2 rounded-full ${colors[status] || colors.unknown} ${pulseClass}`}
+        title={label}
+      />
+    );
+  };
+
+  const renderKeyCard = (key: VLESSKey) => {
     const isReal = key.kind !== "informational";
+    const isInactiveJSON =
+      isReal && subscriptionFormat === "links" && detectConfigScheme(key.url) === "xray-json";
     const isDragging = dragging?.id === key.id;
     const isSelected = selectedKeyIDs.includes(key.id);
     const lastChecked = formatDateTime(key.last_checked_at);
     const statusParts = [key.check_status_label];
+    const isExternalKey = key.external_source_id > 0;
+    const globalIndex = keyIndexByID.get(key.id) ?? 0;
 
     if (key.last_latency_ms > 0) {
       statusParts.push(`${key.last_latency_ms}ms`);
     }
-
     if (lastChecked) {
       statusParts.push(`последняя проверка ${lastChecked}`);
     }
+
     return (
       <div
         draggable={!reordering}
         onDragStart={(event) => {
-          setDragging({ id: key.id, rowIndex });
+          setDragging({ id: key.id });
           event.dataTransfer.effectAllowed = "move";
           event.dataTransfer.setData("text/plain", String(key.id));
         }}
         onDragEnd={() => setDragging(null)}
-        className={`group rounded-lg border px-3 py-2 transition-opacity ${isDragging ? "opacity-40" : "opacity-100"} ${
-          isSelected ? "border-accent/60 bg-accent/5" : "border-border bg-surface-2"
+        onDragOver={(event) => {
+          event.preventDefault();
+        }}
+        onDrop={(event) => {
+          event.preventDefault();
+          if (!dragging || dragging.id === key.id) {
+            return;
+          }
+          moveKeyToIndex(dragging.id, globalIndex);
+          setDragging(null);
+        }}
+        className={`h-full rounded-lg border px-3 py-2 transition-opacity ${isDragging ? "opacity-40" : "opacity-100"} ${
+          isSelected
+            ? "border-accent/60 bg-accent/5"
+            : isInactiveJSON
+              ? "border-zinc-700 bg-zinc-900/25"
+              : "border-border bg-surface-2"
         }`}
       >
         <div className="mb-1 flex items-center justify-between gap-2">
-          <div className="flex items-center gap-2">
+          <div className="flex min-w-0 items-center gap-2">
             <label className="flex h-7 w-7 cursor-pointer items-center justify-center rounded-xl border border-transparent transition-colors hover:border-border/70 hover:bg-surface-2/60">
               <input
                 type="checkbox"
@@ -454,7 +619,7 @@ export function KeysSection({ keys, onRefresh }: Props) {
               </span>
             </label>
             <span
-              className="text-zinc-500 group-hover:text-zinc-300 cursor-grab active:cursor-grabbing"
+              className="cursor-grab text-zinc-500 transition-colors hover:text-zinc-300 active:cursor-grabbing"
               aria-label="Перетащить конфигурацию"
               title="Перетащите для изменения порядка"
             >
@@ -468,40 +633,43 @@ export function KeysSection({ keys, onRefresh }: Props) {
               </svg>
             </span>
             <span className="font-mono text-xs text-zinc-400">ID {key.id}</span>
-            <span className="text-sm font-medium text-zinc-100 truncate"><EmojiText text={key.label} /></span>
+            <span className={`truncate text-sm font-medium ${isInactiveJSON ? "text-zinc-300" : "text-zinc-100"}`}>
+              <EmojiText text={key.label} />
+            </span>
           </div>
-          <StatusBadge status={key.status} />
+
+          <div className="flex items-center gap-2">
+            {isExternalKey ? (
+              <span className="rounded-full bg-blue-500/15 px-2 py-0.5 text-xs text-blue-300">
+                <EmojiText
+                  text={key.external_source_name ? `Источник: ${key.external_source_name}` : "Сторонняя подписка"}
+                />
+              </span>
+            ) : null}
+            {isInactiveJSON ? (
+              <span className="rounded-full bg-zinc-500/20 px-2 py-0.5 text-xs text-zinc-300">
+                <EmojiText text="Неактивен JSON" />
+              </span>
+            ) : (
+              <StatusBadge status={key.status} />
+            )}
+          </div>
         </div>
 
         {isReal ? (
           <>
-            <div className="mb-2 flex items-center gap-2">
-              <span className="font-mono text-xs text-zinc-400 truncate">{key.url_short}</span>
-              <button
-                onClick={() => handleCopy(key.url)}
-                className="text-zinc-500 hover:text-zinc-300"
-                aria-label="Скопировать URL"
-              >
-                <svg
-                  xmlns="http://www.w3.org/2000/svg"
-                  width="14"
-                  height="14"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth={2}
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                >
-                  <rect x="9" y="9" width="13" height="13" rx="2" ry="2" />
-                  <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
-                </svg>
-              </button>
+            <div className={`mb-2 text-xs ${isInactiveJSON ? "text-zinc-500" : "text-zinc-400"}`}>
+              Название в клиенте:{" "}
+              <span className="text-zinc-300">
+                <EmojiText text={key.client_display_name || key.label} />
+              </span>
             </div>
             <div className="mb-2 flex items-center gap-2">
               {healthDot(key.check_status, key.check_status_label)}
-              <span className="text-xs text-zinc-400">
-                {statusParts.join(" · ")}
+              <span className={`text-xs ${isInactiveJSON ? "text-zinc-500" : "text-zinc-400"}`}>
+                {isInactiveJSON
+                  ? "JSON-конфиг отключен для ссылочного формата подписки"
+                  : statusParts.join(" · ")}
               </span>
             </div>
             <div className="flex gap-1.5">
@@ -518,7 +686,12 @@ export function KeysSection({ keys, onRefresh }: Props) {
           </>
         ) : (
           <>
-            <div className="mb-2 text-xs text-zinc-400 truncate"><EmojiText text={key.template_text || key.label} /></div>
+            <div className="mb-2 text-xs text-zinc-400">
+              <EmojiText text={key.template_text || key.label} />
+            </div>
+            <div className="mb-2 text-[11px] text-zinc-500">
+              Категория: <span className="text-zinc-300">{categoryDisplayName(normalizeCategory(key.category))}</span>
+            </div>
             <div className="flex gap-1.5">
               <Button variant="ghost" className="text-xs" onClick={() => setEditKey(key)}>
                 Изменить
@@ -533,13 +706,218 @@ export function KeysSection({ keys, onRefresh }: Props) {
     );
   };
 
+  const renderEmptySlot = (targetIndex: number) => {
+    return (
+      <div
+        className="h-full min-h-[116px] rounded-lg border border-border bg-surface-2/30"
+        onDragOver={(event) => {
+          event.preventDefault();
+        }}
+        onDrop={(event) => {
+          event.preventDefault();
+          dropDraggedAtIndex(targetIndex);
+        }}
+      />
+    );
+  };
+
+  const renderKeyRows = (sectionKeys: VLESSKey[], categoryHint?: string) => {
+    if (sectionKeys.length === 0) {
+      return null;
+    }
+
+    return (
+      <div className="space-y-2">
+        {sectionKeys.map((key) => {
+          const targetIndex = keyIndexByID.get(key.id) ?? 0;
+          const row = key.kind === "informational" ? { informational: key, real: null } : { informational: null, real: key };
+
+          return (
+            <React.Fragment key={key.id}>
+              <InsertGapActions
+                index={targetIndex}
+                categoryHint={categoryHint}
+                onAddConfiguration={startAddConfiguration}
+                onAddCategory={openCreateCategory}
+                onDrop={dropDraggedAtIndex}
+              />
+              <div className="grid items-stretch" style={gridLayoutStyle}>
+                <div
+                  className={`min-w-0 overflow-hidden transition-all duration-300 ${
+                    informationalHidden ? "-translate-x-10 opacity-0 pointer-events-none" : "translate-x-0 opacity-100"
+                  }`}
+                  onDragOver={(event) => {
+                    event.preventDefault();
+                  }}
+                  onDrop={(event) => {
+                    event.preventDefault();
+                    dropDraggedAtIndex(targetIndex);
+                  }}
+                >
+                  {row.informational ? renderKeyCard(row.informational) : renderEmptySlot(targetIndex)}
+                </div>
+                <div
+                  className={`min-w-0 overflow-hidden transition-all duration-300 ${
+                    realHidden ? "translate-x-10 opacity-0 pointer-events-none" : "translate-x-0 opacity-100"
+                  }`}
+                  onDragOver={(event) => {
+                    event.preventDefault();
+                  }}
+                  onDrop={(event) => {
+                    event.preventDefault();
+                    dropDraggedAtIndex(targetIndex);
+                  }}
+                >
+                  {row.real ? renderKeyCard(row.real) : renderEmptySlot(targetIndex)}
+                </div>
+              </div>
+            </React.Fragment>
+          );
+        })}
+
+        <InsertGapActions
+          index={(keyIndexByID.get(sectionKeys[sectionKeys.length - 1]?.id ?? 0) ?? orderedKeys.length - 1) + 1}
+          categoryHint={categoryHint}
+          onAddConfiguration={startAddConfiguration}
+          onAddCategory={openCreateCategory}
+          onDrop={dropDraggedAtIndex}
+        />
+      </div>
+    );
+  };
+
+  const renderUncategorizedSection = () => {
+    if (uncategorizedCount === 0) {
+      return null;
+    }
+
+    return (
+      <div className="rounded-2xl border border-border bg-surface-2/20 p-3">
+        <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="rounded-full border border-zinc-700 bg-zinc-900/45 px-2.5 py-1 text-xs font-medium text-zinc-300">
+              {UNCATEGORIZED_LABEL} ({uncategorizedCount})
+            </span>
+            <span className="text-xs text-zinc-500">
+              Инфо: {uncategorizedKeys.filter((key) => key.kind === "informational").length} · Конфигурации:{" "}
+              {uncategorizedKeys.filter((key) => key.kind !== "informational").length}
+            </span>
+          </div>
+        </div>
+        {renderKeyRows(uncategorizedKeys)}
+      </div>
+    );
+  };
+
+  const renderCategoryBlock = (categoryName: string, categoryKeys: VLESSKey[], empty?: boolean) => {
+    const hidden = Boolean(hiddenCategories[categoryName]);
+    const count = categoryCounts.get(categoryName) || 0;
+    const categoryColor = getCategoryColor(categoryName);
+    const categoryIndex = allCategoryNames.findIndex((item) => item === categoryName);
+
+    return (
+      <div
+        key={`${categoryName}-${empty ? "empty" : categoryKeys[0]?.id ?? "run"}`}
+        className="grid gap-4 md:grid-cols-[minmax(0,1fr)_68px]"
+      >
+        <div
+          className="min-w-0 rounded-2xl border p-3"
+          style={{
+            borderColor: alphaHexColor(categoryColor, "33"),
+            backgroundColor: alphaHexColor(categoryColor, "08"),
+          }}
+        >
+          <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+            <div className="flex flex-wrap items-center gap-2">
+              <span
+                className="rounded-full border px-2.5 py-1 text-xs font-medium"
+                style={{
+                  borderColor: alphaHexColor(categoryColor, "66"),
+                  backgroundColor: alphaHexColor(categoryColor, "18"),
+                  color: categoryColor,
+                }}
+              >
+                {categoryName} ({count})
+              </span>
+              <span className="text-xs text-zinc-500">
+                Инфо: {categoryKeys.filter((key) => key.kind === "informational").length} · Конфигурации:{" "}
+                {categoryKeys.filter((key) => key.kind !== "informational").length}
+              </span>
+            </div>
+
+            <div className="flex flex-wrap items-center gap-2">
+              <Button
+                variant="ghost"
+                className="text-xs"
+                onClick={() => void moveCategoryBlock(categoryName, -1)}
+                disabled={categoryIndex <= 0}
+              >
+                Вверх
+              </Button>
+              <Button
+                variant="ghost"
+                className="text-xs"
+                onClick={() => void moveCategoryBlock(categoryName, 1)}
+                disabled={categoryIndex === -1 || categoryIndex >= allCategoryNames.length - 1}
+              >
+                Вниз
+              </Button>
+              <Button variant="ghost" className="text-xs" onClick={() => openCategoryEditor(categoryName)}>
+                Редактировать категорию
+              </Button>
+              <Button
+                variant="ghost"
+                className="text-xs"
+                onClick={() =>
+                  setHiddenCategories((previous) => ({
+                    ...previous,
+                    [categoryName]: !previous[categoryName],
+                  }))
+                }
+              >
+                {hidden ? "Показать категорию" : "Скрыть категорию"}
+              </Button>
+            </div>
+          </div>
+
+          {hidden ? (
+            <div className="rounded-lg border border-zinc-700 bg-zinc-900/30 px-3 py-3 text-sm text-zinc-400">
+              Категория скрыта. Конфигураций внутри: {count}.
+            </div>
+          ) : empty ? (
+            <div className="rounded-lg border border-dashed border-border bg-surface-2/20 px-4 py-8 text-center text-sm text-zinc-500">
+              Категория создана, но в ней пока нет ключей.
+            </div>
+          ) : (
+            renderKeyRows(categoryKeys, categoryName)
+          )}
+        </div>
+
+        <div className="relative hidden md:block">
+          <div
+            className="absolute inset-y-0 left-1/2 w-px -translate-x-1/2 rounded-full"
+            style={{ backgroundColor: alphaHexColor(categoryColor, "73") }}
+          />
+          <div className="sticky top-28 flex justify-center">
+            <span
+              className="inline-flex rounded-xl px-2 py-3 text-[10px] font-semibold uppercase tracking-[0.16em] text-zinc-900 shadow-[0_8px_24px_rgba(0,0,0,0.35)]"
+              style={{ backgroundColor: categoryColor, writingMode: "vertical-rl", textOrientation: "mixed" }}
+            >
+              {categoryName}
+            </span>
+          </div>
+        </div>
+      </div>
+    );
+  };
+
   return (
     <Card>
-      <div className="flex items-center justify-between mb-4">
+      <div className="mb-4 flex items-center justify-between">
         <div className="flex items-center gap-2">
           <button
             onClick={() => setCollapsed(!collapsed)}
-            className="h-8 w-8 flex items-center justify-center rounded-lg border border-border bg-surface-2 transition-all hover:bg-surface-1"
+            className="flex h-8 w-8 items-center justify-center rounded-lg border border-border bg-surface-2 transition-all hover:bg-surface-1"
             aria-expanded={!collapsed}
             aria-label={collapsed ? "Развернуть" : "Свернуть"}
           >
@@ -581,179 +959,146 @@ export function KeysSection({ keys, onRefresh }: Props) {
               )}
             </span>
           </label>
-          <h2 className="text-lg font-semibold"><EmojiText text={`🔐 Ключи (${orderedKeys.length})`} /></h2>
+          <h2 className="text-lg font-semibold">
+            <EmojiText text={`🔐 Ключи (${orderedKeys.length})`} />
+          </h2>
         </div>
+
         <div className="flex gap-2">
-          <Button variant="ghost" className="text-xs" onClick={() => setShowBulkEdit(true)} disabled={selectedCount === 0}>
+          <Button variant="ghost" className="text-xs" onClick={() => setShowExportSubscription(true)}>
+            Экспорт подписки
+          </Button>
+          <Button variant="ghost" className="text-xs" onClick={() => setShowExternalSourcesManager(true)}>
+            Управление сторонними ключами
+          </Button>
+          <Button
+            variant="ghost"
+            className="text-xs"
+            onClick={() => setShowBulkEdit(true)}
+            disabled={selectedCount === 0}
+          >
             Изменить
           </Button>
-          {selectedCount > 0 && (
+          {selectedCount > 0 ? (
             <Button variant="danger" className="text-xs" onClick={openDeleteSelectedDialog}>
               Удалить ({selectedCount})
             </Button>
-          )}
+          ) : null}
           <Button variant="ghost" onClick={handleCheckAll} loading={checkingAll} className="text-xs">
             Проверить все
           </Button>
-          <Button onClick={() => setShowAddKey(true)} className="text-xs">
-            + Добавить
+          <Button variant="ghost" className="text-xs" onClick={() => openCreateCategory()}>
+            Добавить категорию
+          </Button>
+          <Button onClick={() => startAddConfiguration(orderedKeys.length)} className="text-xs">
+            + Добавить конфигурацию
           </Button>
         </div>
       </div>
 
-      {!collapsed && (
-        <div>
-          <div className="mb-3 grid text-sm font-medium text-zinc-300" style={gridLayoutStyle}>
+      {!collapsed ? (
+        <div className="space-y-4">
+          <div className="grid text-sm font-medium text-zinc-300" style={gridLayoutStyle}>
             <div
-              className={`flex items-center justify-between gap-2 overflow-hidden transition-all duration-300 ${informationalHidden ? "-translate-x-10 opacity-0 pointer-events-none" : "translate-x-0 opacity-100"}`}
+              className={`flex items-center justify-between gap-2 overflow-hidden transition-all duration-300 ${
+                informationalHidden ? "-translate-x-10 opacity-0 pointer-events-none" : "translate-x-0 opacity-100"
+              }`}
             >
-              <div>Информационные ключи ({informationalKeys.length})</div>
-              {hiddenCategory === null && (
-                <Button variant="ghost" className="text-xs" onClick={() => setHiddenCategory("informational")}>
-                  Скрыть категорию
+              <div>Информационные ключи ({informationalKeysCount})</div>
+              {hiddenPane === null ? (
+                <Button variant="ghost" className="text-xs" onClick={() => setHiddenPane("informational")}>
+                  Скрыть колонку
                 </Button>
-              )}
-              {realHidden && (
-                <Button variant="ghost" className="text-xs" onClick={() => setHiddenCategory(null)}>
-                  Раскрыть категорию
+              ) : null}
+              {realHidden ? (
+                <Button variant="ghost" className="text-xs" onClick={() => setHiddenPane(null)}>
+                  Показать колонку
                 </Button>
-              )}
+              ) : null}
             </div>
+
             <div
-              className={`flex items-center justify-between gap-2 overflow-hidden transition-all duration-300 ${realHidden ? "translate-x-10 opacity-0 pointer-events-none" : "translate-x-0 opacity-100"}`}
+              className={`flex items-center justify-between gap-2 overflow-hidden transition-all duration-300 ${
+                realHidden ? "translate-x-10 opacity-0 pointer-events-none" : "translate-x-0 opacity-100"
+              }`}
             >
-              <div>Конфигурации ({realKeys.length})</div>
-              {hiddenCategory === null && (
-                <Button variant="ghost" className="text-xs" onClick={() => setHiddenCategory("real")}>
-                  Скрыть категорию
+              <div>Конфигурации ({realKeysCount})</div>
+              {hiddenPane === null ? (
+                <Button variant="ghost" className="text-xs" onClick={() => setHiddenPane("real")}>
+                  Скрыть колонку
                 </Button>
-              )}
-              {informationalHidden && (
-                <Button variant="ghost" className="text-xs" onClick={() => setHiddenCategory(null)}>
-                  Раскрыть категорию
+              ) : null}
+              {informationalHidden ? (
+                <Button variant="ghost" className="text-xs" onClick={() => setHiddenPane(null)}>
+                  Показать колонку
                 </Button>
-              )}
+              ) : null}
             </div>
           </div>
 
-          <div className="space-y-2">
-            {rows.map((row, index) => (
-              <React.Fragment key={`row-${index}`}>
-                {/* Hover gap button before this row */}
-                <InsertGapButton
-                  index={index}
-                  onInsert={(idx) => {
-                    setInsertAtIndex(idx);
-                    setShowAddKey(true);
-                  }}
-                />
-              <div className="grid" style={gridLayoutStyle}>
-                  <div
-                    className={`flex h-full flex-col gap-2 overflow-hidden transition-all duration-300 ${informationalHidden ? "-translate-x-10 opacity-0 pointer-events-none" : "translate-x-0 opacity-100"}`}
-                    onDragOver={(event) => {
-                      event.preventDefault();
-                    }}
-                    onDrop={(event) => {
-                      event.preventDefault();
-                      void onDropRow(index);
-                    }}
-                  >
-                  {row.informational ? (
-                    <>
-                      <div
-                        ref={(element) => {
-                          cardHeightsRef.current[`informational-${index}`] = element;
-                        }}
-                        style={
-                          hiddenCategory !== null && rowHeights[index]?.informational > 0
-                            ? { height: `${Math.max(rowHeights[index].informational, rowHeights[index].real)}px` }
-                            : undefined
+          <div className="flex flex-wrap gap-2">
+            {uncategorizedCount > 0 ? (
+              <span className="rounded-full border border-zinc-700 bg-zinc-900/45 px-2.5 py-1 text-xs text-zinc-400">
+                {UNCATEGORIZED_LABEL} ({uncategorizedCount})
+              </span>
+            ) : null}
+            {allCategoryNames.map((categoryName) => {
+              const hidden = Boolean(hiddenCategories[categoryName]);
+              const count = categoryCounts.get(categoryName) || 0;
+
+              return (
+                <button
+                  key={categoryName}
+                  type="button"
+                  onClick={() =>
+                    setHiddenCategories((previous) => ({
+                      ...previous,
+                      [categoryName]: !previous[categoryName],
+                    }))
+                  }
+                  className={`rounded-full border px-2.5 py-1 text-xs transition ${
+                    hidden ? "border-zinc-700 bg-zinc-900/45 text-zinc-400" : ""
+                  }`}
+                  style={
+                    hidden
+                      ? undefined
+                      : {
+                          borderColor: alphaHexColor(getCategoryColor(categoryName), "66"),
+                          backgroundColor: alphaHexColor(getCategoryColor(categoryName), "18"),
+                          color: getCategoryColor(categoryName),
                         }
-                      >
-                        {keyCard(row.informational, index)}
-                      </div>
-                    </>
-                  ) : (
-                    <div
-                      className="h-full min-h-[72px] rounded-lg border border-border bg-surface-2/40"
-                      style={
-                        rowHeights[index]?.real > 0
-                          ? { height: `${rowHeights[index].real}px` }
-                          : undefined
-                      }
-                    />
-                  )}
-                </div>
-                  <div
-                    className={`flex h-full flex-col gap-2 overflow-hidden transition-all duration-300 ${realHidden ? "translate-x-10 opacity-0 pointer-events-none" : "translate-x-0 opacity-100"}`}
-                    onDragOver={(event) => {
-                      event.preventDefault();
-                    }}
-                    onDrop={(event) => {
-                      event.preventDefault();
-                      void onDropRow(index);
-                    }}
-                  >
-                  {row.real ? (
-                    <>
-                      <div
-                        ref={(element) => {
-                          cardHeightsRef.current[`real-${index}`] = element;
-                        }}
-                        style={
-                          hiddenCategory !== null && rowHeights[index]?.real > 0
-                            ? { height: `${Math.max(rowHeights[index].informational, rowHeights[index].real)}px` }
-                            : undefined
-                        }
-                      >
-                        {keyCard(row.real, index)}
-                      </div>
-                    </>
-                  ) : (
-                    <div
-                      className="h-full min-h-[72px] rounded-lg border border-border bg-surface-2/40"
-                      style={
-                        rowHeights[index]?.informational > 0
-                          ? { height: `${rowHeights[index].informational}px` }
-                          : undefined
-                      }
-                    />
-                  )}
-                </div>
-              </div>
-              </React.Fragment>
-            ))}
-
-            {/* Trailing gap button after last row */}
-            {rows.length > 0 && (
-              <InsertGapButton
-                index={rows.length}
-                onInsert={(idx) => {
-                  setInsertAtIndex(idx);
-                  setShowAddKey(true);
-                }}
-              />
-            )}
-
-            {rows.length === 0 && (
-              <div className="py-8 text-center text-zinc-500">Нет конфигураций</div>
-            )}
-
-            {rows.length > 0 && (
-              <div className="pt-2 flex justify-end">
-                <Button
-                  onClick={() => void saveOrder()}
-                  loading={reordering}
-                  disabled={!hasUnsavedOrder || reordering}
-                  className="text-xs"
+                  }
+                  title={hidden ? "Показать категорию" : "Скрыть категорию"}
                 >
-                  Сохранить порядок
-                </Button>
-              </div>
-            )}
+                  {categoryName} ({count})
+                </button>
+              );
+            })}
           </div>
+
+          {renderUncategorizedSection()}
+          {categoryGroups.map((group) => renderCategoryBlock(group.category, group.keys, group.keys.length === 0))}
+
+          {orderedKeys.length === 0 && categoryGroups.length === 0 ? (
+            <div className="rounded-lg border border-border bg-surface-2/30 px-3 py-8 text-center text-zinc-500">
+              Нет конфигураций
+            </div>
+          ) : null}
+
+          {orderedKeys.length > 0 ? (
+            <div className="flex justify-end pt-1">
+              <Button
+                onClick={() => void saveOrder()}
+                loading={reordering}
+                disabled={!hasUnsavedOrder || reordering}
+                className="text-xs"
+              >
+                Сохранить порядок
+              </Button>
+            </div>
+          ) : null}
         </div>
-      )}
+      ) : null}
 
       <ConfirmDialog
         open={!!deleteTarget}
@@ -781,43 +1126,110 @@ export function KeysSection({ keys, onRefresh }: Props) {
 
       <AddKeyModal
         open={showAddKey}
-        onClose={() => { setShowAddKey(false); setInsertAtIndex(null); }}
-        onRefresh={onRefresh}
+        onClose={() => {
+          setShowAddKey(false);
+          setInsertAtIndex(null);
+          setAddKeyCategoryHint(undefined);
+        }}
+        onRefresh={refreshKeysData}
         insertAtIndex={insertAtIndex}
+        initialCategory={addKeyCategoryHint}
         onCreated={() => {
           if (insertAtIndex !== null) {
-            // After refresh, reorder to place new key at desired position.
             setTimeout(async () => {
               try {
                 const { keys: freshKeys } = await keysApi.list();
-                if (freshKeys.length === 0) return;
-                // Keys are returned sorted by sort_order (ascending).
-                // The newest key is the last one (appended at end by backend).
+                if (freshKeys.length === 0) {
+                  return;
+                }
                 const newKey = freshKeys[freshKeys.length - 1];
-                // Build the desired order: remove the new key, then splice it in.
-                const withoutNew = freshKeys.filter((k: VLESSKey) => k.id !== newKey.id);
-                const targetIdx = Math.min(insertAtIndex, withoutNew.length);
-                withoutNew.splice(targetIdx, 0, newKey);
-                await keysApi.reorder(withoutNew.map((k: VLESSKey) => k.id));
-                await onRefresh();
+                const withoutNew = freshKeys.filter((item: VLESSKey) => item.id !== newKey.id);
+                const targetIndex = Math.min(insertAtIndex, withoutNew.length);
+                withoutNew.splice(targetIndex, 0, newKey);
+                await keysApi.reorder(withoutNew.map((item: VLESSKey) => item.id));
+                await refreshKeysData();
               } catch {
-                // Reorder failed — key is still created, just at end.
+                // The key is still created even if reorder fails.
               }
               setInsertAtIndex(null);
+              setAddKeyCategoryHint(undefined);
             }, 100);
           }
         }}
       />
-      {editKey && (
-        <EditKeyModal keyData={editKey} onClose={() => setEditKey(null)} onRefresh={onRefresh} />
-      )}
-      {showBulkEdit && selectedKeys.length > 0 && (
-        <BulkEditKeysModal
-          keys={selectedKeys}
-          onClose={() => setShowBulkEdit(false)}
-          onRefresh={onRefresh}
+
+      {editKey ? (
+        <EditKeyModal
+          keyData={editKey}
+          onClose={() => setEditKey(null)}
+          onRefresh={refreshKeysData}
         />
-      )}
+      ) : null}
+
+      {showBulkEdit && selectedKeys.length > 0 ? (
+        <BulkEditKeysModal keys={selectedKeys} onClose={() => setShowBulkEdit(false)} onRefresh={refreshKeysData} />
+      ) : null}
+
+      <ExportSubscriptionModal
+        open={showExportSubscription}
+        onClose={() => setShowExportSubscription(false)}
+        onImported={refreshKeysData}
+      />
+
+      <ExternalSourcesManagerModal
+        open={showExternalSourcesManager}
+        onClose={() => setShowExternalSourcesManager(false)}
+        onChanged={refreshKeysData}
+      />
+
+      <CreateKeyCategoryModal
+        open={showCreateCategory}
+        onClose={() => setShowCreateCategory(false)}
+        initialValue={createCategoryInitial}
+        onCreated={async (category) => {
+          await loadKeyCategories();
+          setActiveCategoryName(category.name);
+          setShowCategoryEditor(true);
+          setHiddenCategories((previous) => ({
+            ...previous,
+            [category.name]: false,
+          }));
+        }}
+      />
+
+      <KeyCategoryEditorModal
+        open={showCategoryEditor}
+        categoryName={activeCategoryName}
+        categoryKeys={activeCategoryKeys}
+        categories={keyCategories}
+        onClose={() => setShowCategoryEditor(false)}
+        onUpdated={async (nextCategory, previousName) => {
+          setActiveCategoryName(nextCategory.name);
+          setHiddenCategories((previous) => {
+            const next = { ...previous };
+            if (previousName !== nextCategory.name && previous[previousName]) {
+              next[nextCategory.name] = previous[previousName];
+              delete next[previousName];
+            }
+            return next;
+          });
+          await refreshKeysData();
+        }}
+        onDeleted={async () => {
+          setShowCategoryEditor(false);
+          setActiveCategoryName("");
+          await refreshKeysData();
+        }}
+        onOpenAddConfiguration={openAddConfigurationForCategory}
+        onEditKey={(key) => {
+          setShowCategoryEditor(false);
+          setEditKey(key);
+        }}
+        onDeleteKey={(key) => {
+          handleDelete(key.id, key.label);
+        }}
+        onMoveKeyToCategory={moveKeyToCategory}
+      />
     </Card>
   );
 }

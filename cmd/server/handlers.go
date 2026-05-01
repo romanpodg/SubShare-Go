@@ -6,7 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"html"
+	"io"
 	"log"
 	"net/http"
 	"net/url"
@@ -21,8 +21,6 @@ import (
 	"xary-sub/internal/model"
 	"xary-sub/internal/vless"
 )
-
-const appleEmojiBaseURL = "https://cdn.jsdelivr.net/npm/emoji-datasource-apple@15.0.1/img/apple/64/"
 
 var providerIDPattern = regexp.MustCompile(`^[A-Za-z0-9]{8}$`)
 
@@ -57,6 +55,134 @@ func pathID(w http.ResponseWriter, r *http.Request, name string) (int64, bool) {
 		return 0, false
 	}
 	return id, true
+}
+
+func normalizeBulkKeyIDs(ids []int64) ([]int64, error) {
+	if len(ids) == 0 {
+		return nil, fmt.Errorf("ids list is empty")
+	}
+
+	normalized := make([]int64, 0, len(ids))
+	seen := make(map[int64]struct{}, len(ids))
+
+	for _, id := range ids {
+		if id <= 0 {
+			return nil, fmt.Errorf("ids list contains invalid key id")
+		}
+		if _, exists := seen[id]; exists {
+			return nil, fmt.Errorf("ids list contains duplicates")
+		}
+		seen[id] = struct{}{}
+		normalized = append(normalized, id)
+	}
+
+	return normalized, nil
+}
+
+func normalizeKeyCategory(raw string) string {
+	value := strings.TrimSpace(raw)
+	if len(value) > 24 {
+		value = value[:24]
+	}
+	return value
+}
+
+func normalizeKeyCategoryColor(raw string) string {
+	value := strings.TrimSpace(raw)
+	if value == "" {
+		return "#d8b33d"
+	}
+	if matched, _ := regexp.MatchString(`^#[0-9A-Fa-f]{6}$`, value); matched {
+		return strings.ToUpper(value)
+	}
+	return "#d8b33d"
+}
+
+func (a *App) upsertKeyCategory(category string) error {
+	category = normalizeKeyCategory(category)
+	if category == "" {
+		return nil
+	}
+	var nextSortOrder int64
+	if err := a.db.QueryRow(`SELECT COALESCE(MAX(sort_order), 0) + 1 FROM key_categories`).Scan(&nextSortOrder); err != nil {
+		return err
+	}
+	_, err := a.db.Exec(
+		`INSERT INTO key_categories(name, color, sort_order, updated_at)
+		 VALUES(?, '#d8b33d', ?, CURRENT_TIMESTAMP)
+		 ON CONFLICT(name) DO UPDATE SET updated_at = CURRENT_TIMESTAMP`,
+		category,
+		nextSortOrder,
+	)
+	return err
+}
+
+func (a *App) listKeyCategories() ([]model.KeyCategory, error) {
+	rows, err := a.db.Query(`SELECT name, color FROM key_categories ORDER BY sort_order, id`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	countByName := make(map[string]int)
+	colorByName := make(map[string]string)
+	categories := make([]model.KeyCategory, 0, 16)
+	for rows.Next() {
+		var name sql.NullString
+		var color sql.NullString
+		if err := rows.Scan(&name, &color); err != nil {
+			return nil, err
+		}
+		normalized := normalizeKeyCategory(name.String)
+		if normalized == "" {
+			continue
+		}
+		if _, exists := countByName[normalized]; exists {
+			continue
+		}
+		countByName[normalized] = 0
+		colorByName[normalized] = normalizeKeyCategoryColor(color.String)
+		categories = append(categories, model.KeyCategory{Name: normalized, Color: colorByName[normalized], KeysCount: 0})
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
+	countRows, err := a.db.Query(`
+		SELECT category, COUNT(*)
+		FROM vless_keys
+		GROUP BY category
+	`)
+	if err != nil {
+		return nil, err
+	}
+	defer countRows.Close()
+
+	for countRows.Next() {
+		var category sql.NullString
+		var count int64
+		if err := countRows.Scan(&category, &count); err != nil {
+			return nil, err
+		}
+		normalized := normalizeKeyCategory(category.String)
+		if normalized == "" {
+			continue
+		}
+		if _, exists := countByName[normalized]; !exists {
+			colorByName[normalized] = "#d8b33d"
+			categories = append(categories, model.KeyCategory{Name: normalized, Color: colorByName[normalized], KeysCount: 0})
+		}
+		countByName[normalized] += int(count)
+	}
+	if err := countRows.Err(); err != nil {
+		return nil, err
+	}
+
+	for index := range categories {
+		categories[index].KeysCount = countByName[categories[index].Name]
+		categories[index].Color = normalizeKeyCategoryColor(colorByName[categories[index].Name])
+	}
+	return categories, nil
 }
 
 // --- Auth API ---
@@ -637,6 +763,11 @@ func (a *App) apiUpdateSubscriptionSettings(w http.ResponseWriter, r *http.Reque
 		writeError(w, http.StatusBadRequest, "extra_status is too long (max 255 characters)")
 		return
 	}
+	subscriptionFormat, ok := model.NormalizeSubscriptionFormat(req.SubscriptionFormat)
+	if !ok {
+		writeError(w, http.StatusBadRequest, "subscription_format must be one of: links, xray-json")
+		return
+	}
 
 	timeZone := strings.TrimSpace(req.TimeZone)
 	if timeZone == "" {
@@ -688,7 +819,7 @@ func (a *App) apiUpdateSubscriptionSettings(w http.ResponseWriter, r *http.Reque
 
 	if _, err := a.db.Exec(
 		`UPDATE subscription_settings
-		 SET title = ?, refresh_hours = ?, info_url = ?, extra_url = ?, extra_status = ?, time_zone = ?, language = ?,
+		 SET title = ?, refresh_hours = ?, info_url = ?, extra_url = ?, extra_status = ?, subscription_format = ?, time_zone = ?, language = ?,
 		     provider_id = ?, happ_no_limit_mode = ?, happ_no_limit_mode_xhttp_only = ?, happ_mandatory_hwid = ?,
 		     happ_notify_expiration = ?, happ_hide_server_settings = ?, happ_subscription_body = ?, updated_at = CURRENT_TIMESTAMP
 		 WHERE id = 1`,
@@ -697,6 +828,7 @@ func (a *App) apiUpdateSubscriptionSettings(w http.ResponseWriter, r *http.Reque
 		nullStringValue(infoURL),
 		nullStringValue(extraURL),
 		nullStringValue(extraStatus),
+		subscriptionFormat,
 		timeZone,
 		language,
 		nullStringValue(providerID),
@@ -817,6 +949,290 @@ func (a *App) apiListKeys(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"keys": keys})
 }
 
+func (a *App) apiListKeyCategories(w http.ResponseWriter, r *http.Request) {
+	categories, err := a.listKeyCategories()
+	if err != nil {
+		log.Printf("apiListKeyCategories: %v", err)
+		writeError(w, http.StatusInternalServerError, "failed to list key categories")
+		return
+	}
+	if categories == nil {
+		categories = []model.KeyCategory{}
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"categories": categories,
+	})
+}
+
+func (a *App) apiCreateKeyCategory(w http.ResponseWriter, r *http.Request) {
+	var req model.CreateKeyCategoryRequest
+	if err := readJSON(r, &req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+
+	rawName := strings.TrimSpace(req.Name)
+	color := normalizeKeyCategoryColor(req.Color)
+	if rawName == "" {
+		writeError(w, http.StatusBadRequest, "category name is required")
+		return
+	}
+
+	name := normalizeKeyCategory(rawName)
+	var nextSortOrder int64
+	if err := a.db.QueryRow(`SELECT COALESCE(MAX(sort_order), 0) + 1 FROM key_categories`).Scan(&nextSortOrder); err != nil {
+		log.Printf("apiCreateKeyCategory load nextSortOrder: %v", err)
+		writeError(w, http.StatusInternalServerError, "failed to create key category")
+		return
+	}
+	if _, err := a.db.Exec(
+		`INSERT INTO key_categories(name, color, sort_order, updated_at)
+		 VALUES(?, ?, ?, CURRENT_TIMESTAMP)
+		 ON CONFLICT(name) DO UPDATE SET color = excluded.color, updated_at = CURRENT_TIMESTAMP`,
+		name,
+		color,
+		nextSortOrder,
+	); err != nil {
+		log.Printf("apiCreateKeyCategory: %v", err)
+		writeError(w, http.StatusInternalServerError, "failed to create key category")
+		return
+	}
+
+	writeJSON(w, http.StatusOK, map[string]any{
+		"category": model.KeyCategory{Name: name, Color: color},
+		"message":  "key category saved",
+	})
+}
+
+func (a *App) apiUpdateKeyCategory(w http.ResponseWriter, r *http.Request) {
+	var req model.UpdateKeyCategoryRequest
+	if err := readJSON(r, &req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+
+	oldRaw := strings.TrimSpace(req.OldName)
+	newRaw := strings.TrimSpace(req.NewName)
+	color := normalizeKeyCategoryColor(req.Color)
+	if oldRaw == "" || newRaw == "" {
+		writeError(w, http.StatusBadRequest, "both old_name and new_name are required")
+		return
+	}
+
+	oldName := normalizeKeyCategory(oldRaw)
+	newName := normalizeKeyCategory(newRaw)
+	if oldName == "" || newName == "" {
+		writeError(w, http.StatusBadRequest, "category name cannot be empty")
+		return
+	}
+
+	var keyCount int64
+	if err := a.db.QueryRow(`SELECT COUNT(*) FROM vless_keys WHERE category = ?`, oldName).Scan(&keyCount); err != nil {
+		log.Printf("apiUpdateKeyCategory count keys: %v", err)
+		writeError(w, http.StatusInternalServerError, "failed to update key category")
+		return
+	}
+	var categoryCount int64
+	var existingSortOrder int64
+	if err := a.db.QueryRow(`SELECT COUNT(*) FROM key_categories WHERE name = ?`, oldName).Scan(&categoryCount); err != nil {
+		log.Printf("apiUpdateKeyCategory count categories: %v", err)
+		writeError(w, http.StatusInternalServerError, "failed to update key category")
+		return
+	}
+	_ = a.db.QueryRow(`SELECT COALESCE(sort_order, 0) FROM key_categories WHERE name = ?`, oldName).Scan(&existingSortOrder)
+	if keyCount == 0 && categoryCount == 0 {
+		writeError(w, http.StatusNotFound, "key category not found")
+		return
+	}
+
+	tx, err := a.db.Begin()
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to update key category")
+		return
+	}
+	defer tx.Rollback()
+
+	if _, err := tx.Exec(
+		`INSERT INTO key_categories(name, color, sort_order, updated_at)
+		 VALUES(?, ?, ?, CURRENT_TIMESTAMP)
+		 ON CONFLICT(name) DO UPDATE SET color = excluded.color, sort_order = COALESCE(NULLIF(key_categories.sort_order, 0), excluded.sort_order), updated_at = CURRENT_TIMESTAMP`,
+		newName,
+		color,
+		existingSortOrder,
+	); err != nil {
+		log.Printf("apiUpdateKeyCategory upsert new category: %v", err)
+		writeError(w, http.StatusInternalServerError, "failed to update key category")
+		return
+	}
+
+	if oldName != newName {
+		if _, err := tx.Exec(
+			`UPDATE vless_keys
+			 SET category = ?
+			 WHERE category = ?`,
+			newName,
+			oldName,
+		); err != nil {
+			log.Printf("apiUpdateKeyCategory update keys: %v", err)
+			writeError(w, http.StatusInternalServerError, "failed to update key category")
+			return
+		}
+
+		if _, err := tx.Exec(`DELETE FROM key_categories WHERE name = ?`, oldName); err != nil {
+			log.Printf("apiUpdateKeyCategory delete old category: %v", err)
+			writeError(w, http.StatusInternalServerError, "failed to update key category")
+			return
+		}
+	}
+
+	if _, err := tx.Exec(`UPDATE key_categories SET color = ?, updated_at = CURRENT_TIMESTAMP WHERE name = ?`, color, newName); err != nil {
+		log.Printf("apiUpdateKeyCategory update color: %v", err)
+		writeError(w, http.StatusInternalServerError, "failed to update key category")
+		return
+	}
+
+	if err := tx.Commit(); err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to update key category")
+		return
+	}
+
+	writeJSON(w, http.StatusOK, map[string]any{
+		"category": model.KeyCategory{Name: newName, Color: color},
+		"message":  "key category updated",
+	})
+}
+
+func (a *App) apiRenameKeyCategory(w http.ResponseWriter, r *http.Request) {
+	var req model.RenameKeyCategoryRequest
+	if err := readJSON(r, &req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+
+	var currentColor sql.NullString
+	_ = a.db.QueryRow(`SELECT color FROM key_categories WHERE name = ?`, normalizeKeyCategory(req.OldName)).Scan(&currentColor)
+
+	a.apiUpdateKeyCategory(w, withJSONBody(r, model.UpdateKeyCategoryRequest{
+		OldName: req.OldName,
+		NewName: req.NewName,
+		Color:   currentColor.String,
+	}))
+}
+
+func withJSONBody[T any](r *http.Request, payload T) *http.Request {
+	body, _ := json.Marshal(payload)
+	clone := r.Clone(r.Context())
+	clone.Body = io.NopCloser(strings.NewReader(string(body)))
+	clone.ContentLength = int64(len(body))
+	return clone
+}
+
+func (a *App) apiDeleteKeyCategory(w http.ResponseWriter, r *http.Request) {
+	var req model.DeleteKeyCategoryRequest
+	if err := readJSON(r, &req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+
+	name := normalizeKeyCategory(req.Name)
+	mode := strings.TrimSpace(req.Mode)
+	if mode != "delete_with_keys" && mode != "keep_keys" {
+		writeError(w, http.StatusBadRequest, "invalid delete mode")
+		return
+	}
+
+	tx, err := a.db.Begin()
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to delete key category")
+		return
+	}
+	defer tx.Rollback()
+
+	if mode == "delete_with_keys" {
+		if _, err := tx.Exec(`DELETE FROM vless_keys WHERE category = ?`, name); err != nil {
+			log.Printf("apiDeleteKeyCategory delete keys: %v", err)
+			writeError(w, http.StatusInternalServerError, "failed to delete key category")
+			return
+		}
+	} else {
+		if _, err := tx.Exec(`UPDATE vless_keys SET category = '' WHERE category = ?`, name); err != nil {
+			log.Printf("apiDeleteKeyCategory move keys: %v", err)
+			writeError(w, http.StatusInternalServerError, "failed to delete key category")
+			return
+		}
+	}
+
+	if _, err := tx.Exec(`DELETE FROM key_categories WHERE name = ?`, name); err != nil {
+		log.Printf("apiDeleteKeyCategory delete category: %v", err)
+		writeError(w, http.StatusInternalServerError, "failed to delete key category")
+		return
+	}
+
+	if err := tx.Commit(); err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to delete key category")
+		return
+	}
+
+	writeMessage(w, "key category deleted")
+}
+
+func (a *App) apiReorderKeyCategories(w http.ResponseWriter, r *http.Request) {
+	var req model.ReorderKeyCategoriesRequest
+	if err := readJSON(r, &req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+	if len(req.Names) == 0 {
+		writeError(w, http.StatusBadRequest, "category names are required")
+		return
+	}
+
+	normalized := make([]string, 0, len(req.Names))
+	seen := make(map[string]struct{}, len(req.Names))
+	for _, name := range req.Names {
+		value := normalizeKeyCategory(name)
+		if value == "" {
+			writeError(w, http.StatusBadRequest, "category name cannot be empty")
+			return
+		}
+		if _, exists := seen[value]; exists {
+			writeError(w, http.StatusBadRequest, "duplicate category names")
+			return
+		}
+		seen[value] = struct{}{}
+		normalized = append(normalized, value)
+	}
+
+	tx, err := a.db.Begin()
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to reorder key categories")
+		return
+	}
+	defer tx.Rollback()
+
+	stmt, err := tx.Prepare(`UPDATE key_categories SET sort_order = ?, updated_at = CURRENT_TIMESTAMP WHERE name = ?`)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to reorder key categories")
+		return
+	}
+	defer stmt.Close()
+
+	for index, name := range normalized {
+		if _, err := stmt.Exec(index+1, name); err != nil {
+			log.Printf("apiReorderKeyCategories update %s: %v", name, err)
+			writeError(w, http.StatusInternalServerError, "failed to reorder key categories")
+			return
+		}
+	}
+
+	if err := tx.Commit(); err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to reorder key categories")
+		return
+	}
+
+	writeMessage(w, "key categories reordered")
+}
+
 func (a *App) apiCreateKey(w http.ResponseWriter, r *http.Request) {
 	var req model.CreateKeyRequest
 	if err := readJSON(r, &req); err != nil {
@@ -826,6 +1242,7 @@ func (a *App) apiCreateKey(w http.ResponseWriter, r *http.Request) {
 
 	label := strings.TrimSpace(req.Label)
 	keyURL := strings.TrimSpace(req.URL)
+	category := normalizeKeyCategory(req.Category)
 	templateText := strings.TrimSpace(req.TemplateText)
 	kind, kindOK := model.NormalizeKeyKind(req.Kind)
 	if !kindOK {
@@ -865,8 +1282,17 @@ func (a *App) apiCreateKey(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "label is too long (max 255 characters)")
 		return
 	}
-	if len(keyURL) > 2048 || len(templateText) > 2048 {
-		writeError(w, http.StatusBadRequest, "url is too long (max 2048 characters)")
+	if len(keyURL) > 65535 {
+		writeError(w, http.StatusBadRequest, "configuration is too long (max 65535 characters)")
+		return
+	}
+	if len(templateText) > 8192 {
+		writeError(w, http.StatusBadRequest, "template_text is too long (max 8192 characters)")
+		return
+	}
+	if err := a.upsertKeyCategory(category); err != nil {
+		log.Printf("apiCreateKey upsert category: %v", err)
+		writeError(w, http.StatusInternalServerError, "failed to save key category")
 		return
 	}
 
@@ -877,8 +1303,8 @@ func (a *App) apiCreateKey(w http.ResponseWriter, r *http.Request) {
 	}
 
 	result, err := a.db.Exec(
-		`INSERT INTO vless_keys(label, url, status, check_status, key_kind, template_text, sort_order) VALUES(?, ?, ?, 'unknown', ?, ?, ?)`,
-		label, keyURL, status, kind, nullStringValue(templateText), nextSortOrder,
+		`INSERT INTO vless_keys(label, url, category, status, check_status, key_kind, template_text, sort_order) VALUES(?, ?, ?, ?, 'unknown', ?, ?, ?)`,
+		label, keyURL, category, status, kind, nullStringValue(templateText), nextSortOrder,
 	)
 	if err != nil {
 		log.Printf("apiCreateKey: %v", err)
@@ -924,6 +1350,7 @@ func (a *App) apiUpdateKey(w http.ResponseWriter, r *http.Request) {
 	}
 
 	label := strings.TrimSpace(req.Label)
+	category := normalizeKeyCategory(req.Category)
 	templateText := strings.TrimSpace(req.TemplateText)
 	kind, kindOK := model.NormalizeKeyKind(req.Kind)
 	if !kindOK {
@@ -995,9 +1422,23 @@ func (a *App) apiUpdateKey(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	if len(builtURL) > 65535 {
+		writeError(w, http.StatusBadRequest, "configuration is too long (max 65535 characters)")
+		return
+	}
+	if len(templateText) > 8192 {
+		writeError(w, http.StatusBadRequest, "template_text is too long (max 8192 characters)")
+		return
+	}
+	if err := a.upsertKeyCategory(category); err != nil {
+		log.Printf("apiUpdateKey upsert category: %v", err)
+		writeError(w, http.StatusInternalServerError, "failed to save key category")
+		return
+	}
+
 	if _, err := a.db.Exec(
-		`UPDATE vless_keys SET label = ?, url = ?, status = ?, key_kind = ?, template_text = ?, sort_order = ? WHERE id = ?`,
-		label, builtURL, status, kind, nullStringValue(templateText), sortOrder, id,
+		`UPDATE vless_keys SET label = ?, url = ?, category = ?, status = ?, key_kind = ?, template_text = ?, sort_order = ? WHERE id = ?`,
+		label, builtURL, category, status, kind, nullStringValue(templateText), sortOrder, id,
 	); err != nil {
 		log.Printf("apiUpdateKey: %v", err)
 		writeError(w, http.StatusInternalServerError, "failed to update key")
@@ -1005,6 +1446,141 @@ func (a *App) apiUpdateKey(w http.ResponseWriter, r *http.Request) {
 	}
 	log.Printf("AUDIT: update key id=%d label=%q", id, label)
 	writeMessage(w, "key updated")
+}
+
+func (a *App) apiBulkUpdateKeyStatus(w http.ResponseWriter, r *http.Request) {
+	var req model.BulkUpdateKeyStatusRequest
+	if err := readJSON(r, &req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+
+	ids, err := normalizeBulkKeyIDs(req.IDs)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+
+	status, ok := model.NormalizeKeyStatus(req.Status)
+	if !ok {
+		writeError(w, http.StatusBadRequest, "invalid key status")
+		return
+	}
+	applyCategory := strings.TrimSpace(req.Category) != ""
+	category := normalizeKeyCategory(req.Category)
+	if applyCategory {
+		if err := a.upsertKeyCategory(category); err != nil {
+			log.Printf("apiBulkUpdateKeyStatus upsert category: %v", err)
+			writeError(w, http.StatusInternalServerError, "failed to save key category")
+			return
+		}
+	}
+
+	tx, err := a.db.Begin()
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to update keys")
+		return
+	}
+	defer tx.Rollback()
+
+	query := `UPDATE vless_keys SET status = ? WHERE id = ?`
+	if applyCategory {
+		query = `UPDATE vless_keys SET status = ?, category = ? WHERE id = ?`
+	}
+	stmt, err := tx.Prepare(query)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to update keys")
+		return
+	}
+	defer stmt.Close()
+
+	for _, id := range ids {
+		var (
+			res sql.Result
+			err error
+		)
+		if applyCategory {
+			res, err = stmt.Exec(status, category, id)
+		} else {
+			res, err = stmt.Exec(status, id)
+		}
+		if err != nil {
+			log.Printf("apiBulkUpdateKeyStatus: update key id=%d: %v", id, err)
+			writeError(w, http.StatusInternalServerError, "failed to update keys")
+			return
+		}
+		affected, _ := res.RowsAffected()
+		if affected == 0 {
+			writeError(w, http.StatusNotFound, fmt.Sprintf("key not found: %d", id))
+			return
+		}
+	}
+
+	if err := tx.Commit(); err != nil {
+		log.Printf("apiBulkUpdateKeyStatus: commit: %v", err)
+		writeError(w, http.StatusInternalServerError, "failed to update keys")
+		return
+	}
+
+	log.Printf("AUDIT: bulk update key status count=%d status=%s", len(ids), status)
+	writeJSON(w, http.StatusOK, map[string]any{
+		"message": "keys updated",
+		"updated": len(ids),
+	})
+}
+
+func (a *App) apiBulkDeleteKeys(w http.ResponseWriter, r *http.Request) {
+	var req model.BulkDeleteKeysRequest
+	if err := readJSON(r, &req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+
+	ids, err := normalizeBulkKeyIDs(req.IDs)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+
+	tx, err := a.db.Begin()
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to delete keys")
+		return
+	}
+	defer tx.Rollback()
+
+	stmt, err := tx.Prepare(`DELETE FROM vless_keys WHERE id = ?`)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to delete keys")
+		return
+	}
+	defer stmt.Close()
+
+	for _, id := range ids {
+		res, err := stmt.Exec(id)
+		if err != nil {
+			log.Printf("apiBulkDeleteKeys: delete key id=%d: %v", id, err)
+			writeError(w, http.StatusInternalServerError, "failed to delete keys")
+			return
+		}
+		affected, _ := res.RowsAffected()
+		if affected == 0 {
+			writeError(w, http.StatusNotFound, fmt.Sprintf("key not found: %d", id))
+			return
+		}
+	}
+
+	if err := tx.Commit(); err != nil {
+		log.Printf("apiBulkDeleteKeys: commit: %v", err)
+		writeError(w, http.StatusInternalServerError, "failed to delete keys")
+		return
+	}
+
+	log.Printf("AUDIT: bulk delete keys count=%d", len(ids))
+	writeJSON(w, http.StatusOK, map[string]any{
+		"message": "keys deleted",
+		"deleted": len(ids),
+	})
 }
 
 func (a *App) apiReorderKeys(w http.ResponseWriter, r *http.Request) {
@@ -1334,7 +1910,65 @@ func (a *App) handleSubscription(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+	a.applySubscriptionResponseHeaders(w, r, settings, subscriptionID)
+	body := bodyPlain
+	if a.subscriptionBodyEncoding == "base64" && settings.SubscriptionFormat != model.SubscriptionFormatXrayJSON {
+		body = base64.StdEncoding.EncodeToString([]byte(body))
+	}
+	_, _ = w.Write([]byte(body))
+}
+
+func sanitizeSubscriptionFilenamePart(raw string) string {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return "subscription"
+	}
+
+	var builder strings.Builder
+	for _, ch := range raw {
+		switch {
+		case ch >= 'a' && ch <= 'z':
+			builder.WriteRune(ch)
+		case ch >= 'A' && ch <= 'Z':
+			builder.WriteRune(ch)
+		case ch >= '0' && ch <= '9':
+			builder.WriteRune(ch)
+		case ch == '-', ch == '_', ch == '.':
+			builder.WriteRune(ch)
+		default:
+			builder.WriteRune('_')
+		}
+	}
+
+	name := strings.Trim(strings.TrimSpace(builder.String()), "._")
+	if name == "" {
+		return "subscription"
+	}
+	return name
+}
+
+func buildSubscriptionAttachmentFilename(settings model.SubscriptionSettings) string {
+	base := sanitizeSubscriptionFilenamePart(settings.Title)
+	if settings.SubscriptionFormat == model.SubscriptionFormatXrayJSON {
+		return base + ".json"
+	}
+	return base + ".txt"
+}
+
+func (a *App) applySubscriptionResponseHeaders(
+	w http.ResponseWriter,
+	r *http.Request,
+	settings model.SubscriptionSettings,
+	subscriptionID string,
+) {
+	if settings.SubscriptionFormat == model.SubscriptionFormatXrayJSON {
+		w.Header().Set("Content-Type", "application/json; charset=utf-8")
+	} else {
+		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+	}
+
+	filename := buildSubscriptionAttachmentFilename(settings)
+	w.Header().Set("Content-Disposition", fmt.Sprintf(`attachment; filename="%s"`, filename))
 	if title := strings.TrimSpace(settings.Title); title != "" {
 		w.Header().Set("profile-title", "base64:"+base64.StdEncoding.EncodeToString([]byte(title)))
 	}
@@ -1349,11 +1983,6 @@ func (a *App) handleSubscription(w http.ResponseWriter, r *http.Request) {
 	if extraStatus := strings.TrimSpace(settings.ExtraStatus); extraStatus != "" {
 		w.Header().Set("announce", "base64:"+base64.StdEncoding.EncodeToString([]byte(extraStatus)))
 	}
-	body := bodyPlain
-	if a.subscriptionBodyEncoding == "base64" {
-		body = base64.StdEncoding.EncodeToString([]byte(body))
-	}
-	_, _ = w.Write([]byte(body))
 }
 
 func (a *App) handleSubscriptionSubBody(w http.ResponseWriter, r *http.Request) {
@@ -1404,7 +2033,7 @@ func (a *App) handleSubscriptionSubBodyPlain(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
-	bodyPlain, _, denyCode, denyReason, err := a.buildSubscriptionBodyPlain(r, subscriptionID)
+	bodyPlain, settings, denyCode, denyReason, err := a.buildSubscriptionBodyPlain(r, subscriptionID)
 	if err != nil {
 		http.Error(w, "failed to load subscription", http.StatusInternalServerError)
 		return
@@ -1414,7 +2043,11 @@ func (a *App) handleSubscriptionSubBodyPlain(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
-	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+	if settings.SubscriptionFormat == model.SubscriptionFormatXrayJSON {
+		w.Header().Set("Content-Type", "application/json; charset=utf-8")
+	} else {
+		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+	}
 	_, _ = w.Write([]byte(bodyPlain))
 }
 
@@ -1422,22 +2055,32 @@ func (a *App) buildSubscriptionBodyPlain(
 	r *http.Request,
 	subscriptionID string,
 ) (string, model.SubscriptionSettings, int, string, error) {
+	settings, err := a.getSubscriptionSettings()
+	if err != nil {
+		return "", model.SubscriptionSettings{}, 0, "", err
+	}
+
 	dbRows, err := a.db.Query(`
 		SELECT k.url, k.key_kind, k.template_text, k.label
 		FROM users u
 		JOIN user_keys uk ON uk.user_id = u.id
 		JOIN vless_keys k ON k.id = uk.key_id
+		LEFT JOIN key_categories kc ON kc.name = k.category
 		WHERE u.subscription_id = ?
 		  AND k.status = 'active'
 		  AND (k.key_kind = 'informational' OR k.check_status != 'down')
-		ORDER BY k.sort_order, k.id
+		ORDER BY
+		  CASE WHEN TRIM(COALESCE(k.category, '')) = '' THEN 0 ELSE 1 END,
+		  COALESCE(kc.sort_order, 2147483647),
+		  k.sort_order,
+		  k.id
 	`, subscriptionID)
 	if err != nil {
 		return "", model.SubscriptionSettings{}, 0, "", err
 	}
 	defer dbRows.Close()
 
-	templateData, err := a.buildSubscriptionTemplateData(subscriptionID)
+	templateData, err := a.buildSubscriptionTemplateData(subscriptionID, settings.SubscriptionFormat)
 	if err != nil {
 		return "", model.SubscriptionSettings{}, 0, "", err
 	}
@@ -1458,12 +2101,32 @@ func (a *App) buildSubscriptionBodyPlain(
 				textTemplate = strings.TrimSpace(keyLabel.String)
 			}
 			rendered := renderInfoTemplate(textTemplate, templateData)
-			if strings.TrimSpace(rendered) != "" {
-				lines = append(lines, buildInformationalVLESSURL(rendered))
+			if strings.TrimSpace(rendered) == "" {
+				continue
 			}
+			if settings.SubscriptionFormat == model.SubscriptionFormatXrayJSON {
+				infoJSON := buildInformationalXrayJSON(rendered)
+				if strings.TrimSpace(infoJSON) != "" {
+					lines = append(lines, infoJSON)
+				}
+				continue
+			}
+			lines = append(lines, buildInformationalVLESSURL(rendered))
 			continue
 		}
-		lines = append(lines, keyURL)
+		if settings.SubscriptionFormat == model.SubscriptionFormatLinks && supportedConfigScheme(keyURL) == model.SubscriptionFormatXrayJSON {
+			continue
+		}
+		if settings.SubscriptionFormat == model.SubscriptionFormatXrayJSON {
+			converted, convErr := normalizeConfigurationForSubscriptionOutput(keyURL, settings.SubscriptionFormat, keyLabel.String)
+			if convErr != nil {
+				log.Printf("buildSubscriptionBodyPlain: skip key, failed to convert to XRAY-JSON: %v", convErr)
+				continue
+			}
+			lines = append(lines, converted)
+			continue
+		}
+		lines = append(lines, strings.TrimSpace(keyURL))
 	}
 	if err := dbRows.Err(); err != nil {
 		return "", model.SubscriptionSettings{}, 0, "", err
@@ -1472,52 +2135,27 @@ func (a *App) buildSubscriptionBodyPlain(
 		return "", model.SubscriptionSettings{}, http.StatusForbidden, "subscription has no available keys", nil
 	}
 
-	settings, err := a.getSubscriptionSettings()
-	if err != nil {
-		return "", model.SubscriptionSettings{}, 0, "", err
-	}
-
-	subscriptionURL := fmt.Sprintf("%s/sub/%s", a.resolveBaseURL(r), subscriptionID)
-	prefix := []string{}
-	if customBody := strings.TrimSpace(settings.HappSubscriptionBody); customBody != "" && !containsLegacySubscriptionBodyMarkers(customBody) {
-		rendered := strings.ReplaceAll(strings.ReplaceAll(customBody, "\r\n", "\n"), "{subscription_url}", subscriptionURL)
-		prefix = strings.Split(rendered, "\n")
-	} else {
-		if title := strings.TrimSpace(settings.Title); title != "" {
-			prefix = append(prefix, "#profile-title: "+title)
-		}
-		if settings.RefreshHours > 0 {
-			prefix = append(prefix, fmt.Sprintf("#profile-update-interval: %d", settings.RefreshHours))
-		}
-		prefix = append(prefix, "#profile-web-page-url: "+subscriptionURL)
-		if extraURL := strings.TrimSpace(settings.ExtraURL); extraURL != "" {
-			prefix = append(prefix, "#support-url: "+extraURL)
-		}
-		if extraStatus := strings.TrimSpace(settings.ExtraStatus); extraStatus != "" {
-			prefix = append(prefix, "#announce: base64:"+base64.StdEncoding.EncodeToString([]byte(extraStatus)))
-		}
-		if providerID := strings.TrimSpace(settings.ProviderID); providerID != "" {
-			prefix = append(prefix, "#providerid "+providerID)
-			if settings.HappNoLimitMode {
-				prefix = append(prefix, "#no-limit-enabled: 1")
+	if settings.SubscriptionFormat == model.SubscriptionFormatXrayJSON {
+		jsonItems := make([]json.RawMessage, 0, len(lines))
+		for _, line := range lines {
+			trimmed := strings.TrimSpace(line)
+			if trimmed == "" {
+				continue
 			}
-			if settings.HappNoLimitModeXHTTPOnly {
-				prefix = append(prefix, "#no-limit-xhttp-enabled: 1")
+			if !json.Valid([]byte(trimmed)) {
+				log.Printf("buildSubscriptionBodyPlain: skip invalid JSON line")
+				continue
 			}
-			if settings.HappMandatoryHWID {
-				prefix = append(prefix, "#subscription-always-hwid-enable: 1")
-			}
-			if settings.HappNotifyExpiration {
-				prefix = append(prefix, "#notification-subs-expire: 1")
-			}
-			if settings.HappHideServerSettings {
-				prefix = append(prefix, "#hide-settings: 1")
-			}
+			jsonItems = append(jsonItems, json.RawMessage(trimmed))
 		}
-	}
-	if len(prefix) > 0 {
-		prefix = append(prefix, "")
-		lines = append(prefix, lines...)
+		if len(jsonItems) == 0 {
+			return "", model.SubscriptionSettings{}, http.StatusForbidden, "subscription has no available keys", nil
+		}
+		payload, err := json.Marshal(jsonItems)
+		if err != nil {
+			return "", model.SubscriptionSettings{}, 0, "", err
+		}
+		return string(payload), settings, 0, "", nil
 	}
 
 	return strings.Join(lines, "\n"), settings, 0, "", nil
@@ -1537,26 +2175,6 @@ func isBrowserSubscriptionRequest(r *http.Request) bool {
 	return true
 }
 
-func emojiToUnified(emoji string) string {
-	parts := make([]string, 0, len(emoji))
-	for _, r := range emoji {
-		parts = append(parts, fmt.Sprintf("%x", r))
-	}
-	return strings.Join(parts, "-")
-}
-
-func renderAppleEmojiImage(emoji string, className string) string {
-	escapedEmoji := html.EscapeString(emoji)
-	unified := emojiToUnified(emoji)
-	return fmt.Sprintf(
-		`<img src="%s%s.png" alt="%s" class="%s" draggable="false" loading="lazy" onerror="this.outerHTML=this.alt">`,
-		appleEmojiBaseURL,
-		unified,
-		escapedEmoji,
-		html.EscapeString(className),
-	)
-}
-
 func (a *App) renderSubscriptionBrowserPage(w http.ResponseWriter, r *http.Request, subscriptionID string) {
 	allowed, _, code, reason, err := a.subscriptionAccessAllowed(subscriptionID)
 	if err != nil {
@@ -1568,22 +2186,6 @@ func (a *App) renderSubscriptionBrowserPage(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
-	var name sql.NullString
-	var email sql.NullString
-	var status sql.NullString
-	var expiresAt sql.NullTime
-	if err := a.db.QueryRow(
-		`SELECT name, email, status, expires_at FROM users WHERE subscription_id = ?`,
-		subscriptionID,
-	).Scan(&name, &email, &status, &expiresAt); err != nil {
-		if errors.Is(err, sql.ErrNoRows) {
-			http.NotFound(w, r)
-			return
-		}
-		http.Error(w, "failed to load subscription", http.StatusInternalServerError)
-		return
-	}
-
 	panelSettings, err := a.getPanelSettings()
 	if err != nil {
 		panelSettings = model.PanelSettings{
@@ -1592,105 +2194,11 @@ func (a *App) renderSubscriptionBrowserPage(w http.ResponseWriter, r *http.Reque
 		}
 	}
 
-	userName := html.EscapeString(strings.TrimSpace(name.String))
-	if userName == "" {
-		userName = "Пользователь"
-	}
-	statusValue := model.NormalizeStoredStatus(status.String)
-	statusLabel := "Active"
-	switch statusValue {
-	case model.UserStatusPaused:
-		statusLabel = "Paused"
-	case model.UserStatusBlocked:
-		statusLabel = "Blocked"
-	}
-	statusEmoji := "✅"
-	if statusValue != model.UserStatusActive {
-		statusEmoji = "🛑"
-	}
-	summaryStatusIcon := renderAppleEmojiImage(statusEmoji, "emoji-image emoji-summary")
-	usernameIcon := renderAppleEmojiImage("😃", "emoji-image emoji-info")
-	statusIcon := renderAppleEmojiImage(statusEmoji, "emoji-image emoji-info")
-	expiresIcon := renderAppleEmojiImage("🗓️", "emoji-image emoji-info")
-	installStep1Icon := renderAppleEmojiImage("1️⃣", "emoji-image emoji-step")
-	installStep2Icon := renderAppleEmojiImage("2️⃣", "emoji-image emoji-step")
-	installStep3Icon := renderAppleEmojiImage("3️⃣", "emoji-image emoji-step")
-	langRuIcon := renderAppleEmojiImage("🇷🇺", "emoji-image emoji-step emoji-lang")
-
-	telegramValue := strings.TrimPrefix(strings.TrimSpace(email.String), "@")
-	telegramDisplay := "—"
-	if telegramValue != "" {
-		telegramDisplay = "@" + telegramValue
-	}
-
-	expiresLabel := "Бессрочно"
-	if expiresAt.Valid {
-		expiresLabel = expiresAt.Time.Local().Format("02.01.2006")
-	}
-
-	expiresHint := "Бессрочная подписка"
-	if expiresAt.Valid {
-		now := time.Now().In(time.Local)
-		exp := expiresAt.Time.In(time.Local)
-
-		nowDate := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, time.Local)
-		expDate := time.Date(exp.Year(), exp.Month(), exp.Day(), 0, 0, 0, 0, time.Local)
-		daysLeft := int(expDate.Sub(nowDate).Hours() / 24)
-
-		switch {
-		case daysLeft < 0:
-			expiresHint = "Подписка истекла"
-		case daysLeft == 0:
-			expiresHint = "Истекает сегодня"
-		case daysLeft == 1:
-			expiresHint = "Истекает завтра"
-		default:
-			monthsLeft := (expDate.Year()-nowDate.Year())*12 + int(expDate.Month()-nowDate.Month())
-			if expDate.Day() < nowDate.Day() {
-				monthsLeft--
-			}
-
-			if monthsLeft >= 12 {
-				yearsLeft := monthsLeft / 12
-				if yearsLeft == 1 {
-					expiresHint = "Истекает через год"
-				} else if yearsLeft >= 2 && yearsLeft <= 4 {
-					expiresHint = fmt.Sprintf("Истекает через %d года", yearsLeft)
-				} else {
-					expiresHint = fmt.Sprintf("Истекает через %d лет", yearsLeft)
-				}
-			} else if monthsLeft >= 1 {
-				if monthsLeft == 1 {
-					expiresHint = "Истекает через месяц"
-				} else if monthsLeft >= 2 && monthsLeft <= 4 {
-					expiresHint = fmt.Sprintf("Истекает через %d месяца", monthsLeft)
-				} else {
-					expiresHint = fmt.Sprintf("Истекает через %d месяцев", monthsLeft)
-				}
-			} else {
-				if daysLeft%10 == 1 && daysLeft%100 != 11 {
-					expiresHint = fmt.Sprintf("Истекает через %d день", daysLeft)
-				} else if (daysLeft%10 >= 2 && daysLeft%10 <= 4) && (daysLeft%100 < 12 || daysLeft%100 > 14) {
-					expiresHint = fmt.Sprintf("Истекает через %d дня", daysLeft)
-				} else {
-					expiresHint = fmt.Sprintf("Истекает через %d дней", daysLeft)
-				}
-			}
-		}
-	}
-
 	pageTitle := strings.TrimSpace(panelSettings.PageTitleSubscription)
 	if pageTitle == "" {
 		pageTitle = "VPN-подписка — Xray Sub"
 	}
 
-	panelTitle := html.EscapeString(strings.TrimSpace(panelSettings.PanelTitle))
-	if panelTitle == "" {
-		panelTitle = "Xray Sub"
-	}
-
-	logoURL := html.EscapeString(strings.TrimSpace(panelSettings.LogoDataURL))
-	faviconURL := html.EscapeString(strings.TrimSpace(panelSettings.FaviconDataURL))
 	subscriptionURL := fmt.Sprintf("%s/sub/%s", a.resolveBaseURL(r), subscriptionID)
 	importSubscriptionURL := subscriptionURL
 	if encryptedURL, err := a.encryptSubscriptionURL(subscriptionURL); err == nil && strings.TrimSpace(encryptedURL) != "" {
@@ -1699,225 +2207,26 @@ func (a *App) renderSubscriptionBrowserPage(w http.ResponseWriter, r *http.Reque
 		log.Printf("renderSubscriptionBrowserPage: failed to encrypt url via happ api: %v", err)
 	}
 
+	cfg, _, err := normalizeSubscriptionPageConfig(panelSettings.SubscriptionPageConfig)
+	if err != nil {
+		log.Printf("renderSubscriptionBrowserPage: invalid subscription page config, using default: %v", err)
+		cfg = defaultSubscriptionPageConfig()
+	}
+
+	htmlDoc := renderSubscriptionPageHTML(
+		cfg,
+		panelSettings,
+		pageTitle,
+		strings.TrimSpace(panelSettings.FaviconDataURL),
+		strings.TrimSpace(panelSettings.LogoDataURL),
+		subscriptionURL,
+		importSubscriptionURL,
+	)
+
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.Header().Set("Cache-Control", "no-store, no-cache, must-revalidate, max-age=0")
 	w.Header().Set("Pragma", "no-cache")
-	_, _ = w.Write([]byte(fmt.Sprintf(`<!doctype html>
-<html lang="ru">
-<head>
-	<meta charset="utf-8" />
-	<meta name="viewport" content="width=device-width, initial-scale=1" />
-	<title>%s</title>
-	%s
-	<style>
-		:root { color-scheme: dark; }
-		body { margin: 0; background: #0f172a; color: #e5e7eb; font-family: Inter, system-ui, -apple-system, Segoe UI, Roboto, sans-serif; }
-		.wrap { max-width: 760px; margin: 0 auto; padding: 24px 16px 40px; }
-		.head { display: flex; align-items: center; gap: 12px; margin-bottom: 20px; }
-		.logo { width: 36px; height: 36px; border-radius: 10px; object-fit: cover; background: #1f2937; }
-		.title { font-size: 24px; font-weight: 700; margin: 0; }
-		.card { background: #111827; border: 1px solid #334155; border-radius: 12px; overflow: hidden; }
-		.summary { display: flex; justify-content: space-between; align-items: center; padding: 14px 16px; cursor: pointer; }
-		.summary-left { display: flex; align-items: center; gap: 12px; }
-		.summary-icon { width: 34px; height: 34px; border-radius: 10px; background: #0f3f38; display: flex; align-items: center; justify-content: center; font-size: 18px; }
-		.toggle-btn { width: 32px; height: 32px; border-radius: 10px; border: 1px solid #334155; background: #111827; color: #9ca3af; display: inline-flex; align-items: center; justify-content: center; cursor: pointer; transition: all .15s ease; }
-		.toggle-btn:hover { background: #1f2937; }
-		.toggle-arrow { display: inline-block; transition: transform .15s ease; }
-		.toggle-arrow.collapsed { transform: rotate(-90deg); }
-		.muted { color: #9ca3af; font-size: 14px; }
-		.details { padding: 14px 16px 16px; display: none; border-top: 1px solid #334155; }
-		.details.open { display: block; }
-		.grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px 18px; }
-		.info-item { display: flex; align-items: flex-start; gap: 10px; min-height: 54px; }
-		.info-icon { width: 30px; height: 30px; border-radius: 9px; background: #1f2937; display: flex; align-items: center; justify-content: center; font-size: 17px; }
-		.emoji-image { display: inline-block; object-fit: contain; }
-		.emoji-summary { width: 18px; height: 18px; }
-		.emoji-info { width: 17px; height: 17px; }
-		.emoji-step { width: 14px; height: 14px; }
-		.emoji-lang { margin-right: 6px; }
-		.info-label { color: #e2e8f0; font-size: 15px; line-height: 1.2; font-weight: 600; }
-		.info-value { color: #94a3b8; font-size: 13px; line-height: 1.25; margin-top: 4px; }
-		.section { margin-top: 24px; }
-		.section h2 { margin: 0; font-size: 40px; font-weight: 700; }
-		.controls { display: flex; justify-content: space-between; gap: 12px; align-items: center; margin-bottom: 14px; }
-		.install-steps { position: relative; margin-left: 8px; padding-left: 24px; }
-		.step { position: relative; margin: 16px 0 22px; }
-		.step:not(:last-child)::after { content: ""; position: absolute; left: -24px; top: 14px; width: 2px; height: calc(100%% + 22px); background: #334155; z-index: 0; }
-		.step-node { position: absolute; left: -39px; top: -1px; width: 30px; height: 30px; border-radius: 9px; background: #1f2937; border: 1px solid #334155; display: flex; align-items: center; justify-content: center; z-index: 1; }
-		.step-title { font-size: 17px; font-weight: 700; margin: 0 0 4px; }
-		.step-desc { color: #9ca3af; font-size: 13px; margin: 0 0 10px; line-height: 1.35; }
-		.btn { display: inline-flex; align-items: center; justify-content: center; gap: 8px; border: none; border-radius: 10px; padding: 10px 14px; font-weight: 600; font-family: inherit; font-size: 16px; cursor: pointer; text-decoration: none; }
-		.btn-primary { background: #06b6d4; color: #fff; }
-		.btn-soft { background: #164e63; color: #67e8f9; }
-		.btn-action { width: 210px; height: 40px; padding: 0 14px; box-sizing: border-box; background: #164e63; color: #67e8f9; white-space: nowrap; }
-		.btn-icon { width: 16px; height: 16px; display: inline-block; flex: 0 0 auto; }
-		#step1-primary, #add-sub-btn { width: 248px; }
-		.btn-row { display: flex; gap: 8px; flex-wrap: wrap; }
-		.btn-disabled { opacity: .5; cursor: not-allowed; }
-		.lang { margin-top: 28px; display: flex; justify-content: center; }
-	</style>
-</head>
-<body>
-	<div class="wrap">
-		<header class="head">
-			%s
-			<h1 class="title">%s</h1>
-		</header>
-
-		<section class="card">
-			<div class="summary" id="toggle-summary">
-				<div class="summary-left">
-					<div class="summary-icon">%s</div>
-					<div>
-						<div style="font-size:15px;font-weight:700;line-height:1.25;">%s</div>
-						<div class="muted" style="font-size:13px;">%s</div>
-					</div>
-				</div>
-				<button class="toggle-btn" id="toggle-icon" type="button" aria-expanded="false" aria-label="Развернуть">
-					<span class="toggle-arrow collapsed" id="toggle-arrow">▼</span>
-				</button>
-			</div>
-			<div class="details" id="details">
-				<div class="grid">
-					<div class="info-item">
-						<div class="info-icon">%s</div>
-						<div>
-							<div class="info-label">Username</div>
-							<div class="info-value">%s</div>
-						</div>
-					</div>
-					<div class="info-item">
-						<div class="info-icon">%s</div>
-						<div>
-							<div class="info-label">Status</div>
-							<div class="info-value">%s</div>
-						</div>
-					</div>
-					<div class="info-item">
-						<div class="info-icon">%s</div>
-						<div>
-							<div class="info-label">Expires</div>
-							<div class="info-value">%s</div>
-						</div>
-					</div>
-				</div>
-			</div>
-		</section>
-
-		<section class="section">
-			<div class="controls">
-				<h2>Установка</h2>
-			</div>
-
-			<div class="install-steps">
-				<div class="step">
-					<div class="step-node">%s</div>
-					<div class="step-title" id="step1-title">Установите и откройте Happ</div>
-					<p class="step-desc" id="step1-desc">Откройте страницу в Google Play и установите приложение. Или установите приложение напрямую из APK, если Google Play недоступен.</p>
-					<div class="btn-row">
-						<a class="btn btn-action" id="step1-primary" href="https://play.google.com/store/apps/details?id=com.happ.vpn" target="_blank" rel="noopener noreferrer"><svg class="btn-icon" viewBox="0 0 15 15" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true"><path fill-rule="evenodd" clip-rule="evenodd" d="M3 2C2.44772 2 2 2.44772 2 3V12C2 12.5523 2.44772 13 3 13H12C12.5523 13 13 12.5523 13 12V8.5C13 8.22386 12.7761 8 12.5 8C12.2239 8 12 8.22386 12 8.5V12H3V3L6.5 3C6.77614 3 7 2.77614 7 2.5C7 2.22386 6.77614 2 6.5 2H3ZM12.8536 2.14645C12.9015 2.19439 12.9377 2.24964 12.9621 2.30861C12.9861 2.36669 12.9996 2.4303 13 2.497L13 2.49749V5.5C13 5.77614 12.7761 6 12.5 6C12.2239 6 12 5.77614 12 5.5V3.70711L6.85355 8.85355C6.65829 9.04882 6.34171 9.04882 6.14645 8.85355C5.95118 8.65829 5.95118 8.34171 6.14645 8.14645L11.2929 3H9.5C9.22386 3 9 2.77614 9 2.5C9 2.22386 9.22386 2 9.5 2H12.4999H12.5C12.5678 2 12.6324 2.01349 12.6914 2.03794C12.7504 2.06234 12.8056 2.09851 12.8536 2.14645Z" fill="currentColor"/></svg>Открыть в Google Play</a>
-						<a class="btn btn-action" id="step1-secondary" href="https://github.com/happ-proxy/happ-android/releases/latest" target="_blank" rel="noopener noreferrer"><svg class="btn-icon" viewBox="0 0 15 15" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true"><path fill-rule="evenodd" clip-rule="evenodd" d="M3 2C2.44772 2 2 2.44772 2 3V12C2 12.5523 2.44772 13 3 13H12C12.5523 13 13 12.5523 13 12V8.5C13 8.22386 12.7761 8 12.5 8C12.2239 8 12 8.22386 12 8.5V12H3V3L6.5 3C6.77614 3 7 2.77614 7 2.5C7 2.22386 6.77614 2 6.5 2H3ZM12.8536 2.14645C12.9015 2.19439 12.9377 2.24964 12.9621 2.30861C12.9861 2.36669 12.9996 2.4303 13 2.497L13 2.49749V5.5C13 5.77614 12.7761 6 12.5 6C12.2239 6 12 5.77614 12 5.5V3.70711L6.85355 8.85355C6.65829 9.04882 6.34171 9.04882 6.14645 8.85355C5.95118 8.65829 5.95118 8.34171 6.14645 8.14645L11.2929 3H9.5C9.22386 3 9 2.77614 9 2.5C9 2.22386 9.22386 2 9.5 2H12.4999H12.5C12.5678 2 12.6324 2.01349 12.6914 2.03794C12.7504 2.06234 12.8056 2.09851 12.8536 2.14645Z" fill="currentColor"/></svg>Скачать APK</a>
-					</div>
-				</div>
-
-				<div class="step">
-					<div class="step-node">%s</div>
-					<div class="step-title">Добавьте подписку</div>
-					<p class="step-desc">Нажмите кнопку ниже, чтобы добавить подписку</p>
-					<button class="btn btn-action" id="add-sub-btn" type="button">Добавить подписку в Happ</button>
-				</div>
-
-				<div class="step" style="margin-bottom: 0;">
-					<div class="step-node">%s</div>
-					<div class="step-title">Подключитесь и пользуйтесь</div>
-					<p class="step-desc">Откройте приложение и подключитесь к серверу</p>
-				</div>
-			</div>
-		</section>
-
-		<div class="lang">
-			<button class="btn btn-soft btn-disabled" disabled>%s Русский (Недоступно)</button>
-		</div>
-	</div>
-
-	<script>
-		const details = document.getElementById("details");
-		const toggle = document.getElementById("toggle-summary");
-		const iconBtn = document.getElementById("toggle-icon");
-		const icon = document.getElementById("toggle-arrow");
-		toggle.addEventListener("click", () => {
-			const isOpen = details.classList.toggle("open");
-			icon.classList.toggle("collapsed", !isOpen);
-			iconBtn.setAttribute("aria-expanded", String(isOpen));
-			iconBtn.setAttribute("aria-label", isOpen ? "Свернуть" : "Развернуть");
-		});
-
-		// subUrl is either happ://crypt5/{...} (when crypto API is configured)
-		// or the plain https:// subscription URL (fallback).
-		const subUrl = %q;
-
-		document.getElementById("add-sub-btn").addEventListener("click", () => {
-			// If crypto API returned a happ:// deeplink — use it directly.
-			// Otherwise build happ://add/{encoded plain URL}.
-			const deepLink = subUrl.startsWith("happ://")
-				? subUrl
-				: "happ://add/" + encodeURIComponent(subUrl);
-
-			// "blur" fires when the browser hands focus to the native app — the most
-			// reliable cross-browser signal that a deeplink was handled.
-			let appOpened = false;
-			const onBlur = () => { appOpened = true; };
-			window.addEventListener("blur", onBlur, { once: true });
-
-			window.location.href = deepLink;
-
-			setTimeout(() => {
-				window.removeEventListener("blur", onBlur);
-				if (appOpened) return;
-
-				// App didn't open — offer the plain URL for manual paste.
-				const copyUrl = subUrl.startsWith("happ://") ? deepLink : subUrl;
-				if (navigator.clipboard) {
-					navigator.clipboard.writeText(copyUrl)
-						.then(() => alert("Ссылка скопирована. Вставьте её в поле «Добавить подписку» в приложении Happ."))
-						.catch(() => prompt("Happ не найден. Скопируйте ссылку и вставьте в приложение:", copyUrl));
-				} else {
-					prompt("Happ не найден. Скопируйте ссылку и вставьте в приложение:", copyUrl);
-				}
-			}, 1500);
-		});
-	</script>
-</body>
-</html>`,
-		html.EscapeString(pageTitle),
-		func() string {
-			if faviconURL == "" {
-				return ""
-			}
-			return `<link rel="icon" href="` + faviconURL + `" />`
-		}(),
-		func() string {
-			if logoURL == "" {
-				return `<div class="logo"></div>`
-			}
-			return `<img class="logo" src="` + logoURL + `" alt="logo" />`
-		}(),
-		panelTitle,
-		summaryStatusIcon,
-		userName,
-		html.EscapeString(expiresHint),
-		usernameIcon,
-		html.EscapeString(telegramDisplay),
-		statusIcon,
-		html.EscapeString(statusLabel),
-		expiresIcon,
-		html.EscapeString(expiresLabel),
-		installStep1Icon,
-		installStep2Icon,
-		installStep3Icon,
-		langRuIcon,
-		importSubscriptionURL,
-	)))
+	_, _ = w.Write([]byte(htmlDoc))
 }
 
 // --- Data export API ---

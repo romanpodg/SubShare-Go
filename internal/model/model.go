@@ -24,6 +24,12 @@ const (
 	KeyKindInformational = "informational"
 )
 
+// Subscription format constants.
+const (
+	SubscriptionFormatLinks    = "links"
+	SubscriptionFormatXrayJSON = "xray-json"
+)
+
 // DefaultDeviceLimitMessage is the fallback message when the HWID device limit is exceeded.
 const DefaultDeviceLimitMessage = "You have reached the maximum number of allowed devices for your subscription"
 
@@ -81,25 +87,29 @@ type ConnectedDevice struct {
 
 // VLESSKey represents a VLESS server key.
 type VLESSKey struct {
-	ID                int64     `json:"id"`
-	Label             string    `json:"label"`
-	URL               string    `json:"url"`
-	Kind              string    `json:"kind"`
-	TemplateText      string    `json:"template_text"`
-	URLShort          string    `json:"url_short"`
-	Status            string    `json:"status"`
-	StatusLabel       string    `json:"status_label"`
-	CheckStatus       string    `json:"check_status"`
-	CheckStatusLabel  string    `json:"check_status_label"`
-	CheckError        string    `json:"check_error"`
-	LastLatencyMS     int64     `json:"last_latency_ms"`
-	LastCheckedAtText string    `json:"last_checked_at"`
-	EditUUID          string    `json:"edit_uuid"`
-	EditHost          string    `json:"edit_host"`
-	EditPort          string    `json:"edit_port"`
-	EditQuery         string    `json:"edit_query"`
-	EditFragment      string    `json:"edit_fragment"`
-	CreatedAt         time.Time `json:"created_at"`
+	ID                 int64     `json:"id"`
+	Label              string    `json:"label"`
+	URL                string    `json:"url"`
+	Category           string    `json:"category"`
+	Kind               string    `json:"kind"`
+	TemplateText       string    `json:"template_text"`
+	URLShort           string    `json:"url_short"`
+	Status             string    `json:"status"`
+	StatusLabel        string    `json:"status_label"`
+	CheckStatus        string    `json:"check_status"`
+	CheckStatusLabel   string    `json:"check_status_label"`
+	CheckError         string    `json:"check_error"`
+	LastLatencyMS      int64     `json:"last_latency_ms"`
+	LastCheckedAtText  string    `json:"last_checked_at"`
+	EditUUID           string    `json:"edit_uuid"`
+	EditHost           string    `json:"edit_host"`
+	EditPort           string    `json:"edit_port"`
+	EditQuery          string    `json:"edit_query"`
+	EditFragment       string    `json:"edit_fragment"`
+	ExternalSourceID   int64     `json:"external_source_id"`
+	ExternalSourceName string    `json:"external_source_name"`
+	ClientDisplayName  string    `json:"client_display_name"`
+	CreatedAt          time.Time `json:"created_at"`
 }
 
 // LoginRequest is the payload for POST /api/auth/login.
@@ -151,6 +161,7 @@ type UpdateHWIDRequest struct {
 type CreateKeyRequest struct {
 	Label        string `json:"label"`
 	URL          string `json:"url"`
+	Category     string `json:"category"`
 	Status       string `json:"status"`
 	Kind         string `json:"kind"`
 	TemplateText string `json:"template_text"`
@@ -160,6 +171,7 @@ type CreateKeyRequest struct {
 type UpdateKeyRequest struct {
 	Label        string `json:"label"`
 	Status       string `json:"status"`
+	Category     string `json:"category"`
 	RawURL       string `json:"raw_url"`
 	UUID         string `json:"uuid"`
 	Host         string `json:"host"`
@@ -175,6 +187,49 @@ type ReorderKeysRequest struct {
 	IDs []int64 `json:"ids"`
 }
 
+// BulkUpdateKeyStatusRequest is the payload for POST /api/admin/keys/bulk/status.
+type BulkUpdateKeyStatusRequest struct {
+	IDs      []int64 `json:"ids"`
+	Status   string  `json:"status"`
+	Category string  `json:"category"`
+}
+
+// BulkDeleteKeysRequest is the payload for POST /api/admin/keys/bulk/delete.
+type BulkDeleteKeysRequest struct {
+	IDs []int64 `json:"ids"`
+}
+
+type KeyCategory struct {
+	Name      string `json:"name"`
+	Color     string `json:"color"`
+	KeysCount int    `json:"keys_count"`
+}
+
+type CreateKeyCategoryRequest struct {
+	Name  string `json:"name"`
+	Color string `json:"color"`
+}
+
+type RenameKeyCategoryRequest struct {
+	OldName string `json:"old_name"`
+	NewName string `json:"new_name"`
+}
+
+type UpdateKeyCategoryRequest struct {
+	OldName string `json:"old_name"`
+	NewName string `json:"new_name"`
+	Color   string `json:"color"`
+}
+
+type DeleteKeyCategoryRequest struct {
+	Name string `json:"name"`
+	Mode string `json:"mode"`
+}
+
+type ReorderKeyCategoriesRequest struct {
+	Names []string `json:"names"`
+}
+
 // ActivateRequest is the payload for POST /api/subscription/activate.
 type ActivateRequest struct {
 	ActivationCode string `json:"activation_code"`
@@ -187,6 +242,7 @@ type SubscriptionSettings struct {
 	InfoURL                  string `json:"info_url"`
 	ExtraURL                 string `json:"extra_url"`
 	ExtraStatus              string `json:"extra_status"`
+	SubscriptionFormat       string `json:"subscription_format"`
 	TimeZone                 string `json:"time_zone"`
 	Language                 string `json:"language"`
 	ProviderID               string `json:"provider_id"`
@@ -205,6 +261,7 @@ type UpdateSubscriptionSettingsRequest struct {
 	InfoURL                  string `json:"info_url"`
 	ExtraURL                 string `json:"extra_url"`
 	ExtraStatus              string `json:"extra_status"`
+	SubscriptionFormat       string `json:"subscription_format"`
 	TimeZone                 string `json:"time_zone"`
 	Language                 string `json:"language"`
 	ProviderID               string `json:"provider_id"`
@@ -220,14 +277,165 @@ type RoutingSettings struct {
 	ConfigJSON string `json:"config_json"`
 }
 
+// ExternalSubscriptionSource stores settings for a third-party subscription source.
+type ExternalSubscriptionSource struct {
+	ID                  int64  `json:"id"`
+	Name                string `json:"name"`
+	Category            string `json:"category"`
+	KeyCategory         string `json:"key_category"`
+	KeyInsertMode       string `json:"key_insert_mode"`
+	SourceURL           string `json:"source_url"`
+	Enabled             bool   `json:"enabled"`
+	ApplyRemoteMetadata bool   `json:"apply_remote_metadata"`
+	PassHWID            bool   `json:"pass_hwid"`
+	HWIDVersion         string `json:"hwid_version"`
+	HWIDModelName       string `json:"hwid_model_name"`
+	HWIDValue           string `json:"hwid_value"`
+	LastImportCount     int    `json:"last_import_count"`
+	ImportStatus        string `json:"import_status"`
+	LastError           string `json:"last_error"`
+	LastSyncedAt        string `json:"last_synced_at"`
+	MetaTitle           string `json:"meta_title"`
+	MetaRefreshHours    int    `json:"meta_refresh_hours"`
+	MetaSupportURL      string `json:"meta_support_url"`
+	MetaWebPageURL      string `json:"meta_web_page_url"`
+	MetaAnnounce        string `json:"meta_announce"`
+	CreatedAt           string `json:"created_at"`
+	UpdatedAt           string `json:"updated_at"`
+}
+
+type ExternalSourceCategory struct {
+	Name         string `json:"name"`
+	SourcesCount int    `json:"sources_count"`
+}
+
+type ExternalSourceCategoryCreateRequest struct {
+	Name string `json:"name"`
+}
+
+type ExternalSourceCategoryRenameRequest struct {
+	OldName string `json:"old_name"`
+	NewName string `json:"new_name"`
+}
+
+type ExternalSourcePreviewRequest struct {
+	SourceURL      string `json:"source_url"`
+	PassHWID       bool   `json:"pass_hwid"`
+	HWIDVersion    string `json:"hwid_version"`
+	HWIDModelName  string `json:"hwid_model_name"`
+	HWIDValue      string `json:"hwid_value"`
+	RawBody        string `json:"raw_body"`
+	RawContentType string `json:"raw_content_type"`
+	RawFinalURL    string `json:"raw_final_url"`
+}
+
+type ExternalSourceImportRequest struct {
+	Name                string `json:"name"`
+	Category            string `json:"category"`
+	KeyCategory         string `json:"key_category"`
+	KeyInsertMode       string `json:"key_insert_mode"`
+	SourceURL           string `json:"source_url"`
+	Enabled             bool   `json:"enabled"`
+	ApplyRemoteMetadata bool   `json:"apply_remote_metadata"`
+	PassHWID            bool   `json:"pass_hwid"`
+	HWIDVersion         string `json:"hwid_version"`
+	HWIDModelName       string `json:"hwid_model_name"`
+	HWIDValue           string `json:"hwid_value"`
+	RawBody             string `json:"raw_body"`
+	RawContentType      string `json:"raw_content_type"`
+	RawFinalURL         string `json:"raw_final_url"`
+}
+
+type ExternalSourceUpdateRequest struct {
+	Name                string `json:"name"`
+	Category            string `json:"category"`
+	KeyCategory         string `json:"key_category"`
+	KeyInsertMode       string `json:"key_insert_mode"`
+	SourceURL           string `json:"source_url"`
+	Enabled             bool   `json:"enabled"`
+	ApplyRemoteMetadata bool   `json:"apply_remote_metadata"`
+	PassHWID            bool   `json:"pass_hwid"`
+	HWIDVersion         string `json:"hwid_version"`
+	HWIDModelName       string `json:"hwid_model_name"`
+	HWIDValue           string `json:"hwid_value"`
+}
+
 // PanelSettings stores admin panel UI customization (title, logo, favicon, page titles).
 type PanelSettings struct {
-	PanelTitle            string `json:"panelTitle"`
-	LogoDataURL           string `json:"logoDataUrl"`
-	FaviconDataURL        string `json:"faviconDataUrl"`
-	PageTitleAdmin        string `json:"pageTitleAdmin"`
-	PageTitleAdminLogin   string `json:"pageTitleAdminLogin"`
-	PageTitleSubscription string `json:"pageTitleSubscription"`
+	PanelTitle             string `json:"panelTitle"`
+	LogoDataURL            string `json:"logoDataUrl"`
+	FaviconDataURL         string `json:"faviconDataUrl"`
+	PageTitleAdmin         string `json:"pageTitleAdmin"`
+	PageTitleAdminLogin    string `json:"pageTitleAdminLogin"`
+	PageTitleSubscription  string `json:"pageTitleSubscription"`
+	SubscriptionPageConfig string `json:"-"`
+}
+
+type UpdateSubscriptionPageConfigRequest struct {
+	ConfigJSON string `json:"config_json"`
+}
+
+type SubscriptionPageConfig struct {
+	Locale       string                  `json:"locale"`
+	TemplateVars map[string]string       `json:"templateVars"`
+	Theme        map[string]string       `json:"theme"`
+	Blocks       []SubscriptionPageBlock `json:"blocks"`
+}
+
+type SubscriptionPageBlock struct {
+	Type          string                      `json:"type"`
+	ID            string                      `json:"id,omitempty"`
+	BrandTitle    string                      `json:"brandTitle,omitempty"`
+	BrandSubtitle string                      `json:"brandSubtitle,omitempty"`
+	Subhead       string                      `json:"subhead,omitempty"`
+	StatusBadge   string                      `json:"statusBadge,omitempty"`
+	Logo          SubscriptionPageLogo        `json:"logo,omitempty"`
+	Title         string                      `json:"title,omitempty"`
+	Steps         []SubscriptionPageStep      `json:"steps,omitempty"`
+	Copyright     string                      `json:"copyright,omitempty"`
+	LanguageBadge string                      `json:"languageBadge,omitempty"`
+	FooterLink    *SubscriptionPageFooterLink `json:"footerLink,omitempty"`
+}
+
+type SubscriptionPageFooterLink struct {
+	Label string `json:"label"`
+	Href  string `json:"href"`
+}
+
+type SubscriptionPageLogo struct {
+	Src string `json:"src"`
+	Alt string `json:"alt"`
+}
+
+type SubscriptionPageStep struct {
+	ID          string                    `json:"id"`
+	Title       string                    `json:"title"`
+	Description string                    `json:"description"`
+	Block       SubscriptionPageStepBlock `json:"block"`
+}
+
+type SubscriptionPageStepBlock struct {
+	Type            string                   `json:"type"`
+	Buttons         []SubscriptionPageButton `json:"buttons,omitempty"`
+	AddButtonLabel  string                   `json:"addButtonLabel,omitempty"`
+	ManualLinkLabel string                   `json:"manualLinkLabel,omitempty"`
+	CopyLabel       string                   `json:"copyLabel,omitempty"`
+	CopiedLabel     string                   `json:"copiedLabel,omitempty"`
+}
+
+type SubscriptionPageButton struct {
+	ID       string               `json:"id"`
+	Label    string               `json:"label"`
+	Href     string               `json:"href"`
+	Variant  string               `json:"variant"`
+	External bool                 `json:"external"`
+	Icon     SubscriptionPageIcon `json:"icon"`
+}
+
+type SubscriptionPageIcon struct {
+	Type string `json:"type"`
+	Src  string `json:"src,omitempty"`
+	Alt  string `json:"alt,omitempty"`
 }
 
 // NormalizeUserStatus validates and normalizes a user status string.
@@ -291,6 +499,20 @@ func NormalizeCheckStatus(raw string) string {
 		return status
 	default:
 		return "unknown"
+	}
+}
+
+// NormalizeSubscriptionFormat validates and normalizes subscription format.
+func NormalizeSubscriptionFormat(raw string) (string, bool) {
+	format := strings.ToLower(strings.TrimSpace(raw))
+	if format == "" {
+		format = SubscriptionFormatLinks
+	}
+	switch format {
+	case SubscriptionFormatLinks, SubscriptionFormatXrayJSON:
+		return format, true
+	default:
+		return "", false
 	}
 }
 

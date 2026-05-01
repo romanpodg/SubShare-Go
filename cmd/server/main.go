@@ -145,12 +145,29 @@ func run() error {
 
 	// Keys API
 	mux.Handle("GET /api/admin/keys", app.requireAdmin(http.HandlerFunc(app.apiListKeys)))
+	mux.Handle("GET /api/admin/key-categories", app.requireAdmin(http.HandlerFunc(app.apiListKeyCategories)))
+	mux.Handle("POST /api/admin/key-categories", app.requireAdmin(http.HandlerFunc(app.apiCreateKeyCategory)))
+	mux.Handle("PUT /api/admin/key-categories", app.requireAdmin(http.HandlerFunc(app.apiUpdateKeyCategory)))
+	mux.Handle("PUT /api/admin/key-categories/order", app.requireAdmin(http.HandlerFunc(app.apiReorderKeyCategories)))
+	mux.Handle("PUT /api/admin/key-categories/rename", app.requireAdmin(http.HandlerFunc(app.apiRenameKeyCategory)))
+	mux.Handle("POST /api/admin/key-categories/delete", app.requireAdmin(http.HandlerFunc(app.apiDeleteKeyCategory)))
 	mux.Handle("POST /api/admin/keys", app.requireAdmin(http.HandlerFunc(app.apiCreateKey)))
+	mux.Handle("POST /api/admin/keys/bulk/status", app.requireAdmin(http.HandlerFunc(app.apiBulkUpdateKeyStatus)))
+	mux.Handle("POST /api/admin/keys/bulk/delete", app.requireAdmin(http.HandlerFunc(app.apiBulkDeleteKeys)))
 	mux.Handle("PUT /api/admin/keys/order", app.requireAdmin(http.HandlerFunc(app.apiReorderKeys)))
 	mux.Handle("PUT /api/admin/keys/{id}", app.requireAdmin(http.HandlerFunc(app.apiUpdateKey)))
 	mux.Handle("DELETE /api/admin/keys/{id}", app.requireAdmin(http.HandlerFunc(app.apiDeleteKey)))
 	mux.Handle("POST /api/admin/keys/{id}/check", app.requireAdmin(http.HandlerFunc(app.apiCheckKey)))
 	mux.Handle("POST /api/admin/keys/check-all", app.requireAdmin(http.HandlerFunc(app.apiCheckAllKeys)))
+	mux.Handle("GET /api/admin/external-sources", app.requireAdmin(http.HandlerFunc(app.apiListExternalSources)))
+	mux.Handle("GET /api/admin/external-sources/categories", app.requireAdmin(http.HandlerFunc(app.apiListExternalSourceCategories)))
+	mux.Handle("POST /api/admin/external-sources/categories", app.requireAdmin(http.HandlerFunc(app.apiCreateExternalSourceCategory)))
+	mux.Handle("PUT /api/admin/external-sources/categories/rename", app.requireAdmin(http.HandlerFunc(app.apiRenameExternalSourceCategory)))
+	mux.Handle("POST /api/admin/external-sources/preview", app.requireAdmin(http.HandlerFunc(app.apiPreviewExternalSource)))
+	mux.Handle("POST /api/admin/external-sources/import", app.requireAdmin(http.HandlerFunc(app.apiImportExternalSource)))
+	mux.Handle("PUT /api/admin/external-sources/{id}", app.requireAdmin(http.HandlerFunc(app.apiUpdateExternalSource)))
+	mux.Handle("DELETE /api/admin/external-sources/{id}", app.requireAdmin(http.HandlerFunc(app.apiDeleteExternalSource)))
+	mux.Handle("POST /api/admin/external-sources/{id}/sync", app.requireAdmin(http.HandlerFunc(app.apiSyncExternalSource)))
 
 	// Export API
 	mux.Handle("GET /api/admin/export/users", app.requireAdmin(http.HandlerFunc(app.apiExportUsers)))
@@ -162,7 +179,10 @@ func run() error {
 
 	// Panel settings API (GET is public so login/subscription pages can load branding)
 	mux.HandleFunc("GET /api/panel-settings", app.apiGetPanelSettings)
+	mux.HandleFunc("GET /api/subscription-page-config", app.apiGetSubscriptionPageConfig)
 	mux.Handle("PUT /api/admin/panel-settings", app.requireAdmin(http.HandlerFunc(app.apiUpdatePanelSettings)))
+	mux.Handle("GET /api/admin/subscription-page-config", app.requireAdmin(http.HandlerFunc(app.apiGetSubscriptionPageConfig)))
+	mux.Handle("PUT /api/admin/subscription-page-config", app.requireAdmin(http.HandlerFunc(app.apiUpdateSubscriptionPageConfig)))
 
 	// Subscription API
 	mux.HandleFunc("POST /api/subscription/activate", activationLimiter.Wrap(writeError, app.apiActivateSubscription))
