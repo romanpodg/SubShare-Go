@@ -384,7 +384,7 @@ export function ExternalSourcesManagerModal({ open, onClose, onChanged }: Props)
                               onClick={() => updateLocalSource(source.id, { key_insert_mode: "top" })}
                               className={`rounded-lg px-3 py-2 text-sm font-medium transition ${
                                 (source.key_insert_mode || "bottom") === "top"
-                                  ? "bg-accent text-white shadow-sm"
+                                  ? "bg-accent text-accent-fg shadow-sm"
                                   : "text-zinc-300 hover:bg-surface-2/80 hover:text-zinc-100"
                               }`}
                               disabled={isBusy}
@@ -396,7 +396,7 @@ export function ExternalSourcesManagerModal({ open, onClose, onChanged }: Props)
                               onClick={() => updateLocalSource(source.id, { key_insert_mode: "bottom" })}
                               className={`rounded-lg px-3 py-2 text-sm font-medium transition ${
                                 (source.key_insert_mode || "bottom") === "bottom"
-                                  ? "bg-accent text-white shadow-sm"
+                                  ? "bg-accent text-accent-fg shadow-sm"
                                   : "text-zinc-300 hover:bg-surface-2/80 hover:text-zinc-100"
                               }`}
                               disabled={isBusy}

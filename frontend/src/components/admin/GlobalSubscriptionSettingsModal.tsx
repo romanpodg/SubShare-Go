@@ -127,7 +127,7 @@ function SegmentedSelector<T extends string>({
               disabled={disabled}
               className={`rounded-md px-2 py-2 text-xs font-medium transition ${
                 active
-                  ? "bg-accent text-white shadow-sm"
+                  ? "bg-accent text-accent-fg shadow-sm"
                   : "text-zinc-300 hover:bg-surface-2/80 hover:text-zinc-100"
               }`}
             >

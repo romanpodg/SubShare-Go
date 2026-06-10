@@ -3,6 +3,7 @@ import { Inter } from "next/font/google";
 import { ToastProvider } from "@/components/ui/Toast";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
 import { PanelSettingsProvider } from "@/context/PanelSettingsContext";
+import { ThemeProvider } from "@/components/ThemeProvider";
 import "./globals.css";
 
 const inter = Inter({ subsets: ["latin", "cyrillic"] });
@@ -53,11 +54,11 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="ru" className="dark">
+    <html lang="ru" suppressHydrationWarning>
       <head>
         <script dangerouslySetInnerHTML={{ __html: earlyInitScript }} />
       </head>
-      <body className={`${inter.className} bg-bg text-zinc-200 min-h-screen`}>
+      <body className={`${inter.className} bg-bg min-h-screen`}>
         <a
           href="#main-content"
           className="sr-only focus:not-sr-only focus:fixed focus:top-4 focus:left-4 focus:z-50 focus:bg-accent focus:text-white focus:px-4 focus:py-2 focus:rounded-lg"
@@ -65,9 +66,11 @@ export default function RootLayout({
           Перейти к содержимому
         </a>
         <ToastProvider>
-          <PanelSettingsProvider>
-            <ErrorBoundary>{children}</ErrorBoundary>
-          </PanelSettingsProvider>
+          <ThemeProvider attribute="class" defaultTheme="system" enableSystem>
+            <PanelSettingsProvider>
+              <ErrorBoundary>{children}</ErrorBoundary>
+            </PanelSettingsProvider>
+          </ThemeProvider>
         </ToastProvider>
       </body>
     </html>

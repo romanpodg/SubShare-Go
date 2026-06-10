@@ -62,20 +62,16 @@ export function BulkEditKeysModal({ keys, onClose, onRefresh }: Props) {
           Изменения будут применены ко всем выбранным конфигурациям.
         </p>
 
-        <div className="flex flex-col gap-1.5">
-          <label htmlFor="bulk-key-status" className="text-sm text-zinc-400">
-            Статус
-          </label>
-          <select
-            id="bulk-key-status"
-            value={status}
-            onChange={(e) => setStatus(e.target.value as "active" | "non-active")}
-            className="bg-surface-2 border border-border rounded-lg px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-bg"
-          >
-            <option value="active">Активен</option>
-            <option value="non-active">Неактивен</option>
-          </select>
-        </div>
+        <Select
+          id="bulk-key-status"
+          label="Статус"
+          value={status}
+          onChange={(e) => setStatus(e.target.value as "active" | "non-active")}
+          options={[
+            { value: "active", label: "Активен" },
+            { value: "non-active", label: "Неактивен" },
+          ]}
+        />
 
         <div className="grid gap-2 md:grid-cols-[minmax(0,1fr)_auto] md:items-end">
           <Select

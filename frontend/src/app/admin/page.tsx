@@ -15,7 +15,9 @@ import { RoutingSettingsModal } from "@/components/admin/RoutingSettingsModal";
 import { SubscriptionPageConfigModal } from "@/components/admin/SubscriptionPageConfigModal";
 import { LoadingSpinner } from "@/components/ui/LoadingSpinner";
 import { EmojiText } from "@/components/ui/EmojiText";
+import { ThemeToggle } from "@/components/ui/ThemeToggle";
 import { usePanelSettings } from "@/context/PanelSettingsContext";
+import { LogOut, Route, Settings, Paintbrush, ArrowRight } from "lucide-react";
 
 export default function AdminPage() {
   const router = useRouter();
@@ -78,13 +80,13 @@ export default function AdminPage() {
 
   const assignableKeys = keysList.filter((k) => k.status === "active");
   const navItemClass =
-    "inline-flex h-9 items-center rounded-lg border border-border bg-surface-2 px-3 text-sm text-zinc-200 transition-colors hover:bg-surface-1 hover:border-zinc-500";
+    "inline-flex h-9 items-center gap-2 rounded-lg border border-border bg-surface-2 px-3 text-sm font-medium transition-all hover:bg-surface-1 hover:border-accent/50 shadow-sm";
   const navDangerClass =
-    "inline-flex h-9 items-center rounded-lg border border-red-500/25 bg-red-500/15 px-3 text-sm text-red-300 transition-colors hover:bg-red-500/20 hover:border-red-500/40";
+    "inline-flex h-9 items-center gap-2 rounded-lg border border-danger/25 bg-danger/10 px-3 text-sm font-medium text-danger transition-all hover:bg-danger/20 hover:border-danger/40 shadow-sm";
 
   return (
-    <div className="min-h-screen">
-      <header className="border-b border-border px-6 py-4 flex items-center justify-between gap-6">
+    <div className="min-h-screen flex flex-col">
+      <header className="sticky top-0 z-50 backdrop-blur-xl bg-bg/85 border-b border-border px-6 py-4 flex items-center justify-between gap-6 shadow-sm dark:shadow-none transition-all">
         <div className="flex min-w-0 flex-1 items-center gap-2">
           {/* Логотип */}
           {settings.logoDataUrl && (
@@ -104,35 +106,42 @@ export default function AdminPage() {
           <button
             onClick={() => setShowPanelSettings(true)}
             title="Настройки панели"
-            className="w-8 h-8 flex items-center justify-center rounded border border-border bg-surface-2 hover:bg-surface hover:border-zinc-500 transition-colors text-base leading-none"
+            className="w-9 h-9 flex items-center justify-center rounded-lg border border-border bg-surface-2 hover:bg-surface-1 hover:border-accent/50 transition-all text-base leading-none shadow-sm"
           >
-            <EmojiText text="⚙️" />
+            <Settings className="w-4 h-4" />
           </button>
           <Link href="/subscription" className={`${navItemClass} ml-6 shrink-0`}>
-            Перейти в клиентскую панель
+            <span>К клиентской панели</span>
+            <ArrowRight className="w-4 h-4 opacity-70" />
           </Link>
         </div>
-        <div className="flex shrink-0 items-center gap-2">
+        <div className="flex shrink-0 items-center gap-3">
+          <ThemeToggle />
+          <div className="w-px h-6 bg-border mx-1"></div>
           <button
             onClick={() => setShowRoutingSettings(true)}
             className={navItemClass}
           >
-            Роутинг
+            <Route className="w-4 h-4 opacity-70" />
+            <span>Роутинг</span>
           </button>
           <button
             onClick={() => setShowGlobalSubscriptionSettings(true)}
             className={navItemClass}
           >
-            Настройки подписки
+            <Settings className="w-4 h-4 opacity-70" />
+            <span>Подписка</span>
           </button>
           <button
             onClick={() => setShowSubscriptionPageConfig(true)}
             className={navItemClass}
           >
-            Дизайн /sub
+            <Paintbrush className="w-4 h-4 opacity-70" />
+            <span>Дизайн /sub</span>
           </button>
           <button onClick={handleLogout} className={navDangerClass}>
-            Выйти
+            <LogOut className="w-4 h-4 opacity-70" />
+            <span>Выйти</span>
           </button>
         </div>
       </header>

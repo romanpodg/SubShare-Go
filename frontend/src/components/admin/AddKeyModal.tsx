@@ -338,7 +338,7 @@ export function AddKeyModal({ open, onClose, onRefresh, insertAtIndex, initialCa
                   onClick={() => switchConfigurationMode("link")}
                   className={`rounded-lg px-3 py-2 text-sm font-medium transition ${
                     configMode === "link"
-                      ? "bg-accent text-white shadow-sm"
+                      ? "bg-accent text-accent-fg shadow-sm"
                       : "text-zinc-300 hover:bg-surface-2/80 hover:text-zinc-100"
                   }`}
                 >
@@ -349,7 +349,7 @@ export function AddKeyModal({ open, onClose, onRefresh, insertAtIndex, initialCa
                   onClick={() => switchConfigurationMode("xray-json")}
                   className={`rounded-lg px-3 py-2 text-sm font-medium transition ${
                     configMode === "xray-json"
-                      ? "bg-accent text-white shadow-sm"
+                      ? "bg-accent text-accent-fg shadow-sm"
                       : "text-zinc-300 hover:bg-surface-2/80 hover:text-zinc-100"
                   }`}
                 >

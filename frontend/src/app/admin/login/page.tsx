@@ -9,6 +9,7 @@ import { Button } from "@/components/ui/Button";
 import { auth, setCsrfToken } from "@/lib/api";
 import { usePanelSettings } from "@/context/PanelSettingsContext";
 import { EmojiText } from "@/components/ui/EmojiText";
+import { ThemeToggle } from "@/components/ui/ThemeToggle";
 
 export default function LoginPage() {
   const router = useRouter();
@@ -100,8 +101,11 @@ export default function LoginPage() {
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center p-4">
-      <Card className="w-full max-w-sm">
+    <div className="min-h-screen flex items-center justify-center p-4 relative transition-colors">
+      <div className="absolute top-6 right-6">
+        <ThemeToggle />
+      </div>
+      <Card className="w-full max-w-sm shadow-xl dark:shadow-none transition-shadow">
         <div className="flex items-center justify-center gap-2 mb-6">
           {settings.logoDataUrl && (
             // eslint-disable-next-line @next/next/no-img-element

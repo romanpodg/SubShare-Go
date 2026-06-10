@@ -1,15 +1,44 @@
 @import "tailwindcss";
 
+:root {
+  --bg: #f8fafc;
+  --surface-1: #ffffff;
+  --surface-2: #f1f5f9;
+  --border: rgba(0, 0, 0, 0.1);
+  --text-main: #0f172a;
+  --accent: #4f46e5;
+  --accent-hover: #4338ca;
+  --accent-fg: #ffffff;
+  --success: #16a34a;
+  --danger: #dc2626;
+  --warning: #d97706;
+}
+
+.dark {
+  --bg: #000000;
+  --surface-1: #000000;
+  --surface-2: #111111;
+  --border: #333333;
+  --text-main: #ededed;
+  --accent: #ffffff;
+  --accent-hover: #cccccc;
+  --accent-fg: #000000;
+  --success: #22c55e;
+  --danger: #ef4444;
+  --warning: #f59e0b;
+}
+
 @theme inline {
-  --color-bg: #0a0a0f;
-  --color-surface-1: #13131a;
-  --color-surface-2: #1a1a24;
-  --color-border: rgba(255, 255, 255, 0.08);
-  --color-accent: #6366f1;
-  --color-accent-hover: #818cf8;
-  --color-success: #22c55e;
-  --color-danger: #ef4444;
-  --color-warning: #f59e0b;
+  --color-bg: var(--bg);
+  --color-surface-1: var(--surface-1);
+  --color-surface-2: var(--surface-2);
+  --color-border: var(--border);
+  --color-accent: var(--accent);
+  --color-accent-hover: var(--accent-hover);
+  --color-accent-fg: var(--accent-fg);
+  --color-success: var(--success);
+  --color-danger: var(--danger);
+  --color-warning: var(--warning);
 
   --animate-fade-in: fade-in 0.2s ease-out;
   --animate-fade-out: fade-out 0.3s ease-in forwards;
@@ -33,7 +62,7 @@
 
 body {
   background-color: var(--color-bg);
-  color: #e4e4e7;
+  color: var(--text-main);
   font-family: "Inter", "Segoe UI", "Helvetica Neue", "Apple Color Emoji", "Segoe UI Emoji", "Noto Color Emoji", sans-serif;
 }
 

@@ -38,3 +38,6 @@ certs/*.pem
 data/*.db
 data/*.db-shm
 data/*.db-wal
+
+
+CLAUDE.md

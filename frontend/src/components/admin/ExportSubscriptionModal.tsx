@@ -468,7 +468,7 @@ export function ExportSubscriptionModal({ open, onClose, onImported }: Props) {
                   onClick={() => setKeyInsertMode("top")}
                   className={`rounded-lg px-3 py-2 text-sm font-medium transition ${
                     keyInsertMode === "top"
-                      ? "bg-accent text-white shadow-sm"
+                      ? "bg-accent text-accent-fg shadow-sm"
                       : "text-zinc-300 hover:bg-surface-2/80 hover:text-zinc-100"
                   }`}
                 >
@@ -479,7 +479,7 @@ export function ExportSubscriptionModal({ open, onClose, onImported }: Props) {
                   onClick={() => setKeyInsertMode("bottom")}
                   className={`rounded-lg px-3 py-2 text-sm font-medium transition ${
                     keyInsertMode === "bottom"
-                      ? "bg-accent text-white shadow-sm"
+                      ? "bg-accent text-accent-fg shadow-sm"
                       : "text-zinc-300 hover:bg-surface-2/80 hover:text-zinc-100"
                   }`}
                 >
