@@ -1,5 +1,5 @@
 # =============================================================================
-# Xray Sub - Backend Dockerfile
+# SubShare - Backend Dockerfile
 # =============================================================================
 # Stage 1: Build Go backend binary
 # Stage 2: Minimal runtime image
@@ -44,9 +44,9 @@ RUN CGO_ENABLED=0 GOOS=linux go build \
 FROM alpine:${ALPINE_VERSION} AS runtime
 
 # OCI image labels
-LABEL org.opencontainers.image.title="Xray Sub" \
+LABEL org.opencontainers.image.title="SubShare" \
       org.opencontainers.image.description="VLESS VPN subscription management service" \
-      org.opencontainers.image.source="https://github.com/user/xray-sub" \
+      org.opencontainers.image.source="https://github.com/user/subshare" \
       org.opencontainers.image.licenses="MIT"
 
 # Install minimal runtime dependencies in a single layer

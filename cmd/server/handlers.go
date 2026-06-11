@@ -18,8 +18,8 @@ import (
 
 	"golang.org/x/crypto/bcrypt"
 
-	"xary-sub/internal/model"
-	"xary-sub/internal/vless"
+	"subshare/internal/model"
+	"subshare/internal/vless"
 )
 
 var providerIDPattern = regexp.MustCompile(`^[A-Za-z0-9]{8}$`)
@@ -196,7 +196,20 @@ func (a *App) apiLogin(w http.ResponseWriter, r *http.Request) {
 
 	username := strings.TrimSpace(req.Username)
 	password := strings.TrimSpace(req.Password)
-	if !secureEqual(username, a.adminUser) || bcrypt.CompareHashAndPassword(a.adminPassHash, []byte(password)) != nil {
+	
+	var adminID int64
+	var passwordHash string
+	if err := a.db.QueryRow(`SELECT id, password_hash FROM admins WHERE username = ?`, username).Scan(&adminID, &passwordHash); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			writeError(w, http.StatusUnauthorized, "invalid credentials")
+			return
+		}
+		log.Printf("apiLogin: %v", err)
+		writeError(w, http.StatusInternalServerError, "internal server error")
+		return
+	}
+
+	if bcrypt.CompareHashAndPassword([]byte(passwordHash), []byte(password)) != nil {
 		writeError(w, http.StatusUnauthorized, "invalid credentials")
 		return
 	}
@@ -212,15 +225,16 @@ func (a *App) apiLogin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	a.mu.Lock()
-	a.sessions[sessionID] = model.AdminSession{
-		ExpiresAt: time.Now().Add(24 * time.Hour),
-		CSRFToken: csrfToken,
+	expiresAt := time.Now().Add(24 * time.Hour)
+	_, err = a.db.Exec(`INSERT INTO admin_sessions(id, admin_id, csrf_token, expires_at) VALUES(?, ?, ?, ?)`, sessionID, adminID, csrfToken, expiresAt)
+	if err != nil {
+		log.Printf("apiLogin: failed to save session to database: %v", err)
+		writeError(w, http.StatusInternalServerError, "failed to create session")
+		return
 	}
-	a.mu.Unlock()
 
 	http.SetCookie(w, &http.Cookie{
-		Name:     "xray_admin_session",
+		Name:     "subshare_admin_session",
 		Value:    sessionID,
 		Path:     "/",
 		HttpOnly: true,
@@ -232,15 +246,13 @@ func (a *App) apiLogin(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *App) apiLogout(w http.ResponseWriter, r *http.Request) {
-	cookie, err := r.Cookie("xray_admin_session")
+	cookie, err := r.Cookie("subshare_admin_session")
 	if err == nil && cookie.Value != "" {
-		a.mu.Lock()
-		delete(a.sessions, cookie.Value)
-		a.mu.Unlock()
+		_, _ = a.db.Exec(`DELETE FROM admin_sessions WHERE id = ?`, cookie.Value)
 	}
 
 	http.SetCookie(w, &http.Cookie{
-		Name:     "xray_admin_session",
+		Name:     "subshare_admin_session",
 		Value:    "",
 		Path:     "/",
 		HttpOnly: true,
@@ -251,10 +263,266 @@ func (a *App) apiLogout(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *App) apiMe(w http.ResponseWriter, r *http.Request) {
+	session, _, _ := a.adminSessionFromRequest(r)
 	writeJSON(w, http.StatusOK, map[string]any{
 		"authenticated": true,
-		"csrf_token":    a.mustCSRFToken(r),
+		"role":          session.Role,
+		"csrf_token":    session.CSRFToken,
 	})
+}
+
+// --- Admins Management API (Super Admin only) ---
+
+func (a *App) apiListAdmins(w http.ResponseWriter, r *http.Request) {
+	rows, err := a.db.Query(`SELECT id, username, role, created_at FROM admins ORDER BY id ASC`)
+	if err != nil {
+		log.Printf("apiListAdmins: %v", err)
+		writeError(w, http.StatusInternalServerError, "failed to query admins")
+		return
+	}
+	defer rows.Close()
+
+	var admins []model.Admin
+	for rows.Next() {
+		var adm model.Admin
+		if err := rows.Scan(&adm.ID, &adm.Username, &adm.Role, &adm.CreatedAt); err != nil {
+			log.Printf("apiListAdmins scan: %v", err)
+			writeError(w, http.StatusInternalServerError, "failed to scan admins")
+			return
+		}
+		admins = append(admins, adm)
+	}
+
+	if admins == nil {
+		admins = []model.Admin{}
+	}
+
+	writeJSON(w, http.StatusOK, map[string]any{"admins": admins})
+}
+
+func (a *App) apiCreateAdmin(w http.ResponseWriter, r *http.Request) {
+	var req model.CreateAdminRequest
+	if err := readJSON(r, &req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+
+	username := strings.TrimSpace(req.Username)
+	password := strings.TrimSpace(req.Password)
+	role := strings.TrimSpace(req.Role)
+
+	if username == "" {
+		writeError(w, http.StatusBadRequest, "username is required")
+		return
+	}
+	if len(password) < 6 {
+		writeError(w, http.StatusBadRequest, "password must be at least 6 characters")
+		return
+	}
+	if role != "super_admin" && role != "support_admin" {
+		writeError(w, http.StatusBadRequest, "invalid role")
+		return
+	}
+
+	// Check if username already exists
+	var exists bool
+	err := a.db.QueryRow(`SELECT EXISTS(SELECT 1 FROM admins WHERE username = ?)`, username).Scan(&exists)
+	if err != nil {
+		log.Printf("apiCreateAdmin check exists: %v", err)
+		writeError(w, http.StatusInternalServerError, "internal database error")
+		return
+	}
+	if exists {
+		writeError(w, http.StatusConflict, "username is already taken")
+		return
+	}
+
+	passwordHash, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
+	if err != nil {
+		log.Printf("apiCreateAdmin bcrypt error: %v", err)
+		writeError(w, http.StatusInternalServerError, "failed to hash password")
+		return
+	}
+
+	_, err = a.db.Exec(`INSERT INTO admins (username, password_hash, role) VALUES (?, ?, ?)`, username, string(passwordHash), role)
+	if err != nil {
+		log.Printf("apiCreateAdmin insert: %v", err)
+		writeError(w, http.StatusInternalServerError, "failed to create admin")
+		return
+	}
+
+	writeMessage(w, "administrator created successfully")
+}
+
+func (a *App) apiUpdateAdmin(w http.ResponseWriter, r *http.Request) {
+	idStr := r.PathValue("id")
+	id, err := strconv.ParseInt(idStr, 10, 64)
+	if err != nil || id <= 0 {
+		writeError(w, http.StatusBadRequest, "invalid administrator id")
+		return
+	}
+
+	var req model.UpdateAdminRequest
+	if err := readJSON(r, &req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+
+	role := strings.TrimSpace(req.Role)
+	password := strings.TrimSpace(req.Password)
+
+	session, _, _ := a.adminSessionFromRequest(r)
+
+	// Fetch current admin info
+	var currentUsername string
+	var currentRole string
+	err = a.db.QueryRow(`SELECT username, role FROM admins WHERE id = ?`, id).Scan(&currentUsername, &currentRole)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			writeError(w, http.StatusNotFound, "administrator not found")
+			return
+		}
+		log.Printf("apiUpdateAdmin query: %v", err)
+		writeError(w, http.StatusInternalServerError, "database error")
+		return
+	}
+
+	// Update password if provided
+	if password != "" {
+		if len(password) < 6 {
+			writeError(w, http.StatusBadRequest, "password must be at least 6 characters")
+			return
+		}
+		passwordHash, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
+		if err != nil {
+			log.Printf("apiUpdateAdmin bcrypt error: %v", err)
+			writeError(w, http.StatusInternalServerError, "failed to hash password")
+			return
+		}
+		_, err = a.db.Exec(`UPDATE admins SET password_hash = ? WHERE id = ?`, string(passwordHash), id)
+		if err != nil {
+			log.Printf("apiUpdateAdmin password update: %v", err)
+			writeError(w, http.StatusInternalServerError, "failed to update password")
+			return
+		}
+		// Invalidate all active sessions for this admin since password changed, except the current one
+		cookie, err := r.Cookie("subshare_admin_session")
+		if err == nil && cookie.Value != "" {
+			_, _ = a.db.Exec(`DELETE FROM admin_sessions WHERE admin_id = ? AND id != ?`, id, cookie.Value)
+		} else {
+			_, _ = a.db.Exec(`DELETE FROM admin_sessions WHERE admin_id = ?`, id)
+		}
+	}
+
+	// Update role if provided
+	if role != "" {
+		if role != "super_admin" && role != "support_admin" {
+			writeError(w, http.StatusBadRequest, "invalid role")
+			return
+		}
+
+		// Prevent changing own role
+		if id == session.AdminID {
+			writeError(w, http.StatusBadRequest, "you cannot change your own role")
+			return
+		}
+
+		// Prevent changing role of the last super_admin
+		if currentRole == "super_admin" && role != "super_admin" {
+			var superAdminCount int
+			err = a.db.QueryRow(`SELECT COUNT(*) FROM admins WHERE role = 'super_admin'`).Scan(&superAdminCount)
+			if err != nil {
+				log.Printf("apiUpdateAdmin count super admins: %v", err)
+				writeError(w, http.StatusInternalServerError, "database error")
+				return
+			}
+			if superAdminCount <= 1 {
+				writeError(w, http.StatusBadRequest, "cannot demote the only remaining super admin")
+				return
+			}
+		}
+
+		_, err = a.db.Exec(`UPDATE admins SET role = ? WHERE id = ?`, role, id)
+		if err != nil {
+			log.Printf("apiUpdateAdmin role update: %v", err)
+			writeError(w, http.StatusInternalServerError, "failed to update role")
+			return
+		}
+
+		// Invalidate all sessions for the updated admin since role changed
+		_, _ = a.db.Exec(`DELETE FROM admin_sessions WHERE admin_id = ?`, id)
+	}
+
+	writeMessage(w, "administrator updated successfully")
+}
+
+func (a *App) apiDeleteAdmin(w http.ResponseWriter, r *http.Request) {
+	idStr := r.PathValue("id")
+	id, err := strconv.ParseInt(idStr, 10, 64)
+	if err != nil || id <= 0 {
+		writeError(w, http.StatusBadRequest, "invalid administrator id")
+		return
+	}
+
+	session, _, _ := a.adminSessionFromRequest(r)
+
+	// Prevent deleting oneself
+	if id == session.AdminID {
+		writeError(w, http.StatusBadRequest, "you cannot delete your own account")
+		return
+	}
+
+	// Fetch admin to delete
+	var role string
+	err = a.db.QueryRow(`SELECT role FROM admins WHERE id = ?`, id).Scan(&role)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			writeError(w, http.StatusNotFound, "administrator not found")
+			return
+		}
+		log.Printf("apiDeleteAdmin query: %v", err)
+		writeError(w, http.StatusInternalServerError, "database error")
+		return
+	}
+
+	// Prevent deleting the last super admin
+	if role == "super_admin" {
+		var superAdminCount int
+		err = a.db.QueryRow(`SELECT COUNT(*) FROM admins WHERE role = 'super_admin'`).Scan(&superAdminCount)
+		if err != nil {
+			log.Printf("apiDeleteAdmin count super admins: %v", err)
+			writeError(w, http.StatusInternalServerError, "database error")
+			return
+		}
+		if superAdminCount <= 1 {
+			writeError(w, http.StatusBadRequest, "cannot delete the only remaining super admin")
+			return
+		}
+	}
+
+	// Delete sessions first
+	_, err = a.db.Exec(`DELETE FROM admin_sessions WHERE admin_id = ?`, id)
+	if err != nil {
+		log.Printf("apiDeleteAdmin delete sessions: %v", err)
+		writeError(w, http.StatusInternalServerError, "failed to delete sessions")
+		return
+	}
+
+	// Delete admin
+	res, err := a.db.Exec(`DELETE FROM admins WHERE id = ?`, id)
+	if err != nil {
+		log.Printf("apiDeleteAdmin delete admin: %v", err)
+		writeError(w, http.StatusInternalServerError, "failed to delete admin")
+		return
+	}
+
+	rowsAffected, _ := res.RowsAffected()
+	if rowsAffected == 0 {
+		writeError(w, http.StatusNotFound, "administrator not found")
+		return
+	}
+
+	writeMessage(w, "administrator deleted successfully")
 }
 
 // --- Users API ---
@@ -682,16 +950,16 @@ func (a *App) apiUpdatePanelSettings(w http.ResponseWriter, r *http.Request) {
 	}
 	req.PanelTitle = strings.TrimSpace(req.PanelTitle)
 	if req.PanelTitle == "" {
-		req.PanelTitle = "Xray Sub"
+		req.PanelTitle = "SubShare"
 	}
 	if req.PageTitleAdmin == "" {
-		req.PageTitleAdmin = "Панель управления — Xray Sub"
+		req.PageTitleAdmin = "Панель управления — SubShare"
 	}
 	if req.PageTitleAdminLogin == "" {
-		req.PageTitleAdminLogin = "Вход — Xray Sub"
+		req.PageTitleAdminLogin = "Вход — SubShare"
 	}
 	if req.PageTitleSubscription == "" {
-		req.PageTitleSubscription = "VPN-подписка — Xray Sub"
+		req.PageTitleSubscription = "VPN-подписка — SubShare"
 	}
 	if err := a.updatePanelSettings(req); err != nil {
 		log.Printf("apiUpdatePanelSettings: %v", err)
@@ -2189,14 +2457,14 @@ func (a *App) renderSubscriptionBrowserPage(w http.ResponseWriter, r *http.Reque
 	panelSettings, err := a.getPanelSettings()
 	if err != nil {
 		panelSettings = model.PanelSettings{
-			PanelTitle:            "Xray Sub",
-			PageTitleSubscription: "VPN-подписка — Xray Sub",
+			PanelTitle:            "SubShare",
+			PageTitleSubscription: "VPN-подписка — SubShare",
 		}
 	}
 
 	pageTitle := strings.TrimSpace(panelSettings.PageTitleSubscription)
 	if pageTitle == "" {
-		pageTitle = "VPN-подписка — Xray Sub"
+		pageTitle = "VPN-подписка — SubShare"
 	}
 
 	subscriptionURL := fmt.Sprintf("%s/sub/%s", a.resolveBaseURL(r), subscriptionID)

@@ -14,7 +14,7 @@ import {
 } from "./pageConfig";
 import styles from "./subscription-page.module.css";
 
-const STORAGE_THEME_KEY = "xray_sub_subscription_theme";
+const STORAGE_THEME_KEY = "subshare_subscription_theme";
 
 function applyTemplate(source: string, vars: Record<string, string>): string {
   return source.replace(/\{([a-zA-Z0-9_]+)\}/g, (_, key: string) => vars[key] ?? "");

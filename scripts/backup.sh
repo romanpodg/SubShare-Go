@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # =============================================================================
-# Xray Sub — Database backup
+# SubShare — Database backup
 # =============================================================================
 # Creates a consistent snapshot of app.db using SQLite VACUUM INTO (safe to
 # run while the database is in use by the backend container).

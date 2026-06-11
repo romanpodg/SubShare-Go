@@ -1,8 +1,8 @@
 "use client";
 
-import { FormEvent, useMemo } from "react";
+import { FormEvent, useMemo, useState, useEffect } from "react";
 import Image from "next/image";
-import { MoonStar, SunMedium } from "lucide-react";
+import { MoonStar, SunMedium, Smartphone, Monitor, Terminal, Layers } from "lucide-react";
 import type {
   ActivationStepBlockConfig,
   FooterBlockConfig,
@@ -182,41 +182,94 @@ function LinkButtonsBlock({
   recommendedButtonIDs: Set<string>;
   themeMode: "light" | "dark";
 }) {
-  const buttons =
-    recommendedButtonIDs.size === 0
-      ? block.buttons
-      : [...block.buttons].sort((left, right) => {
+  const [selectedPlatform, setSelectedPlatform] = useState<"android" | "apple" | "windows" | "linux" | "all">("all");
+
+  useEffect(() => {
+    const platform = detectDevicePlatform();
+    if (platform === "android") setSelectedPlatform("android");
+    else if (platform === "ios" || platform === "macos") setSelectedPlatform("apple");
+    else if (platform === "windows") setSelectedPlatform("windows");
+    else if (platform === "linux") setSelectedPlatform("linux");
+    else setSelectedPlatform("all");
+  }, []);
+
+  const platformTabs = [
+    { id: "all", label: "Все", icon: <Layers className="w-3.5 h-3.5" /> },
+    { id: "android", label: "Android", icon: <Smartphone className="w-3.5 h-3.5" /> },
+    { id: "apple", label: "Apple", icon: <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="currentColor" xmlns="http://www.w3.org/2000/svg"><path d="M12.152 6.896c-.948 0-2.415-1.078-3.96-1.078-2.04 0-3.905 1.158-4.966 3.002-2.117 3.69-.54 9.139 1.519 12.096 1.007 1.452 2.207 3.074 3.774 3.074 1.51 0 2.09-.91 3.916-.91 1.815 0 2.348.91 3.927.91 1.597 0 2.68-1.474 3.675-2.923 1.158-1.688 1.637-3.32 1.67-3.41-.035-.02-3.197-1.22-3.23-4.832-.027-3.013 2.47-4.463 2.585-4.532-1.42-2.073-3.602-2.31-4.38-2.373-2.031-.157-3.23 1.078-4.13 1.078zM15.98 3.82c.835-1.013 1.393-2.422 1.242-3.82-1.2.049-2.657.801-3.52 1.814-.755.877-1.414 2.301-1.233 3.682 1.336.103 2.705-.688 3.511-1.676z"/></svg> },
+    { id: "windows", label: "Windows", icon: <Monitor className="w-3.5 h-3.5" /> },
+    { id: "linux", label: "Linux", icon: <Terminal className="w-3.5 h-3.5" /> },
+  ];
+
+  const getButtonsForPlatform = () => {
+    switch (selectedPlatform) {
+      case "android":
+        return block.buttons.filter((b) => b.id === "google-play" || b.id === "android-apk");
+      case "apple":
+        return block.buttons.filter((b) => b.id === "app-store-ru" || b.id === "app-store-global" || b.id === "macos");
+      case "windows":
+        return block.buttons.filter((b) => b.id === "windows");
+      case "linux":
+        return block.buttons.filter((b) => b.id === "linux");
+      default:
+        // By default, sort recommended buttons to the top
+        return [...block.buttons].sort((left, right) => {
           const leftRank = recommendedButtonIDs.has(left.id) ? 0 : 1;
           const rightRank = recommendedButtonIDs.has(right.id) ? 0 : 1;
           return leftRank - rightRank;
         });
+    }
+  };
+
+  const visibleButtons = getButtonsForPlatform();
 
   return (
-    <div className={styles.buttons}>
-      {buttons.map((button) => {
-        const recommended = recommendedButtonIDs.has(button.id);
-        const visualVariant =
-          recommendedButtonIDs.size > 0 && !recommended ? "secondary" : button.variant;
-
-        return (
-          <a
-            key={button.id}
-            className={buttonClassNameWithTone({
-              variant: visualVariant,
-              recommended,
-              buttonID: button.id,
-              themeMode,
-            })}
-            href={button.href}
-            target={button.external ? "_blank" : undefined}
-            rel={button.external ? "noreferrer" : undefined}
-            data-button-id={button.id}
+    <div className="flex flex-col gap-4 mt-3">
+      {/* Платформы */}
+      <div className="flex flex-wrap gap-1 p-1 bg-neutral-900/10 dark:bg-white/5 rounded-xl border border-black/5 dark:border-white/5 w-fit">
+        {platformTabs.map((tab) => (
+          <button
+            key={tab.id}
+            onClick={() => setSelectedPlatform(tab.id as any)}
+            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition cursor-pointer ${
+              selectedPlatform === tab.id
+                ? "bg-white dark:bg-surface-2 text-zinc-900 dark:text-zinc-100 shadow-sm border border-black/5 dark:border-white/10"
+                : "text-zinc-500 dark:text-zinc-400 hover:text-zinc-800 dark:hover:text-zinc-200 border border-transparent"
+            }`}
           >
-            {renderButtonIcon(button)}
-            <span>{button.label}</span>
-          </a>
-        );
-      })}
+            {tab.icon}
+            <span>{tab.label}</span>
+          </button>
+        ))}
+      </div>
+
+      {/* Кнопки скачивания */}
+      <div className={styles.buttons}>
+        {visibleButtons.map((button) => {
+          const recommended = recommendedButtonIDs.has(button.id);
+          const visualVariant =
+            recommendedButtonIDs.size > 0 && !recommended ? "secondary" : button.variant;
+
+          return (
+            <a
+              key={button.id}
+              className={buttonClassNameWithTone({
+                variant: visualVariant,
+                recommended: recommended && selectedPlatform === "all", // only show highlight glow if on "All" tab or auto-selected
+                buttonID: button.id,
+                themeMode,
+              })}
+              href={button.href}
+              target={button.external ? "_blank" : undefined}
+              rel={button.external ? "noreferrer" : undefined}
+              data-button-id={button.id}
+            >
+              {renderButtonIcon(button)}
+              <span>{button.label}</span>
+            </a>
+          );
+        })}
+      </div>
     </div>
   );
 }

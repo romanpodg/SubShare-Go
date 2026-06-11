@@ -1,5 +1,5 @@
 # =============================================================================
-# Xray Sub - Frontend Dockerfile
+# SubShare - Frontend Dockerfile
 # =============================================================================
 # Stage 1: Build Next.js static export
 # Stage 2: Serve with nginx and reverse-proxy API to the backend
@@ -32,9 +32,9 @@ RUN npm run build
 FROM nginxinc/nginx-unprivileged:${NGINX_VERSION} AS runtime
 
 # OCI image labels
-LABEL org.opencontainers.image.title="Xray Sub Frontend" \
+LABEL org.opencontainers.image.title="SubShare Frontend" \
       org.opencontainers.image.description="Next.js frontend for VLESS VPN subscription management" \
-      org.opencontainers.image.source="https://github.com/user/xray-sub" \
+      org.opencontainers.image.source="https://github.com/user/subshare" \
       org.opencontainers.image.licenses="MIT"
 
 # Switch to root to set up config and static files, then back to nginx user

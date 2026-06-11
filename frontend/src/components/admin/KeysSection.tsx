@@ -173,6 +173,10 @@ export function KeysSection({ keys, subscriptionFormat, onRefresh }: Props) {
   const [orderedKeys, setOrderedKeys] = useState<VLESSKey[]>(keys);
   const [keyCategories, setKeyCategories] = useState<KeyCategory[]>([]);
 
+  // Search and status filter states
+  const [searchQuery, setSearchQuery] = useState("");
+  const [statusFilter, setStatusFilter] = useState<"all" | "active" | "inactive">("all");
+
   const [showAddKey, setShowAddKey] = useState(false);
   const [showBulkEdit, setShowBulkEdit] = useState(false);
   const [editKey, setEditKey] = useState<VLESSKey | null>(null);
@@ -198,12 +202,35 @@ export function KeysSection({ keys, subscriptionFormat, onRefresh }: Props) {
 
   const selectAllRef = useRef<HTMLInputElement | null>(null);
 
+  // Filter keys based on search query and status filter
+  const filteredOrderedKeys = useMemo(() => {
+    return orderedKeys.filter((key) => {
+      const query = searchQuery.toLowerCase().trim();
+      if (query) {
+        const labelMatch = key.label?.toLowerCase().includes(query);
+        const clientNameMatch = key.client_display_name?.toLowerCase().includes(query);
+        const urlMatch = key.url?.toLowerCase().includes(query);
+        const categoryMatch = key.category?.toLowerCase().includes(query);
+        const idMatch = String(key.id).includes(query);
+        if (!labelMatch && !clientNameMatch && !urlMatch && !categoryMatch && !idMatch) {
+          return false;
+        }
+      }
+      if (statusFilter !== "all") {
+        if (key.status !== statusFilter) {
+          return false;
+        }
+      }
+      return true;
+    });
+  }, [orderedKeys, searchQuery, statusFilter]);
+
   const selectedCount = selectedKeyIDs.length;
-  const allSelected = orderedKeys.length > 0 && selectedCount === orderedKeys.length;
+  const allSelected = filteredOrderedKeys.length > 0 && filteredOrderedKeys.every((key) => selectedKeyIDs.includes(key.id));
   const partiallySelected = selectedCount > 0 && !allSelected;
-  const selectedKeys = orderedKeys.filter((key) => selectedKeyIDs.includes(key.id));
-  const informationalKeysCount = orderedKeys.filter((key) => key.kind === "informational").length;
-  const realKeysCount = orderedKeys.length - informationalKeysCount;
+  const selectedKeys = filteredOrderedKeys.filter((key) => selectedKeyIDs.includes(key.id));
+  const informationalKeysCount = filteredOrderedKeys.filter((key) => key.kind === "informational").length;
+  const realKeysCount = filteredOrderedKeys.length - informationalKeysCount;
 
   useEffect(() => {
     if (!hasUnsavedOrder) {
@@ -278,7 +305,7 @@ export function KeysSection({ keys, subscriptionFormat, onRefresh }: Props) {
 
   const categoryCounts = useMemo(() => {
     const counts = new Map<string, number>();
-    for (const key of orderedKeys) {
+    for (const key of filteredOrderedKeys) {
       const category = normalizeCategory(key.category);
       if (!category) {
         continue;
@@ -286,11 +313,11 @@ export function KeysSection({ keys, subscriptionFormat, onRefresh }: Props) {
       counts.set(category, (counts.get(category) || 0) + 1);
     }
     return counts;
-  }, [orderedKeys]);
+  }, [filteredOrderedKeys]);
 
   const uncategorizedKeys = useMemo(() => {
-    return orderedKeys.filter((key) => !normalizeCategory(key.category));
-  }, [orderedKeys]);
+    return filteredOrderedKeys.filter((key) => !normalizeCategory(key.category));
+  }, [filteredOrderedKeys]);
 
   const uncategorizedCount = uncategorizedKeys.length;
 
@@ -310,13 +337,13 @@ export function KeysSection({ keys, subscriptionFormat, onRefresh }: Props) {
   const categoryGroups = useMemo<CategoryGroup[]>(() => {
     return allCategoryNames.map((categoryName) => ({
       category: categoryName,
-      keys: orderedKeys.filter((key) => normalizeCategory(key.category) === categoryName),
+      keys: filteredOrderedKeys.filter((key) => normalizeCategory(key.category) === categoryName),
     }));
-  }, [allCategoryNames, orderedKeys]);
+  }, [allCategoryNames, filteredOrderedKeys]);
 
   const activeCategoryKeys = useMemo(() => {
-    return orderedKeys.filter((key) => normalizeCategory(key.category) === activeCategoryName);
-  }, [orderedKeys, activeCategoryName]);
+    return filteredOrderedKeys.filter((key) => normalizeCategory(key.category) === activeCategoryName);
+  }, [filteredOrderedKeys, activeCategoryName]);
 
   const gridLayoutStyle = {
     gridTemplateColumns:
@@ -324,8 +351,8 @@ export function KeysSection({ keys, subscriptionFormat, onRefresh }: Props) {
         ? "minmax(0, 0fr) minmax(0, 1fr)"
         : hiddenPane === "real"
           ? "minmax(0, 1fr) minmax(0, 0fr)"
-          : "minmax(0, 0.75fr) minmax(0, 1.25fr)",
-    columnGap: hiddenPane ? "0px" : "0.75rem",
+          : "minmax(0, 1fr) minmax(0, 1fr)",
+    columnGap: hiddenPane ? "0px" : "1.25rem",
     transition: "grid-template-columns 320ms ease, column-gap 320ms ease",
   } as const;
 
@@ -392,7 +419,19 @@ export function KeysSection({ keys, subscriptionFormat, onRefresh }: Props) {
   };
 
   const toggleSelectAllKeys = () => {
-    setSelectedKeyIDs(allSelected ? [] : orderedKeys.map((key) => key.id));
+    if (allSelected) {
+      setSelectedKeyIDs((previous) => previous.filter((id) => !filteredOrderedKeys.some((key) => key.id === id)));
+    } else {
+      setSelectedKeyIDs((previous) => {
+        const next = [...previous];
+        filteredOrderedKeys.forEach((key) => {
+          if (!next.includes(key.id)) {
+            next.push(key.id);
+          }
+        });
+        return next;
+      });
+    }
   };
 
   const openDeleteSelectedDialog = () => {
@@ -706,82 +745,77 @@ export function KeysSection({ keys, subscriptionFormat, onRefresh }: Props) {
     );
   };
 
-  const renderEmptySlot = (targetIndex: number) => {
-    return (
-      <div
-        className="h-full min-h-[116px] rounded-lg border border-border bg-surface-2/30"
-        onDragOver={(event) => {
-          event.preventDefault();
-        }}
-        onDrop={(event) => {
-          event.preventDefault();
-          dropDraggedAtIndex(targetIndex);
-        }}
-      />
-    );
-  };
-
   const renderKeyRows = (sectionKeys: VLESSKey[], categoryHint?: string) => {
+    const infoKeys = sectionKeys.filter((key) => key.kind === "informational");
+    const realKeys = sectionKeys.filter((key) => key.kind !== "informational");
+
     if (sectionKeys.length === 0) {
       return null;
     }
 
     return (
-      <div className="space-y-2">
-        {sectionKeys.map((key) => {
-          const targetIndex = keyIndexByID.get(key.id) ?? 0;
-          const row = key.kind === "informational" ? { informational: key, real: null } : { informational: null, real: key };
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        {/* Информационная колонка */}
+        <div 
+          className={`space-y-2 transition-all duration-300 ${informationalHidden ? "hidden" : "block"}`}
+          onDragOver={(event) => event.preventDefault()}
+          onDrop={(event) => {
+            event.preventDefault();
+            if (dragging) {
+              const lastInfo = infoKeys[infoKeys.length - 1];
+              const targetIndex = lastInfo ? (keyIndexByID.get(lastInfo.id) ?? 0) + 1 : 0;
+              moveKeyToIndex(dragging.id, targetIndex);
+              setDragging(null);
+            }
+          }}
+        >
+          <div className="flex items-center justify-between border-b border-border/40 pb-1 mb-2">
+            <span className="text-xs font-semibold text-zinc-400 uppercase tracking-wider">Информационные сообщения ({infoKeys.length})</span>
+            <button
+              onClick={() => startAddConfiguration(orderedKeys.length, categoryHint)}
+              className="text-[10px] text-accent hover:underline cursor-pointer"
+            >
+              + Добавить
+            </button>
+          </div>
+          {infoKeys.map((key) => renderKeyCard(key))}
+          {infoKeys.length === 0 && (
+            <div className="border border-dashed border-border/50 rounded-lg p-4 text-center text-xs text-zinc-500">
+              Нет сообщений
+            </div>
+          )}
+        </div>
 
-          return (
-            <React.Fragment key={key.id}>
-              <InsertGapActions
-                index={targetIndex}
-                categoryHint={categoryHint}
-                onAddConfiguration={startAddConfiguration}
-                onAddCategory={openCreateCategory}
-                onDrop={dropDraggedAtIndex}
-              />
-              <div className="grid items-stretch" style={gridLayoutStyle}>
-                <div
-                  className={`min-w-0 overflow-hidden transition-all duration-300 ${
-                    informationalHidden ? "-translate-x-10 opacity-0 pointer-events-none" : "translate-x-0 opacity-100"
-                  }`}
-                  onDragOver={(event) => {
-                    event.preventDefault();
-                  }}
-                  onDrop={(event) => {
-                    event.preventDefault();
-                    dropDraggedAtIndex(targetIndex);
-                  }}
-                >
-                  {row.informational ? renderKeyCard(row.informational) : renderEmptySlot(targetIndex)}
-                </div>
-                <div
-                  className={`min-w-0 overflow-hidden transition-all duration-300 ${
-                    realHidden ? "translate-x-10 opacity-0 pointer-events-none" : "translate-x-0 opacity-100"
-                  }`}
-                  onDragOver={(event) => {
-                    event.preventDefault();
-                  }}
-                  onDrop={(event) => {
-                    event.preventDefault();
-                    dropDraggedAtIndex(targetIndex);
-                  }}
-                >
-                  {row.real ? renderKeyCard(row.real) : renderEmptySlot(targetIndex)}
-                </div>
-              </div>
-            </React.Fragment>
-          );
-        })}
-
-        <InsertGapActions
-          index={(keyIndexByID.get(sectionKeys[sectionKeys.length - 1]?.id ?? 0) ?? orderedKeys.length - 1) + 1}
-          categoryHint={categoryHint}
-          onAddConfiguration={startAddConfiguration}
-          onAddCategory={openCreateCategory}
-          onDrop={dropDraggedAtIndex}
-        />
+        {/* Колонка конфигураций */}
+        <div 
+          className={`space-y-2 transition-all duration-300 ${realHidden ? "hidden" : "block"}`}
+          onDragOver={(event) => event.preventDefault()}
+          onDrop={(event) => {
+            event.preventDefault();
+            if (dragging) {
+              const lastReal = realKeys[realKeys.length - 1];
+              const targetIndex = lastReal ? (keyIndexByID.get(lastReal.id) ?? 0) + 1 : orderedKeys.length;
+              moveKeyToIndex(dragging.id, targetIndex);
+              setDragging(null);
+            }
+          }}
+        >
+          <div className="flex items-center justify-between border-b border-border/40 pb-1 mb-2">
+            <span className="text-xs font-semibold text-zinc-400 uppercase tracking-wider">Рабочие конфигурации ({realKeys.length})</span>
+            <button
+              onClick={() => startAddConfiguration(orderedKeys.length, categoryHint)}
+              className="text-[10px] text-accent hover:underline cursor-pointer"
+            >
+              + Добавить
+            </button>
+          </div>
+          {realKeys.map((key) => renderKeyCard(key))}
+          {realKeys.length === 0 && (
+            <div className="border border-dashed border-border/50 rounded-lg p-4 text-center text-xs text-zinc-500">
+              Нет конфигураций
+            </div>
+          )}
+        </div>
       </div>
     );
   };
@@ -995,6 +1029,41 @@ export function KeysSection({ keys, subscriptionFormat, onRefresh }: Props) {
           </Button>
         </div>
       </div>
+
+      {/* Панель поиска и фильтров */}
+      {!collapsed && (
+        <div className="flex flex-col md:flex-row gap-3 mb-4 p-3 bg-surface-2/30 rounded-xl border border-border">
+          <div className="flex-1 relative flex items-center">
+            <span className="absolute left-3 text-zinc-500">🔍</span>
+            <input
+              type="text"
+              placeholder="Поиск по названию, категории, URL, ID..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              className="w-full h-9 bg-surface-2 border border-border rounded-lg pl-9 pr-8 text-sm focus:outline-none focus:border-accent text-zinc-100 placeholder-zinc-500 transition-colors"
+            />
+            {searchQuery && (
+              <button
+                onClick={() => setSearchQuery("")}
+                className="absolute right-2.5 top-1/2 -translate-y-1/2 text-zinc-500 hover:text-zinc-300 text-xs w-5 h-5 flex items-center justify-center rounded-full hover:bg-surface-1"
+              >
+                ✕
+              </button>
+            )}
+          </div>
+          <div className="flex gap-2">
+            <select
+              value={statusFilter}
+              onChange={(e) => setStatusFilter(e.target.value as any)}
+              className="h-9 bg-surface-2 border border-border rounded-lg px-3 text-sm focus:outline-none focus:border-accent text-zinc-300 cursor-pointer"
+            >
+              <option value="all">Все статусы</option>
+              <option value="active">Активен</option>
+              <option value="inactive">Неактивен</option>
+            </select>
+          </div>
+        </div>
+      )}
 
       {!collapsed ? (
         <div className="space-y-4">

@@ -1,4 +1,4 @@
-module xary-sub
+module subshare
 
 go 1.24.0
 

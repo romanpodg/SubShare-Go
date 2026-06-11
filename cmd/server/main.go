@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"fmt"
 	"log"
+	"log/slog"
 	"net/http"
 	"os"
 	"os/signal"
@@ -16,13 +17,17 @@ import (
 	"golang.org/x/crypto/bcrypt"
 	_ "modernc.org/sqlite"
 
-	"xary-sub/internal/middleware"
-	"xary-sub/internal/model"
+	"subshare/internal/middleware"
+	"subshare/internal/model"
 )
 
 func main() {
+	logger := slog.New(slog.NewJSONHandler(os.Stdout, nil))
+	slog.SetDefault(logger)
+
 	if err := run(); err != nil {
-		log.Fatal(err)
+		slog.Error("fatal error", "error", err)
+		os.Exit(1)
 	}
 }
 
@@ -60,12 +65,25 @@ func run() error {
 	}
 	adminPass := strings.TrimSpace(os.Getenv("ADMIN_PASSWORD"))
 	if adminPass == "" {
-		log.Fatal("ADMIN_PASSWORD environment variable is required but not set")
+		slog.Error("ADMIN_PASSWORD environment variable is required but not set")
+		os.Exit(1)
 	}
 
 	adminPassHash, err := bcrypt.GenerateFromPassword([]byte(adminPass), bcrypt.DefaultCost)
 	if err != nil {
 		return fmt.Errorf("hash admin password: %w", err)
+	}
+
+	// Seed root admin if no admins exist
+	var adminCount int
+	if err := db.QueryRow(`SELECT COUNT(*) FROM admins`).Scan(&adminCount); err != nil {
+		return fmt.Errorf("count admins: %w", err)
+	}
+	if adminCount == 0 {
+		if _, err := db.Exec(`INSERT INTO admins (username, password_hash, role) VALUES (?, ?, 'super_admin')`, adminUser, string(adminPassHash)); err != nil {
+			return fmt.Errorf("seed root admin: %w", err)
+		}
+		log.Printf("Seeded root admin account: %s (role: super_admin)", adminUser)
 	}
 
 	deviceLimitMessage := strings.TrimSpace(os.Getenv("DEVICE_LIMIT_MESSAGE"))
@@ -100,13 +118,10 @@ func run() error {
 
 	app := &App{
 		db:                       db,
-		adminUser:                adminUser,
-		adminPassHash:            adminPassHash,
 		deviceLimitMessage:       deviceLimitMessage,
 		baseURL:                  baseURL,
 		happCryptoAPIURL:         happCryptoAPIURL,
 		subscriptionBodyEncoding: subscriptionBodyEncoding,
-		sessions:                 make(map[string]model.AdminSession),
 	}
 
 	go app.cleanupExpiredSessions(5 * time.Minute)
@@ -131,6 +146,12 @@ func run() error {
 	mux.HandleFunc("POST /api/auth/login", loginLimiter.Wrap(writeError, app.apiLogin))
 	mux.Handle("POST /api/auth/logout", app.requireAdmin(http.HandlerFunc(app.apiLogout)))
 	mux.Handle("GET /api/auth/me", app.requireAdmin(http.HandlerFunc(app.apiMe)))
+
+	// Admins Management API (Super Admin only)
+	mux.Handle("GET /api/admin/admins", app.requireSuperAdmin(http.HandlerFunc(app.apiListAdmins)))
+	mux.Handle("POST /api/admin/admins", app.requireSuperAdmin(http.HandlerFunc(app.apiCreateAdmin)))
+	mux.Handle("PUT /api/admin/admins/{id}", app.requireSuperAdmin(http.HandlerFunc(app.apiUpdateAdmin)))
+	mux.Handle("DELETE /api/admin/admins/{id}", app.requireSuperAdmin(http.HandlerFunc(app.apiDeleteAdmin)))
 
 	// Users API
 	mux.Handle("GET /api/admin/users", app.requireAdmin(http.HandlerFunc(app.apiListUsers)))
@@ -159,30 +180,32 @@ func run() error {
 	mux.Handle("DELETE /api/admin/keys/{id}", app.requireAdmin(http.HandlerFunc(app.apiDeleteKey)))
 	mux.Handle("POST /api/admin/keys/{id}/check", app.requireAdmin(http.HandlerFunc(app.apiCheckKey)))
 	mux.Handle("POST /api/admin/keys/check-all", app.requireAdmin(http.HandlerFunc(app.apiCheckAllKeys)))
-	mux.Handle("GET /api/admin/external-sources", app.requireAdmin(http.HandlerFunc(app.apiListExternalSources)))
-	mux.Handle("GET /api/admin/external-sources/categories", app.requireAdmin(http.HandlerFunc(app.apiListExternalSourceCategories)))
-	mux.Handle("POST /api/admin/external-sources/categories", app.requireAdmin(http.HandlerFunc(app.apiCreateExternalSourceCategory)))
-	mux.Handle("PUT /api/admin/external-sources/categories/rename", app.requireAdmin(http.HandlerFunc(app.apiRenameExternalSourceCategory)))
-	mux.Handle("POST /api/admin/external-sources/preview", app.requireAdmin(http.HandlerFunc(app.apiPreviewExternalSource)))
-	mux.Handle("POST /api/admin/external-sources/import", app.requireAdmin(http.HandlerFunc(app.apiImportExternalSource)))
-	mux.Handle("PUT /api/admin/external-sources/{id}", app.requireAdmin(http.HandlerFunc(app.apiUpdateExternalSource)))
-	mux.Handle("DELETE /api/admin/external-sources/{id}", app.requireAdmin(http.HandlerFunc(app.apiDeleteExternalSource)))
-	mux.Handle("POST /api/admin/external-sources/{id}/sync", app.requireAdmin(http.HandlerFunc(app.apiSyncExternalSource)))
+
+	// External Sources API (Super Admin only)
+	mux.Handle("GET /api/admin/external-sources", app.requireSuperAdmin(http.HandlerFunc(app.apiListExternalSources)))
+	mux.Handle("GET /api/admin/external-sources/categories", app.requireSuperAdmin(http.HandlerFunc(app.apiListExternalSourceCategories)))
+	mux.Handle("POST /api/admin/external-sources/categories", app.requireSuperAdmin(http.HandlerFunc(app.apiCreateExternalSourceCategory)))
+	mux.Handle("PUT /api/admin/external-sources/categories/rename", app.requireSuperAdmin(http.HandlerFunc(app.apiRenameExternalSourceCategory)))
+	mux.Handle("POST /api/admin/external-sources/preview", app.requireSuperAdmin(http.HandlerFunc(app.apiPreviewExternalSource)))
+	mux.Handle("POST /api/admin/external-sources/import", app.requireSuperAdmin(http.HandlerFunc(app.apiImportExternalSource)))
+	mux.Handle("PUT /api/admin/external-sources/{id}", app.requireSuperAdmin(http.HandlerFunc(app.apiUpdateExternalSource)))
+	mux.Handle("DELETE /api/admin/external-sources/{id}", app.requireSuperAdmin(http.HandlerFunc(app.apiDeleteExternalSource)))
+	mux.Handle("POST /api/admin/external-sources/{id}/sync", app.requireSuperAdmin(http.HandlerFunc(app.apiSyncExternalSource)))
 
 	// Export API
 	mux.Handle("GET /api/admin/export/users", app.requireAdmin(http.HandlerFunc(app.apiExportUsers)))
 	mux.Handle("GET /api/admin/export/keys", app.requireAdmin(http.HandlerFunc(app.apiExportKeys)))
 	mux.Handle("GET /api/admin/subscription-settings", app.requireAdmin(http.HandlerFunc(app.apiGetSubscriptionSettings)))
-	mux.Handle("PUT /api/admin/subscription-settings", app.requireAdmin(http.HandlerFunc(app.apiUpdateSubscriptionSettings)))
+	mux.Handle("PUT /api/admin/subscription-settings", app.requireSuperAdmin(http.HandlerFunc(app.apiUpdateSubscriptionSettings)))
 	mux.Handle("GET /api/admin/routing-settings", app.requireAdmin(http.HandlerFunc(app.apiGetRoutingSettings)))
-	mux.Handle("PUT /api/admin/routing-settings", app.requireAdmin(http.HandlerFunc(app.apiUpdateRoutingSettings)))
+	mux.Handle("PUT /api/admin/routing-settings", app.requireSuperAdmin(http.HandlerFunc(app.apiUpdateRoutingSettings)))
 
 	// Panel settings API (GET is public so login/subscription pages can load branding)
 	mux.HandleFunc("GET /api/panel-settings", app.apiGetPanelSettings)
 	mux.HandleFunc("GET /api/subscription-page-config", app.apiGetSubscriptionPageConfig)
-	mux.Handle("PUT /api/admin/panel-settings", app.requireAdmin(http.HandlerFunc(app.apiUpdatePanelSettings)))
+	mux.Handle("PUT /api/admin/panel-settings", app.requireSuperAdmin(http.HandlerFunc(app.apiUpdatePanelSettings)))
 	mux.Handle("GET /api/admin/subscription-page-config", app.requireAdmin(http.HandlerFunc(app.apiGetSubscriptionPageConfig)))
-	mux.Handle("PUT /api/admin/subscription-page-config", app.requireAdmin(http.HandlerFunc(app.apiUpdateSubscriptionPageConfig)))
+	mux.Handle("PUT /api/admin/subscription-page-config", app.requireSuperAdmin(http.HandlerFunc(app.apiUpdateSubscriptionPageConfig)))
 
 	// Subscription API
 	mux.HandleFunc("POST /api/subscription/activate", activationLimiter.Wrap(writeError, app.apiActivateSubscription))

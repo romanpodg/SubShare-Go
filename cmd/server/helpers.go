@@ -9,7 +9,7 @@ import (
 	"strings"
 	"time"
 
-	"xary-sub/internal/model"
+	"subshare/internal/model"
 )
 
 type deviceMeta struct {

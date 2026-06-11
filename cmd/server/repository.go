@@ -10,8 +10,8 @@ import (
 	"strings"
 	"time"
 
-	"xary-sub/internal/model"
-	"xary-sub/internal/vless"
+	"subshare/internal/model"
+	"subshare/internal/vless"
 )
 
 var validSQLIdentifier = regexp.MustCompile(`^[a-zA-Z_][a-zA-Z0-9_]*$`)
@@ -70,6 +70,20 @@ func migrate(db *sql.DB) error {
 			token TEXT NOT NULL UNIQUE,
 			created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
 		);`,
+		`CREATE TABLE IF NOT EXISTS admin_sessions (
+			id TEXT PRIMARY KEY,
+			admin_id INTEGER NOT NULL DEFAULT 1,
+			csrf_token TEXT NOT NULL,
+			expires_at DATETIME NOT NULL,
+			created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+		);`,
+		`CREATE TABLE IF NOT EXISTS admins (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			username TEXT NOT NULL UNIQUE,
+			password_hash TEXT NOT NULL,
+			role TEXT NOT NULL DEFAULT 'super_admin',
+			created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+		);`,
 		`CREATE TABLE IF NOT EXISTS vless_keys (
 			id INTEGER PRIMARY KEY AUTOINCREMENT,
 			label TEXT NOT NULL,
@@ -110,12 +124,12 @@ func migrate(db *sql.DB) error {
 		);`,
 		`CREATE TABLE IF NOT EXISTS panel_settings (
 			id INTEGER PRIMARY KEY CHECK (id = 1),
-			panel_title TEXT NOT NULL DEFAULT 'Xray Sub',
+			panel_title TEXT NOT NULL DEFAULT 'SubShare',
 			logo_data TEXT NOT NULL DEFAULT '',
 			favicon_data TEXT NOT NULL DEFAULT '',
-			page_title_admin TEXT NOT NULL DEFAULT 'Панель управления — Xray Sub',
-			page_title_admin_login TEXT NOT NULL DEFAULT 'Вход — Xray Sub',
-			page_title_subscription TEXT NOT NULL DEFAULT 'VPN-подписка — Xray Sub',
+			page_title_admin TEXT NOT NULL DEFAULT 'Панель управления — SubShare',
+			page_title_admin_login TEXT NOT NULL DEFAULT 'Вход — SubShare',
+			page_title_subscription TEXT NOT NULL DEFAULT 'VPN-подписка — SubShare',
 			subscription_page_config TEXT NOT NULL DEFAULT '',
 			updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
 		);`,
@@ -171,6 +185,12 @@ func migrate(db *sql.DB) error {
 		}
 	}
 
+	if err := ensureColumn(db, "admins", "role", "TEXT NOT NULL DEFAULT 'super_admin'"); err != nil {
+		return err
+	}
+	if err := ensureColumn(db, "admin_sessions", "admin_id", "INTEGER NOT NULL DEFAULT 1"); err != nil {
+		return err
+	}
 	if err := ensureColumn(db, "users", "status", "TEXT NOT NULL DEFAULT 'active'"); err != nil {
 		return err
 	}
@@ -904,16 +924,16 @@ func (a *App) getPanelSettings() (model.PanelSettings, error) {
 		SubscriptionPageConfig: subscriptionPageConfig.String,
 	}
 	if s.PanelTitle == "" {
-		s.PanelTitle = "Xray Sub"
+		s.PanelTitle = "SubShare"
 	}
 	if s.PageTitleAdmin == "" {
-		s.PageTitleAdmin = "Панель управления — Xray Sub"
+		s.PageTitleAdmin = "Панель управления — SubShare"
 	}
 	if s.PageTitleAdminLogin == "" {
-		s.PageTitleAdminLogin = "Вход — Xray Sub"
+		s.PageTitleAdminLogin = "Вход — SubShare"
 	}
 	if s.PageTitleSubscription == "" {
-		s.PageTitleSubscription = "VPN-подписка — Xray Sub"
+		s.PageTitleSubscription = "VPN-подписка — SubShare"
 	}
 	return s, nil
 }

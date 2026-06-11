@@ -26,17 +26,17 @@ interface APIPanelSettings {
 }
 
 const DEFAULT_SETTINGS: PanelSettings = {
-  panelTitle: "Xray Sub",
+  panelTitle: "SubShare",
   logoDataUrl: "",
   faviconDataUrl: "",
   pageTitles: {
-    admin: "Панель управления — Xray Sub",
-    adminLogin: "Вход — Xray Sub",
-    subscription: "VPN-подписка — Xray Sub",
+    admin: "Панель управления — SubShare",
+    adminLogin: "Вход — SubShare",
+    subscription: "VPN-подписка — SubShare",
   },
 };
 
-const STORAGE_KEY = "xray_sub_panel_settings";
+const STORAGE_KEY = "subshare_panel_settings";
 
 function fromAPI(api: APIPanelSettings): PanelSettings {
   return {

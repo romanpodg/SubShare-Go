@@ -1,5 +1,5 @@
 # =============================================================================
-# Xray Sub - Docker Compose
+# SubShare - Docker Compose
 # =============================================================================
 # Quick start:
 #   cp .env.example .env        # Edit .env and set ADMIN_PASSWORD
@@ -20,8 +20,8 @@ services:
         VERSION: ${BUILD_VERSION:-dev}
         COMMIT: ${BUILD_COMMIT:-unknown}
         BUILD_TIME: ${BUILD_TIME:-unknown}
-    image: xray-sub-backend:latest
-    container_name: xray-sub-backend
+    image: subshare-backend:latest
+    container_name: subshare-backend
 
     restart: unless-stopped
 
@@ -103,8 +103,8 @@ services:
     build:
       context: ./frontend
       dockerfile: Dockerfile
-    image: xray-sub-frontend:latest
-    container_name: xray-sub-frontend
+    image: subshare-frontend:latest
+    container_name: subshare-frontend
 
     restart: unless-stopped
 
@@ -185,7 +185,7 @@ services:
   # ---------------------------------------------------------------------------
   certbot:
     image: certbot/certbot:latest
-    container_name: xray-sub-certbot
+    container_name: subshare-certbot
     profiles:
       - certbot
     volumes:

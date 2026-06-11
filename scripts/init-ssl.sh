@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # =============================================================================
-# Xray Sub — First-time SSL certificate setup (Let's Encrypt)
+# SubShare — First-time SSL certificate setup (Let's Encrypt)
 # =============================================================================
 # Usage:
 #   1. Set DOMAIN= and SSL_EMAIL= in your .env file

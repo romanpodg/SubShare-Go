@@ -86,7 +86,7 @@ export function PanelSettingsModal({ open, onClose }: Props) {
 
   const handleSave = () => {
     updateSettings({
-      panelTitle: panelTitle.trim() || "Xray Sub",
+      panelTitle: panelTitle.trim() || "SubShare",
       logoDataUrl,
       faviconDataUrl,
       pageTitles: {
@@ -121,7 +121,7 @@ export function PanelSettingsModal({ open, onClose }: Props) {
             label="Заголовок панели"
             value={panelTitle}
             onChange={(e) => setPanelTitle(e.target.value)}
-            placeholder="Xray Sub"
+            placeholder="SubShare"
           />
         </section>
 
@@ -215,19 +215,19 @@ export function PanelSettingsModal({ open, onClose }: Props) {
               label="Заголовок — Админ-панель"
               value={pageTitleAdmin}
               onChange={(e) => setPageTitleAdmin(e.target.value)}
-              placeholder="Панель управления — Xray Sub"
+              placeholder="Панель управления — SubShare"
             />
             <Input
               label="Заголовок — Страница входа"
               value={pageTitleLogin}
               onChange={(e) => setPageTitleLogin(e.target.value)}
-              placeholder="Вход — Xray Sub"
+              placeholder="Вход — SubShare"
             />
             <Input
               label="Заголовок — Клиентская страница"
               value={pageTitleSub}
               onChange={(e) => setPageTitleSub(e.target.value)}
-              placeholder="VPN-подписка — Xray Sub"
+              placeholder="VPN-подписка — SubShare"
             />
           </div>
         </section>

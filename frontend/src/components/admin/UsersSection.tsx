@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import React, { useEffect, useRef, useState, useMemo } from "react";
 import type { User, VLESSKey } from "@/lib/types";
 import { users as usersApi } from "@/lib/api";
 import { useToast } from "@/components/ui/Toast";
@@ -15,6 +15,7 @@ import { KeyAssignerModal } from "./KeyAssignerModal";
 import { HwidManager } from "./HwidManager";
 import { copyToClipboard } from "@/lib/clipboard";
 import { EmojiText } from "@/components/ui/EmojiText";
+import { Edit, Key, Fingerprint, Copy, ChevronDown, ChevronUp, Search } from "lucide-react";
 
 interface Props {
   users: User[];
@@ -59,13 +60,43 @@ export function UsersSection({ users, assignableKeys, onRefresh }: Props) {
   const [editSubUser, setEditSubUser] = useState<User | null>(null);
   const [editKeysUser, setEditKeysUser] = useState<User | null>(null);
   const [hwidUser, setHwidUser] = useState<User | null>(null);
+  
+  // Search, filtering, and row expansion states
+  const [searchQuery, setSearchQuery] = useState("");
+  const [statusFilter, setStatusFilter] = useState<"all" | "active" | "non-active" | "paused" | "blocked">("all");
+  const [expandedUserIDs, setExpandedUserIDs] = useState<number[]>([]);
+  
   const [selectedUserIDs, setSelectedUserIDs] = useState<number[]>([]);
   const [deleteTargetIDs, setDeleteTargetIDs] = useState<number[] | null>(null);
   const [deleting, setDeleting] = useState(false);
   const [copyingEncryptedFor, setCopyingEncryptedFor] = useState<number | null>(null);
   const selectAllRef = useRef<HTMLInputElement | null>(null);
+
+  // Filter users based on query and status filter
+  const filteredUsers = useMemo(() => {
+    return users.filter((user) => {
+      const query = searchQuery.toLowerCase().trim();
+      if (query) {
+        const nameMatch = user.name?.toLowerCase().includes(query);
+        const tgMatch = user.email?.toLowerCase().includes(query);
+        const codeMatch = user.activation_code?.toLowerCase().includes(query);
+        const tokenMatch = user.subscription_id?.toLowerCase().includes(query);
+        if (!nameMatch && !tgMatch && !codeMatch && !tokenMatch) {
+          return false;
+        }
+      }
+      if (statusFilter !== "all") {
+        if (user.status !== statusFilter) {
+          return false;
+        }
+      }
+      return true;
+    });
+  }, [users, searchQuery, statusFilter]);
+
   const selectedCount = selectedUserIDs.length;
-  const allSelected = users.length > 0 && selectedCount === users.length;
+  const filteredCount = filteredUsers.length;
+  const allSelected = filteredCount > 0 && filteredUsers.every((user) => selectedUserIDs.includes(user.id));
   const partiallySelected = selectedCount > 0 && !allSelected;
 
   useEffect(() => {
@@ -104,7 +135,25 @@ export function UsersSection({ users, assignableKeys, onRefresh }: Props) {
   };
 
   const toggleSelectAllUsers = () => {
-    setSelectedUserIDs(allSelected ? [] : users.map((user) => user.id));
+    if (allSelected) {
+      setSelectedUserIDs((prev) => prev.filter((id) => !filteredUsers.some((user) => user.id === id)));
+    } else {
+      setSelectedUserIDs((prev) => {
+        const next = [...prev];
+        filteredUsers.forEach((user) => {
+          if (!next.includes(user.id)) {
+            next.push(user.id);
+          }
+        });
+        return next;
+      });
+    }
+  };
+
+  const toggleUserExpanded = (userId: number) => {
+    setExpandedUserIDs((prev) =>
+      prev.includes(userId) ? prev.filter((id) => id !== userId) : [...prev, userId]
+    );
   };
 
   const openDeleteSelectedDialog = () => {
@@ -254,18 +303,54 @@ export function UsersSection({ users, assignableKeys, onRefresh }: Props) {
         </div>
       </div>
 
+      {/* Панель поиска и фильтров */}
+      {!collapsed && (
+        <div className="flex flex-col md:flex-row gap-3 mb-4 p-3 bg-surface-2/30 rounded-xl border border-border">
+          <div className="flex-1 relative flex items-center">
+            <Search className="w-4 h-4 text-zinc-500 absolute left-3 pointer-events-none" />
+            <input
+              type="text"
+              placeholder="Поиск по имени, Telegram, коду..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              className="w-full h-9 bg-surface-2 border border-border rounded-lg pl-9 pr-8 text-sm focus:outline-none focus:border-accent text-zinc-100 placeholder-zinc-500 transition-colors"
+            />
+            {searchQuery && (
+              <button
+                onClick={() => setSearchQuery("")}
+                className="absolute right-2.5 top-1/2 -translate-y-1/2 text-zinc-500 hover:text-zinc-300 text-xs w-5 h-5 flex items-center justify-center rounded-full hover:bg-surface-1"
+              >
+                ✕
+              </button>
+            )}
+          </div>
+          <div className="flex gap-2">
+            <select
+              value={statusFilter}
+              onChange={(e) => setStatusFilter(e.target.value as any)}
+              className="h-9 bg-surface-2 border border-border rounded-lg px-3 text-sm focus:outline-none focus:border-accent text-zinc-300 cursor-pointer"
+            >
+              <option value="all">Все статусы</option>
+              <option value="active">Активен</option>
+              <option value="non-active">Неактивен</option>
+              <option value="paused">Приостановлен</option>
+              <option value="blocked">Заблокирован</option>
+            </select>
+          </div>
+        </div>
+      )}
+
       {!collapsed && (
         <div className="overflow-x-auto">
           <table className="w-full table-fixed text-sm">
             <caption className="sr-only">Список пользователей</caption>
             <colgroup>
               <col style={{ width: "2.5rem" }} />
-              <col style={{ width: "8.5rem" }} />
+              <col style={{ width: "12rem" }} />
+              <col style={{ width: "12rem" }} />
+              <col style={{ width: "8rem" }} />
               <col style={{ width: "10rem" }} />
-              <col style={{ width: "8.5rem" }} />
-              <col style={{ width: "6.5rem" }} />
-              <col style={{ width: "20rem" }} />
-              <col style={{ width: "20rem" }} />
+              <col style={{ width: "16rem" }} />
             </colgroup>
             <thead>
               <tr className="text-left text-zinc-400 border-b border-border">
@@ -308,116 +393,177 @@ export function UsersSection({ users, assignableKeys, onRefresh }: Props) {
                   </label>
                 </th>
                 <th scope="col" className="pb-2 pr-4">Имя</th>
-                <th scope="col" className="pb-2 pr-4">Имя пользователя Telegram</th>
-                <th scope="col" className="pb-2 pr-4">Код активации</th>
+                <th scope="col" className="pb-2 pr-4">Telegram</th>
                 <th scope="col" className="pb-2 pr-4">Статус</th>
                 <th scope="col" className="pb-2 pr-4">Подписка</th>
                 <th scope="col" className="pb-2">Действия</th>
               </tr>
             </thead>
             <tbody>
-              {users.map((user) => {
+              {filteredUsers.map((user) => {
                 const isSelected = selectedUserIDs.includes(user.id);
+                const isExpanded = expandedUserIDs.includes(user.id);
 
                 return (
-                <tr key={user.id} className="border-b border-border last:border-0">
-                  <td className="py-3 pr-2 align-middle">
-                    <label className="flex h-full min-h-24 w-full cursor-pointer items-center justify-center rounded-xl border border-transparent transition-colors hover:border-border/70 hover:bg-surface-2/40">
-                      <input
-                        type="checkbox"
-                        checked={isSelected}
-                        onChange={() => toggleUserSelection(user.id)}
-                        aria-label={`Выбрать пользователя ${user.name}`}
-                        className="peer sr-only"
-                      />
-                      <span
-                        className={`flex h-5 w-5 items-center justify-center rounded-md border shadow-[inset_0_1px_0_rgba(255,255,255,0.04)] transition-all peer-focus-visible:ring-2 peer-focus-visible:ring-accent peer-focus-visible:ring-offset-2 peer-focus-visible:ring-offset-surface-1 ${
-                          isSelected
-                            ? "border-accent/80 bg-accent/20 text-accent"
-                            : "border-border bg-surface-2 text-transparent"
-                        }`}
-                      >
-                        <svg
-                          viewBox="0 0 16 16"
-                          aria-hidden="true"
-                          className={`h-3.5 w-3.5 transition-opacity ${isSelected ? "opacity-100" : "opacity-0"}`}
-                        >
-                          <path
-                            d="M4 8.25 6.5 10.75 12 5.25"
-                            fill="none"
-                            stroke="currentColor"
-                            strokeLinecap="round"
-                            strokeLinejoin="round"
-                            strokeWidth="2"
+                  <React.Fragment key={user.id}>
+                    <tr className={`border-b border-border/50 hover:bg-surface-2/10 transition-colors ${isExpanded ? "bg-surface-2/10 border-b-transparent" : "last:border-0"}`}>
+                      <td className="py-3 pr-2 align-middle">
+                        <label className="flex h-10 w-full cursor-pointer items-center justify-center rounded-xl border border-transparent transition-colors hover:border-border/70 hover:bg-surface-2/40">
+                          <input
+                            type="checkbox"
+                            checked={isSelected}
+                            onChange={() => toggleUserSelection(user.id)}
+                            aria-label={`Выбрать пользователя ${user.name}`}
+                            className="peer sr-only"
                           />
-                        </svg>
-                      </span>
-                    </label>
-                  </td>
-                  <td className="py-3 pr-4"><EmojiText text={user.name} /></td>
-                  <td className="py-3 pr-4 text-zinc-400">{user.email ? `@${user.email.replace(/^@+/, "")}` : "—"}</td>
-                  <td className="py-3 pr-4 font-mono text-xs">
-                    {user.activation_code}
-                    <div className="text-[0.68rem] text-zinc-500">Активирован: {formatDateTime(user.activation_used_at) ?? "—"}</div>
-                    <div className="text-[0.68rem] text-zinc-500 break-all">Токен: {user.subscription_id || "—"}</div>
-                  </td>
-                  <td className="py-3 pr-4"><StatusBadge status={user.status} /></td>
-                  <td className="py-3 pr-4 align-top text-xs text-zinc-400">
-                    <div className="mb-2 flex w-full flex-col items-stretch gap-1.5">
-                      <Button
-                        variant="ghost"
-                        className="w-full text-xs"
-                        onClick={() => void handleCopySubscriptionURL(user)}
-                        disabled={!user.subscription_id}
-                      >
-                        Скопировать URL подписки
-                      </Button>
-                      <Button
-                        variant="ghost"
-                        className="w-full text-xs"
-                        onClick={() => void handleCopyEncryptedSubscriptionURL(user)}
-                        loading={copyingEncryptedFor === user.id}
-                        disabled={!user.subscription_id || (copyingEncryptedFor !== null && copyingEncryptedFor !== user.id)}
-                      >
-                        Скопировать URL зашифрованной подписки
-                      </Button>
-                    </div>
-                    <div>Выдана: {user.starts_at || "—"}</div>
-                    <div>Истекает: {user.expires_at || "—"}</div>
-                  </td>
-                  <td className="py-3 align-top">
-                    <div className="flex w-full flex-col items-stretch gap-1.5">
-                      <Button
-                        variant="ghost"
-                        className="w-full text-xs"
-                        onClick={() => setEditSubUser(user)}
-                      >
-                        Редактировать
-                      </Button>
-                      <div className="grid grid-cols-2 gap-1.5">
-                        <Button
-                          variant="ghost"
-                          className="w-full text-xs"
-                          onClick={() => setEditKeysUser(user)}
-                        >
-                          Ключи
-                        </Button>
-                        <Button
-                          variant="ghost"
-                          className="w-full text-xs"
-                          onClick={() => setHwidUser(user)}
-                        >
-                          HWID
-                        </Button>
-                      </div>
-                    </div>
-                  </td>
-                </tr>
+                          <span
+                            className={`flex h-5 w-5 items-center justify-center rounded-md border shadow-[inset_0_1px_0_rgba(255,255,255,0.04)] transition-all peer-focus-visible:ring-2 peer-focus-visible:ring-accent peer-focus-visible:ring-offset-2 peer-focus-visible:ring-offset-surface-1 ${
+                              isSelected
+                                ? "border-accent/80 bg-accent/20 text-accent"
+                                : "border-border bg-surface-2 text-transparent"
+                            }`}
+                          >
+                            <svg
+                              viewBox="0 0 16 16"
+                              aria-hidden="true"
+                              className={`h-3.5 w-3.5 transition-opacity ${isSelected ? "opacity-100" : "opacity-0"}`}
+                            >
+                              <path
+                                d="M4 8.25 6.5 10.75 12 5.25"
+                                fill="none"
+                                stroke="currentColor"
+                                strokeLinecap="round"
+                                strokeLinejoin="round"
+                                strokeWidth="2"
+                              />
+                            </svg>
+                          </span>
+                        </label>
+                      </td>
+                      <td className="py-3 pr-4 font-medium text-zinc-100"><EmojiText text={user.name} /></td>
+                      <td className="py-3 pr-4 text-zinc-400 font-mono text-xs">{user.email ? `@${user.email.replace(/^@+/, "")}` : "—"}</td>
+                      <td className="py-3 pr-4"><StatusBadge status={user.status} /></td>
+                      <td className="py-3 pr-4 align-middle">
+                        {user.subscription_id ? (
+                          <button
+                            onClick={() => void handleCopySubscriptionURL(user)}
+                            className="inline-flex items-center gap-1.5 h-8 px-2.5 rounded-lg border border-border bg-surface-2 hover:bg-surface-1 hover:border-accent/50 text-xs transition cursor-pointer font-medium text-zinc-200"
+                            title="Скопировать ссылку подписки"
+                          >
+                            <Copy className="w-3.5 h-3.5 opacity-70" />
+                            <span>Копировать URL</span>
+                          </button>
+                        ) : (
+                          <span className="text-zinc-500 text-xs">Нет ссылки</span>
+                        )}
+                      </td>
+                      <td className="py-3 align-middle">
+                        <div className="flex items-center gap-1.5">
+                          <button
+                            onClick={() => setEditSubUser(user)}
+                            className="h-8 px-2.5 flex items-center gap-1.5 rounded-lg border border-border bg-surface-2 hover:bg-surface-1 hover:border-accent/40 text-xs transition cursor-pointer font-medium text-zinc-200"
+                            title="Редактировать пользователя"
+                          >
+                            <Edit className="w-3.5 h-3.5 text-zinc-400" />
+                            <span>Изменить</span>
+                          </button>
+                          <button
+                            onClick={() => setEditKeysUser(user)}
+                            className="h-8 px-2.5 flex items-center gap-1.5 rounded-lg border border-border bg-surface-2 hover:bg-surface-1 hover:border-accent/40 text-xs transition cursor-pointer font-medium text-zinc-200"
+                            title="Назначить ключи"
+                          >
+                            <Key className="w-3.5 h-3.5 text-zinc-400" />
+                            <span>Ключи</span>
+                          </button>
+                          <button
+                            onClick={() => setHwidUser(user)}
+                            className="h-8 px-2.5 flex items-center gap-1.5 rounded-lg border border-border bg-surface-2 hover:bg-surface-1 hover:border-accent/40 text-xs transition cursor-pointer font-medium text-zinc-200"
+                            title="Управление HWID"
+                          >
+                            <Fingerprint className="w-3.5 h-3.5 text-zinc-400" />
+                            <span>HWID</span>
+                          </button>
+                          <button
+                            onClick={() => toggleUserExpanded(user.id)}
+                            className="h-8 w-8 flex items-center justify-center rounded-lg border border-border bg-surface-2 hover:bg-surface-1 hover:border-accent/40 transition cursor-pointer"
+                            title={isExpanded ? "Скрыть детали" : "Показать детали"}
+                          >
+                            {isExpanded ? (
+                              <ChevronUp className="w-4 h-4 text-zinc-400" />
+                            ) : (
+                              <ChevronDown className="w-4 h-4 text-zinc-400" />
+                            )}
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+
+                    {/* Разворачиваемая подстрока с подробной информацией */}
+                    {isExpanded && (
+                      <tr className="bg-surface-2/20 border-b border-border/50">
+                        <td />
+                        <td colSpan={5} className="py-4 px-6 text-xs text-zinc-400">
+                          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                            {/* Активация */}
+                            <div className="flex flex-col gap-1.5 bg-surface-1/50 p-3.5 rounded-xl border border-border/50">
+                              <span className="font-semibold text-zinc-300 uppercase tracking-wider text-[10px]">Активация</span>
+                              <div className="flex justify-between border-b border-border/30 pb-1 mt-1">
+                                <span>Код:</span>
+                                <span className="font-mono text-zinc-200 font-semibold">{user.activation_code}</span>
+                              </div>
+                              <div className="flex justify-between border-b border-border/30 pb-1">
+                                <span>Активирован:</span>
+                                <span className="text-zinc-200">{formatDateTime(user.activation_used_at) ?? "—"}</span>
+                              </div>
+                              <div className="flex flex-col gap-1 mt-1">
+                                <span>Токен подписки:</span>
+                                <span className="font-mono text-zinc-300 break-all bg-surface-2 p-1.5 rounded border border-border/40 text-[10px] select-all">{user.subscription_id || "—"}</span>
+                              </div>
+                            </div>
+
+                            {/* Сроки подписки */}
+                            <div className="flex flex-col gap-1.5 bg-surface-1/50 p-3.5 rounded-xl border border-border/50 justify-between">
+                              <div className="flex flex-col gap-1.5">
+                                <span className="font-semibold text-zinc-300 uppercase tracking-wider text-[10px]">Сроки подписки</span>
+                                <div className="flex justify-between border-b border-border/30 pb-1 mt-1">
+                                  <span>Начало:</span>
+                                  <span className="text-zinc-200 font-medium">{user.starts_at || "—"}</span>
+                                </div>
+                                <div className="flex justify-between border-b border-border/30 pb-1">
+                                  <span>Истекает:</span>
+                                  <span className="text-zinc-200 font-medium">{user.expires_at || "—"}</span>
+                                </div>
+                              </div>
+                            </div>
+
+                            {/* Зашифрованная ссылка */}
+                            <div className="flex flex-col gap-1.5 bg-surface-1/50 p-3.5 rounded-xl border border-border/50 justify-between">
+                              <div className="flex flex-col gap-1">
+                                <span className="font-semibold text-zinc-300 uppercase tracking-wider text-[10px]">Зашифрованная ссылка</span>
+                                <p className="text-[11px] text-zinc-500 mt-1">
+                                  Используется для клиентов с поддержкой HAPP API (шифрование ссылок).
+                                </p>
+                              </div>
+                              <Button
+                                variant="ghost"
+                                className="w-full text-xs mt-3 h-8 border border-border hover:bg-surface-1"
+                                onClick={() => void handleCopyEncryptedSubscriptionURL(user)}
+                                loading={copyingEncryptedFor === user.id}
+                                disabled={!user.subscription_id || (copyingEncryptedFor !== null && copyingEncryptedFor !== user.id)}
+                              >
+                                Скопировать зашифрованный URL
+                              </Button>
+                            </div>
+                          </div>
+                        </td>
+                      </tr>
+                    )}
+                  </React.Fragment>
                 );
               })}
-              {users.length === 0 && (
+              {filteredUsers.length === 0 && (
                 <tr>
-                  <td colSpan={7} className="py-8 text-center text-zinc-400">
+                  <td colSpan={6} className="py-8 text-center text-zinc-400">
                     <svg
                       xmlns="http://www.w3.org/2000/svg"
                       className="mx-auto mb-2 h-8 w-8 text-zinc-500"
@@ -432,7 +578,7 @@ export function UsersSection({ users, assignableKeys, onRefresh }: Props) {
                         d="M15.75 6a3.75 3.75 0 1 1-7.5 0 3.75 3.75 0 0 1 7.5 0ZM4.501 20.118a7.5 7.5 0 0 1 14.998 0A17.933 17.933 0 0 1 12 21.75c-2.676 0-5.216-.584-7.499-1.632Z"
                       />
                     </svg>
-                    Нет пользователей
+                    Пользователи не найдены
                   </td>
                 </tr>
               )}

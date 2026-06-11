@@ -33,8 +33,19 @@ const (
 // DefaultDeviceLimitMessage is the fallback message when the HWID device limit is exceeded.
 const DefaultDeviceLimitMessage = "You have reached the maximum number of allowed devices for your subscription"
 
+// Admin represents an administrator account.
+type Admin struct {
+	ID           int64     `json:"id"`
+	Username     string    `json:"username"`
+	PasswordHash string    `json:"-"`
+	Role         string    `json:"role"`
+	CreatedAt    time.Time `json:"created_at"`
+}
+
 // AdminSession represents an authenticated admin session.
 type AdminSession struct {
+	AdminID   int64
+	Role      string
 	ExpiresAt time.Time
 	CSRFToken string
 }
@@ -436,6 +447,17 @@ type SubscriptionPageIcon struct {
 	Type string `json:"type"`
 	Src  string `json:"src,omitempty"`
 	Alt  string `json:"alt,omitempty"`
+}
+
+type CreateAdminRequest struct {
+	Username string `json:"username"`
+	Password string `json:"password"`
+	Role     string `json:"role"`
+}
+
+type UpdateAdminRequest struct {
+	Password string `json:"password"`
+	Role     string `json:"role"`
 }
 
 // NormalizeUserStatus validates and normalizes a user status string.

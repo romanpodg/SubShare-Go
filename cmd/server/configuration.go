@@ -10,7 +10,7 @@ import (
 	"strings"
 	"time"
 
-	"xary-sub/internal/vless"
+	"subshare/internal/vless"
 )
 
 type vmessConfigPayload struct {

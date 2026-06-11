@@ -5,7 +5,7 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"io/fs"
-	"log"
+	"log/slog"
 	"net"
 	"net/http"
 	"strings"
@@ -163,7 +163,14 @@ func LogRequest(next http.Handler) http.Handler {
 		rec := &StatusRecorder{ResponseWriter: w, Status: 200}
 		next.ServeHTTP(rec, r)
 		reqID, _ := r.Context().Value(CtxKeyRequestID).(string)
-		log.Printf("%d %s %s %s %s req_id=%s", rec.Status, r.Method, r.URL.Path, time.Since(start), ClientIP(r), reqID)
+		slog.Info("request completed",
+			"status", rec.Status,
+			"method", r.Method,
+			"path", r.URL.Path,
+			"duration", time.Since(start).String(),
+			"ip", ClientIP(r),
+			"req_id", reqID,
+		)
 	})
 }
 

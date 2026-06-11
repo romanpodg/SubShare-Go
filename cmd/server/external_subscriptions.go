@@ -18,8 +18,8 @@ import (
 	"strings"
 	"time"
 
-	"xary-sub/internal/model"
-	"xary-sub/internal/vless"
+	"subshare/internal/model"
+	"subshare/internal/vless"
 )
 
 const (
@@ -411,11 +411,11 @@ func normalizeExternalHWIDProfile(pass bool, version, modelName, hwid string) ex
 
 func applyExternalHWIDHeaders(req *http.Request, profile externalHWIDProfile) {
 	if !profile.PassHWID {
-		req.Header.Set("User-Agent", "xary-sub/1.0 (+external-import)")
+		req.Header.Set("User-Agent", "subshare/1.0 (+external-import)")
 		return
 	}
 
-	userAgent := "xary-sub/1.0 (+external-import)"
+	userAgent := "subshare/1.0 (+external-import)"
 	if profile.Version != "" {
 		if profile.ModelName != "" {
 			userAgent = fmt.Sprintf("Happ/%s (%s)", profile.Version, profile.ModelName)

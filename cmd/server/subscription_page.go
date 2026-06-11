@@ -8,7 +8,7 @@ import (
 	"net/http"
 	"strings"
 
-	"xary-sub/internal/model"
+	"subshare/internal/model"
 )
 
 const defaultSubscriptionPageConfigJSON = `{
@@ -262,7 +262,7 @@ func mergeTemplateVars(cfg model.SubscriptionPageConfig, panelSettings model.Pan
 		brandName = strings.TrimSpace(vars["brandName"])
 	}
 	if brandName == "" {
-		brandName = "Xray Sub"
+		brandName = "SubShare"
 	}
 
 	vars["brandName"] = brandName

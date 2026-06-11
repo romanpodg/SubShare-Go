@@ -1,19 +1,18 @@
 import type { Metadata } from "next";
-import { Inter } from "next/font/google";
 import { ToastProvider } from "@/components/ui/Toast";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
 import { PanelSettingsProvider } from "@/context/PanelSettingsContext";
 import { ThemeProvider } from "@/components/ThemeProvider";
 import "./globals.css";
 
-const inter = Inter({ subsets: ["latin", "cyrillic"] });
+const inter = { className: "" };
 
 export const metadata: Metadata = {
   description: "VLESS subscription management",
 };
 
 // Runs synchronously before React hydrates — eliminates title/favicon flash on every page.
-const STORAGE_KEY = "xray_sub_panel_settings";
+const STORAGE_KEY = "subshare_panel_settings";
 const earlyInitScript = `(function(){try{
   var s=JSON.parse(localStorage.getItem('${STORAGE_KEY}')||'{}');
   if(s.faviconDataUrl){
@@ -58,7 +57,7 @@ export default function RootLayout({
       <head>
         <script dangerouslySetInnerHTML={{ __html: earlyInitScript }} />
       </head>
-      <body className={`${inter.className} bg-bg min-h-screen`}>
+      <body className="bg-bg min-h-screen">
         <a
           href="#main-content"
           className="sr-only focus:not-sr-only focus:fixed focus:top-4 focus:left-4 focus:z-50 focus:bg-accent focus:text-white focus:px-4 focus:py-2 focus:rounded-lg"

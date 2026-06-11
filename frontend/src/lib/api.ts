@@ -7,6 +7,7 @@ import type {
   ExternalSubscriptionSource,
   ExternalSourceCategory,
   ExternalSourcePreview,
+  Admin,
 } from "./types";
 
 let csrfToken: string | null = null;
@@ -58,7 +59,18 @@ export const auth = {
   login: (username: string, password: string) =>
     request<{ csrf_token: string }>("POST", "/api/auth/login", { username, password }),
   logout: () => request<{ message: string }>("POST", "/api/auth/logout"),
-  me: () => request<{ authenticated: boolean; csrf_token: string }>("GET", "/api/auth/me"),
+  me: () => request<{ authenticated: boolean; csrf_token: string; role?: "super_admin" | "support_admin" }>("GET", "/api/auth/me"),
+};
+
+// Admins
+export const admins = {
+  list: () => request<{ admins: Admin[] }>("GET", "/api/admin/admins"),
+  create: (data: { username: string; password: string; role: string }) =>
+    request<{ message: string }>("POST", "/api/admin/admins", data),
+  update: (id: number, data: { password?: string; role?: string }) =>
+    request<{ message: string }>("PUT", `/api/admin/admins/${id}`, data),
+  delete: (id: number) =>
+    request<{ message: string }>("DELETE", `/api/admin/admins/${id}`),
 };
 
 // Users

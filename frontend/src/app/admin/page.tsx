@@ -9,6 +9,7 @@ import { users as usersApi, keys as keysApi, subscriptionSettings as subscriptio
 import type { User, VLESSKey } from "@/lib/types";
 import { UsersSection } from "@/components/admin/UsersSection";
 import { KeysSection } from "@/components/admin/KeysSection";
+import { AdminsSection } from "@/components/admin/AdminsSection";
 import { GlobalSubscriptionSettingsModal } from "@/components/admin/GlobalSubscriptionSettingsModal";
 import { PanelSettingsModal } from "@/components/admin/PanelSettingsModal";
 import { RoutingSettingsModal } from "@/components/admin/RoutingSettingsModal";
@@ -21,7 +22,7 @@ import { LogOut, Route, Settings, Paintbrush, ArrowRight } from "lucide-react";
 
 export default function AdminPage() {
   const router = useRouter();
-  const { authenticated, loading: authLoading, logout } = useAuth();
+  const { authenticated, role, loading: authLoading, logout } = useAuth();
   const { toast } = useToast();
   const { settings } = usePanelSettings();
   const [usersList, setUsersList] = useState<User[]>([]);
@@ -103,13 +104,15 @@ export default function AdminPage() {
             <EmojiText text={settings.panelTitle} />
           </h1>
           {/* Кнопка настроек панели */}
-          <button
-            onClick={() => setShowPanelSettings(true)}
-            title="Настройки панели"
-            className="w-9 h-9 flex items-center justify-center rounded-lg border border-border bg-surface-2 hover:bg-surface-1 hover:border-accent/50 transition-all text-base leading-none shadow-sm"
-          >
-            <Settings className="w-4 h-4" />
-          </button>
+          {role === "super_admin" && (
+            <button
+              onClick={() => setShowPanelSettings(true)}
+              title="Настройки панели"
+              className="w-9 h-9 flex items-center justify-center rounded-lg border border-border bg-surface-2 hover:bg-surface-1 hover:border-accent/50 transition-all text-base leading-none shadow-sm"
+            >
+              <Settings className="w-4 h-4" />
+            </button>
+          )}
           <Link href="/subscription" className={`${navItemClass} ml-6 shrink-0`}>
             <span>К клиентской панели</span>
             <ArrowRight className="w-4 h-4 opacity-70" />
@@ -118,27 +121,31 @@ export default function AdminPage() {
         <div className="flex shrink-0 items-center gap-3">
           <ThemeToggle />
           <div className="w-px h-6 bg-border mx-1"></div>
-          <button
-            onClick={() => setShowRoutingSettings(true)}
-            className={navItemClass}
-          >
-            <Route className="w-4 h-4 opacity-70" />
-            <span>Роутинг</span>
-          </button>
-          <button
-            onClick={() => setShowGlobalSubscriptionSettings(true)}
-            className={navItemClass}
-          >
-            <Settings className="w-4 h-4 opacity-70" />
-            <span>Подписка</span>
-          </button>
-          <button
-            onClick={() => setShowSubscriptionPageConfig(true)}
-            className={navItemClass}
-          >
-            <Paintbrush className="w-4 h-4 opacity-70" />
-            <span>Дизайн /sub</span>
-          </button>
+          {role === "super_admin" && (
+            <>
+              <button
+                onClick={() => setShowRoutingSettings(true)}
+                className={navItemClass}
+              >
+                <Route className="w-4 h-4 opacity-70" />
+                <span>Роутинг</span>
+              </button>
+              <button
+                onClick={() => setShowGlobalSubscriptionSettings(true)}
+                className={navItemClass}
+              >
+                <Settings className="w-4 h-4 opacity-70" />
+                <span>Подписка</span>
+              </button>
+              <button
+                onClick={() => setShowSubscriptionPageConfig(true)}
+                className={navItemClass}
+              >
+                <Paintbrush className="w-4 h-4 opacity-70" />
+                <span>Дизайн /sub</span>
+              </button>
+            </>
+          )}
           <button onClick={handleLogout} className={navDangerClass}>
             <LogOut className="w-4 h-4 opacity-70" />
             <span>Выйти</span>
@@ -157,6 +164,9 @@ export default function AdminPage() {
           subscriptionFormat={subscriptionFormat}
           onRefresh={fetchData}
         />
+        {role === "super_admin" && (
+          <AdminsSection currentRole={role} />
+        )}
       </main>
 
       <GlobalSubscriptionSettingsModal

@@ -156,3 +156,10 @@ export interface ExternalSourcePreview {
   warnings: string[];
   keys: ExternalSourcePreviewKey[];
 }
+
+export interface Admin {
+  id: number;
+  username: string;
+  role: "super_admin" | "support_admin";
+  created_at: string;
+}
