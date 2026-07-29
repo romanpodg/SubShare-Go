@@ -1,4 +1,18 @@
-import { expect, test } from "@playwright/test";
+import { expect, test, type Page } from "@playwright/test";
+import AxeBuilder from "@axe-core/playwright";
+
+async function expectNoHorizontalOverflow(page: Page) {
+  const dimensions = await page.evaluate(() => ({
+    scrollWidth: document.documentElement.scrollWidth,
+    clientWidth: document.documentElement.clientWidth,
+  }));
+  expect(dimensions.scrollWidth).toBeLessThanOrEqual(dimensions.clientWidth);
+}
+
+async function expectNoWcagViolations(page: Page) {
+  const results = await new AxeBuilder({ page }).withTags(["wcag2a", "wcag2aa"]).analyze();
+  expect(results.violations, results.violations.map((violation) => `${violation.id}: ${violation.help}`).join("\n")).toEqual([]);
+}
 
 test("login page is usable at desktop and mobile widths", async ({ page }) => {
   await page.route("**/api/panel-settings", (route) =>
@@ -10,7 +24,9 @@ test("login page is usable at desktop and mobile widths", async ({ page }) => {
   await page.goto("/admin/login");
   await expect(page.getByRole("heading", { name: /SubShare|Вход/i })).toBeVisible();
   await expect(page.getByLabel(/логин|username/i)).toBeVisible();
-  await expect(page.getByLabel(/пароль|password/i)).toBeVisible();
+  await expect(page.locator('input[type="password"]')).toBeVisible();
+  await expectNoHorizontalOverflow(page);
+  await expectNoWcagViolations(page);
 });
 
 test("authenticated overview renders dashboard data without runtime errors", async ({ page }) => {
@@ -51,6 +67,7 @@ test("authenticated overview renders dashboard data without runtime errors", asy
   await page.goto("/admin/overview");
   await expect(page.getByText("2/3")).toBeVisible();
   await expect(page.getByText("готова")).toBeVisible();
+  await expectNoHorizontalOverflow(page);
   expect(runtimeErrors).toEqual([]);
 });
 
@@ -134,4 +151,34 @@ test("owner can preview and create a source in the responsive drawer", async ({ 
   await page.getByRole("button", { name: "Добавить источник" }).last().click();
   await expect(drawer).toBeHidden();
   expect(runtimeErrors).toEqual([]);
+});
+
+test("public subscription page stays dark, accessible, and responsive", async ({ page }) => {
+  await page.emulateMedia({ reducedMotion: "reduce", colorScheme: "light" });
+  await page.route("**/api/panel-settings", (route) =>
+    route.fulfill({
+      contentType: "application/json",
+      body: JSON.stringify({
+        panelTitle: "SubShare",
+        logoDataUrl: "",
+        faviconDataUrl: "",
+        pageTitleAdmin: "Панель управления — SubShare",
+        pageTitleAdminLogin: "Вход — SubShare",
+        pageTitleSubscription: "VPN-подписка — SubShare",
+      }),
+    })
+  );
+  await page.route("**/api/subscription-page-config", (route) =>
+    route.fulfill({
+      contentType: "application/json",
+      body: JSON.stringify({ config_json: "", default_config_json: "" }),
+    })
+  );
+  await page.goto("/subscription");
+
+  await expect(page.getByRole("heading", { name: "SubShare", exact: true })).toBeVisible();
+  await expect(page.locator("html")).toHaveClass(/dark/);
+  await expect(page.getByLabel(/ключ активации/i)).toBeVisible();
+  await expectNoHorizontalOverflow(page);
+  await expectNoWcagViolations(page);
 });
