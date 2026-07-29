@@ -21,14 +21,14 @@ export function StatCard({
     zinc: "border-zinc-700 bg-zinc-800/50 text-zinc-400",
   };
   return (
-    <div className="rounded-2xl border border-border bg-surface-1 p-4 shadow-sm">
+    <div className="technical-frame min-h-36 border border-border bg-surface-1 p-4">
       <div className="flex items-start justify-between gap-4">
         <div>
-          <div className="text-xs font-medium uppercase tracking-[0.12em] text-zinc-600">{label}</div>
-          <div className="mt-2 text-3xl font-bold tracking-tight text-zinc-100">{value}</div>
-          {hint && <div className="mt-1 text-xs text-zinc-600">{hint}</div>}
+          <div className="font-mono text-[9px] font-semibold uppercase tracking-[0.14em] text-zinc-600">{label}</div>
+          <div className="mt-4 font-display text-3xl font-medium tabular-nums tracking-[-0.04em] text-zinc-100">{value}</div>
+          {hint && <div className="mt-2 font-mono text-[10px] text-zinc-600">{hint}</div>}
         </div>
-        <div className={`flex h-10 w-10 items-center justify-center rounded-xl border ${tones[tone]}`}>
+        <div className={`flex h-9 w-9 items-center justify-center rounded-sm border ${tones[tone]}`}>
           {icon}
         </div>
       </div>

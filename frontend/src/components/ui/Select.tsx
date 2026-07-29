@@ -84,9 +84,9 @@ export function Select({
   }, [isOpen]);
 
   return (
-    <div className={`flex flex-col gap-1.5 w-full relative ${className}`} ref={containerRef}>
+    <div className={`relative flex w-full flex-col gap-2 ${className}`} ref={containerRef}>
       {label && (
-        <label htmlFor={selectId} className="text-sm text-zinc-400 select-none">
+        <label htmlFor={selectId} className="select-none font-mono text-[10px] font-semibold uppercase tracking-[0.14em] text-zinc-500">
           {label}
         </label>
       )}
@@ -97,7 +97,7 @@ export function Select({
           type="button"
           disabled={disabled}
           onClick={() => !disabled && setIsOpen(!isOpen)}
-          className={`w-full bg-surface-2 border border-border rounded-lg px-3 py-2.5 text-sm text-zinc-200 text-left flex items-center justify-between cursor-pointer transition-all duration-200 hover:border-zinc-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-bg ${
+          className={`flex min-h-11 w-full cursor-pointer items-center justify-between rounded-sm border border-border bg-surface-2 px-3 py-2.5 text-left text-sm text-zinc-100 transition-colors duration-200 hover:border-[var(--border-strong)] focus-visible:border-accent focus-visible:outline-none ${
             disabled ? "opacity-50 cursor-not-allowed" : ""
           } ${error ? "ring-1 ring-red-500 border-red-500" : ""}`}
           aria-haspopup="listbox"
@@ -115,7 +115,7 @@ export function Select({
 
         {isOpen && (
           <ul
-            className="absolute left-0 right-0 mt-1.5 bg-surface-1 border border-border rounded-lg shadow-xl py-1 z-50 max-h-60 overflow-y-auto animate-fade-in focus:outline-none"
+            className="absolute left-0 right-0 z-50 mt-1 max-h-60 overflow-y-auto rounded-sm border border-border bg-surface-1 py-1 animate-fade-in focus:outline-none"
             role="listbox"
           >
             {options.length === 0 ? (
@@ -133,7 +133,7 @@ export function Select({
                     onClick={() => handleSelect(opt)}
                     className={`px-3 py-2 text-sm cursor-pointer transition-colors duration-150 flex items-center justify-between select-none ${
                       isSelected
-                        ? "bg-surface-2 text-white font-medium"
+                        ? "bg-accent/8 font-medium text-accent"
                         : "text-zinc-300 hover:bg-surface-2 hover:text-white"
                     }`}
                   >

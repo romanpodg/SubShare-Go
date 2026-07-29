@@ -103,14 +103,14 @@ export default function SecurityPage() {
       <PageHeader title="Безопасность и сборка" description="Текущее состояние защитных механизмов и схема базы." icon={<ShieldCheck className="h-5 w-5" />} />
       {Boolean(buildError) && <div className="mb-4"><ResourceError error={buildError} compact title="Build info недоступна" /></div>}
       {Boolean(tokensError) && <div className="mb-4"><ResourceError error={tokensError} compact onRetry={() => void loadTokens()} title="Не удалось загрузить API-токены" /></div>}
-      <div className="grid gap-6 lg:grid-cols-2">
-        <section className="rounded-2xl border border-border bg-surface-1 p-5">
+      <div className="grid gap-px bg-border lg:grid-cols-2">
+        <section className="technical-frame border border-border bg-surface-1 p-5">
           <div className="flex items-center gap-3"><LockKeyhole className="h-5 w-5 text-cyan-300" /><h2 className="font-semibold text-zinc-200">Защитные механизмы</h2></div>
           <div className="mt-5 space-y-3">
             {checks.map((check) => <div key={check} className="flex items-center gap-3 rounded-xl border border-border bg-zinc-950/30 px-4 py-3 text-sm text-zinc-400"><CheckCircle2 className="h-4 w-4 shrink-0 text-emerald-400" />{check}</div>)}
           </div>
         </section>
-        <section className="rounded-2xl border border-border bg-surface-1 p-5">
+        <section className="technical-frame border border-border bg-surface-1 p-5">
           <h2 className="font-semibold text-zinc-200">Build info</h2>
           <dl className="mt-5 space-y-3">
             {[["Версия", build?.version], ["Commit", build?.commit], ["Время сборки", build?.build_time], ["Версия схемы", build?.schema_version]].map(([label, value]) => (
@@ -120,7 +120,7 @@ export default function SecurityPage() {
         </section>
       </div>
 
-      <section className="mt-6 rounded-2xl border border-border bg-surface-1">
+      <section className="technical-frame border border-border bg-surface-1">
         <div className="flex flex-col justify-between gap-4 border-b border-border px-5 py-4 lg:flex-row lg:items-center">
           <div className="flex items-center gap-3"><KeyRound className="h-5 w-5 text-cyan-300" /><div><h2 className="font-semibold text-zinc-200">API-токены</h2><p className="mt-1 text-xs text-zinc-600">Секрет показывается только один раз. В базе хранится SHA-256 hash.</p></div></div>
           <div className="flex flex-col gap-2 sm:flex-row sm:items-end">

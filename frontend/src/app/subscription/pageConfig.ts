@@ -174,7 +174,7 @@ export interface SubscriptionPageConfig {
 export const subscriptionPageConfig: SubscriptionPageConfig = {
   locale: "ru",
   templateVars: {
-    brandName: "FoxtCloud",
+    brandName: "SubShare",
   },
   theme: {
     pageBackground: "#f7f9fc",

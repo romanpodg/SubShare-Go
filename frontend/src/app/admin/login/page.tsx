@@ -1,15 +1,21 @@
 "use client";
 
-import { useState, useEffect, FormEvent } from "react";
+import { FormEvent, useEffect, useState } from "react";
+import Image from "next/image";
 import { useRouter } from "next/navigation";
-import { Card } from "@/components/ui/Card";
+import { Activity, ArrowRight, LockKeyhole } from "lucide-react";
 import { Input } from "@/components/ui/Input";
 import { PasswordInput } from "@/components/ui/PasswordInput";
 import { Button } from "@/components/ui/Button";
+import {
+  InfrastructureDiagram,
+  OperationalStatus,
+  SystemLabel,
+  TechnicalFrame,
+} from "@/components/ui/Technical";
 import { useAuth } from "@/hooks/useAuth";
 import { usePanelSettings } from "@/context/PanelSettingsContext";
 import { EmojiText } from "@/components/ui/EmojiText";
-import { ThemeToggle } from "@/components/ui/ThemeToggle";
 
 export default function LoginPage() {
   const router = useRouter();
@@ -20,25 +26,21 @@ export default function LoginPage() {
   const [passwordError, setPasswordError] = useState("");
   const [loading, setLoading] = useState(false);
   const { login } = useAuth();
-
   const { settings } = usePanelSettings();
 
   useEffect(() => {
     document.title = settings.pageTitles.adminLogin;
   }, [settings.pageTitles.adminLogin]);
 
-  const validateUsername = (value: string): boolean => {
-    // Проверка на кириллицу
+  const validateUsername = (value: string) => {
     if (/[а-яА-ЯёЁ]/.test(value)) {
       setUsernameError("Логин не может содержать кириллицу");
       return false;
     }
-    // Проверка: только латиница и цифры
     if (!/^[a-zA-Z0-9]+$/.test(value)) {
-      setUsernameError("Логин может содержать только буквы латиницы и цифры");
+      setUsernameError("Используйте только латинские буквы и цифры");
       return false;
     }
-    // Проверка: цифра не должна быть первой
     if (/^\d/.test(value)) {
       setUsernameError("Логин не может начинаться с цифры");
       return false;
@@ -47,8 +49,7 @@ export default function LoginPage() {
     return true;
   };
 
-  const validatePassword = (value: string): boolean => {
-    // Пароль может содержать только латиницу, цифры и знаки (не кириллицу)
+  const validatePassword = (value: string) => {
     if (/[а-яА-ЯёЁ]/.test(value)) {
       setPasswordError("Пароль не может содержать кириллицу");
       return false;
@@ -57,37 +58,10 @@ export default function LoginPage() {
     return true;
   };
 
-  const handleUsernameChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const value = e.target.value;
-    setUsername(value);
-    if (value) {
-      validateUsername(value);
-    } else {
-      setUsernameError("");
-    }
-  };
-
-  const handlePasswordChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const value = e.target.value;
-    setPassword(value);
-    if (value) {
-      validatePassword(value);
-    } else {
-      setPasswordError("");
-    }
-  };
-
-  const handleSubmit = async (e: FormEvent) => {
-    e.preventDefault();
+  const handleSubmit = async (event: FormEvent) => {
+    event.preventDefault();
     setError("");
-
-    // Валидация перед отправкой
-    const isUsernameValid = validateUsername(username);
-    const isPasswordValid = validatePassword(password);
-
-    if (!isUsernameValid || !isPasswordValid) {
-      return;
-    }
+    if (!validateUsername(username) || !validatePassword(password)) return;
 
     setLoading(true);
     try {
@@ -101,48 +75,127 @@ export default function LoginPage() {
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center p-4 relative transition-colors">
-      <div className="absolute top-6 right-6">
-        <ThemeToggle />
+    <main id="main-content" className="technical-grid min-h-screen bg-bg p-3 sm:p-6">
+      <div className="mx-auto grid min-h-[calc(100vh-1.5rem)] max-w-[1280px] border border-border bg-[#070808] sm:min-h-[calc(100vh-3rem)] lg:grid-cols-[1.15fr_0.85fr]">
+        <section className="relative hidden min-h-[680px] overflow-hidden border-r border-border p-8 lg:flex lg:flex-col lg:justify-between xl:p-12">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              {settings.logoDataUrl ? (
+                <Image src={settings.logoDataUrl} alt="" width={40} height={40} unoptimized className="h-10 w-10 object-contain" />
+              ) : (
+                <div className="flex h-10 w-10 items-center justify-center border border-accent/30 bg-accent/5 text-accent">
+                  <Activity className="h-5 w-5" />
+                </div>
+              )}
+              <div>
+                <div className="font-display text-lg font-medium text-zinc-100">
+                  <EmojiText text={settings.panelTitle || "SubShare"} />
+                </div>
+                <SystemLabel>Infrastructure access layer</SystemLabel>
+              </div>
+            </div>
+            <OperationalStatus label="SYSTEM OPERATIONAL" />
+          </div>
+
+          <div className="relative z-10 max-w-[650px]">
+            <SystemLabel className="text-accent/80">CONTROL PLANE / AUTH GATE</SystemLabel>
+            <h1 className="mt-5 max-w-2xl font-display text-5xl font-medium leading-[0.96] tracking-[-0.055em] text-zinc-100 xl:text-6xl">
+              Конфигурации под контролем. Доставка без шума.
+            </h1>
+            <p className="mt-6 max-w-xl text-base leading-7 text-zinc-500">
+              Единый операционный контур для пользователей, ключей, источников и персональных VPN-подписок.
+            </p>
+          </div>
+
+          <TechnicalFrame className="technical-grid mt-8 h-[290px] overflow-hidden bg-[#080909]">
+            <InfrastructureDiagram className="h-full w-full text-zinc-500" />
+            <div className="absolute bottom-4 left-4 flex gap-6">
+              <div><SystemLabel>Transport</SystemLabel><div className="mt-1 font-mono text-xs text-zinc-300">TLS / VLESS</div></div>
+              <div><SystemLabel>State</SystemLabel><div className="mt-1 font-mono text-xs text-accent">SYNCHRONIZED</div></div>
+              <div><SystemLabel>Mode</SystemLabel><div className="mt-1 font-mono text-xs text-zinc-300">SELF-HOSTED</div></div>
+            </div>
+          </TechnicalFrame>
+        </section>
+
+        <section className="flex min-h-[640px] items-center justify-center p-5 sm:p-10 lg:min-h-0 xl:p-14">
+          <div className="w-full max-w-[420px]">
+            <div className="mb-9 flex items-center justify-between lg:hidden">
+              <div className="flex items-center gap-3">
+                <div className="flex h-10 w-10 items-center justify-center border border-accent/30 bg-accent/5 text-accent">
+                  <Activity className="h-5 w-5" />
+                </div>
+                <div className="font-display text-lg font-medium text-zinc-100">
+                  <EmojiText text={settings.panelTitle || "SubShare"} />
+                </div>
+              </div>
+              <OperationalStatus label="ONLINE" />
+            </div>
+
+            <SystemLabel className="text-accent/80">SECURE SESSION / 01</SystemLabel>
+            <h2 className="mt-4 font-display text-4xl font-medium tracking-[-0.045em] text-zinc-100">
+              Вход в SubShare
+            </h2>
+            <p className="mt-3 text-sm leading-6 text-zinc-500">
+              Авторизуйтесь для доступа к операционному контуру.
+            </p>
+
+            <TechnicalFrame className="mt-8 bg-surface-1 p-5 sm:p-6">
+              <div className="mb-6 flex items-center gap-3 border-b border-border pb-4">
+                <div className="flex h-9 w-9 items-center justify-center border border-border bg-surface-2 text-zinc-400">
+                  <LockKeyhole className="h-4 w-4" />
+                </div>
+                <div>
+                  <SystemLabel>Authentication channel</SystemLabel>
+                  <div className="mt-1 font-mono text-[10px] text-accent">ENCRYPTED / READY</div>
+                </div>
+              </div>
+
+              <form onSubmit={handleSubmit} className="flex flex-col gap-5">
+                <Input
+                  label="Логин администратора"
+                  type="text"
+                  value={username}
+                  onChange={(event) => {
+                    setUsername(event.target.value);
+                    if (event.target.value) validateUsername(event.target.value);
+                    else setUsernameError("");
+                  }}
+                  error={usernameError}
+                  autoComplete="username"
+                  autoFocus
+                  required
+                />
+                <PasswordInput
+                  label="Пароль"
+                  value={password}
+                  onChange={(event) => {
+                    setPassword(event.target.value);
+                    if (event.target.value) validatePassword(event.target.value);
+                    else setPasswordError("");
+                  }}
+                  error={passwordError}
+                  autoComplete="current-password"
+                  required
+                />
+                {error && (
+                  <div role="alert" className="border border-danger/25 bg-danger/5 px-3 py-3 font-mono text-[10px] uppercase tracking-wide text-danger">
+                    {error}
+                  </div>
+                )}
+                <Button type="submit" loading={loading} className="mt-1 w-full justify-between">
+                  Войти в систему
+                  <ArrowRight className="h-4 w-4" />
+                </Button>
+              </form>
+            </TechnicalFrame>
+
+            <div className="mt-5 flex items-center justify-between">
+              <SystemLabel>SubShare / Admin</SystemLabel>
+              <span className="font-mono text-[9px] text-zinc-700">ACCESS NODE 01</span>
+            </div>
+          </div>
+        </section>
       </div>
-      <Card className="w-full max-w-sm shadow-xl dark:shadow-none transition-shadow">
-        <div className="flex items-center justify-center gap-2 mb-6">
-          {settings.logoDataUrl && (
-            // eslint-disable-next-line @next/next/no-img-element
-            <img
-              src={settings.logoDataUrl}
-              alt="Логотип"
-              className="h-5 w-auto object-contain"
-              style={{ imageRendering: "auto" }}
-            />
-          )}
-          <h1 className="text-xl font-semibold text-center">
-            <EmojiText text={settings.panelTitle} />
-          </h1>
-        </div>
-        <form onSubmit={handleSubmit} className="flex flex-col gap-4">
-          <Input
-            label="Логин"
-            type="text"
-            value={username}
-            onChange={handleUsernameChange}
-            error={usernameError}
-            autoFocus
-            required
-          />
-          <PasswordInput
-            label="Пароль"
-            value={password}
-            onChange={handlePasswordChange}
-            error={passwordError}
-            required
-          />
-          {error && <p className="text-sm text-red-400">{error}</p>}
-          <Button type="submit" loading={loading}>
-            Войти
-          </Button>
-        </form>
-      </Card>
-    </div>
+    </main>
   );
 }

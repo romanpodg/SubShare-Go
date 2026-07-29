@@ -84,7 +84,7 @@ export default function OverviewPage() {
               Часть данных временно недоступна: {data.degraded_sections.join(", ")}.
             </div>
           )}
-          <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-5">
+          <div className="grid gap-px bg-border sm:grid-cols-2 xl:grid-cols-5">
             <StatCard label="Всего пользователей" value={data.users.total} icon={<Users className="h-5 w-5" />} />
             <StatCard label="Активные" value={data.users.active} icon={<ShieldCheck className="h-5 w-5" />} tone="emerald" />
             <StatCard label="Истекли" value={data.users.expired} icon={<AlertTriangle className="h-5 w-5" />} tone="rose" />
@@ -92,8 +92,8 @@ export default function OverviewPage() {
             <StatCard label="Источники" value={data.sources.total} hint={data.sources.errors ? `Ошибок: ${data.sources.errors}` : "Ошибок нет"} icon={<RadioTower className="h-5 w-5" />} tone={data.sources.errors ? "rose" : "zinc"} />
           </div>
 
-          <div className="mt-6 grid gap-6 xl:grid-cols-[1.4fr_1fr]">
-            <section className="rounded-2xl border border-border bg-surface-1">
+          <div className="grid gap-px bg-border xl:grid-cols-[1.4fr_1fr]">
+            <section className="technical-frame border border-border bg-surface-1">
               <div className="border-b border-border px-5 py-4">
                 <h2 className="font-semibold text-zinc-200">Последние действия</h2>
                 <p className="mt-1 text-xs text-zinc-600">Журнал не содержит токенов, HWID и содержимого ключей.</p>
@@ -113,7 +113,7 @@ export default function OverviewPage() {
               </div>
             </section>
 
-            <section className="rounded-2xl border border-border bg-surface-1 p-5">
+            <section className="technical-frame border border-border bg-surface-1 p-5">
               <h2 className="font-semibold text-zinc-200">Операционный статус</h2>
               <div className="mt-5 space-y-3">
                 {[
@@ -139,7 +139,7 @@ export default function OverviewPage() {
                         : "text-zinc-400",
                   ],
                 ].map(([label, value, tone]) => (
-                  <div key={String(label)} className="flex items-center justify-between rounded-xl border border-border bg-zinc-950/35 px-4 py-3">
+                  <div key={String(label)} className="flex items-center justify-between border-b border-border bg-zinc-950/35 px-4 py-3 last:border-b-0">
                     <span className="text-sm text-zinc-500">{label}</span>
                     <span className={`font-mono text-sm font-semibold ${tone}`}>{value}</span>
                   </div>
@@ -147,7 +147,7 @@ export default function OverviewPage() {
               </div>
             </section>
           </div>
-          <section className="mt-6 rounded-2xl border border-border bg-surface-1">
+          <section className="technical-frame border border-border bg-surface-1">
             <div className="border-b border-border px-5 py-4">
               <h2 className="font-semibold text-zinc-200">Фоновые задания</h2>
               <p className="mt-1 text-xs text-zinc-600">Синхронизации источников и массовые проверки ключей.</p>

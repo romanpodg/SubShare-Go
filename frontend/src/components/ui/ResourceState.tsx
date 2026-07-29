@@ -8,7 +8,7 @@ import { LoadingSpinner } from "@/components/ui/LoadingSpinner";
 export function InitialLoading({ label = "Загрузка…" }: { label?: string }) {
   return (
     <div
-      className="flex min-h-[36vh] flex-col items-center justify-center gap-3 text-sm text-zinc-500"
+      className="technical-frame flex min-h-[36vh] flex-col items-center justify-center gap-3 border border-border bg-surface-1 text-sm text-zinc-500"
       role="status"
       aria-live="polite"
     >
@@ -34,7 +34,7 @@ export function ResourceError({
 
   return (
     <div
-      className={`rounded-2xl border border-rose-500/25 bg-rose-500/5 ${
+      className={`technical-frame border border-danger/25 bg-danger/5 ${
         compact ? "p-4" : "p-7"
       }`}
       role="alert"

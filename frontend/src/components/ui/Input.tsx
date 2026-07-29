@@ -10,18 +10,18 @@ interface InputProps extends InputHTMLAttributes<HTMLInputElement> {
 export function Input({ label, error, className = "", id, ...props }: InputProps) {
   const inputId = id || label?.toLowerCase().replace(/\s+/g, "-");
   return (
-    <div className="flex flex-col gap-1.5">
+    <div className="flex flex-col gap-2">
       {label && (
-        <label htmlFor={inputId} className="text-sm text-zinc-400">
+        <label htmlFor={inputId} className="font-mono text-[10px] font-semibold uppercase tracking-[0.14em] text-zinc-500">
           {label}
         </label>
       )}
       <input
         id={inputId}
-        className={`bg-surface-2 border border-border rounded-lg px-3 py-2 text-sm text-zinc-200 placeholder:text-zinc-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-bg ${error ? "ring-1 ring-red-500" : ""} ${className}`}
+        className={`min-h-11 rounded-sm border border-border bg-surface-2 px-3 py-2 text-sm text-zinc-100 placeholder:text-zinc-600 transition-colors hover:border-[var(--border-strong)] focus-visible:border-accent focus-visible:outline-none ${error ? "border-danger" : ""} ${className}`}
         {...props}
       />
-      {error && <p className="text-xs text-red-400">{error}</p>}
+      {error && <p className="font-mono text-[10px] uppercase tracking-wide text-danger">{error}</p>}
     </div>
   );
 }

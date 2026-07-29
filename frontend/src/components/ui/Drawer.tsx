@@ -43,7 +43,7 @@ export function Drawer({
 
   return (
     <div
-      className="fixed inset-0 z-50 flex justify-end bg-black/60"
+      className="fixed inset-0 z-50 flex justify-end bg-black/85"
       onMouseDown={(event) => {
         if (event.target === event.currentTarget) onClose();
       }}
@@ -53,18 +53,19 @@ export function Drawer({
         aria-modal="true"
         aria-labelledby={titleId}
         aria-describedby={description ? descriptionId : undefined}
-        className="flex h-full w-full max-w-2xl flex-col border-l border-border bg-bg shadow-2xl"
+        className="technical-grid flex h-full w-full max-w-2xl flex-col border-l border-border bg-bg"
       >
         <header className="flex items-start justify-between gap-4 border-b border-border px-5 py-4 sm:px-6">
           <div>
-            <h2 id={titleId} className="text-lg font-semibold text-zinc-100">{title}</h2>
+            <div className="system-label mb-1">DETAIL PANEL / ACTIVE</div>
+            <h2 id={titleId} className="font-display text-xl font-medium tracking-tight text-zinc-100">{title}</h2>
             {description && <p id={descriptionId} className="mt-1 text-sm text-zinc-500">{description}</p>}
           </div>
           <button
             ref={closeRef}
             type="button"
             onClick={onClose}
-            className="rounded-lg p-2 text-zinc-500 hover:bg-zinc-800 hover:text-zinc-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+            className="flex h-11 w-11 items-center justify-center rounded-sm border border-border text-zinc-500 hover:border-[var(--border-strong)] hover:bg-surface-2 hover:text-zinc-100"
             aria-label="Закрыть"
           >
             <X className="h-5 w-5" />

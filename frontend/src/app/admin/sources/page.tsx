@@ -183,7 +183,7 @@ export default function SourcesPage() {
         <ResourceError error={error} onRetry={() => void loadSources(1, true)} />
       ) : (
         <>
-          <section className="mb-4 rounded-2xl border border-border bg-surface-1 p-4">
+      <section className="technical-frame border border-border bg-surface-1 p-4">
             <div className="flex flex-col gap-3 lg:flex-row lg:items-end">
               <form className="flex min-w-0 flex-1 gap-2" onSubmit={search}>
                 <label className="relative min-w-0 flex-1">
@@ -237,7 +237,7 @@ export default function SourcesPage() {
           </section>
 
           <section
-            className="overflow-hidden rounded-2xl border border-border bg-surface-1"
+          className="technical-frame overflow-hidden border border-border bg-surface-1"
             aria-busy={refreshing}
           >
             <div className="overflow-x-auto">

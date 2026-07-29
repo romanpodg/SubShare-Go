@@ -14,8 +14,6 @@ import {
 } from "./pageConfig";
 import styles from "./subscription-page.module.css";
 
-const STORAGE_THEME_KEY = "subshare_subscription_theme";
-
 function applyTemplate(source: string, vars: Record<string, string>): string {
   return source.replace(/\{([a-zA-Z0-9_]+)\}/g, (_, key: string) => vars[key] ?? "");
 }
@@ -126,86 +124,65 @@ function normalizeRemoteConfig(raw: unknown): SubscriptionPageConfig {
 }
 
 function buildDarkTheme(theme: SubscriptionTheme): SubscriptionTheme {
+  const customOr = (key: keyof SubscriptionTheme, fallback: string) =>
+    theme[key] !== subscriptionPageConfig.theme[key] ? theme[key] : fallback;
+
   return {
     ...theme,
-    pageBackground: "#10151f",
-    cardBackground: "#161c27",
-    textPrimary: "#f3f6fb",
-    textSecondary: "#cbd5e1",
-    textMuted: "#b9c6d8",
-    border: "#273244",
-    shadow: "0 24px 70px rgba(0, 0, 0, 0.42), 0 6px 18px rgba(0, 0, 0, 0.24)",
-    heroBorder: "#273244",
-    inputBackground: "#101722",
-    inputBorder: "#324154",
-    inputText: "#f3f6fb",
-    successBackground: "#163127",
-    successText: "#86efac",
-    errorBackground: "#391b1f",
-    errorText: "#fca5a5",
-    badgeBackground: "#14233c",
-    badgeText: "#bed5ff",
-    badgeBorder: "#23406b",
-    buttonPrimaryBackground: "#f3f6fb",
-    buttonPrimaryBackgroundHover: "#dbe4f0",
-    buttonPrimaryText: "#0f172a",
-    buttonSecondaryBackground: "#161c27",
-    buttonSecondaryBackgroundHover: "#202938",
-    buttonSecondaryBorder: "#334155",
-    buttonSecondaryBorderHover: "#475569",
-    buttonSecondaryText: "#e5edf8",
-    buttonSubscribeBackground: "#ffffff",
-    buttonSubscribeBackgroundHover: "#edf2f7",
-    buttonSubscribeText: "#0f172a",
-    buttonSubscribeShadow: "0 8px 20px rgba(2, 6, 23, 0.24)",
-    buttonRecommendedBackground: "#ffffff",
-    buttonRecommendedBackgroundHover: "#edf2f7",
-    buttonRecommendedBorder: "#ffffff",
-    buttonRecommendedBorderHover: "#edf2f7",
-    buttonRecommendedText: "#0f172a",
-    buttonRecommendedShadow: "0 8px 20px rgba(2, 6, 23, 0.24)",
-    buttonRecommendedNeutralBackground: "#ffffff",
-    buttonRecommendedNeutralBackgroundHover: "#edf2f7",
-    buttonRecommendedNeutralBorder: "#ffffff",
-    buttonRecommendedNeutralBorderHover: "#edf2f7",
-    buttonRecommendedNeutralText: "#0f172a",
-    buttonRecommendedWindowsBackground: "#ffffff",
-    buttonRecommendedWindowsBackgroundHover: "#edf2f7",
-    buttonRecommendedWindowsBorder: "#ffffff",
-    buttonRecommendedWindowsBorderHover: "#edf2f7",
-    buttonRecommendedWindowsText: "#0f172a",
-    buttonRecommendedAndroidBackground: "#ffffff",
-    buttonRecommendedAndroidBackgroundHover: "#edf2f7",
-    buttonRecommendedAndroidBorder: "#ffffff",
-    buttonRecommendedAndroidBorderHover: "#edf2f7",
-    buttonRecommendedAndroidText: "#0f172a",
-    buttonRecommendedLinuxBackground: "#ffffff",
-    buttonRecommendedLinuxBackgroundHover: "#edf2f7",
-    buttonRecommendedLinuxBorder: "#ffffff",
-    buttonRecommendedLinuxBorderHover: "#edf2f7",
-    buttonRecommendedLinuxText: "#0f172a",
-    buttonRecommendedAppleBackground: "#ffffff",
-    buttonRecommendedAppleBackgroundHover: "#edf2f7",
-    buttonRecommendedAppleBorder: "#ffffff",
-    buttonRecommendedAppleBorderHover: "#edf2f7",
-    buttonRecommendedAppleText: "#0f172a",
-    buttonDisabledBackground: "#212938",
-    buttonDisabledBorder: "#313b4c",
-    buttonDisabledText: "#6f7c91",
-    codeBackground: "#101722",
-    codeText: "#9fb0c9",
-    codeLinkText: "#93c5fd",
-    stepNumberBackground: "#202938",
-    stepNumberText: "#f3f6fb",
-    stepCardBackground: "#161c27",
-    stepCardBorder: "#273244",
-    languageBadgeBackground: "#202938",
-    languageBadgeText: "#d6deeb",
+    pageBackground: "#050505",
+    cardBackground: "#070808",
+    textPrimary: "#f2f3ef",
+    textSecondary: "#c7cbc7",
+    textMuted: "#7f8580",
+    border: "rgba(255,255,255,0.1)",
+    shadow: "none",
+    heroBorder: "rgba(255,255,255,0.1)",
+    inputBackground: "#0d0f11",
+    inputBorder: "rgba(255,255,255,0.12)",
+    inputText: "#f2f3ef",
+    successBackground: "rgba(183,255,42,0.055)",
+    successText: "#b7ff2a",
+    errorBackground: "rgba(255,91,103,0.055)",
+    errorText: "#ff7a83",
+    badgeBackground: customOr("badgeBackground", "#090a0b"),
+    badgeText: customOr("badgeText", "#9ca19d"),
+    badgeBorder: customOr("badgeBorder", "rgba(255,255,255,0.1)"),
+    buttonPrimaryBackground: customOr("buttonPrimaryBackground", "#b7ff2a"),
+    buttonPrimaryBackgroundHover: customOr("buttonPrimaryBackgroundHover", "#c8ff5c"),
+    buttonPrimaryText: customOr("buttonPrimaryText", "#081000"),
+    buttonSecondaryBackground: customOr("buttonSecondaryBackground", "#0d0f11"),
+    buttonSecondaryBackgroundHover: customOr("buttonSecondaryBackgroundHover", "#131619"),
+    buttonSecondaryBorder: customOr("buttonSecondaryBorder", "rgba(255,255,255,0.12)"),
+    buttonSecondaryBorderHover: customOr("buttonSecondaryBorderHover", "rgba(255,255,255,0.25)"),
+    buttonSecondaryText: customOr("buttonSecondaryText", "#c7cbc7"),
+    buttonSubscribeBackground: customOr("buttonSubscribeBackground", "#b7ff2a"),
+    buttonSubscribeBackgroundHover: customOr("buttonSubscribeBackgroundHover", "#c8ff5c"),
+    buttonSubscribeText: customOr("buttonSubscribeText", "#081000"),
+    buttonSubscribeShadow: "none",
+    buttonRecommendedBackground: customOr("buttonRecommendedBackground", "#b7ff2a"),
+    buttonRecommendedBackgroundHover: customOr("buttonRecommendedBackgroundHover", "#c8ff5c"),
+    buttonRecommendedBorder: customOr("buttonRecommendedBorder", "#b7ff2a"),
+    buttonRecommendedBorderHover: customOr("buttonRecommendedBorderHover", "#c8ff5c"),
+    buttonRecommendedText: customOr("buttonRecommendedText", "#081000"),
+    buttonRecommendedShadow: "none",
+    buttonDisabledBackground: "#101210",
+    buttonDisabledBorder: "rgba(255,255,255,0.08)",
+    buttonDisabledText: "#555b56",
+    codeBackground: "#070808",
+    codeText: "#747a75",
+    codeLinkText: customOr("codeLinkText", "#b7ff2a"),
+    stepNumberBackground: "rgba(183,255,42,0.055)",
+    stepNumberText: "#b7ff2a",
+    stepCardBackground: "#090a0b",
+    stepCardBorder: "rgba(255,255,255,0.1)",
+    languageBadgeBackground: "#0d0f11",
+    languageBadgeText: "#8b918c",
+    fontFamily: "var(--font-sans)",
   };
 }
 
-function buildThemeVars(config: SubscriptionPageConfig, themeMode: "light" | "dark"): CSSProperties {
-  const theme = themeMode === "dark" ? buildDarkTheme(config.theme) : config.theme;
+function buildThemeVars(config: SubscriptionPageConfig): CSSProperties {
+  const theme = buildDarkTheme(config.theme);
   return {
     "--sub-page-bg": theme.pageBackground,
     "--sub-card-bg": theme.cardBackground,
@@ -286,7 +263,6 @@ function buildThemeVars(config: SubscriptionPageConfig, themeMode: "light" | "da
 
 export default function SubscriptionPage() {
   const [pageConfig, setPageConfig] = useState<SubscriptionPageConfig>(subscriptionPageConfig);
-  const [themeMode, setThemeMode] = useState<"light" | "dark">("light");
   const [code, setCode] = useState("");
   const [subscriptionUrl, setSubscriptionUrl] = useState("");
   const [message, setMessage] = useState("");
@@ -299,31 +275,6 @@ export default function SubscriptionPage() {
   useEffect(() => {
     document.title = settings.pageTitles.subscription;
   }, [settings.pageTitles.subscription]);
-
-  useEffect(() => {
-    if (typeof window === "undefined") return;
-
-    const media = window.matchMedia("(prefers-color-scheme: dark)");
-    const savedTheme = window.localStorage.getItem(STORAGE_THEME_KEY);
-
-    if (savedTheme === "light" || savedTheme === "dark") {
-      setThemeMode(savedTheme);
-      return;
-    }
-
-    setThemeMode(media.matches ? "dark" : "light");
-
-    const handleChange = (event: MediaQueryListEvent) => {
-      const latestSavedTheme = window.localStorage.getItem(STORAGE_THEME_KEY);
-      if (latestSavedTheme === "light" || latestSavedTheme === "dark") {
-        return;
-      }
-      setThemeMode(event.matches ? "dark" : "light");
-    };
-
-    media.addEventListener("change", handleChange);
-    return () => media.removeEventListener("change", handleChange);
-  }, []);
 
   useEffect(() => {
     let mounted = true;
@@ -370,17 +321,7 @@ export default function SubscriptionPage() {
     return "Не удалось активировать подписку";
   }, [blocks]);
 
-  const themeVars = useMemo(() => buildThemeVars(pageConfig, themeMode), [pageConfig, themeMode]);
-
-  const handleToggleTheme = () => {
-    setThemeMode((current) => {
-      const next = current === "dark" ? "light" : "dark";
-      if (typeof window !== "undefined") {
-        window.localStorage.setItem(STORAGE_THEME_KEY, next);
-      }
-      return next;
-    });
-  };
+  const themeVars = useMemo(() => buildThemeVars(pageConfig), [pageConfig]);
 
   const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -430,14 +371,13 @@ export default function SubscriptionPage() {
   };
 
   return (
-    <div className={`${styles.page} ${themeMode === "dark" ? styles.pageDark : styles.pageLight}`} style={themeVars}>
+    <div className={`${styles.page} ${styles.pageDark}`} style={themeVars}>
       <div className={styles.container}>
         <div className={styles.card}>
           <SubscriptionBlocks
             blocks={blocks}
             panelLogoDataUrl={settings.logoDataUrl || undefined}
-            themeMode={themeMode}
-            onToggleTheme={handleToggleTheme}
+            themeMode="dark"
             activation={{
               code,
               loading,

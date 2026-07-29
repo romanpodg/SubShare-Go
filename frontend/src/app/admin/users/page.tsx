@@ -134,7 +134,7 @@ export default function UsersPage() {
         }
       />
 
-      <section className="overflow-hidden rounded-2xl border border-border bg-surface-1">
+      <section className="technical-frame overflow-hidden border border-border bg-surface-1">
         <div className="flex flex-col gap-3 border-b border-border p-4 xl:flex-row xl:items-end">
           <form onSubmit={submitSearch} className="flex min-w-0 flex-1 gap-2">
             <Input

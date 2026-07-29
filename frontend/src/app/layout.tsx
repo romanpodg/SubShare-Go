@@ -2,11 +2,15 @@ import type { Metadata } from "next";
 import { ToastProvider } from "@/components/ui/Toast";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
 import { PanelSettingsProvider } from "@/context/PanelSettingsContext";
-import { ThemeProvider } from "@/components/ThemeProvider";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  description: "VLESS subscription management",
+  title: {
+    default: "SubShare",
+    template: "%s — SubShare",
+  },
+  applicationName: "SubShare",
+  description: "Self-hosted subscription delivery and configuration operations hub.",
 };
 
 // Runs synchronously before React hydrates — eliminates title/favicon flash on every page.
@@ -51,23 +55,21 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="ru" suppressHydrationWarning>
+    <html lang="ru" className="dark" suppressHydrationWarning>
       <head>
         <script dangerouslySetInnerHTML={{ __html: earlyInitScript }} />
       </head>
       <body className="bg-bg min-h-screen">
         <a
           href="#main-content"
-          className="sr-only focus:not-sr-only focus:fixed focus:top-4 focus:left-4 focus:z-50 focus:bg-accent focus:text-white focus:px-4 focus:py-2 focus:rounded-lg"
+          className="sr-only focus:not-sr-only focus:fixed focus:left-4 focus:top-4 focus:z-[100] focus:bg-accent focus:px-4 focus:py-3 focus:font-mono focus:text-xs focus:font-semibold focus:uppercase focus:tracking-wider focus:text-accent-fg"
         >
           Перейти к содержимому
         </a>
         <ToastProvider>
-          <ThemeProvider attribute="class" defaultTheme="dark" enableSystem={false}>
-            <PanelSettingsProvider>
-              <ErrorBoundary>{children}</ErrorBoundary>
-            </PanelSettingsProvider>
-          </ThemeProvider>
+          <PanelSettingsProvider>
+            <ErrorBoundary>{children}</ErrorBoundary>
+          </PanelSettingsProvider>
         </ToastProvider>
       </body>
     </html>

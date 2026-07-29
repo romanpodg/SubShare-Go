@@ -87,21 +87,24 @@ export function Modal({ open, onClose, title, children, className = "" }: ModalP
   return (
     <div
       ref={overlayRef}
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/60"
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/85 p-3"
     >
       <div
         ref={modalRef}
         role="dialog"
         aria-modal="true"
         aria-label={title}
-        className={`bg-surface-1 border border-border rounded-xl p-4 w-full shadow-xl shadow-black/50 animate-fade-in ${sizeClasses}`}
+        className={`technical-frame w-full border border-border bg-surface-1 p-5 animate-fade-in ${sizeClasses}`}
       >
         <div className="flex items-center justify-between mb-3">
-          <h2 className="text-lg font-semibold text-zinc-200"><EmojiText text={title} /></h2>
+          <div>
+            <div className="system-label mb-1">DIALOG / ACTIVE</div>
+            <h2 className="font-display text-xl font-medium tracking-tight text-zinc-100"><EmojiText text={title} /></h2>
+          </div>
           <button
             onClick={onClose}
             aria-label="Закрыть"
-            className="w-8 h-8 flex items-center justify-center rounded-md hover:bg-surface-2 transition-colors text-zinc-500 hover:text-zinc-300 text-xl leading-none"
+            className="flex h-11 w-11 items-center justify-center rounded-sm border border-border text-xl leading-none text-zinc-500 transition-colors hover:border-[var(--border-strong)] hover:bg-surface-2 hover:text-zinc-100"
           >
             &times;
           </button>

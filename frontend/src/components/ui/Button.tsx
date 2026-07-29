@@ -10,10 +10,10 @@ interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
 }
 
 const variants: Record<Variant, string> = {
-  primary: "bg-accent hover:bg-accent-hover text-accent-fg border border-transparent",
-  ghost: "hover:bg-surface-2 text-[var(--text-main)] border border-transparent bg-transparent",
-  danger: "bg-danger/10 hover:bg-danger/20 text-danger border border-danger/20",
-  outline: "hover:bg-surface-2 text-[var(--text-main)] border border-border bg-transparent",
+  primary: "border-accent bg-accent text-accent-fg hover:border-accent-hover hover:bg-accent-hover",
+  ghost: "border-transparent bg-transparent text-zinc-400 hover:border-border hover:bg-surface-2 hover:text-zinc-100",
+  danger: "border-danger/30 bg-danger/8 text-danger hover:bg-danger/14",
+  outline: "border-border bg-transparent text-zinc-200 hover:border-[var(--border-strong)] hover:bg-surface-2",
 };
 
 export function Button({
@@ -26,7 +26,7 @@ export function Button({
 }: ButtonProps) {
   return (
     <button
-      className={`relative px-4 py-2 rounded-lg text-sm font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-bg active:scale-[0.98] ${variants[variant]} ${className}`}
+      className={`relative inline-flex min-h-11 items-center justify-center gap-2 rounded-sm border px-4 py-2 font-mono text-xs font-semibold uppercase tracking-[0.08em] transition-[background-color,border-color,color] duration-200 disabled:cursor-not-allowed disabled:opacity-45 ${variants[variant]} ${className}`}
       disabled={disabled || loading}
       {...props}
     >
@@ -54,7 +54,7 @@ export function Button({
           </svg>
         </span>
       )}
-      <span className={loading ? "opacity-0" : ""}>{children}</span>
+      <span className={`inline-flex items-center justify-center gap-2 ${loading ? "opacity-0" : ""}`}>{children}</span>
     </button>
   );
 }

@@ -66,7 +66,7 @@ export default function AuditPage() {
             </div>
           )}
           <div
-            className="overflow-hidden rounded-2xl border border-border bg-surface-1"
+          className="technical-frame overflow-hidden border border-border bg-surface-1"
             aria-busy={refreshing}
           >
             <div className="overflow-x-auto">

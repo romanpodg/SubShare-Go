@@ -102,8 +102,8 @@ export default function SubscriptionSettingsPage() {
           Режим просмотра: изменять настройки может только владелец.
         </div>
       )}
-      <div className="grid gap-6 lg:grid-cols-2">
-        <section className="rounded-2xl border border-border bg-surface-1 p-5">
+      <div className="grid gap-px bg-border lg:grid-cols-2">
+        <section className="technical-frame border border-border bg-surface-1 p-5">
           <div className="flex items-start justify-between gap-4">
             <div className="flex gap-3"><div className="rounded-xl border border-cyan-400/20 bg-cyan-400/10 p-2.5 text-cyan-300"><Globe2 className="h-5 w-5" /></div><div><h2 className="font-semibold text-zinc-200">Метаданные</h2><p className="mt-1 text-sm text-zinc-600">Название, интервал обновления, ссылки и заголовки клиента.</p></div></div>
             <Button variant="outline" onClick={() => setSettingsOpen(true)} disabled={!isOwner}>Изменить</Button>
@@ -116,7 +116,7 @@ export default function SubscriptionSettingsPage() {
           </dl>
         </section>
 
-        <section className="rounded-2xl border border-border bg-surface-1 p-5">
+        <section className="technical-frame border border-border bg-surface-1 p-5">
           <div className="flex items-start justify-between gap-4">
             <div className="flex gap-3"><div className="rounded-xl border border-cyan-400/20 bg-cyan-400/10 p-2.5 text-cyan-300"><Route className="h-5 w-5" /></div><div><h2 className="font-semibold text-zinc-200">Маршрутизация Happ</h2><p className="mt-1 text-sm text-zinc-600">DNS, исключения и routing-конфигурация для автоматического импорта.</p></div></div>
             <Button variant="outline" onClick={() => setRoutingOpen(true)} disabled={!isOwner}>Открыть редактор</Button>
@@ -127,7 +127,7 @@ export default function SubscriptionSettingsPage() {
         </section>
       </div>
 
-      <section className="mt-6 rounded-2xl border border-border bg-surface-1">
+      <section className="technical-frame border border-border bg-surface-1">
         <div className="flex flex-col justify-between gap-4 border-b border-border px-5 py-4 lg:flex-row lg:items-center">
           <div>
             <h2 className="font-semibold text-zinc-200">Выдача и сообщения клиентам</h2>

@@ -130,8 +130,8 @@ export default function TemplatesPage() {
         </div>
       )}
 
-      <div className="grid gap-6 xl:grid-cols-[340px_1fr]">
-        <aside className="overflow-hidden rounded-2xl border border-border bg-surface-1">
+      <div className="grid gap-px bg-border xl:grid-cols-[340px_1fr]">
+        <aside className="technical-frame overflow-hidden border border-border bg-surface-1">
           <div className="border-b border-border px-4 py-3 text-xs font-semibold uppercase tracking-wider text-zinc-600">
             Доступные шаблоны
           </div>
@@ -157,7 +157,7 @@ export default function TemplatesPage() {
           </div>
         </aside>
 
-        <section className="rounded-2xl border border-border bg-surface-1">
+        <section className="technical-frame border border-border bg-surface-1">
           <div className="border-b border-border px-5 py-4">
             <h2 className="font-semibold text-zinc-200">{selected ? `Редактирование: ${selected.name}` : "Новый шаблон"}</h2>
             <p className="mt-1 text-xs text-zinc-600">Пустое содержимое использует стандартный генератор выбранного формата.</p>
@@ -209,7 +209,7 @@ export default function TemplatesPage() {
         </section>
       </div>
       {preview && (
-        <section className="mt-6 rounded-2xl border border-cyan-400/20 bg-surface-1">
+      <section className="technical-frame border border-accent/20 bg-surface-1">
           <div className="flex items-center justify-between border-b border-border px-5 py-4">
             <div><h2 className="font-semibold text-zinc-200">Предварительный просмотр</h2><p className="mt-1 font-mono text-xs text-cyan-400">{preview.content_type}</p></div>
             <button type="button" onClick={() => setPreview(null)} aria-label="Закрыть preview" className="rounded-lg p-2 text-zinc-500 hover:bg-zinc-800"><X className="h-4 w-4" /></button>

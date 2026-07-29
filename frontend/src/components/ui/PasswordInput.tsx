@@ -13,9 +13,9 @@ export function PasswordInput({ label, error, className = "", id, ...props }: Pa
   const inputId = id || label?.toLowerCase().replace(/\s+/g, "-");
 
   return (
-    <div className="flex flex-col gap-1.5">
+    <div className="flex flex-col gap-2">
       {label && (
-        <label htmlFor={inputId} className="text-sm text-zinc-400">
+        <label htmlFor={inputId} className="font-mono text-[10px] font-semibold uppercase tracking-[0.14em] text-zinc-500">
           {label}
         </label>
       )}
@@ -23,14 +23,14 @@ export function PasswordInput({ label, error, className = "", id, ...props }: Pa
         <input
           id={inputId}
           type={showPassword ? "text" : "password"}
-          className={`w-full bg-surface-2 border border-border rounded-lg px-3 py-2 pr-10 text-sm text-zinc-200 placeholder:text-zinc-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-bg ${error ? "ring-1 ring-red-500" : ""} ${className}`}
+          className={`min-h-11 w-full rounded-sm border border-border bg-surface-2 px-3 py-2 pr-12 text-sm text-zinc-100 placeholder:text-zinc-600 transition-colors hover:border-[var(--border-strong)] focus-visible:border-accent focus-visible:outline-none ${error ? "border-danger" : ""} ${className}`}
           {...props}
         />
         <button
           type="button"
           onClick={() => setShowPassword(!showPassword)}
-          className="absolute right-2 top-1/2 -translate-y-1/2 text-zinc-400 hover:text-zinc-200 transition-colors"
-          tabIndex={-1}
+          className="absolute right-0 top-0 flex h-11 w-11 items-center justify-center border-l border-border text-zinc-500 transition-colors hover:bg-surface-3 hover:text-zinc-100"
+          aria-label={showPassword ? "Скрыть пароль" : "Показать пароль"}
         >
           {showPassword ? (
             <EyeOff className="w-5 h-5" />
@@ -39,7 +39,7 @@ export function PasswordInput({ label, error, className = "", id, ...props }: Pa
           )}
         </button>
       </div>
-      {error && <p className="text-xs text-red-400">{error}</p>}
+      {error && <p className="font-mono text-[10px] uppercase tracking-wide text-danger">{error}</p>}
     </div>
   );
 }

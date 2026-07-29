@@ -2,7 +2,8 @@
 
 import { FormEvent, useMemo, useState, useEffect } from "react";
 import Image from "next/image";
-import { MoonStar, SunMedium, Smartphone, Monitor, Terminal, Layers } from "lucide-react";
+import { Smartphone, Monitor, Terminal, Layers } from "lucide-react";
+import { InfrastructureDiagram } from "@/components/ui/Technical";
 import type {
   ActivationStepBlockConfig,
   FooterBlockConfig,
@@ -31,7 +32,6 @@ interface SubscriptionBlocksProps {
   panelLogoDataUrl?: string;
   activation: ActivationRuntime;
   themeMode: "light" | "dark";
-  onToggleTheme: () => void;
 }
 
 type DevicePlatform = "android" | "ios" | "windows" | "macos" | "linux" | "unknown";
@@ -230,15 +230,16 @@ function LinkButtonsBlock({
   return (
     <div className="flex flex-col gap-4 mt-3">
       {/* Платформы */}
-      <div className="flex flex-wrap gap-1 p-1 bg-neutral-900/10 dark:bg-white/5 rounded-xl border border-black/5 dark:border-white/5 w-fit">
+      <div className="flex w-fit flex-wrap gap-px border border-white/10 bg-white/10">
         {platformTabs.map((tab) => (
           <button
+            type="button"
             key={tab.id}
             onClick={() => setSelectedPlatform(tab.id)}
-            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition cursor-pointer ${
+            className={`flex min-h-10 cursor-pointer items-center gap-1.5 border px-3 font-mono text-[10px] font-semibold uppercase tracking-wide transition-colors ${
               selectedPlatform === tab.id
-                ? "bg-white dark:bg-surface-2 text-zinc-900 dark:text-zinc-100 shadow-sm border border-black/5 dark:border-white/10"
-                : "text-zinc-500 dark:text-zinc-400 hover:text-zinc-800 dark:hover:text-zinc-200 border border-transparent"
+                ? "border-accent/30 bg-accent/8 text-accent"
+                : "border-transparent bg-[#090a0b] text-zinc-500 hover:bg-[#0d0f11] hover:text-zinc-200"
             }`}
           >
             {tab.icon}
@@ -365,77 +366,57 @@ function StepBlock({
   );
 }
 
-function ThemeToggle({
-  themeMode,
-  onToggleTheme,
-}: {
-  themeMode: "light" | "dark";
-  onToggleTheme: () => void;
-}) {
-  const isDark = themeMode === "dark";
-
-  return (
-    <button
-      type="button"
-      className={`${styles.themeToggle} ${isDark ? styles.themeToggleDark : styles.themeToggleLight}`}
-      onClick={onToggleTheme}
-      aria-label={isDark ? "Переключить на светлую тему" : "Переключить на тёмную тему"}
-      aria-pressed={isDark}
-    >
-      <span className={styles.themeToggleTrack}>
-        <span className={styles.themeToggleThumb}>
-          {isDark ? <MoonStar size={20} strokeWidth={2.2} /> : <SunMedium size={20} strokeWidth={2.2} />}
-        </span>
-      </span>
-    </button>
-  );
-}
-
 function HeroBlock({
   block,
   panelLogoDataUrl,
-  themeMode,
-  onToggleTheme,
 }: {
   block: HeroBlockConfig;
   panelLogoDataUrl?: string;
-  themeMode: "light" | "dark";
-  onToggleTheme: () => void;
 }) {
   const logoSrc = panelLogoDataUrl || block.logo.src;
 
   return (
     <header className={styles.hero}>
-      <div className={styles.heroTop}>
-        <div className={styles.brand}>
-          <div className={styles.logoWrap}>
-            <Image
-              src={logoSrc}
-              alt={block.logo.alt}
-              className={styles.logo}
-              fill
-              sizes="56px"
-              priority
-              draggable={false}
-              unoptimized
-            />
-          </div>
-          <div className={styles.brandText}>
-            <h1>{block.brandTitle}</h1>
-            <p>{block.brandSubtitle}</p>
+      <div className={styles.heroCopy}>
+        <div className={styles.heroTop}>
+          <div className={styles.brand}>
+            <div className={styles.logoWrap}>
+              <Image
+                src={logoSrc}
+                alt={block.logo.alt}
+                className={styles.logo}
+                fill
+                sizes="56px"
+                priority
+                draggable={false}
+                unoptimized
+              />
+            </div>
+            <div className={styles.brandText}>
+              <h1>{block.brandTitle}</h1>
+              <p>{block.brandSubtitle}</p>
+            </div>
           </div>
         </div>
-        <ThemeToggle themeMode={themeMode} onToggleTheme={onToggleTheme} />
+
+        <div className={styles.heroLabel}>SUBSCRIPTION DELIVERY / ACCESS NODE</div>
+        <p className={styles.subhead}>{block.subhead}</p>
+
+        {block.statusBadge ? (
+          <div className={styles.statusBadge}>
+            <span className={styles.statusDot} />
+            {block.statusBadge}
+          </div>
+        ) : null}
       </div>
-
-      <p className={styles.subhead}>{block.subhead}</p>
-
-      {block.statusBadge ? (
-        <div className={styles.statusBadge}>
-          <span className={styles.statusDot} />
-          {block.statusBadge}
+      <div className={styles.heroDiagram}>
+        <InfrastructureDiagram className={styles.infrastructureDiagram} />
+        <div className={styles.heroTelemetry}>
+          <span>CORE / ONLINE</span>
+          <span>DELIVERY / READY</span>
+          <span>TLS / ACTIVE</span>
         </div>
-      ) : null}
+      </div>
     </header>
   );
 }
@@ -461,7 +442,6 @@ export function SubscriptionBlocks({
   panelLogoDataUrl,
   activation,
   themeMode,
-  onToggleTheme,
 }: SubscriptionBlocksProps) {
   const recommendedButtonIDs = useMemo(
     () => recommendedButtonIDsByPlatform(detectDevicePlatform()),
@@ -477,8 +457,6 @@ export function SubscriptionBlocks({
               key={block.id}
               block={block}
               panelLogoDataUrl={panelLogoDataUrl}
-              themeMode={themeMode}
-              onToggleTheme={onToggleTheme}
             />
           );
         }

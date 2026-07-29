@@ -174,8 +174,8 @@ export default function ResponseRulesPage() {
         </div>
       )}
 
-      <div className="grid gap-6 xl:grid-cols-[360px_1fr]">
-        <aside className="overflow-hidden rounded-2xl border border-border bg-surface-1">
+      <div className="grid gap-px bg-border xl:grid-cols-[360px_1fr]">
+        <aside className="technical-frame overflow-hidden border border-border bg-surface-1">
           <div className="border-b border-border px-4 py-3 text-xs font-semibold uppercase tracking-wider text-zinc-600">
             Порядок выполнения
           </div>
@@ -204,7 +204,7 @@ export default function ResponseRulesPage() {
         </aside>
 
         <fieldset disabled={!isOwner} className="min-w-0">
-        <section className="rounded-2xl border border-border bg-surface-1">
+        <section className="technical-frame border border-border bg-surface-1">
           <div className="border-b border-border px-5 py-4">
             <div className="flex items-start justify-between gap-4">
               <div><h2 className="font-semibold text-zinc-200">{selected ? selected.name : "Новое правило"}</h2><p className="mt-1 text-xs text-zinc-600">Пустой список условий соответствует любому запросу и подходит только для fallback.</p></div>
