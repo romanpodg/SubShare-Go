@@ -13,6 +13,7 @@ export interface User {
   subscription_extra_status: string;
   activation_used_at: string;
   status: "active" | "paused" | "blocked";
+  effective_status: EffectiveUserStatus;
   starts_at: string;
   expires_at: string;
   blocked_reason: string;
@@ -45,6 +46,7 @@ export interface VLESSKey {
   id: number;
   label: string;
   url: string;
+  category_id?: number;
   category: string;
   kind: "real" | "informational";
   template_text: string;
@@ -120,12 +122,61 @@ export interface ExternalSubscriptionSource {
   updated_at: string;
 }
 
+export interface SourceSummary {
+  id: number;
+  name: string;
+  category: string;
+  key_category: string;
+  source_url_masked: string;
+  enabled: boolean;
+  pass_hwid: boolean;
+  has_hwid_value: boolean;
+  last_import_count: number;
+  imported_keys: number;
+  import_status: "idle" | "syncing" | "ok" | "error";
+  last_error: string;
+  last_synced_at: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface SourceDetail extends SourceSummary {
+  source_url: string;
+  key_insert_mode: "top" | "bottom";
+  hwid_version: string;
+  hwid_model_name: string;
+  meta_title: string;
+  meta_refresh_hours: number;
+  meta_support_url: string;
+  meta_web_page_url: string;
+  meta_announce: string;
+}
+
+export interface SourceWriteInput {
+  name: string;
+  category: string;
+  key_category: string;
+  key_insert_mode: "top" | "bottom";
+  source_url: string;
+  enabled: boolean;
+  apply_remote_metadata: boolean;
+  pass_hwid: boolean;
+  hwid_version: string;
+  hwid_model_name: string;
+  hwid_value?: string;
+  clear_hwid_value?: boolean;
+  raw_body?: string;
+  raw_content_type?: string;
+  raw_final_url?: string;
+}
+
 export interface ExternalSourceCategory {
   name: string;
   sources_count: number;
 }
 
 export interface KeyCategory {
+  id?: number;
   name: string;
   color: string;
   keys_count: number;
@@ -160,6 +211,174 @@ export interface ExternalSourcePreview {
 export interface Admin {
   id: number;
   username: string;
-  role: "super_admin" | "support_admin";
+  role: "owner" | "operator" | "viewer";
+  created_at: string;
+}
+
+export interface PageMeta {
+  page: number;
+  page_size: number;
+  total: number;
+  total_pages: number;
+}
+
+export type EffectiveUserStatus = "active" | "expired" | "paused" | "blocked" | "limited";
+
+export interface UserSummary {
+  id: number;
+  name: string;
+  email: string;
+  status: "active" | "paused" | "blocked";
+  effective_status: EffectiveUserStatus;
+  starts_at: string;
+  expires_at: string;
+  max_devices: number;
+  connected_device_count: number;
+  created_at: string;
+}
+
+export interface KeySummary {
+  id: number;
+  label: string;
+  category: string;
+  kind: "real" | "informational";
+  status: "active" | "non-active";
+  check_status: "up" | "down" | "unknown";
+  check_error: string;
+  last_latency_ms: number;
+  last_checked_at: string;
+  external_source_id: number;
+  external_source_name: string;
+  created_at: string;
+}
+
+export interface AuditEvent {
+  id: number;
+  actor: string;
+  action: string;
+  target_type: string;
+  target_id: string;
+  metadata: Record<string, unknown>;
+  request_id: string;
+  created_at: string;
+}
+
+export interface DashboardData {
+  users: Record<"total" | EffectiveUserStatus, number>;
+  keys: {
+    total: number;
+    up: number;
+    down: number;
+    unknown: number;
+  };
+  sources: {
+    total: number;
+    errors: number;
+  };
+  devices: number;
+  backup: {
+    enabled: boolean;
+    status: "disabled" | "pending" | "healthy" | "error";
+    file: string;
+    last_modified: string;
+    size_bytes: number;
+  };
+  recent_audit_events: AuditEvent[];
+  degraded_sections: Array<"sources" | "devices" | "audit">;
+}
+
+export type SubscriptionTemplateFormat = "base64" | "plain" | "xray-json" | "mihomo" | "sing-box";
+
+export interface SubscriptionTemplate {
+  id: number;
+  slug: string;
+  name: string;
+  format: SubscriptionTemplateFormat;
+  content: string;
+  enabled: boolean;
+  is_system: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ResponseRuleCondition {
+  headerName: string;
+  operator:
+    | "EQUALS"
+    | "NOT_EQUALS"
+    | "CONTAINS"
+    | "NOT_CONTAINS"
+    | "STARTS_WITH"
+    | "NOT_STARTS_WITH"
+    | "ENDS_WITH"
+    | "NOT_ENDS_WITH"
+    | "REGEX"
+    | "NOT_REGEX";
+  value: string;
+  caseSensitive: boolean;
+}
+
+export interface ResponseRule {
+  id: number;
+  name: string;
+  description: string;
+  enabled: boolean;
+  priority: number;
+  operator: "AND" | "OR";
+  conditions: ResponseRuleCondition[];
+  response_type:
+    | "browser"
+    | "base64"
+    | "plain"
+    | "xray-json"
+    | "mihomo"
+    | "sing-box"
+    | "block"
+    | "not-found";
+  template_id: number | null;
+  headers: Array<{ key: string; value: string }>;
+  is_system: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface APIToken {
+  id: number;
+  name: string;
+  prefix: string;
+  scopes: string[];
+  expires_at: string | null;
+  last_used_at: string | null;
+  created_at: string;
+  revoked_at: string | null;
+}
+
+export interface SourceSyncRun {
+  id: number;
+  source_id: number;
+  status: "running" | "succeeded" | "failed";
+  imported_count: number;
+  skipped_count: number;
+  error_message: string;
+  started_at: string;
+  finished_at: string | null;
+}
+
+export interface SubscriptionDeliverySettings {
+  response_headers: Array<{ key: string; value: string }>;
+  announcement: string;
+  remarks: Record<"expired" | "paused" | "blocked" | "limited" | "empty", string[]>;
+}
+
+export interface BackgroundJob {
+  id: number;
+  kind: string;
+  status: "queued" | "running" | "succeeded" | "failed";
+  target_type: string;
+  target_id: string;
+  error_message: string;
+  run_after: string | null;
+  started_at: string | null;
+  finished_at: string | null;
   created_at: string;
 }

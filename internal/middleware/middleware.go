@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
+	"os"
 	"strings"
 	"sync"
 	"time"
@@ -24,6 +25,7 @@ type RateLimiter struct {
 	attempts map[string][]time.Time
 	limit    int
 	window   time.Duration
+	maxPeers int
 }
 
 // NewRateLimiter creates a new RateLimiter with the given limit and window.
@@ -33,6 +35,7 @@ func NewRateLimiter(limit int, window time.Duration) *RateLimiter {
 		attempts: make(map[string][]time.Time),
 		limit:    limit,
 		window:   window,
+		maxPeers: 10000,
 	}
 	go rl.cleanup(5 * time.Minute)
 	return rl
@@ -47,6 +50,9 @@ func (rl *RateLimiter) Allow(ip string) bool {
 	cutoff := now.Add(-rl.window)
 
 	attempts := rl.attempts[ip]
+	if rl.maxPeers > 0 && len(attempts) == 0 && len(rl.attempts) >= rl.maxPeers {
+		return false
+	}
 	valid := attempts[:0]
 	for _, t := range attempts {
 		if t.After(cutoff) {
@@ -98,24 +104,63 @@ func (rl *RateLimiter) cleanup(interval time.Duration) {
 	}
 }
 
-// ClientIP extracts the client IP from the request, checking
-// X-Forwarded-For and X-Real-IP headers before falling back to RemoteAddr.
+// ClientIP extracts the client IP from the request. Forwarding headers are
+// accepted only when the immediate peer is a loopback/private reverse proxy.
 func ClientIP(r *http.Request) string {
-	if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
-		if parts := strings.SplitN(xff, ",", 2); len(parts) > 0 {
-			if ip := strings.TrimSpace(parts[0]); ip != "" {
-				return ip
+	return clientIP(r, parseTrustedProxyNetworks(os.Getenv("TRUSTED_PROXIES")))
+}
+
+func parseTrustedProxyNetworks(raw string) []*net.IPNet {
+	networks := []*net.IPNet{}
+	for _, item := range strings.Split(raw, ",") {
+		item = strings.TrimSpace(item)
+		if item == "" {
+			continue
+		}
+		if ip := net.ParseIP(item); ip != nil {
+			bits := 128
+			if ip.To4() != nil {
+				bits = 32
+			}
+			networks = append(networks, &net.IPNet{IP: ip, Mask: net.CIDRMask(bits, bits)})
+			continue
+		}
+		if _, network, err := net.ParseCIDR(item); err == nil {
+			networks = append(networks, network)
+		}
+	}
+	return networks
+}
+
+func clientIP(r *http.Request, trustedNetworks []*net.IPNet) string {
+	remoteHost, _, err := net.SplitHostPort(r.RemoteAddr)
+	if err != nil {
+		remoteHost = r.RemoteAddr
+	}
+	remoteIP := net.ParseIP(strings.TrimSpace(remoteHost))
+	trustedProxy := remoteIP != nil && remoteIP.IsLoopback()
+	if remoteIP != nil && !trustedProxy {
+		for _, network := range trustedNetworks {
+			if network.Contains(remoteIP) {
+				trustedProxy = true
+				break
 			}
 		}
 	}
-	if xri := r.Header.Get("X-Real-IP"); xri != "" {
-		return strings.TrimSpace(xri)
+
+	if trustedProxy {
+		if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
+			if parts := strings.SplitN(xff, ",", 2); len(parts) > 0 {
+				if ip := strings.TrimSpace(parts[0]); net.ParseIP(ip) != nil {
+					return ip
+				}
+			}
+		}
+		if xri := strings.TrimSpace(r.Header.Get("X-Real-IP")); net.ParseIP(xri) != nil {
+			return xri
+		}
 	}
-	host, _, err := net.SplitHostPort(r.RemoteAddr)
-	if err != nil {
-		return r.RemoteAddr
-	}
-	return host
+	return strings.TrimSpace(remoteHost)
 }
 
 // SecurityHeaders adds standard security headers to every response.
@@ -166,12 +211,25 @@ func LogRequest(next http.Handler) http.Handler {
 		slog.Info("request completed",
 			"status", rec.Status,
 			"method", r.Method,
-			"path", r.URL.Path,
+			"path", sanitizeLogPath(r.URL.Path),
 			"duration", time.Since(start).String(),
 			"ip", ClientIP(r),
 			"req_id", reqID,
 		)
 	})
+}
+
+func sanitizeLogPath(path string) string {
+	segments := strings.Split(path, "/")
+	for index := 1; index < len(segments); index++ {
+		switch {
+		case segments[index] == "sub" && index+1 < len(segments):
+			segments[index+1] = "{subscription_id}"
+		case segments[index] == "hwid" && index+1 < len(segments):
+			segments[index+1] = "{hwid}"
+		}
+	}
+	return strings.Join(segments, "/")
 }
 
 // CorsMiddleware adds CORS headers for the specified origins.
@@ -192,6 +250,18 @@ func CorsMiddleware(allowedOrigins []string, next http.Handler) http.Handler {
 		if r.Method == http.MethodOptions {
 			w.WriteHeader(http.StatusNoContent)
 			return
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+
+// DeprecateLegacyAdminAPI marks the compatibility API without changing its
+// payloads. Clients should migrate to /api/v1.
+func DeprecateLegacyAdminAPI(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.HasPrefix(r.URL.Path, "/api/admin/") {
+			w.Header().Set("Deprecation", "true")
+			w.Header().Set("Link", `</api/v1/openapi.yaml>; rel="successor-version"`)
 		}
 		next.ServeHTTP(w, r)
 	})

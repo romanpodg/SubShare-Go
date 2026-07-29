@@ -327,7 +327,11 @@ export function UsersSection({ users, assignableKeys, onRefresh }: Props) {
           <div className="flex gap-2">
             <select
               value={statusFilter}
-              onChange={(e) => setStatusFilter(e.target.value as any)}
+              onChange={(e) =>
+                setStatusFilter(
+                  e.target.value as "all" | "active" | "non-active" | "paused" | "blocked"
+                )
+              }
               className="h-9 bg-surface-2 border border-border rounded-lg px-3 text-sm focus:outline-none focus:border-accent text-zinc-300 cursor-pointer"
             >
               <option value="all">Все статусы</option>

@@ -505,7 +505,7 @@ func migrate(db *sql.DB) error {
 	if _, err := db.Exec(`UPDATE subscription_settings SET subscription_format = 'links' WHERE LOWER(TRIM(subscription_format)) NOT IN ('links','xray-json')`); err != nil {
 		return err
 	}
-	return nil
+	return runVersionedMigrations(db)
 }
 
 func ensureColumn(db *sql.DB, tableName, columnName, definition string) error {
@@ -663,6 +663,14 @@ func (a *App) listUsers() ([]model.User, error) {
 		if connectedDevices.Valid && connectedDevices.Int64 > 0 {
 			u.ConnectedDeviceCount = int(connectedDevices.Int64)
 		}
+		u.EffectiveStatus = model.EffectiveUserStatus(
+			u.Status,
+			expiresAt.Time,
+			expiresAt.Valid,
+			u.ConnectedDeviceCount,
+			u.MaxDevices,
+			time.Now(),
+		)
 		rawHWIDs := strings.TrimSpace(connectedHWIDs.String)
 		if rawHWIDs != "" {
 			u.ConnectedHWIDs = strings.Split(rawHWIDs, "||")
@@ -754,8 +762,9 @@ func (a *App) listUsers() ([]model.User, error) {
 
 func (a *App) listKeys() ([]model.VLESSKey, error) {
 	rows, err := a.db.Query(`
-		SELECT k.id, k.label, k.url, k.category, k.key_kind, k.template_text, k.status, k.check_status, k.check_error, k.last_checked_at, k.last_latency_ms, k.created_at, k.external_source_id, COALESCE(es.name, '')
+		SELECT k.id, k.label, k.url, k.category_id, COALESCE(kc.name, k.category), k.key_kind, k.template_text, k.status, k.check_status, k.check_error, k.last_checked_at, k.last_latency_ms, k.created_at, k.external_source_id, COALESCE(es.name, '')
 		FROM vless_keys k
+		LEFT JOIN key_categories kc ON kc.id = k.category_id
 		LEFT JOIN external_subscription_sources es ON es.id = k.external_source_id
 		ORDER BY k.sort_order, k.id
 	`)
@@ -775,10 +784,14 @@ func (a *App) listKeys() ([]model.VLESSKey, error) {
 		var checkError sql.NullString
 		var lastCheckedAt sql.NullTime
 		var latency sql.NullInt64
+		var categoryID sql.NullInt64
 		var externalSourceID sql.NullInt64
 		var externalSourceName sql.NullString
-		if err := rows.Scan(&key.ID, &key.Label, &key.URL, &category, &kind, &templateText, &status, &checkStatus, &checkError, &lastCheckedAt, &latency, &key.CreatedAt, &externalSourceID, &externalSourceName); err != nil {
+		if err := rows.Scan(&key.ID, &key.Label, &key.URL, &categoryID, &category, &kind, &templateText, &status, &checkStatus, &checkError, &lastCheckedAt, &latency, &key.CreatedAt, &externalSourceID, &externalSourceName); err != nil {
 			return nil, err
+		}
+		if categoryID.Valid {
+			key.CategoryID = categoryID.Int64
 		}
 		key.Category = strings.TrimSpace(category.String)
 		key.Kind, _ = model.NormalizeKeyKind(kind.String)

@@ -1,0 +1,704 @@
+openapi: 3.1.0
+info:
+  title: SubShare Admin API
+  version: 1.0.0
+  description: |
+    Versioned administration API for SubShare. Browser sessions use the
+    `ss_admin_session` cookie and CSRF protection on unsafe requests. API
+    clients use a scoped bearer token created in Security settings.
+servers:
+  - url: /api/v1
+security:
+  - sessionCookie: []
+  - bearerToken: []
+tags:
+  - name: System
+  - name: Admins
+  - name: Users
+  - name: Keys
+  - name: Subscription
+  - name: Security
+  - name: Operations
+paths:
+  /openapi.yaml:
+    get:
+      tags: [System]
+      summary: Download this OpenAPI document
+      responses:
+        "200":
+          description: OpenAPI YAML
+          content:
+            application/yaml:
+              schema: { type: string }
+  /build-info:
+    get:
+      tags: [System]
+      summary: Build and database schema information
+      responses:
+        "200":
+          description: Build information
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/BuildInfo" }
+        default: { $ref: "#/components/responses/Error" }
+  /dashboard:
+    get:
+      tags: [System]
+      summary: Dashboard counters and recent audit events
+      responses:
+        "200":
+          description: Dashboard summary
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+        default: { $ref: "#/components/responses/Error" }
+  /users:
+    get:
+      tags: [Users]
+      summary: Search and paginate users
+      parameters:
+        - { $ref: "#/components/parameters/Query" }
+        - { name: status, in: query, schema: { type: string, enum: [all, active, expired, paused, blocked, limited] } }
+        - { name: sort, in: query, schema: { type: string, enum: [created_desc, name_asc, expires_asc] } }
+        - { $ref: "#/components/parameters/Page" }
+        - { $ref: "#/components/parameters/PageSize" }
+      responses:
+        "200":
+          description: User page
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - { $ref: "#/components/schemas/PageEnvelope" }
+                  - type: object
+                    properties:
+                      data:
+                        type: array
+                        items: { $ref: "#/components/schemas/UserSummary" }
+        default: { $ref: "#/components/responses/Error" }
+  /users/{id}:
+    get:
+      tags: [Users]
+      summary: User detail
+      parameters:
+        - { $ref: "#/components/parameters/ID" }
+      responses:
+        "200":
+          description: User detail
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: { type: object, additionalProperties: true }
+        "404": { $ref: "#/components/responses/Error" }
+  /admins:
+    get:
+      tags: [Admins]
+      summary: List administrator accounts
+      responses:
+        "200":
+          description: Administrator list
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  admins:
+                    type: array
+                    items: { type: object, additionalProperties: true }
+        default: { $ref: "#/components/responses/Error" }
+    post:
+      tags: [Admins]
+      summary: Create an administrator account
+      responses:
+        "200": { description: Administrator created }
+        default: { $ref: "#/components/responses/Error" }
+  /admins/{id}:
+    put:
+      tags: [Admins]
+      summary: Update an administrator account
+      parameters: [{ $ref: "#/components/parameters/ID" }]
+      responses:
+        "200": { description: Administrator updated }
+        default: { $ref: "#/components/responses/Error" }
+    delete:
+      tags: [Admins]
+      summary: Delete an administrator account
+      parameters: [{ $ref: "#/components/parameters/ID" }]
+      responses:
+        "200": { description: Administrator deleted }
+        default: { $ref: "#/components/responses/Error" }
+  /keys:
+    get:
+      tags: [Keys]
+      summary: Search and paginate keys
+      parameters:
+        - { $ref: "#/components/parameters/Query" }
+        - { name: status, in: query, schema: { type: string } }
+        - { $ref: "#/components/parameters/Page" }
+        - { $ref: "#/components/parameters/PageSize" }
+      responses:
+        "200":
+          description: Key page
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - { $ref: "#/components/schemas/PageEnvelope" }
+                  - type: object
+                    properties:
+                      data:
+                        type: array
+                        items: { $ref: "#/components/schemas/KeySummary" }
+        default: { $ref: "#/components/responses/Error" }
+  /sources:
+    get:
+      tags: [Operations]
+      summary: Paginate safe external subscription source summaries
+      parameters:
+        - { $ref: "#/components/parameters/Query" }
+        - { name: status, in: query, schema: { type: string, enum: [all, disabled, idle, syncing, ok, error] } }
+        - { name: sort, in: query, schema: { type: string, enum: [last_sync_desc, name_asc, created_asc] } }
+        - { $ref: "#/components/parameters/Page" }
+        - { $ref: "#/components/parameters/PageSize" }
+      responses:
+        "200":
+          description: Source page without full URLs or HWID values
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - { $ref: "#/components/schemas/PageEnvelope" }
+                  - type: object
+                    properties:
+                      data:
+                        type: array
+                        items: { $ref: "#/components/schemas/SourceSummary" }
+        default: { $ref: "#/components/responses/Error" }
+    post:
+      tags: [Operations]
+      summary: Import a validated external source
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/SourceInput" }
+      responses:
+        "201": { description: Source and imported keys created atomically }
+        "409": { $ref: "#/components/responses/Error" }
+        default: { $ref: "#/components/responses/Error" }
+  /sources/preview:
+    post:
+      tags: [Operations]
+      summary: Fetch, validate and preview a source without saving it
+      responses:
+        "200": { description: Detected format, metadata, warnings and safe key samples }
+        default: { $ref: "#/components/responses/Error" }
+  /sources/{id}:
+    get:
+      tags: [Operations]
+      summary: Source details for owner editing
+      parameters: [{ $ref: "#/components/parameters/ID" }]
+      responses:
+        "200":
+          description: Full source URL and has_hwid_value flag; never the stored HWID
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: { $ref: "#/components/schemas/SourceDetail" }
+        default: { $ref: "#/components/responses/Error" }
+    put:
+      tags: [Operations]
+      summary: Update an external source
+      parameters: [{ $ref: "#/components/parameters/ID" }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/SourceInput" }
+      responses:
+        "200": { description: Source updated }
+        default: { $ref: "#/components/responses/Error" }
+    delete:
+      tags: [Operations]
+      summary: Delete an external source
+      parameters: [{ $ref: "#/components/parameters/ID" }]
+      responses:
+        "200": { description: Source deleted }
+        default: { $ref: "#/components/responses/Error" }
+  /sources/{id}/sync:
+    post:
+      tags: [Operations]
+      summary: Queue source synchronization
+      parameters: [{ $ref: "#/components/parameters/ID" }]
+      responses:
+        "202":
+          description: Synchronization queued
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  job_id: { type: integer, format: int64 }
+                  status: { type: string, const: queued }
+        default: { $ref: "#/components/responses/Error" }
+  /templates:
+    get:
+      tags: [Subscription]
+      summary: List subscription templates
+      responses:
+        "200":
+          description: Template list
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items: { $ref: "#/components/schemas/SubscriptionTemplate" }
+    post:
+      tags: [Subscription]
+      summary: Create a template
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/TemplateInput" }
+      responses:
+        "201":
+          description: Template created
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/SubscriptionTemplate" }
+        default: { $ref: "#/components/responses/Error" }
+  /templates/preview:
+    post:
+      tags: [Subscription]
+      summary: Validate and preview a template without saving it
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/TemplateInput" }
+      responses:
+        "200":
+          description: Rendered sample
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  content: { type: string }
+                  content_type: { type: string }
+        default: { $ref: "#/components/responses/Error" }
+  /templates/{id}:
+    put:
+      tags: [Subscription]
+      summary: Update a template
+      parameters: [{ $ref: "#/components/parameters/ID" }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/TemplateInput" }
+      responses:
+        "200": { description: Updated }
+        default: { $ref: "#/components/responses/Error" }
+    delete:
+      tags: [Subscription]
+      summary: Delete a non-system template
+      parameters: [{ $ref: "#/components/parameters/ID" }]
+      responses:
+        "200": { description: Deleted }
+        default: { $ref: "#/components/responses/Error" }
+  /response-rules:
+    get:
+      tags: [Subscription]
+      summary: List ordered response rules
+      responses:
+        "200":
+          description: Ordered by priority then id
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items: { $ref: "#/components/schemas/ResponseRule" }
+    post:
+      tags: [Subscription]
+      summary: Create a response rule
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ResponseRuleInput" }
+      responses:
+        "201": { description: Rule created }
+        default: { $ref: "#/components/responses/Error" }
+  /response-rules/{id}:
+    put:
+      tags: [Subscription]
+      summary: Update a response rule
+      parameters: [{ $ref: "#/components/parameters/ID" }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ResponseRuleInput" }
+      responses:
+        "200": { description: Updated }
+        default: { $ref: "#/components/responses/Error" }
+    delete:
+      tags: [Subscription]
+      summary: Delete a non-system rule
+      parameters: [{ $ref: "#/components/parameters/ID" }]
+      responses:
+        "200": { description: Deleted }
+        default: { $ref: "#/components/responses/Error" }
+  /subscription-delivery-settings:
+    get:
+      tags: [Subscription]
+      summary: Get announcements, global headers and status remarks
+      responses:
+        "200":
+          description: Delivery settings
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/SubscriptionDeliverySettings" }
+        default: { $ref: "#/components/responses/Error" }
+    put:
+      tags: [Subscription]
+      summary: Update announcements, global headers and status remarks
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/SubscriptionDeliverySettings" }
+      responses:
+        "200": { description: Updated }
+        default: { $ref: "#/components/responses/Error" }
+  /api-tokens:
+    get:
+      tags: [Security]
+      summary: List API token metadata
+      responses:
+        "200": { description: Token list }
+        default: { $ref: "#/components/responses/Error" }
+    post:
+      tags: [Security]
+      summary: Create an API token
+      description: Requires an interactive owner session. The secret is returned once.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name, scopes]
+              properties:
+                name: { type: string, maxLength: 80 }
+                scopes:
+                  type: array
+                  minItems: 1
+                  items: { type: string, enum: [read, "users:write", "keys:write", "settings:write"] }
+                expires_at: { type: string, format: date-time }
+      responses:
+        "201":
+          description: Token metadata and one-time secret
+        default: { $ref: "#/components/responses/Error" }
+  /api-tokens/{id}:
+    delete:
+      tags: [Security]
+      summary: Revoke an API token
+      parameters: [{ $ref: "#/components/parameters/ID" }]
+      responses:
+        "200": { description: Revoked }
+        default: { $ref: "#/components/responses/Error" }
+  /audit-events:
+    get:
+      tags: [Operations]
+      summary: Paginate structured audit events
+      parameters:
+        - { $ref: "#/components/parameters/Page" }
+        - { $ref: "#/components/parameters/PageSize" }
+      responses:
+        "200": { description: Audit page }
+        default: { $ref: "#/components/responses/Error" }
+  /jobs:
+    get:
+      tags: [Operations]
+      summary: Paginate source synchronization and key-check jobs
+      parameters:
+        - { $ref: "#/components/parameters/Page" }
+        - { $ref: "#/components/parameters/PageSize" }
+      responses:
+        "200": { description: Job page }
+        default: { $ref: "#/components/responses/Error" }
+  /jobs/{id}:
+    get:
+      tags: [Operations]
+      summary: Poll a background job
+      parameters: [{ $ref: "#/components/parameters/ID" }]
+      responses:
+        "200": { description: Current job state }
+        "404": { $ref: "#/components/responses/Error" }
+  /jobs/{id}/retry:
+    post:
+      tags: [Operations]
+      summary: Retry a failed retryable job
+      parameters: [{ $ref: "#/components/parameters/ID" }]
+      responses:
+        "202": { description: Retry queued }
+        default: { $ref: "#/components/responses/Error" }
+  /sources/{id}/sync-runs:
+    get:
+      tags: [Operations]
+      summary: Source synchronization history
+      parameters: [{ $ref: "#/components/parameters/ID" }]
+      responses:
+        "200": { description: Recent synchronization runs }
+        default: { $ref: "#/components/responses/Error" }
+components:
+  securitySchemes:
+    sessionCookie:
+      type: apiKey
+      in: cookie
+      name: subshare_admin_session
+    bearerToken:
+      type: http
+      scheme: bearer
+      bearerFormat: ss_<random>
+  parameters:
+    ID:
+      name: id
+      in: path
+      required: true
+      schema: { type: integer, format: int64, minimum: 1 }
+    Query:
+      name: query
+      in: query
+      schema: { type: string, maxLength: 200 }
+    Page:
+      name: page
+      in: query
+      schema: { type: integer, minimum: 1, default: 1 }
+    PageSize:
+      name: page_size
+      in: query
+      schema: { type: integer, minimum: 1, maximum: 100, default: 25 }
+  responses:
+    Error:
+      description: Error envelope
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+  schemas:
+    Error:
+      type: object
+      required: [code, message, request_id]
+      properties:
+        code: { type: string }
+        message: { type: string }
+        field_errors:
+          type: object
+          additionalProperties:
+            type: array
+            items: { type: string }
+        request_id: { type: string }
+    PageMeta:
+      type: object
+      required: [page, page_size, total, total_pages]
+      properties:
+        page: { type: integer }
+        page_size: { type: integer }
+        total: { type: integer }
+        total_pages: { type: integer }
+    PageEnvelope:
+      type: object
+      required: [data, meta]
+      properties:
+        data: { type: array, items: {} }
+        meta: { $ref: "#/components/schemas/PageMeta" }
+    BuildInfo:
+      type: object
+      required: [version, commit, build_time, schema_version]
+      properties:
+        version: { type: string }
+        commit: { type: string }
+        build_time: { type: string }
+        schema_version: { type: integer }
+    UserSummary:
+      type: object
+      required: [id, name, status, effective_status]
+      properties:
+        id: { type: integer, format: int64 }
+        name: { type: string }
+        email: { type: string }
+        status: { type: string }
+        effective_status: { type: string, enum: [active, expired, paused, blocked, limited] }
+        starts_at: { type: string }
+        expires_at: { type: string }
+        max_devices: { type: integer }
+        connected_device_count: { type: integer }
+        created_at: { type: string, format: date-time }
+    KeySummary:
+      type: object
+      properties:
+        id: { type: integer, format: int64 }
+        label: { type: string }
+        category: { type: string }
+        kind: { type: string }
+        status: { type: string }
+        check_status: { type: string }
+        check_error: { type: string }
+        last_latency_ms: { type: integer, format: int64 }
+        last_checked_at: { type: string }
+        external_source_id: { type: integer, format: int64 }
+        external_source_name: { type: string }
+        created_at: { type: string, format: date-time }
+    SourceSummary:
+      type: object
+      required: [id, name, source_url_masked, enabled, has_hwid_value, import_status, imported_keys]
+      properties:
+        id: { type: integer, format: int64 }
+        name: { type: string }
+        category: { type: string }
+        key_category: { type: string }
+        source_url_masked: { type: string }
+        enabled: { type: boolean }
+        pass_hwid: { type: boolean }
+        has_hwid_value: { type: boolean }
+        last_import_count: { type: integer }
+        imported_keys: { type: integer }
+        import_status: { type: string, enum: [idle, syncing, ok, error] }
+        last_error: { type: string }
+        last_synced_at: { type: string }
+        created_at: { type: string }
+        updated_at: { type: string }
+    SourceDetail:
+      allOf:
+        - { $ref: "#/components/schemas/SourceSummary" }
+        - type: object
+          properties:
+            source_url: { type: string, format: uri }
+            key_insert_mode: { type: string, enum: [top, bottom] }
+            hwid_version: { type: string }
+            hwid_model_name: { type: string }
+            meta_title: { type: string }
+            meta_refresh_hours: { type: integer }
+            meta_support_url: { type: string }
+            meta_web_page_url: { type: string }
+            meta_announce: { type: string }
+    SourceInput:
+      type: object
+      required: [name, category, key_category, key_insert_mode, source_url, enabled, pass_hwid]
+      properties:
+        name: { type: string, maxLength: 24 }
+        category: { type: string }
+        key_category: { type: string }
+        key_insert_mode: { type: string, enum: [top, bottom] }
+        source_url: { type: string, format: uri }
+        enabled: { type: boolean }
+        apply_remote_metadata: { type: boolean }
+        pass_hwid: { type: boolean }
+        hwid_version: { type: string }
+        hwid_model_name: { type: string }
+        hwid_value:
+          type: string
+          description: Omit on update to preserve the stored secret.
+        clear_hwid_value:
+          type: boolean
+          description: Explicitly remove the stored HWID value.
+        raw_body: { type: string, maxLength: 1048576 }
+        raw_content_type: { type: string }
+        raw_final_url: { type: string, format: uri }
+    TemplateInput:
+      type: object
+      required: [name, format, content, enabled]
+      properties:
+        name: { type: string, maxLength: 80 }
+        format: { type: string, enum: [base64, plain, xray-json, mihomo, sing-box] }
+        content: { type: string, maxLength: 1048576 }
+        enabled: { type: boolean }
+    SubscriptionTemplate:
+      allOf:
+        - { $ref: "#/components/schemas/TemplateInput" }
+        - type: object
+          properties:
+            id: { type: integer, format: int64 }
+            slug: { type: string }
+            is_system: { type: boolean }
+            created_at: { type: string, format: date-time }
+            updated_at: { type: string, format: date-time }
+    RuleCondition:
+      type: object
+      required: [headerName, operator, value, caseSensitive]
+      properties:
+        headerName: { type: string, maxLength: 80 }
+        operator:
+          type: string
+          enum: [EQUALS, NOT_EQUALS, CONTAINS, NOT_CONTAINS, STARTS_WITH, NOT_STARTS_WITH, ENDS_WITH, NOT_ENDS_WITH, REGEX, NOT_REGEX]
+        value: { type: string, maxLength: 255 }
+        caseSensitive: { type: boolean }
+    RuleHeader:
+      type: object
+      required: [key, value]
+      properties:
+        key: { type: string, maxLength: 80 }
+        value: { type: string, maxLength: 1024 }
+    ResponseRuleInput:
+      type: object
+      required: [name, enabled, priority, operator, conditions, response_type, headers]
+      properties:
+        name: { type: string, maxLength: 80 }
+        description: { type: string, maxLength: 250 }
+        enabled: { type: boolean }
+        priority: { type: integer, minimum: 0, maximum: 100000 }
+        operator: { type: string, enum: [AND, OR] }
+        conditions:
+          type: array
+          maxItems: 20
+          items: { $ref: "#/components/schemas/RuleCondition" }
+        response_type: { type: string, enum: [browser, base64, plain, xray-json, mihomo, sing-box, block, not-found] }
+        template_id: { type: [integer, "null"], format: int64 }
+        headers:
+          type: array
+          maxItems: 30
+          items: { $ref: "#/components/schemas/RuleHeader" }
+    ResponseRule:
+      allOf:
+        - { $ref: "#/components/schemas/ResponseRuleInput" }
+        - type: object
+          properties:
+            id: { type: integer, format: int64 }
+            is_system: { type: boolean }
+            created_at: { type: string, format: date-time }
+            updated_at: { type: string, format: date-time }
+    SubscriptionDeliverySettings:
+      type: object
+      required: [response_headers, announcement, remarks]
+      properties:
+        response_headers:
+          type: array
+          maxItems: 30
+          items: { $ref: "#/components/schemas/RuleHeader" }
+        announcement: { type: string, maxLength: 200 }
+        remarks:
+          type: object
+          required: [expired, paused, blocked, limited, empty]
+          properties:
+            expired: { $ref: "#/components/schemas/RemarkList" }
+            paused: { $ref: "#/components/schemas/RemarkList" }
+            blocked: { $ref: "#/components/schemas/RemarkList" }
+            limited: { $ref: "#/components/schemas/RemarkList" }
+            empty: { $ref: "#/components/schemas/RemarkList" }
+    RemarkList:
+      type: array
+      maxItems: 10
+      items: { type: string, maxLength: 200 }

@@ -5,8 +5,6 @@ import { PanelSettingsProvider } from "@/context/PanelSettingsContext";
 import { ThemeProvider } from "@/components/ThemeProvider";
 import "./globals.css";
 
-const inter = { className: "" };
-
 export const metadata: Metadata = {
   description: "VLESS subscription management",
 };
@@ -65,7 +63,7 @@ export default function RootLayout({
           Перейти к содержимому
         </a>
         <ToastProvider>
-          <ThemeProvider attribute="class" defaultTheme="system" enableSystem>
+          <ThemeProvider attribute="class" defaultTheme="dark" enableSystem={false}>
             <PanelSettingsProvider>
               <ErrorBoundary>{children}</ErrorBoundary>
             </PanelSettingsProvider>

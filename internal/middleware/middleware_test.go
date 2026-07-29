@@ -59,6 +59,24 @@ func TestRateLimiter_DifferentIPsAreIndependent(t *testing.T) {
 	}
 }
 
+func TestRateLimiter_BoundsPeerMemory(t *testing.T) {
+	rl := &RateLimiter{
+		attempts: make(map[string][]time.Time),
+		limit:    2,
+		window:   time.Minute,
+		maxPeers: 2,
+	}
+	if !rl.Allow("203.0.113.1") || !rl.Allow("203.0.113.2") {
+		t.Fatal("initial peers should be allowed")
+	}
+	if rl.Allow("203.0.113.3") {
+		t.Fatal("new peer should be rejected after capacity is reached")
+	}
+	if len(rl.attempts) != 2 {
+		t.Fatalf("peer map size = %d, want 2", len(rl.attempts))
+	}
+}
+
 func TestRateLimiter_WindowExpiration(t *testing.T) {
 	window := 50 * time.Millisecond
 	rl := &RateLimiter{
@@ -180,6 +198,25 @@ func TestClientIP(t *testing.T) {
 			remoteAddr: "127.0.0.1:8080",
 			want:       "203.0.113.50",
 		},
+		{
+			name:       "forwarding headers from an untrusted peer are ignored",
+			xff:        "10.0.0.1",
+			xri:        "10.0.0.2",
+			remoteAddr: "198.51.100.25:443",
+			want:       "198.51.100.25",
+		},
+		{
+			name:       "private peer is not implicitly a trusted proxy",
+			xff:        "203.0.113.50",
+			remoteAddr: "10.10.10.10:443",
+			want:       "10.10.10.10",
+		},
+		{
+			name:       "invalid forwarding header is ignored",
+			xff:        "not-an-ip",
+			remoteAddr: "127.0.0.1:8080",
+			want:       "127.0.0.1",
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -200,6 +237,16 @@ func TestClientIP(t *testing.T) {
 	}
 }
 
+func TestClientIPUsesExplicitTrustedProxyNetwork(t *testing.T) {
+	request := httptest.NewRequest(http.MethodGet, "/", nil)
+	request.RemoteAddr = "10.10.10.10:443"
+	request.Header.Set("X-Forwarded-For", "203.0.113.50")
+	networks := parseTrustedProxyNetworks("10.0.0.0/8")
+	if got := clientIP(request, networks); got != "203.0.113.50" {
+		t.Fatalf("clientIP() = %q, want forwarded client", got)
+	}
+}
+
 // ---------- SecurityHeaders ----------
 
 func TestSecurityHeaders(t *testing.T) {
@@ -214,9 +261,9 @@ func TestSecurityHeaders(t *testing.T) {
 
 	expectedHeaders := map[string]string{
 		"X-Content-Type-Options": "nosniff",
-		"X-Frame-Options":       "DENY",
-		"Referrer-Policy":       "strict-origin-when-cross-origin",
-		"Permissions-Policy":    "camera=(), microphone=(), geolocation=()",
+		"X-Frame-Options":        "DENY",
+		"Referrer-Policy":        "strict-origin-when-cross-origin",
+		"Permissions-Policy":     "camera=(), microphone=(), geolocation=()",
 	}
 
 	for header, want := range expectedHeaders {
@@ -224,6 +271,41 @@ func TestSecurityHeaders(t *testing.T) {
 		if got != want {
 			t.Errorf("header %q = %q, want %q", header, got, want)
 		}
+	}
+}
+
+func TestSanitizeLogPathRemovesSubscriptionAndHWIDSecrets(t *testing.T) {
+	t.Parallel()
+	tests := map[string]string{
+		"/sub/raw-subscription-id":                     "/sub/{subscription_id}",
+		"/sub/raw-subscription-id/subbody/plain":       "/sub/{subscription_id}/subbody/plain",
+		"/api/sub/raw-subscription-id/info":            "/api/sub/{subscription_id}/info",
+		"/api/admin/users/12/hwid/raw-device-identity": "/api/admin/users/12/hwid/{hwid}",
+		"/api/v1/users/12":                             "/api/v1/users/12",
+	}
+	for path, want := range tests {
+		if got := sanitizeLogPath(path); got != want {
+			t.Fatalf("sanitizeLogPath(%q) = %q, want %q", path, got, want)
+		}
+	}
+}
+
+func TestDeprecateLegacyAdminAPI(t *testing.T) {
+	handler := DeprecateLegacyAdminAPI(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	request := httptest.NewRequest(http.MethodGet, "/api/admin/users", nil)
+	recorder := httptest.NewRecorder()
+	handler.ServeHTTP(recorder, request)
+	if recorder.Header().Get("Deprecation") != "true" {
+		t.Fatal("legacy admin API was not marked deprecated")
+	}
+
+	request = httptest.NewRequest(http.MethodGet, "/api/v1/users", nil)
+	recorder = httptest.NewRecorder()
+	handler.ServeHTTP(recorder, request)
+	if recorder.Header().Get("Deprecation") != "" {
+		t.Fatal("v1 API was incorrectly marked deprecated")
 	}
 }
 

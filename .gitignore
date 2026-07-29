@@ -1,5 +1,6 @@
 # Binaries
 /server
+/bin/server
 *.exe
 *.exe~
 *.dll
@@ -10,6 +11,11 @@
 *.test
 *.out
 coverage.out
+/.cache/
+/frontend/.next-validation/
+/frontend/.next-e2e/
+/frontend/test-results/
+/frontend/playwright-report/
 
 # Local env
 .env
@@ -19,6 +25,9 @@ coverage.out
 data/*.db
 data/*.db-shm
 data/*.db-wal
+backups/*.db
+backups/*.db-shm
+backups/*.db-wal
 
 # Logs
 *.log

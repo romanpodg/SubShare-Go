@@ -80,10 +80,10 @@ func run() error {
 		return fmt.Errorf("count admins: %w", err)
 	}
 	if adminCount == 0 {
-		if _, err := db.Exec(`INSERT INTO admins (username, password_hash, role) VALUES (?, ?, 'super_admin')`, adminUser, string(adminPassHash)); err != nil {
+		if _, err := db.Exec(`INSERT INTO admins (username, password_hash, role) VALUES (?, ?, 'owner')`, adminUser, string(adminPassHash)); err != nil {
 			return fmt.Errorf("seed root admin: %w", err)
 		}
-		log.Printf("Seeded root admin account: %s (role: super_admin)", adminUser)
+		log.Printf("Seeded root admin account: %s (role: owner)", adminUser)
 	}
 
 	deviceLimitMessage := strings.TrimSpace(os.Getenv("DEVICE_LIMIT_MESSAGE"))
@@ -94,9 +94,6 @@ func run() error {
 	baseURL := strings.TrimSpace(os.Getenv("BASE_URL"))
 	baseURL = strings.TrimRight(baseURL, "/")
 	happCryptoAPIURL := strings.TrimSpace(os.Getenv("HAPP_CRYPTO_API_URL"))
-	if happCryptoAPIURL == "" {
-		happCryptoAPIURL = "https://crypto.happ.su/api-v2.php"
-	}
 
 	subscriptionBodyEncoding := strings.ToLower(strings.TrimSpace(os.Getenv("SUBSCRIPTION_BODY_ENCODING")))
 	if subscriptionBodyEncoding == "" {
@@ -123,6 +120,7 @@ func run() error {
 		happCryptoAPIURL:         happCryptoAPIURL,
 		subscriptionBodyEncoding: subscriptionBodyEncoding,
 	}
+	app.recoverInterruptedJobs()
 
 	go app.cleanupExpiredSessions(5 * time.Minute)
 	app.startBackup()
@@ -146,6 +144,58 @@ func run() error {
 	mux.HandleFunc("POST /api/auth/login", loginLimiter.Wrap(writeError, app.apiLogin))
 	mux.Handle("POST /api/auth/logout", app.requireAdmin(http.HandlerFunc(app.apiLogout)))
 	mux.Handle("GET /api/auth/me", app.requireAdmin(http.HandlerFunc(app.apiMe)))
+
+	// Versioned admin API. Existing /api/admin routes remain available during
+	// the frontend migration.
+	mux.Handle("GET /api/v1/dashboard", app.requireAdmin(http.HandlerFunc(app.apiV1Dashboard)))
+	mux.Handle("GET /api/v1/build-info", app.requireAdmin(http.HandlerFunc(app.apiV1BuildInfo)))
+	mux.Handle("GET /api/v1/openapi.yaml", app.requireAdmin(http.HandlerFunc(app.apiV1OpenAPI)))
+	mux.Handle("GET /api/v1/users", app.requireAdmin(http.HandlerFunc(app.apiV1ListUsers)))
+	mux.Handle("POST /api/v1/users", app.requireAdmin(app.v1Compatibility(http.HandlerFunc(app.apiCreateUser))))
+	mux.Handle("GET /api/v1/users/{id}", app.requireAdmin(http.HandlerFunc(app.apiV1GetUser)))
+	mux.Handle("DELETE /api/v1/users/{id}", app.requireAdmin(app.v1Compatibility(http.HandlerFunc(app.apiDeleteUser))))
+	mux.Handle("PUT /api/v1/users/{id}/keys", app.requireAdmin(app.v1Compatibility(http.HandlerFunc(app.apiUpdateUserKeys))))
+	mux.Handle("PUT /api/v1/users/{id}/subscription", app.requireAdmin(app.v1Compatibility(http.HandlerFunc(app.apiUpdateUserSubscription))))
+	mux.Handle("PUT /api/v1/users/{id}/settings", app.requireAdmin(app.v1Compatibility(http.HandlerFunc(app.apiUpdateUserSettings))))
+	mux.Handle("PUT /api/v1/users/{id}/hwid", app.requireAdmin(app.v1Compatibility(http.HandlerFunc(app.apiUpdateUserHWID))))
+	mux.Handle("GET /api/v1/keys", app.requireAdmin(http.HandlerFunc(app.apiV1ListKeys)))
+	mux.Handle("POST /api/v1/keys", app.requireAdmin(app.v1Compatibility(http.HandlerFunc(app.apiCreateKey))))
+	mux.Handle("PUT /api/v1/keys/{id}", app.requireAdmin(app.v1Compatibility(http.HandlerFunc(app.apiUpdateKey))))
+	mux.Handle("DELETE /api/v1/keys/{id}", app.requireAdmin(app.v1Compatibility(http.HandlerFunc(app.apiDeleteKey))))
+	mux.Handle("POST /api/v1/keys/{id}/check", app.requireAdmin(app.v1Compatibility(http.HandlerFunc(app.apiCheckKey))))
+	mux.Handle("POST /api/v1/keys/check-all", app.requireAdmin(http.HandlerFunc(app.apiV1QueueKeyHealthCheck)))
+	mux.Handle("GET /api/v1/sources", app.requireAdmin(http.HandlerFunc(app.apiV1ListSources)))
+	mux.Handle("POST /api/v1/sources/preview", app.requireSuperAdmin(http.HandlerFunc(app.apiV1PreviewSource)))
+	mux.Handle("POST /api/v1/sources", app.requireSuperAdmin(http.HandlerFunc(app.apiV1CreateSource)))
+	mux.Handle("GET /api/v1/sources/{id}", app.requireSuperAdmin(http.HandlerFunc(app.apiV1GetSource)))
+	mux.Handle("PUT /api/v1/sources/{id}", app.requireSuperAdmin(http.HandlerFunc(app.apiV1UpdateSource)))
+	mux.Handle("DELETE /api/v1/sources/{id}", app.requireSuperAdmin(http.HandlerFunc(app.apiV1DeleteSource)))
+	mux.Handle("POST /api/v1/sources/{id}/sync", app.requireSuperAdmin(http.HandlerFunc(app.apiV1QueueSourceSync)))
+	mux.Handle("GET /api/v1/source-categories", app.requireAdmin(http.HandlerFunc(app.apiV1ListSourceCategories)))
+	mux.Handle("GET /api/v1/key-categories", app.requireAdmin(http.HandlerFunc(app.apiV1ListKeyCategories)))
+	mux.Handle("GET /api/v1/audit-events", app.requireAdmin(http.HandlerFunc(app.apiV1ListAuditEvents)))
+	mux.Handle("GET /api/v1/admins", app.requireSuperAdmin(app.v1Compatibility(http.HandlerFunc(app.apiListAdmins))))
+	mux.Handle("POST /api/v1/admins", app.requireSuperAdmin(app.v1Compatibility(http.HandlerFunc(app.apiCreateAdmin))))
+	mux.Handle("PUT /api/v1/admins/{id}", app.requireSuperAdmin(app.v1Compatibility(http.HandlerFunc(app.apiUpdateAdmin))))
+	mux.Handle("DELETE /api/v1/admins/{id}", app.requireSuperAdmin(app.v1Compatibility(http.HandlerFunc(app.apiDeleteAdmin))))
+	mux.Handle("GET /api/v1/templates", app.requireAdmin(http.HandlerFunc(app.apiV1ListTemplates)))
+	mux.Handle("POST /api/v1/templates/preview", app.requireSuperAdmin(http.HandlerFunc(app.apiV1PreviewTemplate)))
+	mux.Handle("POST /api/v1/templates", app.requireSuperAdmin(http.HandlerFunc(app.apiV1CreateTemplate)))
+	mux.Handle("PUT /api/v1/templates/{id}", app.requireSuperAdmin(http.HandlerFunc(app.apiV1UpdateTemplate)))
+	mux.Handle("DELETE /api/v1/templates/{id}", app.requireSuperAdmin(http.HandlerFunc(app.apiV1DeleteTemplate)))
+	mux.Handle("GET /api/v1/response-rules", app.requireAdmin(http.HandlerFunc(app.apiV1ListResponseRules)))
+	mux.Handle("POST /api/v1/response-rules", app.requireSuperAdmin(http.HandlerFunc(app.apiV1CreateResponseRule)))
+	mux.Handle("PUT /api/v1/response-rules/{id}", app.requireSuperAdmin(http.HandlerFunc(app.apiV1UpdateResponseRule)))
+	mux.Handle("DELETE /api/v1/response-rules/{id}", app.requireSuperAdmin(http.HandlerFunc(app.apiV1DeleteResponseRule)))
+	mux.Handle("GET /api/v1/subscription-delivery-settings", app.requireAdmin(http.HandlerFunc(app.apiV1GetSubscriptionDeliverySettings)))
+	mux.Handle("PUT /api/v1/subscription-delivery-settings", app.requireSuperAdmin(http.HandlerFunc(app.apiV1UpdateSubscriptionDeliverySettings)))
+	mux.Handle("GET /api/v1/api-tokens", app.requireSuperAdmin(http.HandlerFunc(app.apiV1ListAPITokens)))
+	mux.Handle("POST /api/v1/api-tokens", app.requireSuperAdmin(http.HandlerFunc(app.apiV1CreateAPIToken)))
+	mux.Handle("DELETE /api/v1/api-tokens/{id}", app.requireSuperAdmin(http.HandlerFunc(app.apiV1RevokeAPIToken)))
+	mux.Handle("GET /api/v1/jobs", app.requireAdmin(http.HandlerFunc(app.apiV1ListJobs)))
+	mux.Handle("GET /api/v1/jobs/{id}", app.requireAdmin(http.HandlerFunc(app.apiV1GetJob)))
+	mux.Handle("POST /api/v1/jobs/{id}/retry", app.requireSuperAdmin(http.HandlerFunc(app.apiV1RetryJob)))
+	mux.Handle("GET /api/v1/sources/{id}/sync-runs", app.requireAdmin(http.HandlerFunc(app.apiV1ListSourceSyncRuns)))
 
 	// Admins Management API (Super Admin only)
 	mux.Handle("GET /api/admin/admins", app.requireSuperAdmin(http.HandlerFunc(app.apiListAdmins)))
@@ -230,7 +280,7 @@ func run() error {
 		addr = ":" + addr
 	}
 
-	var handler http.Handler = middleware.SecurityHeaders(middleware.RequestID(middleware.LogRequest(mux)))
+	var handler http.Handler = middleware.SecurityHeaders(middleware.RequestID(middleware.LogRequest(middleware.DeprecateLegacyAdminAPI(mux))))
 	if len(corsOrigins) > 0 {
 		handler = middleware.CorsMiddleware(corsOrigins, handler)
 	}
@@ -346,29 +396,4 @@ func cleanupSQLiteSidecars(dbPath string) error {
 func isRecoverableSQLiteIO(err error) bool {
 	msg := strings.ToLower(err.Error())
 	return strings.Contains(msg, "disk i/o error") || strings.Contains(msg, "(4874)")
-}
-
-func (a *App) startBackup() {
-	backupPath := strings.TrimSpace(os.Getenv("BACKUP_PATH"))
-	if backupPath == "" {
-		return
-	}
-
-	intervalStr := strings.TrimSpace(os.Getenv("BACKUP_INTERVAL"))
-	interval, err := time.ParseDuration(intervalStr)
-	if err != nil || interval <= 0 {
-		interval = 1 * time.Hour
-	}
-
-	go func() {
-		ticker := time.NewTicker(interval)
-		defer ticker.Stop()
-		for range ticker.C {
-			if _, err := a.db.Exec(`VACUUM INTO ?`, backupPath); err != nil {
-				log.Printf("backup failed: %v", err)
-			} else {
-				log.Printf("backup completed to %s", backupPath)
-			}
-		}
-	}()
 }

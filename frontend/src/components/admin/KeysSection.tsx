@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import Link from "next/link";
 import type { KeyCategory, VLESSKey } from "@/lib/types";
 import { keys as keysApi } from "@/lib/api";
 import { useToast } from "@/components/ui/Toast";
@@ -11,8 +12,6 @@ import { StatusBadge } from "@/components/ui/StatusBadge";
 import { AddKeyModal } from "./AddKeyModal";
 import { BulkEditKeysModal } from "./BulkEditKeysModal";
 import { EditKeyModal } from "./EditKeyModal";
-import { ExportSubscriptionModal } from "./ExportSubscriptionModal";
-import { ExternalSourcesManagerModal } from "./ExternalSourcesManagerModal";
 import { CreateKeyCategoryModal } from "./CreateKeyCategoryModal";
 import { KeyCategoryEditorModal } from "./KeyCategoryEditorModal";
 import { EmojiText } from "@/components/ui/EmojiText";
@@ -104,6 +103,9 @@ interface InsertGapActionsProps {
   onDrop: (index: number) => void;
 }
 
+// Retained as a local drag-and-drop primitive while category reordering is
+// migrated to the dedicated keys page.
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 function InsertGapActions({
   index,
   categoryHint,
@@ -180,8 +182,6 @@ export function KeysSection({ keys, subscriptionFormat, onRefresh }: Props) {
   const [showAddKey, setShowAddKey] = useState(false);
   const [showBulkEdit, setShowBulkEdit] = useState(false);
   const [editKey, setEditKey] = useState<VLESSKey | null>(null);
-  const [showExportSubscription, setShowExportSubscription] = useState(false);
-  const [showExternalSourcesManager, setShowExternalSourcesManager] = useState(false);
   const [showCreateCategory, setShowCreateCategory] = useState(false);
   const [showCategoryEditor, setShowCategoryEditor] = useState(false);
   const [activeCategoryName, setActiveCategoryName] = useState("");
@@ -374,6 +374,7 @@ export function KeysSection({ keys, subscriptionFormat, onRefresh }: Props) {
     setHasUnsavedOrder(true);
   }, []);
 
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const dropDraggedAtIndex = useCallback(
     (targetIndex: number) => {
       if (!dragging) {
@@ -999,12 +1000,12 @@ export function KeysSection({ keys, subscriptionFormat, onRefresh }: Props) {
         </div>
 
         <div className="flex gap-2">
-          <Button variant="ghost" className="text-xs" onClick={() => setShowExportSubscription(true)}>
-            Экспорт подписки
-          </Button>
-          <Button variant="ghost" className="text-xs" onClick={() => setShowExternalSourcesManager(true)}>
-            Управление сторонними ключами
-          </Button>
+          <Link
+            href="/admin/sources"
+            className="rounded-lg border border-transparent bg-transparent px-4 py-2 text-xs font-medium text-[var(--text-main)] transition-colors hover:bg-surface-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-bg"
+          >
+            Внешние источники
+          </Link>
           <Button
             variant="ghost"
             className="text-xs"
@@ -1054,7 +1055,9 @@ export function KeysSection({ keys, subscriptionFormat, onRefresh }: Props) {
           <div className="flex gap-2">
             <select
               value={statusFilter}
-              onChange={(e) => setStatusFilter(e.target.value as any)}
+              onChange={(e) =>
+                setStatusFilter(e.target.value as "all" | "active" | "inactive")
+              }
               className="h-9 bg-surface-2 border border-border rounded-lg px-3 text-sm focus:outline-none focus:border-accent text-zinc-300 cursor-pointer"
             >
               <option value="all">Все статусы</option>
@@ -1238,18 +1241,6 @@ export function KeysSection({ keys, subscriptionFormat, onRefresh }: Props) {
       {showBulkEdit && selectedKeys.length > 0 ? (
         <BulkEditKeysModal keys={selectedKeys} onClose={() => setShowBulkEdit(false)} onRefresh={refreshKeysData} />
       ) : null}
-
-      <ExportSubscriptionModal
-        open={showExportSubscription}
-        onClose={() => setShowExportSubscription(false)}
-        onImported={refreshKeysData}
-      />
-
-      <ExternalSourcesManagerModal
-        open={showExternalSourcesManager}
-        onClose={() => setShowExternalSourcesManager(false)}
-        onChanged={refreshKeysData}
-      />
 
       <CreateKeyCategoryModal
         open={showCreateCategory}

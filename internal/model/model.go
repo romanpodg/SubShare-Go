@@ -48,6 +48,8 @@ type AdminSession struct {
 	Role      string
 	ExpiresAt time.Time
 	CSRFToken string
+	AuthKind  string
+	Scopes    []string
 }
 
 // User represents a subscription user.
@@ -67,6 +69,7 @@ type User struct {
 	SubscriptionExtraStatus  string            `json:"subscription_extra_status"`
 	ActivationUsedAt         string            `json:"activation_used_at"`
 	Status                   string            `json:"status"`
+	EffectiveStatus          string            `json:"effective_status"`
 	StartsAtInput            string            `json:"starts_at"`
 	ExpiresAtInput           string            `json:"expires_at"`
 	BlockedReason            string            `json:"blocked_reason"`
@@ -76,6 +79,25 @@ type User struct {
 	ConnectedHWIDs           []string          `json:"connected_hwids"`
 	ConnectedDevices         []ConnectedDevice `json:"connected_devices"`
 	CreatedAt                time.Time         `json:"created_at"`
+}
+
+// EffectiveUserStatus derives the operational status without changing the
+// persisted compatibility status.
+func EffectiveUserStatus(status string, expiresAt time.Time, hasExpiry bool, connectedDevices, maxDevices int, now time.Time) string {
+	normalized := NormalizeStoredStatus(status)
+	if normalized == UserStatusBlocked {
+		return "blocked"
+	}
+	if normalized == UserStatusPaused {
+		return "paused"
+	}
+	if hasExpiry && now.After(expiresAt) {
+		return "expired"
+	}
+	if maxDevices > 0 && connectedDevices >= maxDevices {
+		return "limited"
+	}
+	return "active"
 }
 
 // ConnectedDevice stores device metadata collected from subscription client requests.
@@ -101,6 +123,7 @@ type VLESSKey struct {
 	ID                 int64     `json:"id"`
 	Label              string    `json:"label"`
 	URL                string    `json:"url"`
+	CategoryID         int64     `json:"category_id"`
 	Category           string    `json:"category"`
 	Kind               string    `json:"kind"`
 	TemplateText       string    `json:"template_text"`
@@ -211,6 +234,7 @@ type BulkDeleteKeysRequest struct {
 }
 
 type KeyCategory struct {
+	ID        int64  `json:"id"`
 	Name      string `json:"name"`
 	Color     string `json:"color"`
 	KeysCount int    `json:"keys_count"`

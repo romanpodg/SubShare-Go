@@ -126,8 +126,9 @@ interface PanelSettingsContextValue {
 const PanelSettingsContext = createContext<PanelSettingsContextValue | null>(null);
 
 export function PanelSettingsProvider({ children }: { children: ReactNode }) {
-  // Start from localStorage cache for instant render, no flash
-  const [settings, setSettings] = useState<PanelSettings>(readCache);
+  // Keep the server render and first client render identical. The backend is
+  // the source of truth; localStorage is used only if it cannot be reached.
+  const [settings, setSettings] = useState<PanelSettings>(DEFAULT_SETTINGS);
   const pathname = usePathname();
   // Keep a mutable ref that is always in sync — lets updateSettings/updatePageTitles
   // read the CURRENT state even when called sequentially in the same event handler.
@@ -190,7 +191,9 @@ export function PanelSettingsProvider({ children }: { children: ReactNode }) {
         }
       })
       .catch(() => {
-        // Backend unreachable — keep localStorage cache as-is
+        const cached = readCache();
+        latestRef.current = cached;
+        setSettings(cached);
       });
   }, []);
 

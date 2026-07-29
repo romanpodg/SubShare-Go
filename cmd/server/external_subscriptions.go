@@ -11,7 +11,9 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"net"
 	"net/http"
+	"net/netip"
 	"net/url"
 	"sort"
 	"strconv"
@@ -361,7 +363,98 @@ func validateExternalSourceURL(raw string) (string, error) {
 	if strings.TrimSpace(parsed.Hostname()) == "" {
 		return "", fmt.Errorf("source_url must contain host")
 	}
+	if parsed.User != nil {
+		return "", fmt.Errorf("source_url must not contain credentials")
+	}
+	host := strings.ToLower(strings.TrimSuffix(parsed.Hostname(), "."))
+	if host == "localhost" || strings.HasSuffix(host, ".localhost") {
+		return "", fmt.Errorf("source_url points to a forbidden host")
+	}
+	if address, err := netip.ParseAddr(host); err == nil && isForbiddenExternalIP(address) {
+		return "", fmt.Errorf("source_url points to a forbidden network")
+	}
 	return parsed.String(), nil
+}
+
+func isForbiddenExternalIP(address netip.Addr) bool {
+	address = address.Unmap()
+	return !address.IsValid() ||
+		address.IsUnspecified() ||
+		address.IsLoopback() ||
+		address.IsPrivate() ||
+		address.IsLinkLocalUnicast() ||
+		address.IsLinkLocalMulticast() ||
+		address.IsMulticast()
+}
+
+func resolveExternalHost(ctx context.Context, host string) ([]netip.Addr, error) {
+	host = strings.TrimSpace(strings.TrimSuffix(host, "."))
+	if host == "" {
+		return nil, fmt.Errorf("empty destination host")
+	}
+	if address, err := netip.ParseAddr(host); err == nil {
+		if isForbiddenExternalIP(address) {
+			return nil, fmt.Errorf("destination resolves to a forbidden network")
+		}
+		return []netip.Addr{address.Unmap()}, nil
+	}
+
+	addresses, err := net.DefaultResolver.LookupNetIP(ctx, "ip", host)
+	if err != nil {
+		return nil, fmt.Errorf("resolve destination host: %w", err)
+	}
+	if len(addresses) == 0 {
+		return nil, fmt.Errorf("destination host has no addresses")
+	}
+	for _, address := range addresses {
+		if isForbiddenExternalIP(address) {
+			return nil, fmt.Errorf("destination resolves to a forbidden network")
+		}
+	}
+	return addresses, nil
+}
+
+func newExternalSubscriptionHTTPClient() *http.Client {
+	dialer := &net.Dialer{Timeout: 10 * time.Second, KeepAlive: 30 * time.Second}
+	transport := &http.Transport{
+		Proxy: nil,
+		DialContext: func(ctx context.Context, network, address string) (net.Conn, error) {
+			host, port, err := net.SplitHostPort(address)
+			if err != nil {
+				return nil, fmt.Errorf("invalid destination address: %w", err)
+			}
+			addresses, err := resolveExternalHost(ctx, host)
+			if err != nil {
+				return nil, err
+			}
+			var lastErr error
+			for _, resolved := range addresses {
+				conn, dialErr := dialer.DialContext(ctx, network, net.JoinHostPort(resolved.String(), port))
+				if dialErr == nil {
+					return conn, nil
+				}
+				lastErr = dialErr
+			}
+			return nil, fmt.Errorf("connect to destination: %w", lastErr)
+		},
+		ForceAttemptHTTP2:     true,
+		MaxIdleConns:          20,
+		MaxIdleConnsPerHost:   2,
+		IdleConnTimeout:       30 * time.Second,
+		TLSHandshakeTimeout:   10 * time.Second,
+		ResponseHeaderTimeout: 15 * time.Second,
+	}
+	return &http.Client{
+		Transport: transport,
+		Timeout:   20 * time.Second,
+		CheckRedirect: func(req *http.Request, via []*http.Request) error {
+			if len(via) >= 5 {
+				return fmt.Errorf("too many redirects")
+			}
+			_, err := validateExternalSourceURL(req.URL.String())
+			return err
+		},
+	}
 }
 
 func normalizeExternalSourceCategory(raw string) string {
@@ -467,17 +560,17 @@ func fetchExternalSubscription(sourceURL string, hwidProfile externalHWIDProfile
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, finalURL, nil)
 	if err != nil {
-		return externalSubscriptionParseResult{}, fmt.Errorf("failed to prepare request: %w", err)
+		return externalSubscriptionParseResult{}, fmt.Errorf("failed to prepare source request")
 	}
 	applyExternalHWIDHeaders(req, hwidProfile)
 	req.Header.Set("Accept", "application/json,text/plain,*/*")
 
-	client := &http.Client{
-		Timeout: 20 * time.Second,
-	}
+	client := newExternalSubscriptionHTTPClient()
 	resp, err := client.Do(req)
 	if err != nil {
-		return externalSubscriptionParseResult{}, fmt.Errorf("failed to fetch source: %w", err)
+		// net/http errors commonly embed the complete URL. Subscription URLs
+		// frequently contain access tokens, so never persist or return them.
+		return externalSubscriptionParseResult{}, fmt.Errorf("failed to fetch source")
 	}
 	defer resp.Body.Close()
 
@@ -838,16 +931,28 @@ func (a *App) syncExternalSource(sourceID int64, parsed externalSubscriptionPars
 		return 0, 0, err
 	}
 
-	if len(parsed.Keys) == 0 {
-		return 0, 0, fmt.Errorf("no keys to import")
-	}
-
 	tx, err := a.db.Begin()
 	if err != nil {
 		return 0, 0, err
 	}
 	defer tx.Rollback()
 
+	importedCount, skippedCount, err := syncExternalSourceTx(tx, source, parsed)
+	if err != nil {
+		return importedCount, skippedCount, err
+	}
+	if err := tx.Commit(); err != nil {
+		return importedCount, skippedCount, err
+	}
+	return importedCount, skippedCount, nil
+}
+
+func syncExternalSourceTx(tx *sql.Tx, source externalSourceRow, parsed externalSubscriptionParseResult) (int, int, error) {
+	if len(parsed.Keys) == 0 {
+		return 0, 0, fmt.Errorf("no keys to import")
+	}
+
+	sourceID := source.ID
 	statusValue := model.KeyStatusActive
 	if !source.Enabled {
 		statusValue = model.KeyStatusNonActive
@@ -1015,10 +1120,6 @@ func (a *App) syncExternalSource(sourceID int64, parsed externalSubscriptionPars
 		nullStringValue(parsed.Metadata.Announce),
 		sourceID,
 	); err != nil {
-		return importedCount, skippedCount, err
-	}
-
-	if err := tx.Commit(); err != nil {
 		return importedCount, skippedCount, err
 	}
 
@@ -1478,11 +1579,15 @@ func (a *App) apiSyncExternalSource(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	jobID := a.startTrackedJob("source_sync", "external_source", strconv.FormatInt(id, 10))
+	runID := a.startSourceSyncRun(id)
 	a.markExternalSourceStatus(id, "syncing", "")
 	hwidProfile := normalizeExternalHWIDProfile(source.PassHWID, source.HWIDVersion, source.HWIDModelName, source.HWIDValue)
 	parsed, err := fetchExternalSubscription(source.SourceURL, hwidProfile)
 	if err != nil {
 		a.markExternalSourceStatus(id, "error", err.Error())
+		a.finishTrackedJob(jobID, err)
+		a.finishSourceSyncRun(runID, 0, 0, err)
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
@@ -1490,9 +1595,17 @@ func (a *App) apiSyncExternalSource(w http.ResponseWriter, r *http.Request) {
 	importedCount, skippedCount, syncErr := a.syncExternalSource(id, parsed)
 	if syncErr != nil {
 		a.markExternalSourceStatus(id, "error", syncErr.Error())
+		a.finishTrackedJob(jobID, syncErr)
+		a.finishSourceSyncRun(runID, importedCount, skippedCount, syncErr)
 		writeError(w, http.StatusBadRequest, syncErr.Error())
 		return
 	}
+	a.finishTrackedJob(jobID, nil)
+	a.finishSourceSyncRun(runID, importedCount, skippedCount, nil)
+	a.recordAuditEvent(r, "external_source.sync", "external_source", strconv.FormatInt(id, 10), map[string]any{
+		"imported_count": importedCount,
+		"skipped_count":  skippedCount,
+	})
 
 	updatedSource, err := a.getExternalSourceByID(id)
 	if err != nil {

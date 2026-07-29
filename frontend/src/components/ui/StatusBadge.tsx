@@ -9,6 +9,8 @@ const statusConfig: Record<string, { label: string; className: string }> = {
   active: { label: "Активен", className: "bg-green-500/10 text-green-400" },
   paused: { label: "Приостановлен", className: "bg-yellow-500/10 text-yellow-400" },
   blocked: { label: "Заблокирован", className: "bg-red-500/10 text-red-400" },
+  expired: { label: "Истёк", className: "bg-rose-500/10 text-rose-400" },
+  limited: { label: "Лимит устройств", className: "bg-cyan-500/10 text-cyan-300" },
   "non-active": { label: "Неактивен", className: "bg-zinc-500/10 text-zinc-400" },
 };
 

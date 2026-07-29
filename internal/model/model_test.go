@@ -1,6 +1,38 @@
 package model
 
-import "testing"
+import (
+	"testing"
+	"time"
+)
+
+func TestEffectiveUserStatus(t *testing.T) {
+	now := time.Date(2026, 7, 28, 12, 0, 0, 0, time.UTC)
+	tests := []struct {
+		name       string
+		status     string
+		expiresAt  time.Time
+		hasExpiry  bool
+		devices    int
+		maxDevices int
+		want       string
+	}{
+		{name: "active", status: "active", want: "active"},
+		{name: "blocked wins", status: "blocked", expiresAt: now.Add(-time.Hour), hasExpiry: true, want: "blocked"},
+		{name: "paused wins", status: "paused", expiresAt: now.Add(-time.Hour), hasExpiry: true, want: "paused"},
+		{name: "expired", status: "active", expiresAt: now.Add(-time.Second), hasExpiry: true, want: "expired"},
+		{name: "limited", status: "active", devices: 2, maxDevices: 2, want: "limited"},
+		{name: "future expiry", status: "active", expiresAt: now.Add(time.Hour), hasExpiry: true, want: "active"},
+	}
+	for _, test := range tests {
+		test := test
+		t.Run(test.name, func(t *testing.T) {
+			got := EffectiveUserStatus(test.status, test.expiresAt, test.hasExpiry, test.devices, test.maxDevices, now)
+			if got != test.want {
+				t.Fatalf("EffectiveUserStatus() = %q, want %q", got, test.want)
+			}
+		})
+	}
+}
 
 func TestNormalizeUserStatus(t *testing.T) {
 	tests := []struct {

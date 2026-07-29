@@ -182,18 +182,22 @@ function LinkButtonsBlock({
   recommendedButtonIDs: Set<string>;
   themeMode: "light" | "dark";
 }) {
-  const [selectedPlatform, setSelectedPlatform] = useState<"android" | "apple" | "windows" | "linux" | "all">("all");
+  type PlatformTab = "android" | "apple" | "windows" | "linux" | "all";
+  const [selectedPlatform, setSelectedPlatform] = useState<PlatformTab>("all");
 
   useEffect(() => {
-    const platform = detectDevicePlatform();
-    if (platform === "android") setSelectedPlatform("android");
-    else if (platform === "ios" || platform === "macos") setSelectedPlatform("apple");
-    else if (platform === "windows") setSelectedPlatform("windows");
-    else if (platform === "linux") setSelectedPlatform("linux");
-    else setSelectedPlatform("all");
+    const frame = window.requestAnimationFrame(() => {
+      const platform = detectDevicePlatform();
+      if (platform === "android") setSelectedPlatform("android");
+      else if (platform === "ios" || platform === "macos") setSelectedPlatform("apple");
+      else if (platform === "windows") setSelectedPlatform("windows");
+      else if (platform === "linux") setSelectedPlatform("linux");
+      else setSelectedPlatform("all");
+    });
+    return () => window.cancelAnimationFrame(frame);
   }, []);
 
-  const platformTabs = [
+  const platformTabs: Array<{ id: PlatformTab; label: string; icon: React.ReactNode }> = [
     { id: "all", label: "Все", icon: <Layers className="w-3.5 h-3.5" /> },
     { id: "android", label: "Android", icon: <Smartphone className="w-3.5 h-3.5" /> },
     { id: "apple", label: "Apple", icon: <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="currentColor" xmlns="http://www.w3.org/2000/svg"><path d="M12.152 6.896c-.948 0-2.415-1.078-3.96-1.078-2.04 0-3.905 1.158-4.966 3.002-2.117 3.69-.54 9.139 1.519 12.096 1.007 1.452 2.207 3.074 3.774 3.074 1.51 0 2.09-.91 3.916-.91 1.815 0 2.348.91 3.927.91 1.597 0 2.68-1.474 3.675-2.923 1.158-1.688 1.637-3.32 1.67-3.41-.035-.02-3.197-1.22-3.23-4.832-.027-3.013 2.47-4.463 2.585-4.532-1.42-2.073-3.602-2.31-4.38-2.373-2.031-.157-3.23 1.078-4.13 1.078zM15.98 3.82c.835-1.013 1.393-2.422 1.242-3.82-1.2.049-2.657.801-3.52 1.814-.755.877-1.414 2.301-1.233 3.682 1.336.103 2.705-.688 3.511-1.676z"/></svg> },
@@ -230,7 +234,7 @@ function LinkButtonsBlock({
         {platformTabs.map((tab) => (
           <button
             key={tab.id}
-            onClick={() => setSelectedPlatform(tab.id as any)}
+            onClick={() => setSelectedPlatform(tab.id)}
             className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition cursor-pointer ${
               selectedPlatform === tab.id
                 ? "bg-white dark:bg-surface-2 text-zinc-900 dark:text-zinc-100 shadow-sm border border-black/5 dark:border-white/10"

@@ -32,7 +32,7 @@ export function AdminsSection({ currentRole }: Props) {
   // Form states for creating
   const [newUsername, setNewUsername] = useState("");
   const [newPassword, setNewPassword] = useState("");
-  const [newRole, setNewRole] = useState("support_admin");
+  const [newRole, setNewRole] = useState("operator");
   const [submitLoading, setSubmitLoading] = useState(false);
 
   // Form states for editing
@@ -51,7 +51,7 @@ export function AdminsSection({ currentRole }: Props) {
   }, [toast]);
 
   useEffect(() => {
-    if (currentRole === "super_admin") {
+    if (currentRole === "owner" || currentRole === "super_admin") {
       fetchAdmins();
     }
   }, [currentRole, fetchAdmins]);
@@ -73,7 +73,7 @@ export function AdminsSection({ currentRole }: Props) {
       setShowAddModal(false);
       setNewUsername("");
       setNewPassword("");
-      setNewRole("support_admin");
+      setNewRole("operator");
       await fetchAdmins();
     } catch (err: unknown) {
       toast(err instanceof Error ? err.message : "Не удалось создать администратора", "error");
@@ -145,7 +145,7 @@ export function AdminsSection({ currentRole }: Props) {
     }
   };
 
-  if (currentRole !== "super_admin") {
+  if (currentRole !== "owner" && currentRole !== "super_admin") {
     return null;
   }
 
@@ -197,7 +197,7 @@ export function AdminsSection({ currentRole }: Props) {
                   <tr key={admin.id} className="hover:bg-surface-2/10 transition-colors">
                     <td className="py-3.5 pr-4 font-medium text-zinc-200">{admin.username}</td>
                     <td className="py-3.5 pr-4">
-                      {admin.role === "super_admin" ? (
+                      {admin.role === "owner" ? (
                         <span className="inline-flex items-center gap-1 text-xs px-2.5 py-0.5 rounded-full bg-red-500/10 text-red-400 font-semibold border border-red-500/20">
                           <ShieldAlert className="w-3 h-3" />
                           Super Admin
@@ -260,8 +260,9 @@ export function AdminsSection({ currentRole }: Props) {
             value={newRole}
             onChange={(e) => setNewRole(e.target.value)}
             options={[
-              { value: "support_admin", label: "Support Admin (Ограниченный доступ)" },
-              { value: "super_admin", label: "Super Admin (Полный доступ)" },
+              { value: "viewer", label: "Viewer (только чтение)" },
+              { value: "operator", label: "Operator (управление)" },
+              { value: "owner", label: "Owner (полный доступ)" },
             ]}
           />
           <Button type="submit" loading={submitLoading} className="mt-2 flex items-center justify-center gap-2">
@@ -285,8 +286,9 @@ export function AdminsSection({ currentRole }: Props) {
             value={editRole}
             onChange={(e) => setEditRole(e.target.value)}
             options={[
-              { value: "support_admin", label: "Support Admin (Ограниченный доступ)" },
-              { value: "super_admin", label: "Super Admin (Полный доступ)" },
+              { value: "viewer", label: "Viewer (только чтение)" },
+              { value: "operator", label: "Operator (управление)" },
+              { value: "owner", label: "Owner (полный доступ)" },
             ]}
           />
           <Button type="submit" loading={submitLoading} className="mt-2 flex items-center justify-center gap-2">

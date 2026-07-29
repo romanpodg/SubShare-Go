@@ -4,9 +4,12 @@ import (
 	"crypto/rand"
 	"crypto/sha256"
 	"crypto/subtle"
+	"database/sql"
 	"encoding/hex"
+	"encoding/json"
 	"log"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
@@ -17,13 +20,21 @@ func (a *App) requireAdmin(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		session, _, ok := a.adminSessionFromRequest(r)
 		if !ok {
-			writeJSON(w, http.StatusUnauthorized, map[string]any{"error": "unauthorized"})
+			writeAdminAuthError(w, r, http.StatusUnauthorized, "unauthorized", "authentication required")
 			return
 		}
-		if isUnsafeHTTPMethod(r.Method) {
+		if isUnsafeHTTPMethod(r.Method) && session.Role == "viewer" {
+			writeAdminAuthError(w, r, http.StatusForbidden, "viewer_read_only", "viewer role is read-only")
+			return
+		}
+		if session.AuthKind == "api_token" && !apiTokenAllows(session.Scopes, r.Method, r.URL.Path) {
+			writeAdminAuthError(w, r, http.StatusForbidden, "token_scope_forbidden", "API token scope does not allow this action")
+			return
+		}
+		if isUnsafeHTTPMethod(r.Method) && session.AuthKind != "api_token" {
 			csrfToken := strings.TrimSpace(r.Header.Get("X-CSRF-Token"))
 			if !secureEqual(csrfToken, session.CSRFToken) {
-				writeJSON(w, http.StatusForbidden, map[string]any{"error": "invalid csrf token"})
+				writeAdminAuthError(w, r, http.StatusForbidden, "csrf_invalid", "invalid CSRF token")
 				return
 			}
 		}
@@ -35,17 +46,21 @@ func (a *App) requireSuperAdmin(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		session, _, ok := a.adminSessionFromRequest(r)
 		if !ok {
-			writeJSON(w, http.StatusUnauthorized, map[string]any{"error": "unauthorized"})
+			writeAdminAuthError(w, r, http.StatusUnauthorized, "unauthorized", "authentication required")
 			return
 		}
-		if session.Role != "super_admin" {
-			writeJSON(w, http.StatusForbidden, map[string]any{"error": "forbidden"})
+		if !isOwnerRole(session.Role) {
+			writeAdminAuthError(w, r, http.StatusForbidden, "owner_required", "owner role is required")
 			return
 		}
-		if isUnsafeHTTPMethod(r.Method) {
+		if session.AuthKind == "api_token" && !apiTokenAllows(session.Scopes, r.Method, r.URL.Path) {
+			writeAdminAuthError(w, r, http.StatusForbidden, "token_scope_forbidden", "API token scope does not allow this action")
+			return
+		}
+		if isUnsafeHTTPMethod(r.Method) && session.AuthKind != "api_token" {
 			csrfToken := strings.TrimSpace(r.Header.Get("X-CSRF-Token"))
 			if !secureEqual(csrfToken, session.CSRFToken) {
-				writeJSON(w, http.StatusForbidden, map[string]any{"error": "invalid csrf token"})
+				writeAdminAuthError(w, r, http.StatusForbidden, "csrf_invalid", "invalid CSRF token")
 				return
 			}
 		}
@@ -53,10 +68,35 @@ func (a *App) requireSuperAdmin(next http.Handler) http.Handler {
 	})
 }
 
+func writeAdminAuthError(w http.ResponseWriter, r *http.Request, status int, code, message string) {
+	if strings.HasPrefix(r.URL.Path, "/api/v1/") {
+		writeV1Error(w, r, status, code, message)
+		return
+	}
+	writeJSON(w, status, map[string]any{"error": message})
+}
+
+func isOwnerRole(role string) bool {
+	return role == "owner" || role == "super_admin"
+}
+
+func normalizeAdminRole(role string) (string, bool) {
+	switch strings.ToLower(strings.TrimSpace(role)) {
+	case "owner", "super_admin":
+		return "owner", true
+	case "operator", "support_admin":
+		return "operator", true
+	case "viewer":
+		return "viewer", true
+	default:
+		return "", false
+	}
+}
+
 func (a *App) adminSessionFromRequest(r *http.Request) (model.AdminSession, string, bool) {
 	cookie, err := r.Cookie("subshare_admin_session")
 	if err != nil || cookie.Value == "" {
-		return model.AdminSession{}, "", false
+		return a.apiTokenSessionFromRequest(r)
 	}
 
 	var adminID int64
@@ -83,9 +123,71 @@ func (a *App) adminSessionFromRequest(r *http.Request) (model.AdminSession, stri
 		Role:      role,
 		CSRFToken: csrfToken,
 		ExpiresAt: expiresAt,
+		AuthKind:  "session",
 	}
 
 	return session, cookie.Value, true
+}
+
+func (a *App) apiTokenSessionFromRequest(r *http.Request) (model.AdminSession, string, bool) {
+	authorization := strings.TrimSpace(r.Header.Get("Authorization"))
+	if !strings.HasPrefix(strings.ToLower(authorization), "bearer ") {
+		return model.AdminSession{}, "", false
+	}
+	raw := strings.TrimSpace(authorization[len("Bearer "):])
+	if !strings.HasPrefix(raw, "ss_") || len(raw) < 32 {
+		return model.AdminSession{}, "", false
+	}
+	hash := sha256.Sum256([]byte(raw))
+	hashText := hex.EncodeToString(hash[:])
+
+	var tokenID int64
+	var adminID int64
+	var role string
+	var scopesJSON string
+	var expiresAt sql.NullTime
+	err := a.db.QueryRow(`
+		SELECT t.id, t.created_by_admin_id, a.role, t.scopes_json, t.expires_at
+		FROM api_tokens t
+		JOIN admins a ON a.id = t.created_by_admin_id
+		WHERE t.token_hash = ? AND t.revoked_at IS NULL
+	`, hashText).Scan(&tokenID, &adminID, &role, &scopesJSON, &expiresAt)
+	if err != nil || (expiresAt.Valid && time.Now().After(expiresAt.Time)) {
+		return model.AdminSession{}, "", false
+	}
+	var scopes []string
+	if json.Unmarshal([]byte(scopesJSON), &scopes) != nil {
+		return model.AdminSession{}, "", false
+	}
+	_, _ = a.db.Exec(`UPDATE api_tokens SET last_used_at = CURRENT_TIMESTAMP WHERE id = ?`, tokenID)
+	return model.AdminSession{
+		AdminID:  adminID,
+		Role:     role,
+		AuthKind: "api_token",
+		Scopes:   scopes,
+	}, strconv.FormatInt(tokenID, 10), true
+}
+
+func apiTokenAllows(scopes []string, method, path string) bool {
+	has := func(wanted string) bool {
+		for _, scope := range scopes {
+			if scope == "*" || scope == wanted {
+				return true
+			}
+		}
+		return false
+	}
+	if method == http.MethodGet || method == http.MethodHead {
+		return has("read")
+	}
+	switch {
+	case strings.Contains(path, "/users"):
+		return has("users:write")
+	case strings.Contains(path, "/keys"), strings.Contains(path, "/sources"):
+		return has("keys:write")
+	default:
+		return has("settings:write")
+	}
 }
 
 func (a *App) mustCSRFToken(r *http.Request) string {

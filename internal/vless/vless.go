@@ -61,28 +61,14 @@ func BuildVLESSURL(uuid, host, port, query, fragment string) (string, error) {
 
 // IsPrivateIP returns true if the given IP is in a private or reserved range.
 func IsPrivateIP(ip net.IP) bool {
-	privateRanges := []struct {
-		network string
-	}{
-		{"10.0.0.0/8"},
-		{"172.16.0.0/12"},
-		{"192.168.0.0/16"},
-		{"127.0.0.0/8"},
-		{"169.254.0.0/16"},
-		{"::1/128"},
-		{"fc00::/7"},
-		{"fe80::/10"},
-	}
-	for _, r := range privateRanges {
-		_, cidr, err := net.ParseCIDR(r.network)
-		if err != nil {
-			continue
-		}
-		if cidr.Contains(ip) {
-			return true
-		}
-	}
-	return false
+	return ip == nil ||
+		!ip.IsGlobalUnicast() ||
+		ip.IsUnspecified() ||
+		ip.IsLoopback() ||
+		ip.IsPrivate() ||
+		ip.IsLinkLocalUnicast() ||
+		ip.IsLinkLocalMulticast() ||
+		ip.IsMulticast()
 }
 
 // CheckVLESSAvailability performs a health check on a VLESS URL by establishing a TCP connection.
@@ -111,6 +97,7 @@ func CheckVLESSAvailability(raw string) (string, string, int64) {
 	if err != nil {
 		return "down", fmt.Sprintf("DNS lookup failed: %s", err.Error()), 0
 	}
+	validatedIPs := make([]net.IP, 0, len(ips))
 	for _, ipStr := range ips {
 		ip := net.ParseIP(ipStr)
 		if ip == nil {
@@ -119,13 +106,22 @@ func CheckVLESSAvailability(raw string) (string, string, int64) {
 		if IsPrivateIP(ip) {
 			return "down", "health check to private addresses is not allowed", 0
 		}
+		validatedIPs = append(validatedIPs, ip)
 	}
-
-	address := net.JoinHostPort(host, port)
+	if len(validatedIPs) == 0 {
+		return "down", "DNS lookup returned no usable addresses", 0
+	}
 	start := time.Now()
-	conn, err := net.DialTimeout("tcp", address, 4*time.Second)
-	if err != nil {
-		return "down", err.Error(), 0
+	var conn net.Conn
+	var lastErr error
+	for _, ip := range validatedIPs {
+		conn, lastErr = net.DialTimeout("tcp", net.JoinHostPort(ip.String(), port), 4*time.Second)
+		if lastErr == nil {
+			break
+		}
+	}
+	if lastErr != nil {
+		return "down", lastErr.Error(), 0
 	}
 	_ = conn.Close()
 

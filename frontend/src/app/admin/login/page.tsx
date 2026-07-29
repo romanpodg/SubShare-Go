@@ -6,7 +6,7 @@ import { Card } from "@/components/ui/Card";
 import { Input } from "@/components/ui/Input";
 import { PasswordInput } from "@/components/ui/PasswordInput";
 import { Button } from "@/components/ui/Button";
-import { auth, setCsrfToken } from "@/lib/api";
+import { useAuth } from "@/hooks/useAuth";
 import { usePanelSettings } from "@/context/PanelSettingsContext";
 import { EmojiText } from "@/components/ui/EmojiText";
 import { ThemeToggle } from "@/components/ui/ThemeToggle";
@@ -19,6 +19,7 @@ export default function LoginPage() {
   const [usernameError, setUsernameError] = useState("");
   const [passwordError, setPasswordError] = useState("");
   const [loading, setLoading] = useState(false);
+  const { login } = useAuth();
 
   const { settings } = usePanelSettings();
 
@@ -90,9 +91,8 @@ export default function LoginPage() {
 
     setLoading(true);
     try {
-      const data = await auth.login(username, password);
-      setCsrfToken(data.csrf_token);
-      router.push("/admin");
+      await login(username, password);
+      router.replace("/admin/overview");
     } catch {
       setError("Пользователь с такими данными не найден");
     } finally {

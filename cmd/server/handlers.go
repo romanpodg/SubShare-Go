@@ -118,7 +118,7 @@ func (a *App) upsertKeyCategory(category string) error {
 }
 
 func (a *App) listKeyCategories() ([]model.KeyCategory, error) {
-	rows, err := a.db.Query(`SELECT name, color FROM key_categories ORDER BY sort_order, id`)
+	rows, err := a.db.Query(`SELECT id, name, color FROM key_categories ORDER BY sort_order, id`)
 	if err != nil {
 		return nil, err
 	}
@@ -128,9 +128,10 @@ func (a *App) listKeyCategories() ([]model.KeyCategory, error) {
 	colorByName := make(map[string]string)
 	categories := make([]model.KeyCategory, 0, 16)
 	for rows.Next() {
+		var id int64
 		var name sql.NullString
 		var color sql.NullString
-		if err := rows.Scan(&name, &color); err != nil {
+		if err := rows.Scan(&id, &name, &color); err != nil {
 			return nil, err
 		}
 		normalized := normalizeKeyCategory(name.String)
@@ -142,7 +143,7 @@ func (a *App) listKeyCategories() ([]model.KeyCategory, error) {
 		}
 		countByName[normalized] = 0
 		colorByName[normalized] = normalizeKeyCategoryColor(color.String)
-		categories = append(categories, model.KeyCategory{Name: normalized, Color: colorByName[normalized], KeysCount: 0})
+		categories = append(categories, model.KeyCategory{ID: id, Name: normalized, Color: colorByName[normalized], KeysCount: 0})
 	}
 	if err := rows.Err(); err != nil {
 		return nil, err
@@ -170,7 +171,9 @@ func (a *App) listKeyCategories() ([]model.KeyCategory, error) {
 		}
 		if _, exists := countByName[normalized]; !exists {
 			colorByName[normalized] = "#d8b33d"
-			categories = append(categories, model.KeyCategory{Name: normalized, Color: colorByName[normalized], KeysCount: 0})
+			var id int64
+			_ = a.db.QueryRow(`SELECT id FROM key_categories WHERE name = ?`, normalized).Scan(&id)
+			categories = append(categories, model.KeyCategory{ID: id, Name: normalized, Color: colorByName[normalized], KeysCount: 0})
 		}
 		countByName[normalized] += int(count)
 	}
@@ -196,7 +199,7 @@ func (a *App) apiLogin(w http.ResponseWriter, r *http.Request) {
 
 	username := strings.TrimSpace(req.Username)
 	password := strings.TrimSpace(req.Password)
-	
+
 	var adminID int64
 	var passwordHash string
 	if err := a.db.QueryRow(`SELECT id, password_hash FROM admins WHERE username = ?`, username).Scan(&adminID, &passwordHash); err != nil {
@@ -309,7 +312,7 @@ func (a *App) apiCreateAdmin(w http.ResponseWriter, r *http.Request) {
 
 	username := strings.TrimSpace(req.Username)
 	password := strings.TrimSpace(req.Password)
-	role := strings.TrimSpace(req.Role)
+	role, roleOK := normalizeAdminRole(req.Role)
 
 	if username == "" {
 		writeError(w, http.StatusBadRequest, "username is required")
@@ -319,7 +322,7 @@ func (a *App) apiCreateAdmin(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "password must be at least 6 characters")
 		return
 	}
-	if role != "super_admin" && role != "support_admin" {
+	if !roleOK {
 		writeError(w, http.StatusBadRequest, "invalid role")
 		return
 	}
@@ -344,12 +347,14 @@ func (a *App) apiCreateAdmin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	_, err = a.db.Exec(`INSERT INTO admins (username, password_hash, role) VALUES (?, ?, ?)`, username, string(passwordHash), role)
+	result, err := a.db.Exec(`INSERT INTO admins (username, password_hash, role) VALUES (?, ?, ?)`, username, string(passwordHash), role)
 	if err != nil {
 		log.Printf("apiCreateAdmin insert: %v", err)
 		writeError(w, http.StatusInternalServerError, "failed to create admin")
 		return
 	}
+	adminID, _ := result.LastInsertId()
+	a.recordAuditEvent(r, "admin.create", "admin", strconv.FormatInt(adminID, 10), map[string]any{"username": username, "role": role})
 
 	writeMessage(w, "administrator created successfully")
 }
@@ -416,10 +421,12 @@ func (a *App) apiUpdateAdmin(w http.ResponseWriter, r *http.Request) {
 
 	// Update role if provided
 	if role != "" {
-		if role != "super_admin" && role != "support_admin" {
+		normalizedRole, roleOK := normalizeAdminRole(role)
+		if !roleOK {
 			writeError(w, http.StatusBadRequest, "invalid role")
 			return
 		}
+		role = normalizedRole
 
 		// Prevent changing own role
 		if id == session.AdminID {
@@ -427,10 +434,10 @@ func (a *App) apiUpdateAdmin(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		// Prevent changing role of the last super_admin
-		if currentRole == "super_admin" && role != "super_admin" {
+		// Prevent changing role of the last owner
+		if isOwnerRole(currentRole) && !isOwnerRole(role) {
 			var superAdminCount int
-			err = a.db.QueryRow(`SELECT COUNT(*) FROM admins WHERE role = 'super_admin'`).Scan(&superAdminCount)
+			err = a.db.QueryRow(`SELECT COUNT(*) FROM admins WHERE role IN ('owner', 'super_admin')`).Scan(&superAdminCount)
 			if err != nil {
 				log.Printf("apiUpdateAdmin count super admins: %v", err)
 				writeError(w, http.StatusInternalServerError, "database error")
@@ -453,6 +460,10 @@ func (a *App) apiUpdateAdmin(w http.ResponseWriter, r *http.Request) {
 		_, _ = a.db.Exec(`DELETE FROM admin_sessions WHERE admin_id = ?`, id)
 	}
 
+	a.recordAuditEvent(r, "admin.update", "admin", strconv.FormatInt(id, 10), map[string]any{
+		"role":             role,
+		"password_changed": password != "",
+	})
 	writeMessage(w, "administrator updated successfully")
 }
 
@@ -485,10 +496,10 @@ func (a *App) apiDeleteAdmin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Prevent deleting the last super admin
-	if role == "super_admin" {
+	// Prevent deleting the last owner
+	if isOwnerRole(role) {
 		var superAdminCount int
-		err = a.db.QueryRow(`SELECT COUNT(*) FROM admins WHERE role = 'super_admin'`).Scan(&superAdminCount)
+		err = a.db.QueryRow(`SELECT COUNT(*) FROM admins WHERE role IN ('owner', 'super_admin')`).Scan(&superAdminCount)
 		if err != nil {
 			log.Printf("apiDeleteAdmin count super admins: %v", err)
 			writeError(w, http.StatusInternalServerError, "database error")
@@ -522,16 +533,13 @@ func (a *App) apiDeleteAdmin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	a.recordAuditEvent(r, "admin.delete", "admin", strconv.FormatInt(id, 10), nil)
 	writeMessage(w, "administrator deleted successfully")
 }
 
 // --- Users API ---
 
 func (a *App) apiListUsers(w http.ResponseWriter, r *http.Request) {
-	if _, err := a.db.Exec(`UPDATE users SET subscription_id = token WHERE subscription_id IS NULL OR TRIM(subscription_id) = ''`); err != nil {
-		log.Printf("apiListUsers: failed to backfill subscription tokens: %v", err)
-	}
-
 	users, err := a.listUsers()
 	if err != nil {
 		log.Printf("apiListUsers: %v", err)
@@ -647,7 +655,7 @@ func (a *App) apiCreateUser(w http.ResponseWriter, r *http.Request) {
 		log.Printf("apiCreateUser: failed to assign keys to user %d: %v", userID, err)
 	}
 
-	log.Printf("AUDIT: create user name=%q activation_code=%q subscription_id=%q", name, activationCode, subscriptionID)
+	a.recordAuditEvent(r, "user.create", "user", strconv.FormatInt(userID, 10), map[string]any{"name": name})
 	writeMessage(w, "user created")
 }
 
@@ -667,7 +675,7 @@ func (a *App) apiDeleteUser(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusNotFound, "user not found")
 		return
 	}
-	log.Printf("AUDIT: delete user id=%d", id)
+	a.recordAuditEvent(r, "user.delete", "user", strconv.FormatInt(id, 10), nil)
 	writeMessage(w, "user deleted")
 }
 
@@ -723,7 +731,7 @@ func (a *App) apiUpdateUserKeys(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "failed to update user keys")
 		return
 	}
-	log.Printf("AUDIT: update user keys user_id=%d key_ids=%v", id, req.KeyIDs)
+	a.recordAuditEvent(r, "user.keys.update", "user", strconv.FormatInt(id, 10), map[string]any{"keys_count": len(req.KeyIDs)})
 	writeMessage(w, "subscription keys updated")
 }
 
@@ -837,7 +845,7 @@ func (a *App) apiUpdateUserSubscription(w http.ResponseWriter, r *http.Request) 
 		writeError(w, http.StatusInternalServerError, "failed to update subscription")
 		return
 	}
-	log.Printf("AUDIT: update subscription user_id=%d status=%s", id, status)
+	a.recordAuditEvent(r, "user.subscription.update", "user", strconv.FormatInt(id, 10), map[string]any{"status": status})
 	writeMessage(w, "subscription updated")
 }
 
@@ -926,7 +934,10 @@ func (a *App) apiUpdateUserSettings(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	log.Printf("AUDIT: update user settings user_id=%d time_zone=%s language=%s", id, timeZone, language)
+	a.recordAuditEvent(r, "user.settings.update", "user", strconv.FormatInt(id, 10), map[string]any{
+		"time_zone": timeZone,
+		"language":  language,
+	})
 	writeMessage(w, "user settings updated")
 }
 
@@ -1172,7 +1183,7 @@ func (a *App) apiUpdateUserHWID(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "failed to update hwid settings")
 		return
 	}
-	log.Printf("AUDIT: update hwid settings user_id=%d max_devices=%d", id, req.MaxDevices)
+	a.recordAuditEvent(r, "user.hwid.update", "user", strconv.FormatInt(id, 10), map[string]any{"max_devices": req.MaxDevices})
 	writeMessage(w, "hwid settings updated")
 }
 
@@ -1198,7 +1209,7 @@ func (a *App) apiDeleteUserHWID(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusNotFound, "hwid not found")
 		return
 	}
-	log.Printf("AUDIT: delete hwid user_id=%d hwid=%q", id, hwid)
+	a.recordAuditEvent(r, "user.hwid.delete", "user", strconv.FormatInt(id, 10), nil)
 	writeMessage(w, "hwid removed")
 }
 
@@ -1599,7 +1610,7 @@ func (a *App) apiCreateKey(w http.ResponseWriter, r *http.Request) {
 		// Не возвращаем ошибку пользователю, так как ключ уже создан
 		// Просто логируем для отладки
 	} else {
-		log.Printf("AUDIT: create key label=%q, auto-assigned to all users", label)
+		a.recordAuditEvent(r, "key.create", "key", strconv.FormatInt(keyID, 10), map[string]any{"label": label})
 	}
 
 	writeMessage(w, "key added")
@@ -1712,7 +1723,7 @@ func (a *App) apiUpdateKey(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "failed to update key")
 		return
 	}
-	log.Printf("AUDIT: update key id=%d label=%q", id, label)
+	a.recordAuditEvent(r, "key.update", "key", strconv.FormatInt(id, 10), map[string]any{"label": label})
 	writeMessage(w, "key updated")
 }
 
@@ -1790,7 +1801,10 @@ func (a *App) apiBulkUpdateKeyStatus(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	log.Printf("AUDIT: bulk update key status count=%d status=%s", len(ids), status)
+	a.recordAuditEvent(r, "keys.bulk_status", "key", "multiple", map[string]any{
+		"count":  len(ids),
+		"status": status,
+	})
 	writeJSON(w, http.StatusOK, map[string]any{
 		"message": "keys updated",
 		"updated": len(ids),
@@ -1844,7 +1858,7 @@ func (a *App) apiBulkDeleteKeys(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	log.Printf("AUDIT: bulk delete keys count=%d", len(ids))
+	a.recordAuditEvent(r, "keys.bulk_delete", "key", "multiple", map[string]any{"count": len(ids)})
 	writeJSON(w, http.StatusOK, map[string]any{
 		"message": "keys deleted",
 		"deleted": len(ids),
@@ -1927,7 +1941,7 @@ func (a *App) apiReorderKeys(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	log.Printf("AUDIT: reorder keys count=%d", len(req.IDs))
+	a.recordAuditEvent(r, "keys.reorder", "key", "multiple", map[string]any{"count": len(req.IDs)})
 	writeMessage(w, "keys reordered")
 }
 
@@ -1947,7 +1961,7 @@ func (a *App) apiDeleteKey(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusNotFound, "key not found")
 		return
 	}
-	log.Printf("AUDIT: delete key id=%d", id)
+	a.recordAuditEvent(r, "key.delete", "key", strconv.FormatInt(id, 10), nil)
 	writeMessage(w, "key deleted")
 }
 
@@ -2003,6 +2017,7 @@ func (a *App) apiCheckAllKeys(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	jobID := a.startTrackedJob("keys_health_check", "key", "all")
 	var wg sync.WaitGroup
 	sem := make(chan struct{}, 10) // max 10 concurrent checks
 	checked := 0
@@ -2029,6 +2044,7 @@ func (a *App) apiCheckAllKeys(w http.ResponseWriter, r *http.Request) {
 		FROM vless_keys ORDER BY CASE WHEN key_kind = 'real' THEN 0 ELSE 1 END, sort_order, id
 	`)
 	if err != nil {
+		a.finishTrackedJob(jobID, err)
 		writeError(w, http.StatusInternalServerError, "failed to load key checks")
 		return
 	}
@@ -2041,6 +2057,7 @@ func (a *App) apiCheckAllKeys(w http.ResponseWriter, r *http.Request) {
 		var lastCheckedAt sql.NullTime
 		var latency sql.NullInt64
 		if err := updatedRows.Scan(&id, &checkStatus, &checkError, &lastCheckedAt, &latency); err != nil {
+			a.finishTrackedJob(jobID, err)
 			writeError(w, http.StatusInternalServerError, "failed to load key checks")
 			return
 		}
@@ -2061,9 +2078,12 @@ func (a *App) apiCheckAllKeys(w http.ResponseWriter, r *http.Request) {
 		results = append(results, payload)
 	}
 	if err := updatedRows.Err(); err != nil {
+		a.finishTrackedJob(jobID, err)
 		writeError(w, http.StatusInternalServerError, "failed to load key checks")
 		return
 	}
+	a.finishTrackedJob(jobID, nil)
+	a.recordAuditEvent(r, "keys.health_check", "key", "all", map[string]any{"checked": checked})
 	writeJSON(w, http.StatusOK, map[string]any{"checked": checked, "keys": results})
 }
 
@@ -2096,10 +2116,12 @@ func (a *App) apiActivateSubscription(w http.ResponseWriter, r *http.Request) {
 	}
 
 	subscriptionURL := fmt.Sprintf("%s/sub/%s", a.resolveBaseURL(r), subscriptionID)
-	if encryptedURL, err := a.encryptSubscriptionURL(subscriptionURL); err == nil && strings.TrimSpace(encryptedURL) != "" {
-		subscriptionURL = encryptedURL
-	} else if err != nil {
-		log.Printf("apiActivateSubscription: failed to encrypt url via happ api: %v", err)
+	if strings.TrimSpace(a.happCryptoAPIURL) != "" {
+		if encryptedURL, err := a.encryptSubscriptionURL(subscriptionURL); err == nil && strings.TrimSpace(encryptedURL) != "" {
+			subscriptionURL = encryptedURL
+		} else if err != nil {
+			log.Printf("apiActivateSubscription: failed to encrypt url via configured Happ API: %v", err)
+		}
 	}
 	writeJSON(w, http.StatusOK, map[string]any{
 		"subscription_url": subscriptionURL,
@@ -2117,8 +2139,22 @@ func (a *App) handleSubscription(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if isBrowserSubscriptionRequest(r) {
+	rule, ruleErr := a.matchSubscriptionResponseRule(r)
+	if ruleErr != nil {
+		log.Printf("match subscription response rule: %v", ruleErr)
+	}
+	if (rule != nil && rule.ResponseType == "browser") || isBrowserSubscriptionRequest(r) {
 		a.renderSubscriptionBrowserPage(w, r, subscriptionID)
+		return
+	}
+	if rule != nil && rule.ResponseType == "block" {
+		http.Error(w, "subscription request blocked by response rule", http.StatusForbidden)
+		a.incrementSubscriptionMetric("block", "blocked")
+		return
+	}
+	if rule != nil && rule.ResponseType == "not-found" {
+		http.NotFound(w, r)
+		a.incrementSubscriptionMetric("not-found", "blocked")
 		return
 	}
 
@@ -2128,7 +2164,8 @@ func (a *App) handleSubscription(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if !allowed {
-		http.Error(w, reason, code)
+		http.Error(w, a.subscriptionRemark(reason), code)
+		a.incrementSubscriptionMetric(remarkStatusFromReason(reason), "denied")
 		return
 	}
 
@@ -2158,6 +2195,7 @@ func (a *App) handleSubscription(w http.ResponseWriter, r *http.Request) {
 			if message == "" {
 				message = model.DefaultDeviceLimitMessage
 			}
+			message = a.subscriptionRemarkForStatus("limited", message)
 			headerMessage := strings.ReplaceAll(strings.ReplaceAll(message, "\r", " "), "\n", " ")
 			if headerMessage == "" {
 				headerMessage = model.DefaultDeviceLimitMessage
@@ -2168,22 +2206,65 @@ func (a *App) handleSubscription(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	bodyPlain, settings, denyCode, denyReason, err := a.buildSubscriptionBodyPlain(r, subscriptionID)
+	responseType := ""
+	if rule != nil {
+		responseType = rule.ResponseType
+	}
+	bodyPlain, settings, denyCode, denyReason, err := a.buildSubscriptionBodyPlainForFormat(r, subscriptionID, responseType)
 	if err != nil {
 		http.Error(w, "failed to load subscription", http.StatusInternalServerError)
 		return
 	}
 	if denyCode != 0 {
-		http.Error(w, denyReason, denyCode)
+		http.Error(w, a.subscriptionRemark(denyReason), denyCode)
+		a.incrementSubscriptionMetric(remarkStatusFromReason(denyReason), "denied")
 		return
 	}
 
 	a.applySubscriptionResponseHeaders(w, r, settings, subscriptionID)
+	a.applyGlobalDeliveryHeaders(w)
 	body := bodyPlain
-	if a.subscriptionBodyEncoding == "base64" && settings.SubscriptionFormat != model.SubscriptionFormatXrayJSON {
+	switch responseType {
+	case "mihomo":
+		body, err = renderMihomoSubscription(bodyPlain)
+	case "sing-box":
+		body, err = renderSingBoxSubscription(bodyPlain)
+	}
+	if err != nil {
+		http.Error(w, "failed to render subscription format", http.StatusUnprocessableEntity)
+		a.incrementSubscriptionMetric(responseType, "render_failed")
+		return
+	}
+	if rule != nil {
+		if template, loadErr := a.loadTemplate(rule.TemplateID); loadErr == nil && template != nil && template.Enabled {
+			body = applyTemplateContent(template.Content, body, settings.Title)
+		}
+		applyRuleHeaders(w, rule.Headers)
+	}
+	switch responseType {
+	case "base64":
 		body = base64.StdEncoding.EncodeToString([]byte(body))
+		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+	case "plain":
+		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+	case "mihomo":
+		w.Header().Set("Content-Type", "application/yaml; charset=utf-8")
+		w.Header().Set("Content-Disposition", fmt.Sprintf(`attachment; filename="%s.yaml"`, sanitizeSubscriptionFilenamePart(settings.Title)))
+	case "sing-box", "xray-json":
+		w.Header().Set("Content-Type", "application/json; charset=utf-8")
+		w.Header().Set("Content-Disposition", fmt.Sprintf(`attachment; filename="%s.json"`, sanitizeSubscriptionFilenamePart(settings.Title)))
+	default:
+		if a.subscriptionBodyEncoding == "base64" && settings.SubscriptionFormat != model.SubscriptionFormatXrayJSON {
+			body = base64.StdEncoding.EncodeToString([]byte(body))
+			responseType = "base64"
+		} else if settings.SubscriptionFormat == model.SubscriptionFormatXrayJSON {
+			responseType = "xray-json"
+		} else {
+			responseType = "plain"
+		}
 	}
 	_, _ = w.Write([]byte(body))
+	a.incrementSubscriptionMetric(responseType, "success")
 }
 
 func sanitizeSubscriptionFilenamePart(raw string) string {
@@ -2323,9 +2404,23 @@ func (a *App) buildSubscriptionBodyPlain(
 	r *http.Request,
 	subscriptionID string,
 ) (string, model.SubscriptionSettings, int, string, error) {
+	return a.buildSubscriptionBodyPlainForFormat(r, subscriptionID, "")
+}
+
+func (a *App) buildSubscriptionBodyPlainForFormat(
+	r *http.Request,
+	subscriptionID string,
+	responseType string,
+) (string, model.SubscriptionSettings, int, string, error) {
 	settings, err := a.getSubscriptionSettings()
 	if err != nil {
 		return "", model.SubscriptionSettings{}, 0, "", err
+	}
+	switch responseType {
+	case "xray-json":
+		settings.SubscriptionFormat = model.SubscriptionFormatXrayJSON
+	case "base64", "plain", "mihomo", "sing-box":
+		settings.SubscriptionFormat = model.SubscriptionFormatLinks
 	}
 
 	dbRows, err := a.db.Query(`

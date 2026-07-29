@@ -1,19 +1,24 @@
 .PHONY: build run clean frontend backend all
 
+BUILD_DIR ?= .cache
+SERVER_BIN ?= $(BUILD_DIR)/subshare
+
 all: frontend backend
 
 backend:
-	go build -o server ./cmd/server
+	mkdir -p $(BUILD_DIR)
+	go build -trimpath -o $(SERVER_BIN) ./cmd/server
 
 frontend:
 	cd frontend && npm ci && npm run build
 
 run: backend
-	ADMIN_PASSWORD=admin ./server
+	@test -n "$(ADMIN_PASSWORD)" || (echo "ADMIN_PASSWORD is required" && exit 1)
+	ADMIN_PASSWORD="$(ADMIN_PASSWORD)" $(SERVER_BIN)
 
 clean:
-	rm -f server
-	rm -rf frontend/out frontend/.next
+	rm -f $(SERVER_BIN)
+	rm -rf frontend/out frontend/.next-validation frontend/.next-e2e
 
 tidy:
 	go mod tidy
