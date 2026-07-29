@@ -33,8 +33,8 @@ FROM nginxinc/nginx-unprivileged:${NGINX_VERSION} AS runtime
 
 # OCI image labels
 LABEL org.opencontainers.image.title="SubShare Frontend" \
-      org.opencontainers.image.description="Next.js frontend for VLESS VPN subscription management" \
-      org.opencontainers.image.source="https://github.com/user/subshare" \
+      org.opencontainers.image.description="Technical operations interface for SubShare" \
+      org.opencontainers.image.source="https://github.com/romanpodg/SubShare-Go" \
       org.opencontainers.image.licenses="MIT"
 
 # Switch to root to set up config and static files, then back to nginx user

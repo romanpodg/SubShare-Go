@@ -1,4 +1,4 @@
-name: CI
+name: SubShare CI
 
 on:
   push:

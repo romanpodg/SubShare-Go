@@ -45,8 +45,8 @@ FROM alpine:${ALPINE_VERSION} AS runtime
 
 # OCI image labels
 LABEL org.opencontainers.image.title="SubShare" \
-      org.opencontainers.image.description="VLESS VPN subscription management service" \
-      org.opencontainers.image.source="https://github.com/user/subshare" \
+      org.opencontainers.image.description="Self-hosted subscription delivery and configuration operations hub" \
+      org.opencontainers.image.source="https://github.com/romanpodg/SubShare-Go" \
       org.opencontainers.image.licenses="MIT"
 
 # Install minimal runtime dependencies in a single layer
