@@ -1,10 +1,10 @@
 # SubShare
 
-SubShare — лёгкий self-hosted Subscription Hub для управления пользователями, VPN-конфигурациями и персональными ссылками подписок. Проект состоит из Go API, SQLite и маршрутизируемой панели на Next.js. Интерфейс построен как тёмная техническая операционная система: связанная модульная сетка, инфраструктурные схемы, телеметрия и единый signal-green акцент.
+SubShare представляет собой лёгкий self-hosted Subscription Hub для управления общей подпиской, внутри которой присутствуют VPN-конфигурации, которые можно распределять между польхователями. Проект состоит из Go API, SQLite и маршрутизируемой панели на Next.js. 
 
-Репозиторий: `https://github.com/romanpodg/vless-keys-to-sub`.
+Репозиторий: `https://github.com/romanpodg/SubShare-Go`.
 
-SubShare не управляет Xray-нодами и не измеряет фактический VPN-трафик. Его задача — безопасно хранить, агрегировать и выдавать конфигурации подходящего формата конкретному клиенту.
+SubShare не управляет Xray-нодами и не измеряет фактический VPN-трафик. Его задача состоит в хранении, агрегации и выдаче конфигурации подходящего формата конкретному клиенту.
 
 ## Возможности
 
@@ -44,16 +44,16 @@ Caddy и SQLite устанавливаются внутри контейнеро
 Ubuntu:
 
 ```bash
-git clone https://github.com/romanpodg/vless-keys-to-sub.git
-cd vless-keys-to-sub
+git clone https://github.com/romanpodg/SubShare-Go.git
+cd SubShare-Go
 bash scripts/start.sh
 ```
 
 Windows 10/11 с Docker Desktop в режиме Linux containers:
 
 ```powershell
-git clone https://github.com/romanpodg/vless-keys-to-sub.git
-Set-Location vless-keys-to-sub
+git clone https://github.com/romanpodg/SubShare-Go.git
+Set-Location SubShare-Go
 powershell -ExecutionPolicy Bypass -File .\scripts\start.ps1
 ```
 
