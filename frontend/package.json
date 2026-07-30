@@ -4,7 +4,7 @@
   "description": "Technical operations interface for SubShare",
   "repository": {
     "type": "git",
-    "url": "https://github.com/romanpodg/SubShare-Go.git",
+    "url": "https://github.com/romanpodg/vless-keys-to-sub.git",
     "directory": "frontend"
   },
   "private": true,
@@ -15,13 +15,13 @@
     "lint": "eslint",
     "test": "vitest run",
     "test:watch": "vitest",
-    "test:e2e": "playwright test"
+    "test:e2e": "npm run build && node e2e/run.mjs"
   },
   "dependencies": {
     "@emoji-mart/data": "^1.2.1",
     "@fontsource-variable/inter": "^5.3.0",
     "@fontsource-variable/jetbrains-mono": "^5.3.0",
-    "@fontsource-variable/space-grotesk": "^5.3.0",
+    "@fontsource-variable/onest": "^5.3.0",
     "emoji-mart": "^5.6.0",
     "emoji-regex": "^10.6.0",
     "lucide-react": "^0.574.0",

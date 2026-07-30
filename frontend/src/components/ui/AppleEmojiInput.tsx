@@ -160,6 +160,7 @@ interface AppleEmojiInputProps {
 
 export interface AppleEmojiInputHandle {
   insertEmoji: (emoji: string) => void;
+  insertText: (text: string) => void;
   focus: () => void;
 }
 
@@ -203,8 +204,8 @@ export const AppleEmojiInput = forwardRef<AppleEmojiInputHandle, AppleEmojiInput
     onChange?.({ target: { value: limitedValue } });
   }, [maxLength, onChange]);
 
-  useImperativeHandle(forwardedRef, () => ({
-    insertEmoji: (emoji: string) => {
+  useImperativeHandle(forwardedRef, () => {
+    const insertText = (text: string) => {
       const el = ref.current;
       const baseValue = lastVal.current;
       const insertionPoint = el && document.activeElement === el
@@ -212,14 +213,19 @@ export const AppleEmojiInput = forwardRef<AppleEmojiInputHandle, AppleEmojiInput
         : savedCursorPosRef.current;
       const normalizedPoint = Math.min(Math.max(insertionPoint, 0), baseValue.length);
       emitNextValue(
-        `${baseValue.slice(0, normalizedPoint)}${emoji}${baseValue.slice(normalizedPoint)}`,
-        normalizedPoint + emoji.length
+        `${baseValue.slice(0, normalizedPoint)}${text}${baseValue.slice(normalizedPoint)}`,
+        normalizedPoint + text.length
       );
-    },
-    focus: () => {
-      ref.current?.focus();
-    },
-  }), [emitNextValue]);
+    };
+
+    return {
+      insertEmoji: insertText,
+      insertText,
+      focus: () => {
+        ref.current?.focus();
+      },
+    };
+  }, [emitNextValue]);
 
   /* Sync external value → DOM (e.g. emoji picker appends emoji) */
   useEffect(() => {

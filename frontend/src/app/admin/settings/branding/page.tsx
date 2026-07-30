@@ -14,7 +14,7 @@ export default function BrandingPage() {
   return (
     <div>
       <PageHeader title="Брендинг" description="Название панели, логотип, favicon и публичная страница активации." icon={<Paintbrush className="h-5 w-5" />} />
-      <div className="grid gap-px bg-border lg:grid-cols-2">
+      <div className="ui-joined-grid technical-frame grid lg:grid-cols-2">
         <section className="technical-frame border border-border bg-surface-1 p-5">
           <div className="flex h-11 w-11 items-center justify-center rounded-xl border border-cyan-400/20 bg-cyan-400/10 text-cyan-300"><PanelsTopLeft className="h-5 w-5" /></div>
           <h2 className="mt-4 font-semibold text-zinc-200">Панель управления</h2>
@@ -27,7 +27,7 @@ export default function BrandingPage() {
           <p className="mt-2 text-sm leading-6 text-zinc-600">Редактируйте блоки, тексты, ссылки на клиенты и цветовую тему.</p>
           <div className="mt-5 flex flex-wrap gap-2">
             <Button onClick={() => setPageOpen(true)}>Открыть редактор</Button>
-            <Link href="/subscription" target="_blank" className="inline-flex items-center gap-2 rounded-lg border border-border px-4 py-2 text-sm text-zinc-400 hover:bg-surface-2 hover:text-zinc-200">Предпросмотр <ExternalLink className="h-4 w-4" /></Link>
+            <Link href="/subscription" target="_blank" className="inline-flex h-11 items-center gap-2 whitespace-nowrap rounded-sm border border-border px-4 font-mono text-xs font-semibold uppercase tracking-[0.08em] text-zinc-400 transition-colors hover:bg-surface-2 hover:text-zinc-200">Предпросмотр <ExternalLink className="h-4 w-4" /></Link>
           </div>
         </section>
       </div>

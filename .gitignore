@@ -38,11 +38,8 @@ backups/*.db-wal
 .idea/
 .codex
 
-# SSL certificates (never commit private keys)
-certs/live/
-certs/archive/
-certs/accounts/
-certs/*.pem
+# Legacy SSL/Certbot material (Caddy now stores TLS state in a Docker volume)
+certs/
 *.key
 data/*.db
 data/*.db-shm

@@ -23,7 +23,7 @@ export function StatusBadge({ status, className = "" }: StatusBadgeProps) {
   return (
     <span
       role="status"
-      className={`inline-flex min-h-6 items-center gap-1.5 rounded-sm border px-2 font-mono text-[9px] font-semibold uppercase tracking-[0.12em] before:h-1 before:w-1 before:bg-current ${config.className} ${className}`}
+      className={`inline-flex min-h-7 items-center gap-1.5 rounded-sm border px-2.5 font-mono text-[11px] font-semibold uppercase tracking-[0.1em] before:h-1.5 before:w-1.5 before:bg-current ${config.className} ${className}`}
     >
       <EmojiText text={config.label} />
     </span>

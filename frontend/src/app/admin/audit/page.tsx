@@ -66,12 +66,12 @@ export default function AuditPage() {
             </div>
           )}
           <div
-          className="technical-frame overflow-hidden border border-border bg-surface-1"
+            className="ui-list-shell technical-frame"
             aria-busy={refreshing}
           >
             <div className="overflow-x-auto">
-              <table className="w-full min-w-[820px] text-left text-sm">
-                <thead className="border-b border-border bg-zinc-950/30 text-[11px] uppercase tracking-wider text-zinc-600">
+              <table className="ui-data-table min-w-[820px] text-left text-sm">
+                <thead>
                   <tr>
                     <th className="px-5 py-3">Время</th>
                     <th className="px-5 py-3">Администратор</th>
@@ -106,7 +106,7 @@ export default function AuditPage() {
                 </tbody>
               </table>
             </div>
-            <div className="flex items-center justify-between border-t border-border px-5 py-3">
+            <div className="ui-list-footer">
               <span className="text-xs text-zinc-600">{meta.total} событий</span>
               <div className="flex items-center gap-2">
                 <Button

@@ -3,6 +3,7 @@ package main
 import (
 	"encoding/base64"
 	"encoding/json"
+	"strings"
 	"testing"
 )
 
@@ -254,5 +255,47 @@ func TestNormalizeConfigurationForSubscriptionOutput_VmessSecurityAlterIDAndHead
 	hosts, _ := headers["Host"].([]any)
 	if len(hosts) != 2 {
 		t.Fatalf("expected 2 request hosts, got %d", len(hosts))
+	}
+}
+
+func TestHealthCheckRejectsPrivateTargetsBeforeDial(t *testing.T) {
+	status, checkError, _ := checkConfigurationAvailability(
+		"vless://11111111-1111-1111-1111-111111111111@127.0.0.1:443?security=tls",
+	)
+	if status != "down" || !strings.Contains(checkError, "not a permitted public address") {
+		t.Fatalf("private target was not rejected: status=%q error=%q", status, checkError)
+	}
+}
+
+func TestXrayOutboundCanRenderAsCanonicalShareLink(t *testing.T) {
+	raw := `{"outbounds":[{"protocol":"trojan","tag":"edge","settings":{"servers":[{"address":"edge.example","port":443,"password":"secret"}]},"streamSettings":{"network":"grpc","security":"tls","tlsSettings":{"serverName":"edge.example"},"grpcSettings":{"serviceName":"proxy"}}}]}`
+	drafts, err := parseXrayJSONDrafts(raw)
+	if err != nil || len(drafts) != 1 {
+		t.Fatalf("parse drafts: count=%d err=%v", len(drafts), err)
+	}
+	link, err := buildShareLinkFromDraft(drafts[0])
+	if err != nil {
+		t.Fatalf("build link: %v", err)
+	}
+	if !strings.HasPrefix(link, "trojan://") || !strings.Contains(link, "serviceName=proxy") {
+		t.Fatalf("unexpected share link: %s", link)
+	}
+}
+
+func TestParseXrayJSONDraftsRejectsPartiallyInvalidSupportedOutbound(t *testing.T) {
+	raw := `{
+		"outbounds": [{
+			"protocol": "vless",
+			"settings": {
+				"vnext": [
+					{"address": "one.example", "port": 443, "users": [{"id": "11111111-1111-1111-1111-111111111111"}]},
+					{"address": "two.example", "port": 443, "users": []}
+				]
+			}
+		}]
+	}`
+
+	if _, err := parseXrayJSONDrafts(raw); err == nil {
+		t.Fatal("expected the invalid supported vnext entry to reject the complete Xray document")
 	}
 }

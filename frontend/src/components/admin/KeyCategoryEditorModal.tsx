@@ -151,7 +151,7 @@ export function KeyCategoryEditorModal({
       open={open}
       onClose={() => (!saving && !deleting && movingKeyID === null ? onClose() : undefined)}
       title={`Категория — ${categoryName}`}
-      className="max-w-4xl max-h-[88vh] overflow-y-auto"
+      className="max-w-4xl max-h-[88dvh]"
     >
       <div className="space-y-4">
         <div className="rounded-xl border border-border bg-surface-2/40 p-4">
@@ -172,13 +172,13 @@ export function KeyCategoryEditorModal({
                     value={draftColor}
                     onChange={(event) => setDraftColor(normalizeKeyCategoryColor(event.target.value))}
                     disabled={saving || deleting || movingKeyID !== null}
-                    className="h-10 w-12 cursor-pointer rounded border border-border bg-transparent p-0"
+                    className="h-11 w-11 cursor-pointer rounded-sm border border-border bg-transparent p-0"
                   />
                   <input
                     value={draftColor}
                     onChange={(event) => setDraftColor(normalizeKeyCategoryColor(event.target.value))}
                     disabled={saving || deleting || movingKeyID !== null}
-                    className="h-10 flex-1 rounded-lg border border-border bg-bg px-3 py-2 text-sm text-zinc-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-bg"
+                    className="ui-control flex-1 bg-bg px-3 text-sm"
                   />
                 </div>
                 <div className="flex flex-wrap gap-2">
@@ -188,7 +188,7 @@ export function KeyCategoryEditorModal({
                       type="button"
                       onClick={() => setDraftColor(preset)}
                       disabled={saving || deleting || movingKeyID !== null}
-                      className={`h-8 w-8 rounded-full border transition ${
+                      className={`h-11 w-11 rounded-sm border transition ${
                         draftColor === preset ? "border-white ring-2 ring-white/30" : "border-border"
                       }`}
                       style={{ backgroundColor: preset }}
@@ -278,7 +278,7 @@ export function KeyCategoryEditorModal({
             В этой категории пока нет ключей. Добавьте новую конфигурацию или перенесите существующую.
           </div>
         ) : (
-          <div className="space-y-3">
+          <div className="ui-joined-list">
             {categoryKeys.map((key) => {
               const isReal = key.kind !== "informational";
               const moving = movingKeyID === key.id;
@@ -287,9 +287,11 @@ export function KeyCategoryEditorModal({
                 <div key={key.id} className="rounded-xl border border-border bg-surface-2/25 p-3">
                   <div className="mb-2 flex items-center justify-between gap-3">
                     <div className="min-w-0">
-                      <div className="truncate text-sm font-medium text-zinc-100">
-                        <EmojiText text={key.label} />
-                      </div>
+                      <EmojiText
+                        text={key.label}
+                        truncate
+                        className="ui-key-category-key-title text-sm font-medium text-zinc-100"
+                      />
                       <div className="text-xs text-zinc-400">
                         {isReal ? "Конфигурация" : "Информационный ключ"} · ID {key.id}
                       </div>
@@ -299,11 +301,16 @@ export function KeyCategoryEditorModal({
                     </div>
                   </div>
 
-                  <div className="mb-3 text-xs text-zinc-400">
+                  <div className="mb-3 min-w-0 text-xs text-zinc-400">
                     {isReal ? (
-                      <>
-                        Название в клиенте: <span className="text-zinc-300"><EmojiText text={key.client_display_name || key.label} /></span>
-                      </>
+                      <div className="flex min-w-0 items-baseline gap-1">
+                        <span className="shrink-0">Название в клиенте:</span>
+                        <EmojiText
+                          text={key.client_display_name || key.label}
+                          truncate
+                          className="min-w-0 flex-1 text-zinc-300"
+                        />
+                      </div>
                     ) : (
                       <span className="text-zinc-300"><EmojiText text={key.template_text || key.label} /></span>
                     )}

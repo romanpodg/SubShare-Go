@@ -94,7 +94,7 @@ func normalizeAdminRole(role string) (string, bool) {
 }
 
 func (a *App) adminSessionFromRequest(r *http.Request) (model.AdminSession, string, bool) {
-	cookie, err := r.Cookie("subshare_admin_session")
+	cookie, err := r.Cookie(model.AdminSessionCookieName)
 	if err != nil || cookie.Value == "" {
 		return a.apiTokenSessionFromRequest(r)
 	}

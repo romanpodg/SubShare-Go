@@ -8,6 +8,7 @@ import {
   ExternalLink,
   Plus,
   RadioTower,
+  RefreshCw,
   Search,
 } from "lucide-react";
 import { apiV1 } from "@/lib/api";
@@ -22,6 +23,7 @@ import { SourceDetailDrawer } from "@/components/admin/SourceDetailDrawer";
 import { PageHeader } from "@/components/admin/PageHeader";
 import { Button } from "@/components/ui/Button";
 import { InitialLoading, ResourceError } from "@/components/ui/ResourceState";
+import { Select } from "@/components/ui/Select";
 import { StatusBadge } from "@/components/ui/StatusBadge";
 import { useToast } from "@/components/ui/Toast";
 import { useAuth } from "@/hooks/useAuth";
@@ -183,66 +185,67 @@ export default function SourcesPage() {
         <ResourceError error={error} onRetry={() => void loadSources(1, true)} />
       ) : (
         <>
-      <section className="technical-frame border border-border bg-surface-1 p-4">
-            <div className="flex flex-col gap-3 lg:flex-row lg:items-end">
-              <form className="flex min-w-0 flex-1 gap-2" onSubmit={search}>
-                <label className="relative min-w-0 flex-1">
-                  <span className="sr-only">Поиск источников</span>
+          <section className="ui-toolbar-shell">
+            <div className="ui-toolbar">
+              <form className="ui-toolbar-search" onSubmit={search}>
+                <label className="ui-field">
+                  <span className="ui-field-label">Поиск источников</span>
+                  <span className="relative block">
                   <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-zinc-600" />
                   <input
                     value={queryInput}
                     onChange={(event) => setQueryInput(event.target.value)}
                     placeholder="Название, категория или адрес"
-                    className="w-full rounded-lg border border-border bg-surface-2 py-2 pl-9 pr-3 text-sm text-zinc-200 outline-none placeholder:text-zinc-600 focus-visible:ring-2 focus-visible:ring-accent"
+                    className="ui-control w-full pl-9 pr-3 text-sm placeholder:text-zinc-600"
                   />
+                  </span>
                 </label>
                 <Button type="submit" variant="outline">
                   Найти
                 </Button>
               </form>
 
-              <label className="flex flex-col gap-1 text-xs text-zinc-500">
-                Состояние
-                <select
-                  value={status}
-                  onChange={(event) => setStatus(event.target.value)}
-                  className="min-w-40 rounded-lg border border-border bg-surface-2 px-3 py-2 text-sm text-zinc-200 outline-none focus-visible:ring-2 focus-visible:ring-accent"
-                >
-                  <option value="all">Все</option>
-                  <option value="ok">Успешные</option>
-                  <option value="error">С ошибкой</option>
-                  <option value="syncing">Синхронизация</option>
-                  <option value="idle">Не запускались</option>
-                  <option value="disabled">Отключённые</option>
-                </select>
-              </label>
+              <Select
+                label="Состояние"
+                value={status}
+                onChange={(event) => setStatus(event.target.value)}
+                className="min-w-44"
+                options={[
+                  { value: "all", label: "Все" },
+                  { value: "ok", label: "Успешные" },
+                  { value: "error", label: "С ошибкой" },
+                  { value: "syncing", label: "Синхронизация" },
+                  { value: "idle", label: "Не запускались" },
+                  { value: "disabled", label: "Отключённые" },
+                ]}
+              />
 
-              <label className="flex flex-col gap-1 text-xs text-zinc-500">
-                Сортировка
-                <select
-                  value={sort}
-                  onChange={(event) => setSort(event.target.value)}
-                  className="min-w-44 rounded-lg border border-border bg-surface-2 px-3 py-2 text-sm text-zinc-200 outline-none focus-visible:ring-2 focus-visible:ring-accent"
-                >
-                  <option value="last_sync_desc">Последняя синхронизация</option>
-                  <option value="name_asc">По названию</option>
-                  <option value="created_asc">Сначала старые</option>
-                </select>
-              </label>
+              <Select
+                label="Сортировка"
+                value={sort}
+                onChange={(event) => setSort(event.target.value)}
+                className="min-w-56"
+                options={[
+                  { value: "last_sync_desc", label: "Последняя синхронизация" },
+                  { value: "name_asc", label: "По названию" },
+                  { value: "created_asc", label: "Сначала старые" },
+                ]}
+              />
 
               <Button variant="outline" onClick={() => void refresh()} loading={refreshing}>
+                <RefreshCw className="h-4 w-4" />
                 Обновить
               </Button>
             </div>
           </section>
 
           <section
-          className="technical-frame overflow-hidden border border-border bg-surface-1"
+            className="ui-list-shell technical-frame"
             aria-busy={refreshing}
           >
             <div className="overflow-x-auto">
-              <table className="w-full min-w-[860px] text-left text-sm">
-                <thead className="border-b border-border bg-zinc-950/30 text-[11px] uppercase tracking-wider text-zinc-600">
+              <table className="ui-data-table min-w-[960px] text-left">
+                <thead>
                   <tr>
                     <th className="px-5 py-3">Источник</th>
                     <th className="px-5 py-3">Категории</th>
@@ -333,7 +336,7 @@ export default function SourcesPage() {
               </table>
             </div>
 
-            <div className="flex flex-col gap-3 border-t border-border px-5 py-4 text-sm sm:flex-row sm:items-center sm:justify-between">
+            <div className="ui-list-footer text-sm">
               <span className="text-zinc-600">
                 {meta.total === 0
                   ? "0 источников"

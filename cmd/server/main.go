@@ -7,6 +7,7 @@ import (
 	"log"
 	"log/slog"
 	"net/http"
+	"net/url"
 	"os"
 	"os/signal"
 	"path/filepath"
@@ -92,7 +93,19 @@ func run() error {
 	}
 
 	baseURL := strings.TrimSpace(os.Getenv("BASE_URL"))
-	baseURL = strings.TrimRight(baseURL, "/")
+	if baseURL != "" {
+		normalizedBaseURL, normalizeErr := normalizeAbsoluteHTTPURL(baseURL, "BASE_URL")
+		if normalizeErr != nil {
+			return fmt.Errorf("invalid BASE_URL: %w", normalizeErr)
+		}
+		parsedBaseURL, parseErr := url.Parse(normalizedBaseURL)
+		if parseErr != nil || (parsedBaseURL.Path != "" && parsedBaseURL.Path != "/") || parsedBaseURL.RawQuery != "" || parsedBaseURL.Fragment != "" {
+			return fmt.Errorf("BASE_URL must contain only scheme and host")
+		}
+		baseURL = strings.TrimRight(normalizedBaseURL, "/")
+	} else if strings.EqualFold(strings.TrimSpace(os.Getenv("APP_ENV")), "production") {
+		return fmt.Errorf("BASE_URL is required when APP_ENV=production")
+	}
 	happCryptoAPIURL := strings.TrimSpace(os.Getenv("HAPP_CRYPTO_API_URL"))
 
 	subscriptionBodyEncoding := strings.ToLower(strings.TrimSpace(os.Getenv("SUBSCRIPTION_BODY_ENCODING")))
@@ -115,6 +128,7 @@ func run() error {
 
 	app := &App{
 		db:                       db,
+		dbPath:                   dbPath,
 		deviceLimitMessage:       deviceLimitMessage,
 		baseURL:                  baseURL,
 		happCryptoAPIURL:         happCryptoAPIURL,
@@ -156,6 +170,8 @@ func run() error {
 	mux.Handle("DELETE /api/v1/users/{id}", app.requireAdmin(app.v1Compatibility(http.HandlerFunc(app.apiDeleteUser))))
 	mux.Handle("PUT /api/v1/users/{id}/keys", app.requireAdmin(app.v1Compatibility(http.HandlerFunc(app.apiUpdateUserKeys))))
 	mux.Handle("PUT /api/v1/users/{id}/subscription", app.requireAdmin(app.v1Compatibility(http.HandlerFunc(app.apiUpdateUserSubscription))))
+	mux.Handle("PATCH /api/v1/users/{id}/subscription", app.requireAdmin(http.HandlerFunc(app.apiV1PatchUserSubscription)))
+	mux.Handle("PUT /api/v1/users/{id}/key-assignment", app.requireAdmin(http.HandlerFunc(app.apiV1UpdateUserKeyAssignment)))
 	mux.Handle("PUT /api/v1/users/{id}/settings", app.requireAdmin(app.v1Compatibility(http.HandlerFunc(app.apiUpdateUserSettings))))
 	mux.Handle("PUT /api/v1/users/{id}/hwid", app.requireAdmin(app.v1Compatibility(http.HandlerFunc(app.apiUpdateUserHWID))))
 	mux.Handle("GET /api/v1/keys", app.requireAdmin(http.HandlerFunc(app.apiV1ListKeys)))
@@ -196,6 +212,29 @@ func run() error {
 	mux.Handle("GET /api/v1/jobs/{id}", app.requireAdmin(http.HandlerFunc(app.apiV1GetJob)))
 	mux.Handle("POST /api/v1/jobs/{id}/retry", app.requireSuperAdmin(http.HandlerFunc(app.apiV1RetryJob)))
 	mux.Handle("GET /api/v1/sources/{id}/sync-runs", app.requireAdmin(http.HandlerFunc(app.apiV1ListSourceSyncRuns)))
+	// Transitional v1 adapters for admin screens that still need the richer
+	// legacy response shape. No frontend request should depend on /api/admin.
+	mux.Handle("GET /api/v1/users/full", app.requireAdmin(http.HandlerFunc(app.apiListUsers)))
+	mux.Handle("GET /api/v1/keys/full", app.requireAdmin(http.HandlerFunc(app.apiListKeys)))
+	mux.Handle("GET /api/v1/users/{id}/subscription-urls", app.requireAdmin(http.HandlerFunc(app.apiGetUserSubscriptionURLs)))
+	mux.Handle("DELETE /api/v1/users/{id}/hwid/{hwid}", app.requireAdmin(http.HandlerFunc(app.apiDeleteUserHWID)))
+	mux.Handle("POST /api/v1/key-categories", app.requireAdmin(http.HandlerFunc(app.apiCreateKeyCategory)))
+	mux.Handle("PUT /api/v1/key-categories", app.requireAdmin(http.HandlerFunc(app.apiUpdateKeyCategory)))
+	mux.Handle("PUT /api/v1/key-categories/order", app.requireAdmin(http.HandlerFunc(app.apiReorderKeyCategories)))
+	mux.Handle("PUT /api/v1/key-categories/rename", app.requireAdmin(http.HandlerFunc(app.apiRenameKeyCategory)))
+	mux.Handle("POST /api/v1/key-categories/delete", app.requireAdmin(http.HandlerFunc(app.apiDeleteKeyCategory)))
+	mux.Handle("POST /api/v1/keys/bulk/status", app.requireAdmin(http.HandlerFunc(app.apiBulkUpdateKeyStatus)))
+	mux.Handle("POST /api/v1/keys/bulk/delete", app.requireAdmin(http.HandlerFunc(app.apiBulkDeleteKeys)))
+	mux.Handle("PUT /api/v1/keys/order", app.requireAdmin(http.HandlerFunc(app.apiReorderKeys)))
+	mux.Handle("GET /api/v1/subscription-settings", app.requireAdmin(http.HandlerFunc(app.apiGetSubscriptionSettings)))
+	mux.Handle("PUT /api/v1/subscription-settings", app.requireSuperAdmin(http.HandlerFunc(app.apiUpdateSubscriptionSettings)))
+	mux.Handle("GET /api/v1/routing-settings", app.requireAdmin(http.HandlerFunc(app.apiGetRoutingSettings)))
+	mux.Handle("PUT /api/v1/routing-settings", app.requireSuperAdmin(http.HandlerFunc(app.apiUpdateRoutingSettings)))
+	mux.HandleFunc("GET /api/v1/panel-settings", app.apiGetPanelSettings)
+	mux.Handle("PUT /api/v1/panel-settings", app.requireSuperAdmin(http.HandlerFunc(app.apiUpdatePanelSettings)))
+	mux.HandleFunc("GET /api/v1/subscription-page-config", app.apiGetSubscriptionPageConfig)
+	mux.Handle("PUT /api/v1/subscription-page-config", app.requireSuperAdmin(http.HandlerFunc(app.apiUpdateSubscriptionPageConfig)))
+	mux.HandleFunc("POST /api/v1/subscriptions/activate", activationLimiter.Wrap(writeError, app.apiActivateSubscription))
 
 	// Admins Management API (Super Admin only)
 	mux.Handle("GET /api/admin/admins", app.requireSuperAdmin(http.HandlerFunc(app.apiListAdmins)))

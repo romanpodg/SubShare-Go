@@ -103,16 +103,16 @@ export default function SecurityPage() {
       <PageHeader title="Безопасность и сборка" description="Текущее состояние защитных механизмов и схема базы." icon={<ShieldCheck className="h-5 w-5" />} />
       {Boolean(buildError) && <div className="mb-4"><ResourceError error={buildError} compact title="Build info недоступна" /></div>}
       {Boolean(tokensError) && <div className="mb-4"><ResourceError error={tokensError} compact onRetry={() => void loadTokens()} title="Не удалось загрузить API-токены" /></div>}
-      <div className="grid gap-px bg-border lg:grid-cols-2">
+      <div className="ui-joined-grid technical-frame grid lg:grid-cols-2">
         <section className="technical-frame border border-border bg-surface-1 p-5">
           <div className="flex items-center gap-3"><LockKeyhole className="h-5 w-5 text-cyan-300" /><h2 className="font-semibold text-zinc-200">Защитные механизмы</h2></div>
-          <div className="mt-5 space-y-3">
+          <div className="ui-joined-list mt-5">
             {checks.map((check) => <div key={check} className="flex items-center gap-3 rounded-xl border border-border bg-zinc-950/30 px-4 py-3 text-sm text-zinc-400"><CheckCircle2 className="h-4 w-4 shrink-0 text-emerald-400" />{check}</div>)}
           </div>
         </section>
         <section className="technical-frame border border-border bg-surface-1 p-5">
           <h2 className="font-semibold text-zinc-200">Build info</h2>
-          <dl className="mt-5 space-y-3">
+          <dl className="ui-joined-list mt-5">
             {[["Версия", build?.version], ["Commit", build?.commit], ["Время сборки", build?.build_time], ["Версия схемы", build?.schema_version]].map(([label, value]) => (
               <div key={String(label)} className="flex items-center justify-between gap-4 rounded-xl border border-border bg-zinc-950/30 px-4 py-3"><dt className="text-sm text-zinc-600">{label}</dt><dd className="font-mono text-sm text-cyan-300">{value ?? "—"}</dd></div>
             ))}

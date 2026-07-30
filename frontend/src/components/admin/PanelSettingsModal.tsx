@@ -5,7 +5,7 @@ import { Modal } from "@/components/ui/Modal";
 import { Input } from "@/components/ui/Input";
 import { Button } from "@/components/ui/Button";
 import { usePanelSettings } from "@/context/PanelSettingsContext";
-import { EmojiText } from "@/components/ui/EmojiText";
+import { FilePenLine, ImageIcon, Settings, SlidersHorizontal, Upload } from "lucide-react";
 
 interface Props {
   open: boolean;
@@ -109,13 +109,14 @@ export function PanelSettingsModal({ open, onClose }: Props) {
   };
 
   return (
-    <Modal open={open} onClose={onClose} title="⚙️ Настройки панели">
+    <Modal open={open} onClose={onClose} title="Настройки панели" icon={<Settings className="h-4 w-4" aria-hidden="true" />}>
       <div className="flex flex-col gap-3">
 
         {/* Название панели */}
         <section className="flex flex-col gap-2">
-          <h3 className="text-xs font-semibold text-zinc-400 uppercase tracking-wide border-b border-border pb-1">
-            <EmojiText text="🔧 Название панели" />
+          <h3 className="flex items-center gap-2 border-b border-border pb-1 text-xs font-semibold uppercase tracking-wide text-zinc-400">
+            <SlidersHorizontal className="h-3.5 w-3.5 text-accent" aria-hidden="true" />
+            <span>Название панели</span>
           </h3>
           <Input
             label="Заголовок панели"
@@ -127,8 +128,9 @@ export function PanelSettingsModal({ open, onClose }: Props) {
 
         {/* Логотип */}
         <section className="flex flex-col gap-2">
-          <h3 className="text-xs font-semibold text-zinc-400 uppercase tracking-wide border-b border-border pb-1">
-            <EmojiText text="✨ Логотип" />
+          <h3 className="flex items-center gap-2 border-b border-border pb-1 text-xs font-semibold uppercase tracking-wide text-zinc-400">
+            <ImageIcon className="h-3.5 w-3.5 text-accent" aria-hidden="true" />
+            <span>Логотип</span>
           </h3>
           <div className="flex items-center gap-3 flex-wrap">
             {logoDataUrl ? (
@@ -161,7 +163,7 @@ export function PanelSettingsModal({ open, onClose }: Props) {
               htmlFor="logo-upload"
               className="inline-flex items-center gap-1.5 cursor-pointer text-xs text-zinc-400 hover:text-zinc-200 transition-colors border border-border rounded-lg px-2.5 py-1.5"
             >
-              <EmojiText text="⬆️" />
+              <Upload className="h-3.5 w-3.5" aria-hidden="true" />
               {logoDataUrl ? "Заменить" : "Загрузить"}
             </label>
           </div>
@@ -170,8 +172,9 @@ export function PanelSettingsModal({ open, onClose }: Props) {
 
         {/* Favicon */}
         <section className="flex flex-col gap-2">
-          <h3 className="text-xs font-semibold text-zinc-400 uppercase tracking-wide border-b border-border pb-1">
-            <EmojiText text="📝 Favicon и заголовки страниц" />
+          <h3 className="flex items-center gap-2 border-b border-border pb-1 text-xs font-semibold uppercase tracking-wide text-zinc-400">
+            <FilePenLine className="h-3.5 w-3.5 text-accent" aria-hidden="true" />
+            <span>Favicon и заголовки страниц</span>
           </h3>
           <div className="flex items-center gap-3 flex-wrap">
             {faviconDataUrl ? (
@@ -204,7 +207,7 @@ export function PanelSettingsModal({ open, onClose }: Props) {
               htmlFor="favicon-upload"
               className="inline-flex items-center gap-1.5 cursor-pointer text-xs text-zinc-400 hover:text-zinc-200 transition-colors border border-border rounded-lg px-2.5 py-1.5"
             >
-              <EmojiText text="⬆️" />
+              <Upload className="h-3.5 w-3.5" aria-hidden="true" />
               {faviconDataUrl ? "Заменить" : "Загрузить"}
             </label>
           </div>

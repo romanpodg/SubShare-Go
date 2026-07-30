@@ -7,12 +7,11 @@ import { useToast } from "@/components/ui/Toast";
 import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
 import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
-import { EmojiText } from "@/components/ui/EmojiText";
 import { Modal } from "@/components/ui/Modal";
 import { Input } from "@/components/ui/Input";
 import { Select } from "@/components/ui/Select";
 import { PasswordInput } from "@/components/ui/PasswordInput";
-import { Edit, Trash2, Plus, ShieldAlert, KeyRound, UserPlus } from "lucide-react";
+import { ChevronDown, Crown, Edit, KeyRound, Plus, ShieldAlert, Trash2, UserPlus } from "lucide-react";
 
 interface Props {
   currentRole: string | null;
@@ -150,26 +149,27 @@ export function AdminsSection({ currentRole }: Props) {
   }
 
   return (
-    <Card className="flex flex-col gap-4">
-      <div className="flex items-center justify-between mb-2">
+    <Card className="overflow-hidden !p-0">
+      <div className="ui-section-header">
         <div className="flex items-center gap-2">
           <button
             onClick={() => setCollapsed(!collapsed)}
-            className="h-8 w-8 flex items-center justify-center rounded-lg border border-border bg-surface-2 transition-all hover:bg-surface-1"
+            className="ui-icon-button"
             aria-expanded={!collapsed}
             aria-label={collapsed ? "Развернуть" : "Свернуть"}
           >
-            <span className={`text-zinc-400 transition-transform ${collapsed ? "-rotate-90" : ""}`}>▼</span>
+            <ChevronDown className={`h-4 w-4 text-zinc-400 transition-transform ${collapsed ? "-rotate-90" : ""}`} />
           </button>
           <h2 className="text-lg font-semibold flex items-center gap-2">
-            <EmojiText text="👑 Администраторы" />
-            <span className="text-sm font-normal text-zinc-500 bg-surface-2 px-2 py-0.5 rounded-full border border-border">
+            <Crown className="h-4 w-4 text-accent" aria-hidden="true" />
+            <span>Администраторы</span>
+            <span className="border border-border bg-surface-2 px-2 py-1 font-mono text-[10px] font-normal text-zinc-500">
               {adminsList.length}
             </span>
           </h2>
         </div>
         {!collapsed && (
-          <Button onClick={() => setShowAddModal(true)} className="text-xs py-1.5 flex items-center gap-1.5">
+          <Button onClick={() => setShowAddModal(true)}>
             <Plus className="w-3.5 h-3.5" />
             <span>Добавить</span>
           </Button>
@@ -183,20 +183,20 @@ export function AdminsSection({ currentRole }: Props) {
           ) : adminsList.length === 0 ? (
             <div className="py-8 text-center text-sm text-zinc-400">Список администраторов пуст.</div>
           ) : (
-            <table className="w-full text-sm">
+            <table className="ui-data-table text-sm">
               <thead>
-                <tr className="text-left text-zinc-400 border-b border-border">
-                  <th scope="col" className="pb-3 pr-4 font-semibold">Имя пользователя</th>
-                  <th scope="col" className="pb-3 pr-4 font-semibold">Роль</th>
-                  <th scope="col" className="pb-3 pr-4 font-semibold">Создан</th>
-                  <th scope="col" className="pb-3 text-right font-semibold">Действия</th>
+                <tr className="text-left">
+                  <th scope="col" className="px-5 py-3">Имя пользователя</th>
+                  <th scope="col" className="px-5 py-3">Роль</th>
+                  <th scope="col" className="px-5 py-3">Создан</th>
+                  <th scope="col" className="px-5 py-3 text-right">Действия</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-border/30">
                 {adminsList.map((admin) => (
                   <tr key={admin.id} className="hover:bg-surface-2/10 transition-colors">
-                    <td className="py-3.5 pr-4 font-medium text-zinc-200">{admin.username}</td>
-                    <td className="py-3.5 pr-4">
+                    <td className="px-5 py-4 font-medium text-zinc-200">{admin.username}</td>
+                    <td className="px-5 py-4">
                       {admin.role === "owner" ? (
                         <span className="inline-flex items-center gap-1 text-xs px-2.5 py-0.5 rounded-full bg-red-500/10 text-red-400 font-semibold border border-red-500/20">
                           <ShieldAlert className="w-3 h-3" />
@@ -208,13 +208,13 @@ export function AdminsSection({ currentRole }: Props) {
                         </span>
                       )}
                     </td>
-                    <td className="py-3.5 pr-4 text-zinc-400">{formatDate(admin.created_at)}</td>
-                    <td className="py-3.5 text-right">
+                    <td className="px-5 py-4 text-zinc-400">{formatDate(admin.created_at)}</td>
+                    <td className="px-5 py-4 text-right">
                       <div className="flex items-center justify-end gap-2">
                         <Button
                           variant="ghost"
                           onClick={() => openEditModal(admin)}
-                          className="h-8 w-8 p-0 flex items-center justify-center text-zinc-400 hover:text-zinc-200 hover:bg-surface-2"
+                          className="!h-11 !w-11 !p-0 text-zinc-400 hover:text-zinc-200 hover:bg-surface-2"
                           title="Редактировать"
                         >
                           <Edit className="w-4 h-4" />
@@ -222,7 +222,7 @@ export function AdminsSection({ currentRole }: Props) {
                         <Button
                           variant="ghost"
                           onClick={() => setDeletingAdmin(admin)}
-                          className="h-8 w-8 p-0 flex items-center justify-center text-red-400/75 hover:text-red-400 hover:bg-red-500/10"
+                          className="!h-11 !w-11 !p-0 text-red-400/75 hover:bg-red-500/10 hover:text-red-400"
                           title="Удалить"
                         >
                           <Trash2 className="w-4 h-4" />

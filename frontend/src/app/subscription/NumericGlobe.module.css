@@ -1,0 +1,49 @@
+.globe {
+  position: relative;
+  width: min(100%, 520px);
+  aspect-ratio: 1;
+  margin: auto;
+  overflow: hidden;
+  contain: layout paint;
+}
+
+.globe::before,
+.globe::after {
+  position: absolute;
+  pointer-events: none;
+  content: "";
+}
+
+.globe::before {
+  inset: 8%;
+  border: 1px solid rgba(255, 255, 255, 0.035);
+  border-radius: 50%;
+  box-shadow:
+    0 0 80px rgba(183, 255, 42, 0.025),
+    inset 0 0 70px rgba(255, 255, 255, 0.018);
+}
+
+.globe::after {
+  inset: 0;
+  background: radial-gradient(circle, transparent 44%, rgba(8, 9, 9, 0.22) 72%, #080909 100%);
+}
+
+.canvas {
+  position: absolute;
+  inset: 0;
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+@media (max-width: 900px) {
+  .globe {
+    width: min(100%, 430px);
+  }
+}
+
+@media (max-width: 520px) {
+  .globe {
+    width: min(100%, 340px);
+  }
+}

@@ -7,6 +7,7 @@ import { useToast } from "@/components/ui/Toast";
 import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
 import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
+import { Select } from "@/components/ui/Select";
 import { StatusBadge } from "@/components/ui/StatusBadge";
 import { AddUserModal } from "./AddUserModal";
 import { BulkEditUsersModal } from "./BulkEditUsersModal";
@@ -15,7 +16,7 @@ import { KeyAssignerModal } from "./KeyAssignerModal";
 import { HwidManager } from "./HwidManager";
 import { copyToClipboard } from "@/lib/clipboard";
 import { EmojiText } from "@/components/ui/EmojiText";
-import { Edit, Key, Fingerprint, Copy, ChevronDown, ChevronUp, Search } from "lucide-react";
+import { ChevronDown, ChevronUp, Copy, Edit, Fingerprint, Key, Plus, Search, UsersRound, X } from "lucide-react";
 
 interface Props {
   users: User[];
@@ -284,9 +285,12 @@ export function UsersSection({ users, assignableKeys, onRefresh }: Props) {
             aria-expanded={!collapsed}
             aria-label={collapsed ? "Развернуть" : "Свернуть"}
           >
-            <span className={`text-zinc-400 transition-transform ${collapsed ? "-rotate-90" : ""}`}>▼</span>
+            <ChevronDown className={`h-4 w-4 text-zinc-400 transition-transform ${collapsed ? "-rotate-90" : ""}`} />
           </button>
-          <h2 className="text-lg font-semibold"><EmojiText text={`😄 Пользователи (${users.length})`} /></h2>
+          <h2 className="flex items-center gap-2 text-lg font-semibold">
+            <UsersRound className="h-4 w-4 text-accent" aria-hidden="true" />
+            <span>Пользователи ({users.length})</span>
+          </h2>
         </div>
         <div className="flex items-center gap-2">
           <Button variant="ghost" onClick={() => setShowBulkEdit(true)} className="text-xs" disabled={selectedCount === 0}>
@@ -298,7 +302,8 @@ export function UsersSection({ users, assignableKeys, onRefresh }: Props) {
             </Button>
           )}
           <Button onClick={() => setShowAddUser(true)} className="text-xs">
-            + Добавить
+            <Plus className="h-3.5 w-3.5" aria-hidden="true" />
+            <span>Добавить</span>
           </Button>
         </div>
       </div>
@@ -318,28 +323,31 @@ export function UsersSection({ users, assignableKeys, onRefresh }: Props) {
             {searchQuery && (
               <button
                 onClick={() => setSearchQuery("")}
+                aria-label="Очистить поиск"
                 className="absolute right-2.5 top-1/2 -translate-y-1/2 text-zinc-500 hover:text-zinc-300 text-xs w-5 h-5 flex items-center justify-center rounded-full hover:bg-surface-1"
               >
-                ✕
+                <X className="h-3.5 w-3.5" aria-hidden="true" />
               </button>
             )}
           </div>
           <div className="flex gap-2">
-            <select
+            <Select
+              ariaLabel="Фильтр по статусу"
               value={statusFilter}
               onChange={(e) =>
                 setStatusFilter(
                   e.target.value as "all" | "active" | "non-active" | "paused" | "blocked"
                 )
               }
-              className="h-9 bg-surface-2 border border-border rounded-lg px-3 text-sm focus:outline-none focus:border-accent text-zinc-300 cursor-pointer"
-            >
-              <option value="all">Все статусы</option>
-              <option value="active">Активен</option>
-              <option value="non-active">Неактивен</option>
-              <option value="paused">Приостановлен</option>
-              <option value="blocked">Заблокирован</option>
-            </select>
+              className="w-48 min-w-48"
+              options={[
+                { value: "all", label: "Все статусы" },
+                { value: "active", label: "Активен" },
+                { value: "non-active", label: "Неактивен" },
+                { value: "paused", label: "Приостановлен" },
+                { value: "blocked", label: "Заблокирован" },
+              ]}
+            />
           </div>
         </div>
       )}

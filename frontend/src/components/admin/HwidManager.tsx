@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/Button";
 import { useToast } from "@/components/ui/Toast";
 import { users as usersApi } from "@/lib/api";
 import type { User } from "@/lib/types";
+import { Minus, Plus } from "lucide-react";
 
 interface Props {
   user: User;
@@ -25,9 +26,9 @@ export function HwidManager({ user, onClose, onRefresh }: Props) {
   const parsedMaxDevices = useMemo(() => {
     const parsed = parseInt(maxDevicesInput, 10);
     if (Number.isNaN(parsed)) {
-      return 1;
+      return 0;
     }
-    return Math.min(32, Math.max(1, parsed));
+    return Math.min(32, Math.max(0, parsed));
   }, [maxDevicesInput]);
 
   const hasMaxDevicesChanges = parsedMaxDevices !== user.max_devices;
@@ -75,7 +76,7 @@ export function HwidManager({ user, onClose, onRefresh }: Props) {
   };
 
   const stepMaxDevices = (delta: number) => {
-    const next = Math.min(32, Math.max(1, parsedMaxDevices + delta));
+    const next = Math.min(32, Math.max(0, parsedMaxDevices + delta));
     setMaxDevicesInput(String(next));
   };
 
@@ -117,11 +118,11 @@ export function HwidManager({ user, onClose, onRefresh }: Props) {
             <button
               type="button"
               onClick={() => stepMaxDevices(-1)}
-              disabled={parsedMaxDevices <= 1 || loading}
-              className="h-10 w-10 rounded-lg border border-border bg-surface-2 text-zinc-300 transition-colors hover:bg-surface-1 disabled:opacity-50 disabled:cursor-not-allowed"
+              disabled={parsedMaxDevices <= 0 || loading}
+              className="ui-icon-button disabled:cursor-not-allowed disabled:opacity-50"
               aria-label="Уменьшить максимум устройств"
             >
-              −
+              <Minus className="h-4 w-4" aria-hidden="true" />
             </button>
             <input
               id="hwid-max-devices"
@@ -134,19 +135,20 @@ export function HwidManager({ user, onClose, onRefresh }: Props) {
                 setMaxDevicesInput(digits === "" ? "" : String(Math.min(32, Math.max(1, parseInt(digits, 10)))));
               }}
               onBlur={() => setMaxDevicesInput(String(parsedMaxDevices))}
-              className="h-10 w-full rounded-lg border border-border bg-surface-2 px-3 text-center text-sm text-zinc-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-bg"
+              className="ui-control w-full px-3 text-center text-sm"
               aria-label="Максимум устройств"
             />
             <button
               type="button"
               onClick={() => stepMaxDevices(1)}
               disabled={parsedMaxDevices >= 32 || loading}
-              className="h-10 w-10 rounded-lg border border-border bg-surface-2 text-zinc-300 transition-colors hover:bg-surface-1 disabled:opacity-50 disabled:cursor-not-allowed"
+              className="ui-icon-button disabled:cursor-not-allowed disabled:opacity-50"
               aria-label="Увеличить максимум устройств"
             >
-              +
+              <Plus className="h-4 w-4" aria-hidden="true" />
             </button>
           </div>
+          <p className="text-xs text-zinc-600">0 — без ограничения числа устройств.</p>
         </div>
         <Button type="submit" loading={loading} disabled={!hasMaxDevicesChanges}>
           Сохранить

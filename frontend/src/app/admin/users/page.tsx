@@ -25,6 +25,7 @@ import { Button } from "@/components/ui/Button";
 import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 import { Input } from "@/components/ui/Input";
 import { LoadingSpinner } from "@/components/ui/LoadingSpinner";
+import { Select } from "@/components/ui/Select";
 import { StatusBadge } from "@/components/ui/StatusBadge";
 import { useToast } from "@/components/ui/Toast";
 
@@ -109,6 +110,9 @@ export default function UsersPage() {
     const ids = new Set(detail.assigned_key_ids.split(",").map(Number));
     return keys.filter((key) => ids.has(key.id));
   }, [detail, keys]);
+  const connectedDevices = Array.isArray(detail?.connected_devices)
+    ? detail.connected_devices
+    : [];
 
   const confirmDelete = async () => {
     if (!deleteIDs?.length) return;
@@ -134,8 +138,8 @@ export default function UsersPage() {
         }
       />
 
-      <section className="technical-frame overflow-hidden border border-border bg-surface-1">
-        <div className="flex flex-col gap-3 border-b border-border p-4 xl:flex-row xl:items-end">
+      <section className="ui-list-shell technical-frame">
+        <div className="ui-list-filters xl:flex-row">
           <form onSubmit={submitSearch} className="flex min-w-0 flex-1 gap-2">
             <Input
               aria-label="Поиск пользователей"
@@ -149,30 +153,32 @@ export default function UsersPage() {
               Найти
             </Button>
           </form>
-          <div className="flex flex-wrap gap-2">
-            <select
-              aria-label="Effective status"
+          <div className="ui-toolbar-actions">
+            <Select
+              ariaLabel="Effective status"
               value={status}
               onChange={(event) => setStatus(event.target.value)}
-              className="rounded-lg border border-border bg-surface-2 px-3 py-2 text-sm text-zinc-300"
-            >
-              <option value="all">Все статусы</option>
-              <option value="active">Active</option>
-              <option value="expired">Expired</option>
-              <option value="paused">Paused</option>
-              <option value="blocked">Blocked</option>
-              <option value="limited">Limited</option>
-            </select>
-            <select
-              aria-label="Сортировка"
+              className="w-44 min-w-44"
+              options={[
+                { value: "all", label: "Все статусы" },
+                { value: "active", label: "Active" },
+                { value: "expired", label: "Expired" },
+                { value: "paused", label: "Paused" },
+                { value: "blocked", label: "Blocked" },
+                { value: "limited", label: "Limited" },
+              ]}
+            />
+            <Select
+              ariaLabel="Сортировка"
               value={sort}
               onChange={(event) => setSort(event.target.value)}
-              className="rounded-lg border border-border bg-surface-2 px-3 py-2 text-sm text-zinc-300"
-            >
-              <option value="created_desc">Сначала новые</option>
-              <option value="name_asc">По имени</option>
-              <option value="expires_asc">По сроку</option>
-            </select>
+              className="w-52 min-w-52"
+              options={[
+                { value: "created_desc", label: "Сначала новые" },
+                { value: "name_asc", label: "По имени" },
+                { value: "expires_asc", label: "По сроку" },
+              ]}
+            />
             {selectedIDs.length > 0 && (
               <Button variant="danger" onClick={() => setDeleteIDs(selectedIDs)}>
                 <Trash2 className="h-4 w-4" />
@@ -183,8 +189,8 @@ export default function UsersPage() {
         </div>
 
         <div className="overflow-x-auto">
-          <table className="w-full min-w-[850px] text-left text-sm">
-            <thead className="border-b border-border bg-zinc-950/30 text-[11px] uppercase tracking-wider text-zinc-600">
+          <table className="ui-data-table min-w-[940px] text-left">
+            <thead>
               <tr>
                 <th className="w-12 px-4 py-3">
                   <input
@@ -220,7 +226,7 @@ export default function UsersPage() {
                   </td>
                   <td className="px-4 py-3"><StatusBadge status={user.effective_status} /></td>
                   <td className="px-4 py-3 text-zinc-500">{user.expires_at || "Без ограничения"}</td>
-                  <td className="px-4 py-3 font-mono text-zinc-400">{user.connected_device_count}/{user.max_devices}</td>
+                  <td className="px-4 py-3 font-mono text-zinc-400">{user.connected_device_count}/{user.max_devices > 0 ? user.max_devices : "∞"}</td>
                   <td className="px-4 py-3 text-right">
                     <Button variant="outline" onClick={() => openDetail(user.id)}>
                       <UserRound className="h-4 w-4" />
@@ -237,7 +243,7 @@ export default function UsersPage() {
           {loading && <div className="flex min-h-48 items-center justify-center"><LoadingSpinner /></div>}
         </div>
 
-        <div className="flex flex-col gap-3 border-t border-border px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
+        <div className="ui-list-footer">
           <span className="text-xs text-zinc-600">Всего: {meta.total} · страница {meta.page} из {Math.max(meta.total_pages, 1)}</span>
           <div className="flex gap-2">
             <Button variant="outline" disabled={meta.page <= 1 || loading} onClick={() => load(meta.page - 1)}>
@@ -264,7 +270,7 @@ export default function UsersPage() {
                 <h2 className="font-semibold text-zinc-100">{detail?.name || "Загрузка…"}</h2>
                 <p className="mt-1 text-xs text-zinc-600">{detail?.email ? `@${detail.email}` : ""}</p>
               </div>
-              <button type="button" onClick={() => setDetail(null)} aria-label="Закрыть детали" className="rounded-lg p-2 text-zinc-500 hover:bg-zinc-800 hover:text-zinc-200">
+              <button type="button" onClick={() => setDetail(null)} aria-label="Закрыть детали" className="ui-icon-button">
                 <X className="h-5 w-5" />
               </button>
             </div>
@@ -272,9 +278,11 @@ export default function UsersPage() {
               <div className="flex min-h-80 items-center justify-center"><LoadingSpinner /></div>
             ) : detail && (
               <>
-                <div className="grid grid-cols-2 gap-3 p-5">
-                  <div className="rounded-xl border border-border bg-surface-1 p-3"><div className="text-xs text-zinc-600">Effective status</div><div className="mt-2"><StatusBadge status={detail.effective_status} /></div></div>
-                  <div className="rounded-xl border border-border bg-surface-1 p-3"><div className="text-xs text-zinc-600">HWID</div><div className="mt-2 font-mono text-zinc-300">{detail.connected_device_count}/{detail.max_devices}</div></div>
+                <div className="p-5">
+                  <div className="ui-joined-grid grid grid-cols-2">
+                    <div className="rounded-xl border border-border bg-surface-1 p-3"><div className="text-xs text-zinc-600">Effective status</div><div className="mt-2"><StatusBadge status={detail.effective_status} /></div></div>
+                    <div className="rounded-xl border border-border bg-surface-1 p-3"><div className="text-xs text-zinc-600">HWID</div><div className="mt-2 font-mono text-zinc-300">{detail.connected_device_count}/{detail.max_devices > 0 ? detail.max_devices : "∞"}</div></div>
+                  </div>
                 </div>
                 <div className="flex overflow-x-auto border-y border-border px-5">
                   {([
@@ -290,31 +298,37 @@ export default function UsersPage() {
                 </div>
                 <div className="p-5">
                   {drawerTab === "subscription" && (
-                    <div className="space-y-3">
-                      <DetailRow label="Сохранённый статус" value={detail.status} />
-                      <DetailRow label="Начало" value={detail.starts_at || "—"} />
-                      <DetailRow label="Окончание" value={detail.expires_at || "—"} />
-                      <DetailRow label="Название" value={detail.subscription_name || "—"} />
-                      <Button onClick={() => setEditSubscription(true)}><Settings2 className="h-4 w-4" />Изменить подписку</Button>
+                    <div>
+                      <div className="ui-joined-list">
+                        <DetailRow label="Сохранённый статус" value={detail.status} />
+                        <DetailRow label="Начало" value={detail.starts_at || "—"} />
+                        <DetailRow label="Окончание" value={detail.expires_at || "—"} />
+                        <DetailRow label="Название" value={detail.subscription_name || "—"} />
+                      </div>
+                      <Button className="mt-3" onClick={() => setEditSubscription(true)}><Settings2 className="h-4 w-4" />Изменить подписку</Button>
                     </div>
                   )}
                   {drawerTab === "keys" && (
-                    <div className="space-y-3">
-                      {assignedKeys.map((key) => <DetailRow key={key.id} label={key.label} value={key.check_status} />)}
-                      {assignedKeys.length === 0 && <EmptyDrawerState text="Ключи не назначены" />}
-                      <Button onClick={() => setEditKeys(true)}><KeyRound className="h-4 w-4" />Назначить ключи</Button>
+                    <div>
+                      <div className="ui-joined-list">
+                        {assignedKeys.map((key) => <DetailRow key={key.id} label={key.label} value={key.check_status} />)}
+                        {assignedKeys.length === 0 && <EmptyDrawerState text="Ключи не назначены" />}
+                      </div>
+                      <Button className="mt-3" onClick={() => setEditKeys(true)}><KeyRound className="h-4 w-4" />Назначить ключи</Button>
                     </div>
                   )}
                   {drawerTab === "devices" && (
-                    <div className="space-y-3">
-                      {detail.connected_devices.map((device) => (
-                        <div key={device.normalized_hwid || device.hwid} className="rounded-xl border border-border bg-surface-1 p-4">
-                          <div className="font-medium text-zinc-300">{device.device_name || device.device_model || "Устройство"}</div>
-                          <div className="mt-1 text-xs text-zinc-600">{device.platform} {device.os_version} · {device.app_name}</div>
-                        </div>
-                      ))}
-                      {detail.connected_devices.length === 0 && <EmptyDrawerState text="Устройства ещё не подключались" />}
-                      <Button onClick={() => setEditHWID(true)}><Fingerprint className="h-4 w-4" />Управление HWID</Button>
+                    <div>
+                      <div className="ui-joined-list">
+                        {connectedDevices.map((device) => (
+                          <div key={device.normalized_hwid || device.hwid} className="border border-border bg-surface-1 p-4 transition-colors hover:border-[var(--border-strong)]">
+                            <div className="font-medium text-zinc-300">{device.device_name || device.device_model || "Устройство"}</div>
+                            <div className="mt-1 text-xs text-zinc-600">{device.platform} {device.os_version} · {device.app_name}</div>
+                          </div>
+                        ))}
+                        {connectedDevices.length === 0 && <EmptyDrawerState text="Устройства ещё не подключались" />}
+                      </div>
+                      <Button className="mt-3" onClick={() => setEditHWID(true)}><Fingerprint className="h-4 w-4" />Управление HWID</Button>
                     </div>
                   )}
                   {drawerTab === "history" && <EmptyDrawerState text="События пользователя доступны в разделе Audit с фильтром target=user." />}
@@ -342,9 +356,9 @@ export default function UsersPage() {
 }
 
 function DetailRow({ label, value }: { label: string; value: string }) {
-  return <div className="flex items-center justify-between gap-4 rounded-xl border border-border bg-surface-1 px-4 py-3"><span className="text-sm text-zinc-600">{label}</span><span className="max-w-[65%] truncate text-sm text-zinc-300">{value}</span></div>;
+  return <div className="flex min-h-12 items-center justify-between gap-4 border border-border bg-surface-1 px-4 py-3 transition-colors hover:border-[var(--border-strong)]"><span className="text-sm text-zinc-600">{label}</span><span className="max-w-[65%] truncate font-mono text-xs text-zinc-300">{value}</span></div>;
 }
 
 function EmptyDrawerState({ text }: { text: string }) {
-  return <div className="rounded-xl border border-dashed border-border px-4 py-8 text-center text-sm text-zinc-600">{text}</div>;
+  return <div className="border border-dashed border-border px-4 py-8 text-center text-sm text-zinc-600">{text}</div>;
 }

@@ -281,7 +281,7 @@ export function RoutingSettingsModal({ open, onClose }: { open: boolean; onClose
       open={open}
       onClose={onClose}
       title="Роутинг"
-      className="w-[96vw] max-w-[1660px] max-h-[94vh] overflow-y-auto"
+      className="w-[96vw] max-w-[1660px] max-h-[94dvh]"
     >
       <form onSubmit={handleSave} className="flex flex-col gap-4">
         <div className="grid items-start gap-4 xl:grid-cols-[25rem_minmax(0,1fr)] 2xl:grid-cols-[28rem_minmax(0,1fr)]">
@@ -458,7 +458,7 @@ export function RoutingSettingsModal({ open, onClose }: { open: boolean; onClose
             )}
 
             {tab === "rules" && (
-              <div className="grid grid-cols-1 gap-3 xl:grid-cols-2 2xl:grid-cols-3">
+              <div className="ui-joined-grid grid grid-cols-1 xl:grid-cols-2 2xl:grid-cols-3">
                 <ListEditor title="DirectSites" items={config.DirectSites} onChange={(next) => updateField("DirectSites", next)} />
                 <ListEditor title="DirectIp" items={config.DirectIp} onChange={(next) => updateField("DirectIp", next)} />
                 <ListEditor title="ProxySites" items={config.ProxySites} onChange={(next) => updateField("ProxySites", next)} />

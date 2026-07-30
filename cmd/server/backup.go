@@ -6,6 +6,7 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"time"
 )
@@ -30,6 +31,9 @@ func (a *App) performBackup(backupPath string) error {
 	backupPath = strings.TrimSpace(backupPath)
 	if backupPath == "" {
 		return fmt.Errorf("backup path is empty")
+	}
+	if err := a.validateBackupPath(backupPath); err != nil {
+		return err
 	}
 	if err := os.MkdirAll(filepath.Dir(backupPath), 0o700); err != nil {
 		return fmt.Errorf("create backup directory: %w", err)
@@ -66,6 +70,53 @@ func (a *App) performBackup(backupPath string) error {
 	}
 	if hadPrevious {
 		_ = os.Remove(previousPath)
+	}
+	return nil
+}
+
+func canonicalPath(path string) (string, error) {
+	absolute, err := filepath.Abs(filepath.Clean(path))
+	if err != nil {
+		return "", err
+	}
+	parent := filepath.Dir(absolute)
+	if resolvedParent, resolveErr := filepath.EvalSymlinks(parent); resolveErr == nil {
+		absolute = filepath.Join(resolvedParent, filepath.Base(absolute))
+	}
+	if runtime.GOOS == "windows" {
+		absolute = strings.ToLower(absolute)
+	}
+	return absolute, nil
+}
+
+func (a *App) validateBackupPath(backupPath string) error {
+	if strings.TrimSpace(a.dbPath) == "" {
+		return nil
+	}
+	backupCanonical, err := canonicalPath(backupPath)
+	if err != nil {
+		return fmt.Errorf("resolve backup path: %w", err)
+	}
+	dbCanonical, err := canonicalPath(a.dbPath)
+	if err != nil {
+		return fmt.Errorf("resolve database path: %w", err)
+	}
+
+	backupArtifacts := []string{backupCanonical, backupCanonical + ".tmp", backupCanonical + ".previous"}
+	databaseArtifacts := []string{
+		dbCanonical,
+		dbCanonical + "-wal",
+		dbCanonical + "-shm",
+		dbCanonical + "-journal",
+		dbCanonical + ".tmp",
+		dbCanonical + ".previous",
+	}
+	for _, backupArtifact := range backupArtifacts {
+		for _, databaseArtifact := range databaseArtifacts {
+			if backupArtifact == databaseArtifact {
+				return fmt.Errorf("backup path conflicts with the live SQLite database")
+			}
+		}
 	}
 	return nil
 }

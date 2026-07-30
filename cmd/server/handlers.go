@@ -18,6 +18,7 @@ import (
 
 	"golang.org/x/crypto/bcrypt"
 
+	"subshare/internal/middleware"
 	"subshare/internal/model"
 	"subshare/internal/vless"
 )
@@ -33,10 +34,24 @@ func writeJSON(w http.ResponseWriter, status int, payload any) {
 }
 
 func readJSON(r *http.Request, dst any) error {
-	r.Body = http.MaxBytesReader(nil, r.Body, 1<<20) // 1MB limit
+	return readJSONWithLimit(nil, r, dst, 1<<20)
+}
+
+func readJSONWithLimit(w http.ResponseWriter, r *http.Request, dst any, limit int64) error {
+	r.Body = http.MaxBytesReader(w, r.Body, limit)
 	dec := json.NewDecoder(r.Body)
 	dec.DisallowUnknownFields()
-	return dec.Decode(dst)
+	if err := dec.Decode(dst); err != nil {
+		return err
+	}
+	var trailing any
+	if err := dec.Decode(&trailing); err != io.EOF {
+		if err == nil {
+			return fmt.Errorf("request body must contain a single JSON value")
+		}
+		return err
+	}
+	return nil
 }
 
 func writeError(w http.ResponseWriter, status int, msg string) {
@@ -117,6 +132,18 @@ func (a *App) upsertKeyCategory(category string) error {
 	return err
 }
 
+func (a *App) keyCategoryID(category string) (any, error) {
+	category = normalizeKeyCategory(category)
+	if category == "" {
+		return nil, nil
+	}
+	var id int64
+	if err := a.db.QueryRow(`SELECT id FROM key_categories WHERE name = ?`, category).Scan(&id); err != nil {
+		return nil, err
+	}
+	return id, nil
+}
+
 func (a *App) listKeyCategories() ([]model.KeyCategory, error) {
 	rows, err := a.db.Query(`SELECT id, name, color FROM key_categories ORDER BY sort_order, id`)
 	if err != nil {
@@ -150,9 +177,10 @@ func (a *App) listKeyCategories() ([]model.KeyCategory, error) {
 	}
 
 	countRows, err := a.db.Query(`
-		SELECT category, COUNT(*)
-		FROM vless_keys
-		GROUP BY category
+		SELECT kc.name, COUNT(*)
+		FROM vless_keys k
+		JOIN key_categories kc ON kc.id = k.category_id
+		GROUP BY k.category_id, kc.name
 	`)
 	if err != nil {
 		return nil, err
@@ -237,11 +265,11 @@ func (a *App) apiLogin(w http.ResponseWriter, r *http.Request) {
 	}
 
 	http.SetCookie(w, &http.Cookie{
-		Name:     "subshare_admin_session",
+		Name:     model.AdminSessionCookieName,
 		Value:    sessionID,
 		Path:     "/",
 		HttpOnly: true,
-		Secure:   r.TLS != nil || r.Header.Get("X-Forwarded-Proto") == "https",
+		Secure:   r.TLS != nil || (middleware.TrustedProxy(r) && firstForwardedValue(r.Header.Get("X-Forwarded-Proto")) == "https"),
 		SameSite: http.SameSiteStrictMode,
 		MaxAge:   int((24 * time.Hour).Seconds()),
 	})
@@ -249,13 +277,13 @@ func (a *App) apiLogin(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *App) apiLogout(w http.ResponseWriter, r *http.Request) {
-	cookie, err := r.Cookie("subshare_admin_session")
+	cookie, err := r.Cookie(model.AdminSessionCookieName)
 	if err == nil && cookie.Value != "" {
 		_, _ = a.db.Exec(`DELETE FROM admin_sessions WHERE id = ?`, cookie.Value)
 	}
 
 	http.SetCookie(w, &http.Cookie{
-		Name:     "subshare_admin_session",
+		Name:     model.AdminSessionCookieName,
 		Value:    "",
 		Path:     "/",
 		HttpOnly: true,
@@ -411,7 +439,7 @@ func (a *App) apiUpdateAdmin(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		// Invalidate all active sessions for this admin since password changed, except the current one
-		cookie, err := r.Cookie("subshare_admin_session")
+		cookie, err := r.Cookie(model.AdminSessionCookieName)
 		if err == nil && cookie.Value != "" {
 			_, _ = a.db.Exec(`DELETE FROM admin_sessions WHERE admin_id = ? AND id != ?`, id, cookie.Value)
 		} else {
@@ -618,10 +646,17 @@ func (a *App) apiCreateUser(w http.ResponseWriter, r *http.Request) {
 	now := time.Now().UTC()
 	expiresAt := now.AddDate(0, 0, issueDays)
 
+	tx, err := a.db.Begin()
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to create user")
+		return
+	}
+	defer tx.Rollback()
+
 	var userID int64
 	for attempt := 0; attempt < 5; attempt++ {
 		var res sql.Result
-		res, err = a.db.Exec(
+		res, err = tx.Exec(
 			`INSERT INTO users(name, email, token, activation_code, subscription_id, status, starts_at, expires_at, blocked_reason, max_devices) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, 1)`,
 			name, email, legacyToken, activationCode, subscriptionID, status, now, expiresAt, blockedReason,
 		)
@@ -647,12 +682,17 @@ func (a *App) apiCreateUser(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Assign all existing keys to the new user
-	if _, err := a.db.Exec(
+	if _, err := tx.Exec(
 		`INSERT OR IGNORE INTO user_keys(user_id, key_id) SELECT ?, id FROM vless_keys`,
 		userID,
 	); err != nil {
 		log.Printf("apiCreateUser: failed to assign keys to user %d: %v", userID, err)
+		writeError(w, http.StatusInternalServerError, "failed to create user")
+		return
+	}
+	if err := tx.Commit(); err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to create user")
+		return
 	}
 
 	a.recordAuditEvent(r, "user.create", "user", strconv.FormatInt(userID, 10), map[string]any{"name": name})
@@ -691,47 +731,22 @@ func (a *App) apiUpdateUserKeys(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	tx, err := a.db.Begin()
-	if err != nil {
-		log.Printf("apiUpdateUserKeys: begin: %v", err)
-		writeError(w, http.StatusInternalServerError, "failed to update user keys")
-		return
-	}
-	defer tx.Rollback()
-
-	if _, err := tx.Exec(`DELETE FROM user_keys WHERE user_id = ?`, id); err != nil {
-		log.Printf("apiUpdateUserKeys: delete old keys: %v", err)
-		writeError(w, http.StatusInternalServerError, "failed to update user keys")
-		return
-	}
-
-	seen := make(map[int64]struct{}, len(req.KeyIDs))
-	for _, keyID := range req.KeyIDs {
-		if keyID <= 0 {
-			writeError(w, http.StatusBadRequest, "invalid key id")
+	if err := a.updateUserKeyAssignment(id, model.KeyAssignmentModeSelected, req.KeyIDs); err != nil {
+		if errors.Is(err, errAssignmentUserNotFound) {
+			writeError(w, http.StatusNotFound, "user not found")
 			return
 		}
-		if _, dup := seen[keyID]; dup {
-			continue
-		}
-		seen[keyID] = struct{}{}
-		if _, err := tx.Exec(
-			`INSERT OR IGNORE INTO user_keys(user_id, key_id)
-			 SELECT ?, id FROM vless_keys WHERE id = ? AND status = 'active'`,
-			id, keyID,
-		); err != nil {
-			log.Printf("apiUpdateUserKeys: insert key: %v", err)
-			writeError(w, http.StatusInternalServerError, "failed to update user keys")
+		if errors.Is(err, errAssignmentKeyNotFound) {
+			writeError(w, http.StatusBadRequest, "one or more keys do not exist")
 			return
 		}
-	}
-
-	if err := tx.Commit(); err != nil {
-		log.Printf("apiUpdateUserKeys: commit: %v", err)
+		log.Printf("apiUpdateUserKeys: %v", err)
 		writeError(w, http.StatusInternalServerError, "failed to update user keys")
 		return
 	}
-	a.recordAuditEvent(r, "user.keys.update", "user", strconv.FormatInt(id, 10), map[string]any{"keys_count": len(req.KeyIDs)})
+	a.recordAuditEvent(r, "user.keys.update", "user", strconv.FormatInt(id, 10), map[string]any{
+		"mode": model.KeyAssignmentModeSelected, "keys_count": len(req.KeyIDs),
+	})
 	writeMessage(w, "subscription keys updated")
 }
 
@@ -790,16 +805,12 @@ func (a *App) apiUpdateUserSubscription(w http.ResponseWriter, r *http.Request) 
 	}
 
 	normalizeURL := func(raw string, field string) (string, bool) {
-		raw = strings.TrimSpace(raw)
-		if raw == "" {
-			return "", true
-		}
-		parsed, err := url.ParseRequestURI(raw)
-		if err != nil || parsed.Scheme == "" || parsed.Host == "" {
-			writeError(w, http.StatusBadRequest, field+" must be a valid absolute URL")
+		normalized, err := normalizeAbsoluteHTTPURL(raw, field)
+		if err != nil {
+			writeError(w, http.StatusBadRequest, err.Error())
 			return "", false
 		}
-		return raw, true
+		return normalized, true
 	}
 
 	subscriptionInfoURL, ok := normalizeURL(req.SubscriptionInfoURL, "subscription_info_url")
@@ -953,9 +964,8 @@ func (a *App) apiGetPanelSettings(w http.ResponseWriter, r *http.Request) {
 
 func (a *App) apiUpdatePanelSettings(w http.ResponseWriter, r *http.Request) {
 	// Panel settings may contain base64-encoded images — allow up to 16 MB.
-	r.Body = http.MaxBytesReader(w, r.Body, 16<<20)
 	var req model.PanelSettings
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := readJSONWithLimit(w, r, &req, 16<<20); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid request body")
 		return
 	}
@@ -1088,14 +1098,6 @@ func (a *App) apiUpdateSubscriptionSettings(w http.ResponseWriter, r *http.Reque
 		writeError(w, http.StatusBadRequest, "happ_subscription_body is too long (max 10000 characters)")
 		return
 	}
-	if providerID == "" {
-		happNoLimitMode = false
-		happNoLimitModeXHTTPOnly = false
-		happMandatoryHWID = false
-		happNotifyExpiration = false
-		happHideServerSettings = false
-	}
-
 	if _, err := a.db.Exec(
 		`UPDATE subscription_settings
 		 SET title = ?, refresh_hours = ?, info_url = ?, extra_url = ?, extra_status = ?, subscription_format = ?, time_zone = ?, language = ?,
@@ -1173,8 +1175,8 @@ func (a *App) apiUpdateUserHWID(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if req.MaxDevices <= 0 || req.MaxDevices > 32 {
-		writeError(w, http.StatusBadRequest, "max_devices must be between 1 and 32")
+	if req.MaxDevices < 0 || req.MaxDevices > 32 {
+		writeError(w, http.StatusBadRequest, "max_devices must be between 0 and 32 (0 means unlimited)")
 		return
 	}
 
@@ -1306,7 +1308,11 @@ func (a *App) apiUpdateKeyCategory(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var keyCount int64
-	if err := a.db.QueryRow(`SELECT COUNT(*) FROM vless_keys WHERE category = ?`, oldName).Scan(&keyCount); err != nil {
+	if err := a.db.QueryRow(`
+		SELECT COUNT(*) FROM vless_keys
+		 WHERE category_id = (SELECT id FROM key_categories WHERE name = ?)
+		    OR (category_id IS NULL AND category = ?)
+	`, oldName, oldName).Scan(&keyCount); err != nil {
 		log.Printf("apiUpdateKeyCategory count keys: %v", err)
 		writeError(w, http.StatusInternalServerError, "failed to update key category")
 		return
@@ -1345,15 +1351,32 @@ func (a *App) apiUpdateKeyCategory(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if oldName != newName {
+		var newCategoryID int64
+		if err := tx.QueryRow(`SELECT id FROM key_categories WHERE name = ?`, newName).Scan(&newCategoryID); err != nil {
+			writeError(w, http.StatusInternalServerError, "failed to resolve key category")
+			return
+		}
 		if _, err := tx.Exec(
 			`UPDATE vless_keys
-			 SET category = ?
-			 WHERE category = ?`,
+			 SET category_id = ?, category = ?
+			 WHERE category_id = (SELECT id FROM key_categories WHERE name = ?)
+			    OR (category_id IS NULL AND category = ?)`,
+			newCategoryID,
 			newName,
+			oldName,
 			oldName,
 		); err != nil {
 			log.Printf("apiUpdateKeyCategory update keys: %v", err)
 			writeError(w, http.StatusInternalServerError, "failed to update key category")
+			return
+		}
+		if _, err := tx.Exec(`
+			UPDATE external_subscription_sources
+			   SET key_category_id = ?, key_category = ?
+			 WHERE key_category_id = (SELECT id FROM key_categories WHERE name = ?)
+			    OR (key_category_id IS NULL AND key_category = ?)
+		`, newCategoryID, newName, oldName, oldName); err != nil {
+			writeError(w, http.StatusInternalServerError, "failed to update source key category")
 			return
 		}
 
@@ -1426,15 +1449,26 @@ func (a *App) apiDeleteKeyCategory(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer tx.Rollback()
+	var categoryID sql.NullInt64
+	if err := tx.QueryRow(`SELECT id FROM key_categories WHERE name = ?`, name).Scan(&categoryID); err != nil && !errors.Is(err, sql.ErrNoRows) {
+		writeError(w, http.StatusInternalServerError, "failed to resolve key category")
+		return
+	}
 
 	if mode == "delete_with_keys" {
-		if _, err := tx.Exec(`DELETE FROM vless_keys WHERE category = ?`, name); err != nil {
+		if _, err := tx.Exec(`
+			DELETE FROM vless_keys
+			 WHERE category_id = ? OR (category_id IS NULL AND category = ?)
+		`, categoryID, name); err != nil {
 			log.Printf("apiDeleteKeyCategory delete keys: %v", err)
 			writeError(w, http.StatusInternalServerError, "failed to delete key category")
 			return
 		}
 	} else {
-		if _, err := tx.Exec(`UPDATE vless_keys SET category = '' WHERE category = ?`, name); err != nil {
+		if _, err := tx.Exec(`
+			UPDATE vless_keys SET category_id = NULL, category = ''
+			 WHERE category_id = ? OR (category_id IS NULL AND category = ?)
+		`, categoryID, name); err != nil {
 			log.Printf("apiDeleteKeyCategory move keys: %v", err)
 			writeError(w, http.StatusInternalServerError, "failed to delete key category")
 			return
@@ -1574,6 +1608,11 @@ func (a *App) apiCreateKey(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "failed to save key category")
 		return
 	}
+	categoryID, err := a.keyCategoryID(category)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to resolve key category")
+		return
+	}
 
 	var nextSortOrder int64
 	if err := a.db.QueryRow(`SELECT COALESCE(MAX(sort_order), 0) + 1 FROM vless_keys`).Scan(&nextSortOrder); err != nil {
@@ -1581,9 +1620,16 @@ func (a *App) apiCreateKey(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	result, err := a.db.Exec(
-		`INSERT INTO vless_keys(label, url, category, status, check_status, key_kind, template_text, sort_order) VALUES(?, ?, ?, ?, 'unknown', ?, ?, ?)`,
-		label, keyURL, category, status, kind, nullStringValue(templateText), nextSortOrder,
+	tx, err := a.db.Begin()
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to add key")
+		return
+	}
+	defer tx.Rollback()
+
+	result, err := tx.Exec(
+		`INSERT INTO vless_keys(label, url, category_id, category, status, check_status, key_kind, template_text, sort_order) VALUES(?, ?, ?, ?, ?, 'unknown', ?, ?, ?)`,
+		label, keyURL, categoryID, category, status, kind, nullStringValue(templateText), nextSortOrder,
 	)
 	if err != nil {
 		log.Printf("apiCreateKey: %v", err)
@@ -1591,7 +1637,6 @@ func (a *App) apiCreateKey(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Получаем ID нового ключа
 	keyID, err := result.LastInsertId()
 	if err != nil {
 		log.Printf("apiCreateKey: failed to get key ID: %v", err)
@@ -1599,19 +1644,21 @@ func (a *App) apiCreateKey(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Автоматически добавляем новый ключ всем существующим пользователям
-	_, err = a.db.Exec(
+	_, err = tx.Exec(
 		`INSERT INTO user_keys(user_id, key_id)
-		 SELECT id, ? FROM users`,
+		 SELECT id, ? FROM users WHERE key_assignment_mode = 'all'`,
 		keyID,
 	)
 	if err != nil {
 		log.Printf("apiCreateKey: failed to add key to users: %v", err)
-		// Не возвращаем ошибку пользователю, так как ключ уже создан
-		// Просто логируем для отладки
-	} else {
-		a.recordAuditEvent(r, "key.create", "key", strconv.FormatInt(keyID, 10), map[string]any{"label": label})
+		writeError(w, http.StatusInternalServerError, "failed to add key")
+		return
 	}
+	if err := tx.Commit(); err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to add key")
+		return
+	}
+	a.recordAuditEvent(r, "key.create", "key", strconv.FormatInt(keyID, 10), map[string]any{"label": label})
 
 	writeMessage(w, "key added")
 }
@@ -1714,10 +1761,15 @@ func (a *App) apiUpdateKey(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "failed to save key category")
 		return
 	}
+	categoryID, err := a.keyCategoryID(category)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to resolve key category")
+		return
+	}
 
 	if _, err := a.db.Exec(
-		`UPDATE vless_keys SET label = ?, url = ?, category = ?, status = ?, key_kind = ?, template_text = ?, sort_order = ? WHERE id = ?`,
-		label, builtURL, category, status, kind, nullStringValue(templateText), sortOrder, id,
+		`UPDATE vless_keys SET label = ?, url = ?, category_id = ?, category = ?, status = ?, key_kind = ?, template_text = ?, sort_order = ? WHERE id = ?`,
+		label, builtURL, categoryID, category, status, kind, nullStringValue(templateText), sortOrder, id,
 	); err != nil {
 		log.Printf("apiUpdateKey: %v", err)
 		writeError(w, http.StatusInternalServerError, "failed to update key")
@@ -1747,10 +1799,16 @@ func (a *App) apiBulkUpdateKeyStatus(w http.ResponseWriter, r *http.Request) {
 	}
 	applyCategory := strings.TrimSpace(req.Category) != ""
 	category := normalizeKeyCategory(req.Category)
+	var categoryID any
 	if applyCategory {
 		if err := a.upsertKeyCategory(category); err != nil {
 			log.Printf("apiBulkUpdateKeyStatus upsert category: %v", err)
 			writeError(w, http.StatusInternalServerError, "failed to save key category")
+			return
+		}
+		categoryID, err = a.keyCategoryID(category)
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, "failed to resolve key category")
 			return
 		}
 	}
@@ -1764,7 +1822,7 @@ func (a *App) apiBulkUpdateKeyStatus(w http.ResponseWriter, r *http.Request) {
 
 	query := `UPDATE vless_keys SET status = ? WHERE id = ?`
 	if applyCategory {
-		query = `UPDATE vless_keys SET status = ?, category = ? WHERE id = ?`
+		query = `UPDATE vless_keys SET status = ?, category_id = ?, category = ? WHERE id = ?`
 	}
 	stmt, err := tx.Prepare(query)
 	if err != nil {
@@ -1779,7 +1837,7 @@ func (a *App) apiBulkUpdateKeyStatus(w http.ResponseWriter, r *http.Request) {
 			err error
 		)
 		if applyCategory {
-			res, err = stmt.Exec(status, category, id)
+			res, err = stmt.Exec(status, categoryID, category, id)
 		} else {
 			res, err = stmt.Exec(status, id)
 		}
@@ -2139,71 +2197,22 @@ func (a *App) handleSubscription(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	rule, ruleErr := a.matchSubscriptionResponseRule(r)
-	if ruleErr != nil {
-		log.Printf("match subscription response rule: %v", ruleErr)
-	}
-	if (rule != nil && rule.ResponseType == "browser") || isBrowserSubscriptionRequest(r) {
-		a.renderSubscriptionBrowserPage(w, r, subscriptionID)
-		return
-	}
-	if rule != nil && rule.ResponseType == "block" {
-		http.Error(w, "subscription request blocked by response rule", http.StatusForbidden)
-		a.incrementSubscriptionMetric("block", "blocked")
-		return
-	}
-	if rule != nil && rule.ResponseType == "not-found" {
-		http.NotFound(w, r)
-		a.incrementSubscriptionMetric("not-found", "blocked")
-		return
-	}
-
-	allowed, userID, code, reason, err := a.subscriptionAccessAllowed(subscriptionID)
+	delivery, denyCode, denyStatus, denyReason, err := a.prepareSubscriptionDelivery(r, subscriptionID, true)
 	if err != nil {
+		log.Printf("prepare subscription delivery: %v", err)
 		http.Error(w, "failed to load subscription", http.StatusInternalServerError)
 		return
 	}
-	if !allowed {
-		http.Error(w, a.subscriptionRemark(reason), code)
-		a.incrementSubscriptionMetric(remarkStatusFromReason(reason), "denied")
+	if denyCode != 0 {
+		writeSubscriptionDenial(w, denyCode, denyStatus, denyReason)
+		a.incrementSubscriptionMetric(denyStatus, "denied")
 		return
 	}
-
-	hwid := strings.TrimSpace(r.URL.Query().Get("hwid"))
-	if hwid == "" {
-		hwid = strings.TrimSpace(r.Header.Get("X-HWID"))
-	}
-	if hwid == "" {
-		hwid = strings.TrimSpace(r.Header.Get("X-Device-ID"))
-	}
-	if len(hwid) > 128 {
-		http.Error(w, "invalid hwid", http.StatusBadRequest)
+	rule := delivery.Rule
+	if (rule != nil && rule.ResponseType == "browser") || (rule == nil && isBrowserSubscriptionRequest(r)) {
+		a.renderSubscriptionBrowserPage(w, r, subscriptionID)
+		a.incrementSubscriptionMetric("browser", "success")
 		return
-	}
-	if hwid != "" {
-		meta := extractDeviceMeta(r)
-		parsed := ParseDeviceInfo(hwid, r.UserAgent(), r.Header, r.URL.Query())
-		meta = mergeDeviceMeta(meta, parsed)
-		allowedDevice, err := a.registerHWID(userID, hwid, meta)
-		if err != nil {
-			http.Error(w, "failed to validate hwid", http.StatusInternalServerError)
-			return
-		}
-		if !allowedDevice {
-			w.Header().Set("Content-Type", "text/plain; charset=utf-8")
-			message := strings.TrimSpace(a.deviceLimitMessage)
-			if message == "" {
-				message = model.DefaultDeviceLimitMessage
-			}
-			message = a.subscriptionRemarkForStatus("limited", message)
-			headerMessage := strings.ReplaceAll(strings.ReplaceAll(message, "\r", " "), "\n", " ")
-			if headerMessage == "" {
-				headerMessage = model.DefaultDeviceLimitMessage
-			}
-			w.Header().Set("X-Device-Limit-Message", headerMessage)
-			_, _ = w.Write([]byte("# " + message + "\n" + message + "\n"))
-			return
-		}
 	}
 
 	responseType := ""
@@ -2216,8 +2225,9 @@ func (a *App) handleSubscription(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if denyCode != 0 {
-		http.Error(w, a.subscriptionRemark(denyReason), denyCode)
-		a.incrementSubscriptionMetric(remarkStatusFromReason(denyReason), "denied")
+		status := remarkStatusFromReason(denyReason)
+		writeSubscriptionDenial(w, denyCode, status, a.subscriptionRemark(denyReason))
+		a.incrementSubscriptionMetric(status, "denied")
 		return
 	}
 
@@ -2325,7 +2335,15 @@ func (a *App) applySubscriptionResponseHeaders(
 		w.Header().Set("profile-update-interval", strconv.Itoa(settings.RefreshHours))
 	}
 	subscriptionURL := fmt.Sprintf("%s/sub/%s", a.resolveBaseURL(r), subscriptionID)
-	w.Header().Set("profile-web-page-url", subscriptionURL)
+	profileURL := strings.TrimSpace(settings.InfoURL)
+	if profileURL == "" {
+		profileURL = subscriptionURL
+	}
+	w.Header().Set("profile-web-page-url", profileURL)
+	w.Header().Set("Subscription-Status", "active")
+	if providerID := strings.TrimSpace(settings.ProviderID); providerID != "" {
+		w.Header().Set("providerid", providerID)
+	}
 	if extraURL := strings.TrimSpace(settings.ExtraURL); extraURL != "" {
 		w.Header().Set("support-url", extraURL)
 	}
@@ -2341,44 +2359,14 @@ func (a *App) handleSubscriptionSubBody(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	allowed, _, code, reason, err := a.subscriptionAccessAllowed(subscriptionID)
+	_, code, status, reason, err := a.prepareSubscriptionDelivery(r, subscriptionID, true)
 	if err != nil {
 		http.Error(w, "failed to load subscription", http.StatusInternalServerError)
 		return
 	}
-	if !allowed {
-		http.Error(w, reason, code)
-		return
-	}
-
-	bodyPlain, _, denyCode, denyReason, err := a.buildSubscriptionBodyPlain(r, subscriptionID)
-	if err != nil {
-		http.Error(w, "failed to load subscription", http.StatusInternalServerError)
-		return
-	}
-	if denyCode != 0 {
-		http.Error(w, denyReason, denyCode)
-		return
-	}
-
-	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
-	_, _ = w.Write([]byte(base64.StdEncoding.EncodeToString([]byte(bodyPlain))))
-}
-
-func (a *App) handleSubscriptionSubBodyPlain(w http.ResponseWriter, r *http.Request) {
-	subscriptionID := strings.TrimSpace(r.PathValue("subscription_id"))
-	if subscriptionID == "" || strings.Contains(subscriptionID, "/") {
-		http.NotFound(w, r)
-		return
-	}
-
-	allowed, _, code, reason, err := a.subscriptionAccessAllowed(subscriptionID)
-	if err != nil {
-		http.Error(w, "failed to load subscription", http.StatusInternalServerError)
-		return
-	}
-	if !allowed {
-		http.Error(w, reason, code)
+	if code != 0 {
+		writeSubscriptionDenial(w, code, status, reason)
+		a.incrementSubscriptionMetric(status, "denied")
 		return
 	}
 
@@ -2388,16 +2376,58 @@ func (a *App) handleSubscriptionSubBodyPlain(w http.ResponseWriter, r *http.Requ
 		return
 	}
 	if denyCode != 0 {
-		http.Error(w, denyReason, denyCode)
+		status = remarkStatusFromReason(denyReason)
+		writeSubscriptionDenial(w, denyCode, status, a.subscriptionRemark(denyReason))
+		a.incrementSubscriptionMetric(status, "denied")
 		return
 	}
 
+	a.applySubscriptionResponseHeaders(w, r, settings, subscriptionID)
+	a.applyGlobalDeliveryHeaders(w)
+	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+	_, _ = w.Write([]byte(base64.StdEncoding.EncodeToString([]byte(bodyPlain))))
+	a.incrementSubscriptionMetric("subbody-base64", "success")
+}
+
+func (a *App) handleSubscriptionSubBodyPlain(w http.ResponseWriter, r *http.Request) {
+	subscriptionID := strings.TrimSpace(r.PathValue("subscription_id"))
+	if subscriptionID == "" || strings.Contains(subscriptionID, "/") {
+		http.NotFound(w, r)
+		return
+	}
+
+	_, code, status, reason, err := a.prepareSubscriptionDelivery(r, subscriptionID, true)
+	if err != nil {
+		http.Error(w, "failed to load subscription", http.StatusInternalServerError)
+		return
+	}
+	if code != 0 {
+		writeSubscriptionDenial(w, code, status, reason)
+		a.incrementSubscriptionMetric(status, "denied")
+		return
+	}
+
+	bodyPlain, settings, denyCode, denyReason, err := a.buildSubscriptionBodyPlain(r, subscriptionID)
+	if err != nil {
+		http.Error(w, "failed to load subscription", http.StatusInternalServerError)
+		return
+	}
+	if denyCode != 0 {
+		status = remarkStatusFromReason(denyReason)
+		writeSubscriptionDenial(w, denyCode, status, a.subscriptionRemark(denyReason))
+		a.incrementSubscriptionMetric(status, "denied")
+		return
+	}
+
+	a.applySubscriptionResponseHeaders(w, r, settings, subscriptionID)
+	a.applyGlobalDeliveryHeaders(w)
 	if settings.SubscriptionFormat == model.SubscriptionFormatXrayJSON {
 		w.Header().Set("Content-Type", "application/json; charset=utf-8")
 	} else {
 		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 	}
 	_, _ = w.Write([]byte(bodyPlain))
+	a.incrementSubscriptionMetric("subbody-plain", "success")
 }
 
 func (a *App) buildSubscriptionBodyPlain(
@@ -2412,7 +2442,7 @@ func (a *App) buildSubscriptionBodyPlainForFormat(
 	subscriptionID string,
 	responseType string,
 ) (string, model.SubscriptionSettings, int, string, error) {
-	settings, err := a.getSubscriptionSettings()
+	settings, _, _, err := a.effectiveSubscriptionSettings(subscriptionID)
 	if err != nil {
 		return "", model.SubscriptionSettings{}, 0, "", err
 	}
@@ -2428,12 +2458,12 @@ func (a *App) buildSubscriptionBodyPlainForFormat(
 		FROM users u
 		JOIN user_keys uk ON uk.user_id = u.id
 		JOIN vless_keys k ON k.id = uk.key_id
-		LEFT JOIN key_categories kc ON kc.name = k.category
+		LEFT JOIN key_categories kc ON kc.id = k.category_id
 		WHERE u.subscription_id = ?
 		  AND k.status = 'active'
-		  AND (k.key_kind = 'informational' OR k.check_status != 'down')
+		  AND (k.key_kind = 'informational' OR COALESCE(k.health_failure_count, 0) < 3)
 		ORDER BY
-		  CASE WHEN TRIM(COALESCE(k.category, '')) = '' THEN 0 ELSE 1 END,
+		  CASE WHEN k.category_id IS NULL THEN 0 ELSE 1 END,
 		  COALESCE(kc.sort_order, 2147483647),
 		  k.sort_order,
 		  k.id
@@ -2477,14 +2507,29 @@ func (a *App) buildSubscriptionBodyPlainForFormat(
 			lines = append(lines, buildInformationalVLESSURL(rendered))
 			continue
 		}
-		if settings.SubscriptionFormat == model.SubscriptionFormatLinks && supportedConfigScheme(keyURL) == model.SubscriptionFormatXrayJSON {
+		if settings.SubscriptionFormat == model.SubscriptionFormatLinks &&
+			supportedConfigScheme(keyURL) == model.SubscriptionFormatXrayJSON &&
+			responseType != "mihomo" && responseType != "sing-box" {
+			drafts, parseErr := parseXrayJSONDrafts(keyURL)
+			if parseErr != nil {
+				return "", model.SubscriptionSettings{}, 0, "", fmt.Errorf("parse XRAY-JSON key %q: %w", keyLabel.String, parseErr)
+			}
+			for _, draft := range drafts {
+				if draft.Remark == "" {
+					draft.Remark = keyLabel.String
+				}
+				link, buildErr := buildShareLinkFromDraft(draft)
+				if buildErr != nil {
+					return "", model.SubscriptionSettings{}, 0, "", fmt.Errorf("render XRAY-JSON key %q: %w", keyLabel.String, buildErr)
+				}
+				lines = append(lines, link)
+			}
 			continue
 		}
 		if settings.SubscriptionFormat == model.SubscriptionFormatXrayJSON {
 			converted, convErr := normalizeConfigurationForSubscriptionOutput(keyURL, settings.SubscriptionFormat, keyLabel.String)
 			if convErr != nil {
-				log.Printf("buildSubscriptionBodyPlain: skip key, failed to convert to XRAY-JSON: %v", convErr)
-				continue
+				return "", model.SubscriptionSettings{}, 0, "", fmt.Errorf("convert key %q to XRAY-JSON: %w", keyLabel.String, convErr)
 			}
 			lines = append(lines, converted)
 			continue
@@ -2495,7 +2540,7 @@ func (a *App) buildSubscriptionBodyPlainForFormat(
 		return "", model.SubscriptionSettings{}, 0, "", err
 	}
 	if len(lines) == 0 {
-		return "", model.SubscriptionSettings{}, http.StatusForbidden, "subscription has no available keys", nil
+		return "", model.SubscriptionSettings{}, http.StatusServiceUnavailable, "subscription has no available keys", nil
 	}
 
 	if settings.SubscriptionFormat == model.SubscriptionFormatXrayJSON {
@@ -2506,13 +2551,12 @@ func (a *App) buildSubscriptionBodyPlainForFormat(
 				continue
 			}
 			if !json.Valid([]byte(trimmed)) {
-				log.Printf("buildSubscriptionBodyPlain: skip invalid JSON line")
-				continue
+				return "", model.SubscriptionSettings{}, 0, "", fmt.Errorf("generated invalid XRAY-JSON item")
 			}
 			jsonItems = append(jsonItems, json.RawMessage(trimmed))
 		}
 		if len(jsonItems) == 0 {
-			return "", model.SubscriptionSettings{}, http.StatusForbidden, "subscription has no available keys", nil
+			return "", model.SubscriptionSettings{}, http.StatusServiceUnavailable, "subscription has no available keys", nil
 		}
 		payload, err := json.Marshal(jsonItems)
 		if err != nil {
@@ -2589,6 +2633,8 @@ func (a *App) renderSubscriptionBrowserPage(w http.ResponseWriter, r *http.Reque
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.Header().Set("Cache-Control", "no-store, no-cache, must-revalidate, max-age=0")
 	w.Header().Set("Pragma", "no-cache")
+	w.Header().Set("Subscription-Status", "active")
+	w.Header().Set("Content-Security-Policy", "default-src 'none'; img-src 'self' data: https: http:; style-src 'unsafe-inline'; script-src 'unsafe-inline'; base-uri 'none'; frame-ancestors 'none'; form-action 'none'")
 	_, _ = w.Write([]byte(htmlDoc))
 }
 
@@ -2659,6 +2705,20 @@ func (a *App) apiGetSubscriptionInfo(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
 		return
 	}
+	delivery, denyCode, denyStatus, denyReason, err := a.prepareSubscriptionDelivery(r, subscriptionID, true)
+	if err != nil {
+		http.Error(w, "failed to load subscription info", http.StatusInternalServerError)
+		return
+	}
+	if denyCode != 0 {
+		writeSubscriptionDenial(w, denyCode, denyStatus, denyReason)
+		a.incrementSubscriptionMetric(denyStatus, "denied")
+		return
+	}
+	w.Header().Set("Subscription-Status", "active")
+	if providerID := strings.TrimSpace(delivery.Settings.ProviderID); providerID != "" {
+		w.Header().Set("providerid", providerID)
+	}
 
 	var user struct {
 		Name      string `json:"name"`
@@ -2667,7 +2727,7 @@ func (a *App) apiGetSubscriptionInfo(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var expiresAt sql.NullTime
-	err := a.db.QueryRow(`
+	err = a.db.QueryRow(`
 SELECT name, status, expires_at
 FROM users
 WHERE subscription_id = ?
@@ -2688,4 +2748,5 @@ WHERE subscription_id = ?
 	}
 
 	writeJSON(w, http.StatusOK, user)
+	a.incrementSubscriptionMetric("info", "success")
 }

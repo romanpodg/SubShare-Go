@@ -68,7 +68,7 @@ export function AddUserModal({ open, onClose, onRefresh }: Props) {
           <label htmlFor="telegram-username" className="text-sm text-zinc-400">
             Имя пользователя Telegram
           </label>
-          <div className="flex items-center bg-surface-2 border border-border rounded-lg text-sm focus-within:ring-2 focus-within:ring-accent focus-within:ring-offset-2 focus-within:ring-offset-bg">
+          <div className="ui-input-group text-sm">
             <span className="pl-3 pr-1 text-zinc-500 select-none">@</span>
             <input
               id="telegram-username"
@@ -77,7 +77,7 @@ export function AddUserModal({ open, onClose, onRefresh }: Props) {
               onChange={(e) => setTelegramUsername(e.target.value.replace(/@/g, ""))}
               placeholder="username"
               autoComplete="off"
-              className="w-full bg-transparent py-2 pr-3 text-zinc-200 placeholder:text-zinc-500 focus:outline-none"
+              className="ui-input-group-control w-full py-2 pr-3 text-zinc-200 placeholder:text-zinc-500"
             />
           </div>
         </div>

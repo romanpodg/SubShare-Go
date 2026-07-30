@@ -1,6 +1,6 @@
 import { render, screen } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
-import { InfrastructureDiagram, OperationalStatus, TechnicalFrame } from "./Technical";
+import { InfrastructureDiagram, OperationalStatus, SignalCoreDiagram, TechnicalFrame } from "./Technical";
 import { StatusBadge } from "./StatusBadge";
 
 describe("SubShare technical design primitives", () => {
@@ -24,5 +24,21 @@ describe("SubShare technical design primitives", () => {
     );
 
     expect(screen.getByRole("img", { name: /схема доставки конфигураций/i })).toBeInTheDocument();
+  });
+
+  it("describes the signal core and its four connected systems", () => {
+    render(
+      <TechnicalFrame>
+        <SignalCoreDiagram />
+      </TechnicalFrame>
+    );
+
+    expect(screen.getByRole("img", { name: /сигнальное ядро SubShare/i })).toBeInTheDocument();
+    expect(screen.getByText("SUBSHARE")).toBeInTheDocument();
+    expect(screen.getByText("SIGNAL CORE")).toBeInTheDocument();
+    expect(screen.getByText("SOURCES")).toBeInTheDocument();
+    expect(screen.getByText("KEYS")).toBeInTheDocument();
+    expect(screen.getByText("USERS")).toBeInTheDocument();
+    expect(screen.getByText("CLIENTS")).toBeInTheDocument();
   });
 });

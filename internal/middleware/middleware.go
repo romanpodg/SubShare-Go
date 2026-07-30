@@ -104,8 +104,14 @@ func (rl *RateLimiter) cleanup(interval time.Duration) {
 	}
 }
 
+// TrustedProxy reports whether the immediate peer is explicitly listed in
+// TRUSTED_PROXIES.
+func TrustedProxy(r *http.Request) bool {
+	return trustedProxy(r, parseTrustedProxyNetworks(os.Getenv("TRUSTED_PROXIES")))
+}
+
 // ClientIP extracts the client IP from the request. Forwarding headers are
-// accepted only when the immediate peer is a loopback/private reverse proxy.
+// accepted only when the immediate peer is explicitly trusted.
 func ClientIP(r *http.Request) string {
 	return clientIP(r, parseTrustedProxyNetworks(os.Getenv("TRUSTED_PROXIES")))
 }
@@ -133,22 +139,13 @@ func parseTrustedProxyNetworks(raw string) []*net.IPNet {
 }
 
 func clientIP(r *http.Request, trustedNetworks []*net.IPNet) string {
+	trusted := trustedProxy(r, trustedNetworks)
 	remoteHost, _, err := net.SplitHostPort(r.RemoteAddr)
 	if err != nil {
 		remoteHost = r.RemoteAddr
 	}
-	remoteIP := net.ParseIP(strings.TrimSpace(remoteHost))
-	trustedProxy := remoteIP != nil && remoteIP.IsLoopback()
-	if remoteIP != nil && !trustedProxy {
-		for _, network := range trustedNetworks {
-			if network.Contains(remoteIP) {
-				trustedProxy = true
-				break
-			}
-		}
-	}
 
-	if trustedProxy {
+	if trusted {
 		if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
 			if parts := strings.SplitN(xff, ",", 2); len(parts) > 0 {
 				if ip := strings.TrimSpace(parts[0]); net.ParseIP(ip) != nil {
@@ -161,6 +158,23 @@ func clientIP(r *http.Request, trustedNetworks []*net.IPNet) string {
 		}
 	}
 	return strings.TrimSpace(remoteHost)
+}
+
+func trustedProxy(r *http.Request, trustedNetworks []*net.IPNet) bool {
+	remoteHost, _, err := net.SplitHostPort(r.RemoteAddr)
+	if err != nil {
+		remoteHost = r.RemoteAddr
+	}
+	remoteIP := net.ParseIP(strings.TrimSpace(remoteHost))
+	if remoteIP == nil {
+		return false
+	}
+	for _, network := range trustedNetworks {
+		if network.Contains(remoteIP) {
+			return true
+		}
+	}
+	return false
 }
 
 // SecurityHeaders adds standard security headers to every response.

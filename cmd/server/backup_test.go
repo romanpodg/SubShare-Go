@@ -35,3 +35,21 @@ func TestPerformBackupCanReplacePreviousBackup(t *testing.T) {
 		t.Fatalf("backup user count = %d, want 2", users)
 	}
 }
+
+func TestPerformBackupRejectsLiveDatabaseArtifacts(t *testing.T) {
+	app := newIntegrationApp(t)
+	databasePath := filepath.Join(t.TempDir(), "live.db")
+	app.dbPath = databasePath
+
+	for _, dangerousPath := range []string{
+		databasePath,
+		databasePath + "-wal",
+		databasePath + "-shm",
+		databasePath + "-journal",
+		databasePath + ".tmp",
+	} {
+		if err := app.validateBackupPath(dangerousPath); err == nil {
+			t.Fatalf("dangerous backup path %q was accepted", dangerousPath)
+		}
+	}
+}

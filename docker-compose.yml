@@ -1,17 +1,13 @@
-# =============================================================================
-# SubShare - Docker Compose
-# =============================================================================
-# Quick start:
-#   cp .env.example .env        # Edit .env and set ADMIN_PASSWORD
-#   docker compose up -d        # Start both services
-#   docker compose logs -f      # Follow logs
-#   docker compose down         # Stop all services
-# =============================================================================
+# SubShare production stack.
+#
+# First start:
+#   Ubuntu: bash scripts/start.sh
+#   Windows: powershell -ExecutionPolicy Bypass -File .\scripts\start.ps1
+#
+# Direct Compose usage is also supported after creating .env:
+#   docker compose up -d --build --wait
 
 services:
-  # ---------------------------------------------------------------------------
-  # Backend - Go API server (internal only, not exposed to host by default)
-  # ---------------------------------------------------------------------------
   backend:
     build:
       context: .
@@ -20,32 +16,22 @@ services:
         VERSION: ${BUILD_VERSION:-dev}
         COMMIT: ${BUILD_COMMIT:-unknown}
         BUILD_TIME: ${BUILD_TIME:-unknown}
-    image: subshare-backend:latest
-    container_name: subshare-backend
-
+    image: subshare-backend:${BUILD_VERSION:-local}
     restart: unless-stopped
 
     env_file:
       - .env
-
-    # Run as non-root user (matches UID/GID created in the Dockerfile).
-    # The named volume is initialized with correct ownership on first run.
-    user: "1000:1000"
-
-    # The backend is accessed internally by the frontend container via Docker
-    # networking (nginx proxies /api/* and /sub/* to http://backend:8080).
-    # Not exposed to the host by default. Uncomment below for direct access:
-    # ports:
-    #   - "127.0.0.1:8081:8080"
+    environment:
+      APP_ENV: production
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:?Set ADMIN_PASSWORD in .env}
+      BASE_URL: ${BASE_URL:?Set BASE_URL in .env}
+      DB_PATH: /app/data/app.db
+      BACKUP_PATH: ${BACKUP_PATH:-/app/data/backups/app.db}
+      TRUSTED_PROXIES: ${TRUSTED_PROXIES:-172.16.0.0/12}
 
     volumes:
-      - ./data:/app/data
+      - app-data:/app/data
 
-    # -------------------------------------------------------------------------
-    # Security hardening
-    # -------------------------------------------------------------------------
-    # Read-only root filesystem prevents runtime tampering.
-    # /tmp tmpfs covers any transient file needs.
     read_only: true
     tmpfs:
       - /tmp:noexec,nosuid,size=64m
@@ -54,19 +40,13 @@ services:
     cap_drop:
       - ALL
 
-    # -------------------------------------------------------------------------
-    # Health check
-    # -------------------------------------------------------------------------
     healthcheck:
       test: ["CMD", "curl", "-sf", "http://127.0.0.1:8080/health"]
-      interval: 30s
+      interval: 15s
       timeout: 5s
-      retries: 3
+      retries: 6
       start_period: 10s
 
-    # -------------------------------------------------------------------------
-    # Resource limits
-    # -------------------------------------------------------------------------
     deploy:
       resources:
         limits:
@@ -76,9 +56,6 @@ services:
           memory: 64M
           cpus: "0.25"
 
-    # -------------------------------------------------------------------------
-    # Logging
-    # -------------------------------------------------------------------------
     logging:
       driver: json-file
       options:
@@ -86,73 +63,50 @@ services:
         max-file: "5"
         compress: "true"
 
-    # -------------------------------------------------------------------------
-    # Graceful shutdown
-    # -------------------------------------------------------------------------
-    # The Go server handles SIGTERM with a 10-second drain period.
-    # Allow 15 seconds before Docker sends SIGKILL.
     stop_grace_period: 15s
-
     networks:
       - internal
 
-  # ---------------------------------------------------------------------------
-  # Frontend - Next.js static export served by nginx
-  # ---------------------------------------------------------------------------
   frontend:
     build:
       context: ./frontend
       dockerfile: Dockerfile
-    image: subshare-frontend:latest
-    container_name: subshare-frontend
-
+    image: subshare-frontend:${BUILD_VERSION:-local}
     restart: unless-stopped
 
-    # The frontend is the public-facing entry point.
-    # nginx reverse-proxies /api/* and /sub/* to the backend.
-    # port 80  → HTTP (ACME challenge + redirect to HTTPS)
-    # port 443 → HTTPS (SSL terminated by nginx)
+    environment:
+      BASE_URL: ${BASE_URL:?Set BASE_URL in .env}
+
     ports:
-      - "80:3000"
-      - "443:3443"
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
 
     depends_on:
       backend:
         condition: service_healthy
 
     volumes:
-      # SSL certificates (place fullchain.pem + privkey.pem here, or run
-      # docker compose run --rm certbot to obtain them automatically)
-      - ./certs:/etc/nginx/certs:ro
-      # Shared webroot for Let's Encrypt ACME HTTP-01 challenge
-      - certbot-webroot:/var/www/certbot:ro
+      - caddy-data:/data
+      - caddy-config:/config
 
-    # -------------------------------------------------------------------------
-    # Security hardening
-    # -------------------------------------------------------------------------
     read_only: true
     tmpfs:
-      - /tmp:noexec,nosuid,size=32m,uid=101,gid=101
-      - /var/cache/nginx:noexec,nosuid,size=64m,uid=101,gid=101
-      - /var/run:noexec,nosuid,size=1m,uid=101,gid=101
+      - /tmp:noexec,nosuid,size=32m
     security_opt:
       - no-new-privileges:true
     cap_drop:
       - ALL
+    cap_add:
+      - NET_BIND_SERVICE
 
-    # -------------------------------------------------------------------------
-    # Health check
-    # -------------------------------------------------------------------------
     healthcheck:
-      test: ["CMD", "wget", "-qO", "/dev/null", "--no-check-certificate", "https://127.0.0.1:3443/"]
-      interval: 30s
+      test: ["CMD", "wget", "-q", "--spider", "http://127.0.0.1:2019/config/"]
+      interval: 15s
       timeout: 5s
-      retries: 3
+      retries: 6
       start_period: 10s
 
-    # -------------------------------------------------------------------------
-    # Resource limits
-    # -------------------------------------------------------------------------
     deploy:
       resources:
         limits:
@@ -162,9 +116,6 @@ services:
           memory: 32M
           cpus: "0.1"
 
-    # -------------------------------------------------------------------------
-    # Logging
-    # -------------------------------------------------------------------------
     logging:
       driver: json-file
       options:
@@ -173,39 +124,45 @@ services:
         compress: "true"
 
     stop_grace_period: 10s
-
     networks:
       - internal
 
-  # ---------------------------------------------------------------------------
-  # Certbot — obtains and renews Let's Encrypt certificates
-  # Usage:
-  #   First time:  docker compose run --rm certbot
-  #   Renewal:     docker compose run --rm certbot renew
-  # ---------------------------------------------------------------------------
-  certbot:
-    image: certbot/certbot:latest
-    container_name: subshare-certbot
+  # Runs only when explicitly requested by the start scripts. It imports an
+  # existing bind-mounted SQLite database into the new named volume, and never
+  # overwrites a database already present in that volume.
+  migrate-legacy-data:
+    image: alpine:3.22.1
     profiles:
-      - certbot
+      - tools
+    user: "0:0"
+    network_mode: none
     volumes:
-      - ./certs:/etc/letsencrypt
-      - certbot-webroot:/var/www/certbot
-    env_file:
-      - .env
-    command: >
-      certonly
-      --webroot
-      --webroot-path=/var/www/certbot
-      --cert-name cert-0001
-      --email ${SSL_EMAIL}
-      --agree-tos
-      --no-eff-email
-      -d ${DOMAIN}
+      - ./data:/legacy:ro
+      - app-data:/target
+    command:
+      - /bin/sh
+      - -ec
+      - |
+        if [ -f /target/app.db ]; then
+          echo "Named volume already contains app.db; legacy import skipped."
+          exit 0
+        fi
+        if [ ! -f /legacy/app.db ]; then
+          echo "No legacy data/app.db found; nothing to import."
+          exit 0
+        fi
+        cp /legacy/app.db /target/app.db
+        if [ -f /legacy/app.db-wal ]; then cp /legacy/app.db-wal /target/app.db-wal; fi
+        if [ -f /legacy/app.db-shm ]; then cp /legacy/app.db-shm /target/app.db-shm; fi
+        chown -R 1000:1000 /target
+        chmod 700 /target
+        chmod 600 /target/app.db*
+        echo "Legacy SQLite data imported into the named volume."
 
 volumes:
-  certbot-webroot:
-    driver: local
+  app-data:
+  caddy-data:
+  caddy-config:
 
 networks:
   internal:

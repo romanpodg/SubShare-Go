@@ -23,6 +23,7 @@ export function KeyAssignerModal({ user, assignableKeys, onClose, onRefresh }: P
     ? user.assigned_key_ids.split(",").map(Number).filter(Boolean)
     : [];
   const [assignedIds, setAssignedIds] = useState<Set<number>>(new Set(initialAssigned));
+  const [mode, setMode] = useState<"all" | "selected">(user.key_assignment_mode || "selected");
 
   const toggle = (id: number) => {
     setAssignedIds((prev) => {
@@ -47,7 +48,7 @@ export function KeyAssignerModal({ user, assignableKeys, onClose, onRefresh }: P
   const handleSave = async () => {
     setLoading(true);
     try {
-      await usersApi.updateKeys(user.id, Array.from(assignedIds));
+      await usersApi.updateKeyAssignment(user.id, mode, Array.from(assignedIds));
       toast("Ключи обновлены", "success");
       onClose();
       await onRefresh();
@@ -63,6 +64,28 @@ export function KeyAssignerModal({ user, assignableKeys, onClose, onRefresh }: P
 
   return (
     <Modal open onClose={onClose} title={`Ключи — ${user.name}`}>
+      <div className="mb-4 grid grid-cols-2 gap-2 rounded-lg border border-border bg-surface-2 p-1">
+        <button
+          type="button"
+          onClick={() => setMode("all")}
+          className={`rounded-md px-3 py-2 text-sm ${mode === "all" ? "bg-accent text-accent-fg" : "text-zinc-400 hover:bg-surface-1"}`}
+        >
+          Все, включая будущие
+        </button>
+        <button
+          type="button"
+          onClick={() => setMode("selected")}
+          className={`rounded-md px-3 py-2 text-sm ${mode === "selected" ? "bg-accent text-accent-fg" : "text-zinc-400 hover:bg-surface-1"}`}
+        >
+          Фиксированный набор
+        </button>
+      </div>
+      {mode === "all" && (
+        <div className="mb-4 rounded-lg border border-cyan-400/20 bg-cyan-400/10 px-3 py-2 text-xs text-cyan-200">
+          Пользователь получит все текущие и автоматически получит новые ключи.
+        </div>
+      )}
+      <div className={mode === "all" ? "pointer-events-none opacity-50" : ""}>
       <div className="flex gap-2 mb-4">
         <Button variant="ghost" onClick={addAll} className="text-xs">
           Добавить все
@@ -103,6 +126,7 @@ export function KeyAssignerModal({ user, assignableKeys, onClose, onRefresh }: P
             {assigned.length === 0 && <span className="text-xs text-zinc-500">Пусто</span>}
           </div>
         </div>
+      </div>
       </div>
 
       <Button onClick={handleSave} loading={loading} className="w-full">

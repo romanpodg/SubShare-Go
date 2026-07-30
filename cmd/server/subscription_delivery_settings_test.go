@@ -23,6 +23,7 @@ func TestRemarkStatusFromReason(t *testing.T) {
 	tests := map[string]string{
 		"subscription expired":               "expired",
 		"subscription paused":                "paused",
+		"subscription is not active yet":     "future",
 		"subscription blocked":               "blocked",
 		"maximum number of devices reached":  "limited",
 		"subscription has no available keys": "empty",

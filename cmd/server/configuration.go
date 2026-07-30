@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
@@ -9,8 +10,6 @@ import (
 	"strconv"
 	"strings"
 	"time"
-
-	"subshare/internal/vless"
 )
 
 type vmessConfigPayload struct {
@@ -215,6 +214,123 @@ func parseXrayJSONTarget(raw string) (host, port string, err error) {
 	}
 
 	return "", "", fmt.Errorf("XRAY-JSON must contain outbound with protocol vless/vmess/trojan and valid server settings")
+}
+
+func parseXrayJSONDrafts(raw string) ([]linkConfigurationDraft, error) {
+	var root map[string]any
+	if err := json.Unmarshal([]byte(strings.TrimSpace(raw)), &root); err != nil {
+		return nil, fmt.Errorf("invalid XRAY-JSON syntax")
+	}
+	outbounds := asArray(root["outbounds"])
+	if len(outbounds) == 0 {
+		return nil, fmt.Errorf("XRAY-JSON must contain outbounds")
+	}
+	drafts := make([]linkConfigurationDraft, 0, len(outbounds))
+	for outboundIndex, outboundRaw := range outbounds {
+		outbound, ok := asObject(outboundRaw)
+		if !ok {
+			continue
+		}
+		protocol := strings.ToLower(anyToString(outbound["protocol"]))
+		if protocol != "vless" && protocol != "vmess" && protocol != "trojan" {
+			continue
+		}
+		settings, _ := asObject(outbound["settings"])
+		stream, _ := asObject(outbound["streamSettings"])
+		base := linkConfigurationDraft{
+			Protocol: protocol,
+			Remark:   anyToString(outbound["tag"]),
+			Network:  normalizeXrayNetwork(anyToString(stream["network"])),
+			Security: normalizeXraySecurity(anyToString(stream["security"])),
+		}
+		if base.Network == "" {
+			base.Network = "tcp"
+		}
+		tlsSettings, _ := asObject(stream["tlsSettings"])
+		realitySettings, _ := asObject(stream["realitySettings"])
+		base.SNI = firstNonEmpty(anyToString(realitySettings["serverName"]), anyToString(tlsSettings["serverName"]))
+		base.Fingerprint = firstNonEmpty(anyToString(realitySettings["fingerprint"]), anyToString(tlsSettings["fingerprint"]))
+		base.PublicKey = anyToString(realitySettings["publicKey"])
+		base.ShortID = anyToString(realitySettings["shortId"])
+		base.SpiderX = anyToString(realitySettings["spiderX"])
+		if insecure, ok := tlsSettings["allowInsecure"].(bool); ok {
+			base.AllowInsecure = insecure
+		}
+		wsSettings, _ := asObject(stream["wsSettings"])
+		base.Path = anyToString(wsSettings["path"])
+		if headers, ok := asObject(wsSettings["headers"]); ok {
+			base.Host = anyToString(headers["Host"])
+			if base.Host == "" {
+				base.Host = anyToString(headers["host"])
+			}
+		}
+		grpcSettings, _ := asObject(stream["grpcSettings"])
+		base.GRPCServiceName = firstNonEmpty(anyToString(grpcSettings["serviceName"]), anyToString(grpcSettings["service_name"]))
+
+		switch protocol {
+		case "vless", "vmess":
+			nodes := asArray(settings["vnext"])
+			if len(nodes) == 0 {
+				return nil, fmt.Errorf("XRAY-JSON outbound %d (%s) has no vnext servers", outboundIndex, protocol)
+			}
+			for nodeIndex, nodeRaw := range nodes {
+				node, ok := asObject(nodeRaw)
+				if !ok {
+					return nil, fmt.Errorf("XRAY-JSON outbound %d (%s) vnext %d must be an object", outboundIndex, protocol, nodeIndex)
+				}
+				users := asArray(node["users"])
+				if len(users) == 0 {
+					return nil, fmt.Errorf("XRAY-JSON outbound %d (%s) vnext %d has no users", outboundIndex, protocol, nodeIndex)
+				}
+				server := anyToString(node["address"])
+				port, portErr := strconv.Atoi(anyToPort(node["port"]))
+				if server == "" || portErr != nil || port <= 0 || port > 65535 {
+					return nil, fmt.Errorf("XRAY-JSON outbound %d (%s) vnext %d has invalid server or port", outboundIndex, protocol, nodeIndex)
+				}
+				for userIndex, userRaw := range users {
+					user, ok := asObject(userRaw)
+					if !ok {
+						return nil, fmt.Errorf("XRAY-JSON outbound %d (%s) vnext %d user %d must be an object", outboundIndex, protocol, nodeIndex, userIndex)
+					}
+					draft := base
+					draft.Server = server
+					draft.Port = port
+					draft.Identifier = anyToString(user["id"])
+					draft.Flow = anyToString(user["flow"])
+					draft.Encryption = anyToString(user["encryption"])
+					draft.VMessSecurity = anyToString(user["security"])
+					draft.VMessAlterID = anyToString(user["alterId"])
+					if draft.Identifier == "" {
+						return nil, fmt.Errorf("XRAY-JSON outbound %d (%s) vnext %d user %d has no id", outboundIndex, protocol, nodeIndex, userIndex)
+					}
+					drafts = append(drafts, draft)
+				}
+			}
+		case "trojan":
+			servers := asArray(settings["servers"])
+			if len(servers) == 0 {
+				return nil, fmt.Errorf("XRAY-JSON outbound %d (trojan) has no servers", outboundIndex)
+			}
+			for serverIndex, serverRaw := range servers {
+				server, ok := asObject(serverRaw)
+				if !ok {
+					return nil, fmt.Errorf("XRAY-JSON outbound %d (trojan) server %d must be an object", outboundIndex, serverIndex)
+				}
+				draft := base
+				draft.Server = anyToString(server["address"])
+				draft.Port, _ = strconv.Atoi(anyToPort(server["port"]))
+				draft.Identifier = anyToString(server["password"])
+				if draft.Server == "" || draft.Port <= 0 || draft.Port > 65535 || draft.Identifier == "" {
+					return nil, fmt.Errorf("XRAY-JSON outbound %d (trojan) server %d is invalid", outboundIndex, serverIndex)
+				}
+				drafts = append(drafts, draft)
+			}
+		}
+	}
+	if len(drafts) == 0 {
+		return nil, fmt.Errorf("XRAY-JSON contains no supported outbound")
+	}
+	return drafts, nil
 }
 
 func validateXrayJSONConfiguration(raw string) error {
@@ -569,6 +685,83 @@ func parseLinkConfiguration(raw string) (linkConfigurationDraft, error) {
 	}
 }
 
+func buildShareLinkFromDraft(draft linkConfigurationDraft) (string, error) {
+	if draft.Server == "" || draft.Port <= 0 || draft.Identifier == "" {
+		return "", fmt.Errorf("canonical configuration is incomplete")
+	}
+	if draft.Protocol == "vmess" {
+		payload := map[string]any{
+			"v": "2", "ps": draft.Remark, "add": draft.Server,
+			"port": strconv.Itoa(draft.Port), "id": draft.Identifier,
+			"aid": firstNonEmpty(draft.VMessAlterID, "0"),
+			"scy": firstNonEmpty(draft.VMessSecurity, "auto"),
+			"net": firstNonEmpty(draft.Network, "tcp"), "type": draft.HeaderType,
+			"host": draft.Host, "path": draft.Path, "sni": draft.SNI,
+			"alpn": draft.ALPN, "fp": draft.Fingerprint,
+		}
+		if draft.Security == "tls" || draft.Security == "reality" {
+			payload["tls"] = draft.Security
+		}
+		encoded, err := json.Marshal(payload)
+		if err != nil {
+			return "", err
+		}
+		return "vmess://" + base64.StdEncoding.EncodeToString(encoded), nil
+	}
+	if draft.Protocol != "vless" && draft.Protocol != "trojan" {
+		return "", fmt.Errorf("unsupported canonical protocol %q", draft.Protocol)
+	}
+	query := url.Values{}
+	query.Set("type", firstNonEmpty(draft.Network, "tcp"))
+	if draft.Security != "" && draft.Security != "none" {
+		query.Set("security", draft.Security)
+	}
+	if draft.Path != "" {
+		query.Set("path", draft.Path)
+	}
+	if draft.Host != "" {
+		query.Set("host", draft.Host)
+	}
+	if draft.SNI != "" {
+		query.Set("sni", draft.SNI)
+	}
+	if draft.ALPN != "" {
+		query.Set("alpn", draft.ALPN)
+	}
+	if draft.Flow != "" {
+		query.Set("flow", draft.Flow)
+	}
+	if draft.Protocol == "vless" {
+		query.Set("encryption", firstNonEmpty(draft.Encryption, "none"))
+	}
+	if draft.Fingerprint != "" {
+		query.Set("fp", draft.Fingerprint)
+	}
+	if draft.PublicKey != "" {
+		query.Set("pbk", draft.PublicKey)
+	}
+	if draft.ShortID != "" {
+		query.Set("sid", draft.ShortID)
+	}
+	if draft.SpiderX != "" {
+		query.Set("spx", draft.SpiderX)
+	}
+	if draft.GRPCServiceName != "" {
+		query.Set("serviceName", draft.GRPCServiceName)
+	}
+	if draft.AllowInsecure {
+		query.Set("allowInsecure", "1")
+	}
+	link := url.URL{
+		Scheme:   draft.Protocol,
+		User:     url.User(draft.Identifier),
+		Host:     net.JoinHostPort(draft.Server, strconv.Itoa(draft.Port)),
+		RawQuery: query.Encode(),
+		Fragment: draft.Remark,
+	}
+	return link.String(), nil
+}
+
 func buildXrayJSONFromLink(raw string, fallbackRemark string) (string, error) {
 	draft, err := parseLinkConfiguration(raw)
 	if err != nil {
@@ -825,25 +1018,25 @@ func checkConfigurationAvailability(raw string) (string, string, int64) {
 		return "down", "invalid configuration", 0
 	}
 
-	ips, err := net.LookupHost(host)
+	ctx, cancel := context.WithTimeout(context.Background(), 4*time.Second)
+	defer cancel()
+	addresses, err := resolveExternalHost(ctx, host)
 	if err != nil {
-		return "down", fmt.Sprintf("DNS lookup failed: %s", err.Error()), 0
-	}
-	for _, ipStr := range ips {
-		ip := net.ParseIP(ipStr)
-		if ip == nil {
-			continue
-		}
-		if vless.IsPrivateIP(ip) {
-			return "down", "health check to private addresses is not allowed", 0
-		}
+		return "down", "destination is not a permitted public address", 0
 	}
 
-	address := net.JoinHostPort(host, port)
+	dialer := &net.Dialer{Timeout: 4 * time.Second}
 	start := time.Now()
-	conn, err := net.DialTimeout("tcp", address, 4*time.Second)
-	if err != nil {
-		return "down", err.Error(), 0
+	var conn net.Conn
+	var lastErr error
+	for _, address := range addresses {
+		conn, lastErr = dialer.DialContext(ctx, "tcp", net.JoinHostPort(address.String(), port))
+		if lastErr == nil {
+			break
+		}
+	}
+	if lastErr != nil {
+		return "down", lastErr.Error(), 0
 	}
 	_ = conn.Close()
 

@@ -144,7 +144,9 @@ func remarkStatusFromReason(reason string) string {
 	switch {
 	case strings.Contains(reason, "expired"):
 		return "expired"
-	case strings.Contains(reason, "paused"), strings.Contains(reason, "not active"):
+	case strings.Contains(reason, "not active"):
+		return "future"
+	case strings.Contains(reason, "paused"):
 		return "paused"
 	case strings.Contains(reason, "blocked"):
 		return "blocked"

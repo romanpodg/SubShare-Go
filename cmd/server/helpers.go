@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"subshare/internal/middleware"
 	"subshare/internal/model"
 )
 
@@ -81,9 +82,19 @@ func mergeDeviceMeta(meta deviceMeta, parsed ParsedDeviceInfo) deviceMeta {
 }
 
 func parseOptionalDateTimeLocal(raw string) (sql.NullTime, error) {
+	return parseOptionalDateTimeInLocation(raw, time.Local)
+}
+
+func parseOptionalDateTimeInLocation(raw string, location *time.Location) (sql.NullTime, error) {
 	raw = strings.TrimSpace(raw)
 	if raw == "" {
 		return sql.NullTime{}, nil
+	}
+	if parsed, err := time.Parse(time.RFC3339, raw); err == nil {
+		return sql.NullTime{Time: parsed.UTC(), Valid: true}, nil
+	}
+	if location == nil {
+		location = time.UTC
 	}
 
 	layouts := []string{
@@ -94,7 +105,7 @@ func parseOptionalDateTimeLocal(raw string) (sql.NullTime, error) {
 
 	var lastErr error
 	for _, layout := range layouts {
-		t, err := time.ParseInLocation(layout, raw, time.Local)
+		t, err := time.ParseInLocation(layout, raw, location)
 		if err == nil {
 			return sql.NullTime{Time: t.UTC(), Valid: true}, nil
 		}
@@ -105,10 +116,17 @@ func parseOptionalDateTimeLocal(raw string) (sql.NullTime, error) {
 }
 
 func formatDateTimeInput(value sql.NullTime) string {
+	return formatDateTimeInputInLocation(value, time.Local)
+}
+
+func formatDateTimeInputInLocation(value sql.NullTime, location *time.Location) string {
 	if !value.Valid {
 		return ""
 	}
-	local := value.Time.Local()
+	if location == nil {
+		location = time.UTC
+	}
+	local := value.Time.In(location)
 	return local.Format("02/01/2006 15:04")
 }
 
@@ -164,10 +182,17 @@ func containsLegacySubscriptionBodyMarkers(body string) bool {
 func (a *App) checkAndPersistKey(keyID int64, rawURL string) error {
 	status, checkErr, latency := checkConfigurationAvailability(rawURL)
 	_, err := a.db.Exec(
-		`UPDATE vless_keys SET check_status = ?, check_error = ?, last_latency_ms = ?, last_checked_at = CURRENT_TIMESTAMP WHERE id = ?`,
+		`UPDATE vless_keys
+		 SET check_status = ?, check_error = ?, last_latency_ms = ?, last_checked_at = CURRENT_TIMESTAMP,
+		     health_failure_count = CASE
+		       WHEN ? = 'up' THEN 0
+		       ELSE COALESCE(health_failure_count, 0) + 1
+		     END
+		 WHERE id = ?`,
 		status,
 		nullStringValue(checkErr),
 		nullInt64Value(latency),
+		status,
 		keyID,
 	)
 	return err
@@ -178,20 +203,20 @@ func (a *App) resolveBaseURL(r *http.Request) string {
 		return a.baseURL
 	}
 
-	scheme := strings.TrimSpace(r.Header.Get("X-Forwarded-Proto"))
-	if scheme == "" {
-		if r.TLS != nil {
-			scheme = "https"
-		} else {
-			scheme = "http"
+	scheme := "http"
+	if r.TLS != nil {
+		scheme = "https"
+	}
+	host := strings.TrimSpace(r.Host)
+	if middleware.TrustedProxy(r) {
+		if forwardedScheme := firstForwardedValue(r.Header.Get("X-Forwarded-Proto")); forwardedScheme == "http" || forwardedScheme == "https" {
+			scheme = forwardedScheme
+		}
+		if forwardedHost := firstForwardedValue(r.Header.Get("X-Forwarded-Host")); validOriginHost(forwardedHost) {
+			host = forwardedHost
 		}
 	}
-
-	host := strings.TrimSpace(r.Header.Get("X-Forwarded-Host"))
-	if host == "" {
-		host = r.Host
-	}
-	if host == "" {
+	if !validOriginHost(host) {
 		host = "localhost:8080"
 	}
 
@@ -203,6 +228,20 @@ func (a *App) resolveBaseURL(r *http.Request) string {
 	}
 
 	return fmt.Sprintf("%s://%s", scheme, host)
+}
+
+func firstForwardedValue(value string) string {
+	value, _, _ = strings.Cut(value, ",")
+	return strings.ToLower(strings.TrimSpace(value))
+}
+
+func validOriginHost(host string) bool {
+	host = strings.TrimSpace(host)
+	if host == "" || strings.ContainsAny(host, "/\\@?#\r\n\t ") {
+		return false
+	}
+	parsed, err := url.Parse("http://" + host)
+	return err == nil && parsed.Host == host && parsed.Hostname() != ""
 }
 
 type subscriptionTemplateData struct {
@@ -251,7 +290,7 @@ func (a *App) buildSubscriptionTemplateData(subscriptionID string, subscriptionF
 		 WHERE u.subscription_id = ?
 		   AND k.status = 'active'
 		   AND k.key_kind = 'real'
-		   AND k.check_status != 'down'`,
+		   AND COALESCE(k.health_failure_count, 0) < 3`,
 		subscriptionID,
 	)
 	if err != nil {

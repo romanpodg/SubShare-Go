@@ -13,13 +13,14 @@ export default defineConfig({
     trace: "retain-on-failure",
     screenshot: "only-on-failure",
   },
-  webServer: {
-    command: "node node_modules/next/dist/bin/next dev --hostname 127.0.0.1 --port 3100",
-    env: { ...process.env, NEXT_DIST_DIR: ".next-e2e" },
-    url: "http://127.0.0.1:3100/admin/login",
-    reuseExistingServer: !process.env.CI,
-    timeout: 120_000,
-  },
+  webServer: process.env.E2E_EXTERNAL_SERVER
+    ? undefined
+    : {
+        command: "node e2e/static-server.mjs",
+        url: "http://127.0.0.1:3100/admin/login",
+        reuseExistingServer: !process.env.CI,
+        timeout: 120_000,
+      },
   projects: [
     { name: "desktop-chromium", use: { ...devices["Desktop Chrome"], ...(localChannel ? { channel: localChannel } : {}) } },
     { name: "mobile-chromium", use: { ...devices["Pixel 5"], ...(localChannel ? { channel: localChannel } : {}) } },

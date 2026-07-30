@@ -7,6 +7,7 @@ import type { ResponseRule, ResponseRuleCondition, SubscriptionTemplate } from "
 import { PageHeader } from "@/components/admin/PageHeader";
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
+import { Select } from "@/components/ui/Select";
 import { useToast } from "@/components/ui/Toast";
 import { InitialLoading, ResourceError } from "@/components/ui/ResourceState";
 import { useAuth } from "@/hooks/useAuth";
@@ -174,18 +175,19 @@ export default function ResponseRulesPage() {
         </div>
       )}
 
-      <div className="grid gap-px bg-border xl:grid-cols-[360px_1fr]">
+      <div className="ui-joined-grid technical-frame grid xl:grid-cols-[360px_1fr]">
         <aside className="technical-frame overflow-hidden border border-border bg-surface-1">
           <div className="border-b border-border px-4 py-3 text-xs font-semibold uppercase tracking-wider text-zinc-600">
             Порядок выполнения
           </div>
-          <div className="divide-y divide-border">
+          <div className="ui-selection-list">
             {rules.map((rule) => (
               <button
                 key={rule.id}
                 type="button"
                 onClick={() => edit(rule)}
-                className={`flex w-full items-start gap-3 px-4 py-4 text-left transition ${selected?.id === rule.id ? "bg-cyan-400/10" : "hover:bg-zinc-900/40"}`}
+                aria-current={selected?.id === rule.id}
+                className="ui-selection-row flex items-start gap-3 px-4 py-4"
               >
                 <GripVertical className="mt-0.5 h-4 w-4 shrink-0 text-zinc-700" />
                 <div className="min-w-0 flex-1">
@@ -237,28 +239,39 @@ export default function ResponseRulesPage() {
             <Input label="Описание" value={draft.description} onChange={(event) => setDraft((current) => ({ ...current, description: event.target.value }))} />
 
             <div className="grid gap-4 md:grid-cols-3">
-              <label className="flex flex-col gap-1.5 text-sm text-zinc-400">
-                Логика условий
-                <select value={draft.operator} onChange={(event) => setDraft((current) => ({ ...current, operator: event.target.value as "AND" | "OR" }))} className="rounded-lg border border-border bg-surface-2 px-3 py-2 text-sm text-zinc-200">
-                  <option value="AND">Все условия (AND)</option>
-                  <option value="OR">Любое условие (OR)</option>
-                </select>
-              </label>
-              <label className="flex flex-col gap-1.5 text-sm text-zinc-400">
-                Тип ответа
-                <select value={draft.response_type} onChange={(event) => setDraft((current) => ({ ...current, response_type: event.target.value as RuleDraft["response_type"] }))} className="rounded-lg border border-border bg-surface-2 px-3 py-2 text-sm text-zinc-200">
-                  <option value="browser">Browser page</option><option value="base64">Base64</option><option value="plain">Plain</option>
-                  <option value="xray-json">Xray JSON</option><option value="mihomo">Mihomo</option><option value="sing-box">Sing-box</option>
-                  <option value="block">HTTP 403</option><option value="not-found">HTTP 404</option>
-                </select>
-              </label>
-              <label className="flex flex-col gap-1.5 text-sm text-zinc-400">
-                Шаблон
-                <select value={draft.template_id ?? ""} onChange={(event) => setDraft((current) => ({ ...current, template_id: event.target.value ? Number(event.target.value) : null }))} className="rounded-lg border border-border bg-surface-2 px-3 py-2 text-sm text-zinc-200">
-                  <option value="">Стандартный генератор</option>
-                  {templates.map((template) => <option key={template.id} value={template.id}>{template.name} ({template.format})</option>)}
-                </select>
-              </label>
+              <Select
+                label="Логика условий"
+                value={draft.operator}
+                onChange={(event) => setDraft((current) => ({ ...current, operator: event.target.value as "AND" | "OR" }))}
+                options={[
+                  { value: "AND", label: "Все условия (AND)" },
+                  { value: "OR", label: "Любое условие (OR)" },
+                ]}
+              />
+              <Select
+                label="Тип ответа"
+                value={draft.response_type}
+                onChange={(event) => setDraft((current) => ({ ...current, response_type: event.target.value as RuleDraft["response_type"] }))}
+                options={[
+                  { value: "browser", label: "Browser page" },
+                  { value: "base64", label: "Base64" },
+                  { value: "plain", label: "Plain" },
+                  { value: "xray-json", label: "Xray JSON" },
+                  { value: "mihomo", label: "Mihomo" },
+                  { value: "sing-box", label: "Sing-box" },
+                  { value: "block", label: "HTTP 403" },
+                  { value: "not-found", label: "HTTP 404" },
+                ]}
+              />
+              <Select
+                label="Шаблон"
+                value={String(draft.template_id ?? "")}
+                onChange={(event) => setDraft((current) => ({ ...current, template_id: event.target.value ? Number(event.target.value) : null }))}
+                options={[
+                  { value: "", label: "Стандартный генератор" },
+                  ...templates.map((template) => ({ value: String(template.id), label: `${template.name} (${template.format})` })),
+                ]}
+              />
             </div>
 
             <div>
@@ -266,15 +279,25 @@ export default function ResponseRulesPage() {
                 <div><h3 className="text-sm font-semibold text-zinc-300">Условия</h3><p className="mt-1 text-xs text-zinc-600">Сопоставление HTTP-заголовков без учёта регистра имени.</p></div>
                 <Button variant="outline" onClick={() => setDraft((current) => ({ ...current, conditions: [...current.conditions, newCondition()] }))}><Plus className="h-4 w-4" />Добавить</Button>
               </div>
-              <div className="space-y-3">
+              <div className="ui-joined-list">
                 {draft.conditions.map((condition, index) => (
                   <div key={index} className="grid gap-3 rounded-xl border border-border bg-zinc-950/30 p-3 md:grid-cols-[1fr_180px_1fr_auto]">
                     <Input aria-label="Заголовок" placeholder="user-agent" value={condition.headerName} onChange={(event) => updateCondition(index, { headerName: event.target.value })} />
-                    <select value={condition.operator} onChange={(event) => updateCondition(index, { operator: event.target.value as ResponseRuleCondition["operator"] })} className="rounded-lg border border-border bg-surface-2 px-3 py-2 text-sm text-zinc-200">
-                      <option value="EQUALS">EQUALS</option><option value="NOT_EQUALS">NOT EQUALS</option><option value="CONTAINS">CONTAINS</option>
-                      <option value="NOT_CONTAINS">NOT CONTAINS</option><option value="STARTS_WITH">STARTS WITH</option><option value="ENDS_WITH">ENDS WITH</option>
-                      <option value="REGEX">REGEX</option><option value="NOT_REGEX">NOT REGEX</option>
-                    </select>
+                    <Select
+                      ariaLabel="Оператор условия"
+                      value={condition.operator}
+                      onChange={(event) => updateCondition(index, { operator: event.target.value as ResponseRuleCondition["operator"] })}
+                      options={[
+                        { value: "EQUALS", label: "EQUALS" },
+                        { value: "NOT_EQUALS", label: "NOT EQUALS" },
+                        { value: "CONTAINS", label: "CONTAINS" },
+                        { value: "NOT_CONTAINS", label: "NOT CONTAINS" },
+                        { value: "STARTS_WITH", label: "STARTS WITH" },
+                        { value: "ENDS_WITH", label: "ENDS WITH" },
+                        { value: "REGEX", label: "REGEX" },
+                        { value: "NOT_REGEX", label: "NOT REGEX" },
+                      ]}
+                    />
                     <Input aria-label="Значение" placeholder="happ" value={condition.value} onChange={(event) => updateCondition(index, { value: event.target.value })} />
                     <button type="button" onClick={() => setDraft((current) => ({ ...current, conditions: current.conditions.filter((_, itemIndex) => itemIndex !== index) }))} className="rounded-lg p-2 text-zinc-600 hover:bg-rose-500/10 hover:text-rose-300" aria-label="Удалить условие"><X className="h-4 w-4" /></button>
                     <label className="flex items-center gap-2 text-xs text-zinc-500 md:col-span-4">
@@ -307,7 +330,7 @@ export default function ResponseRulesPage() {
                   Добавить
                 </Button>
               </div>
-              <div className="space-y-3">
+              <div className="ui-joined-list">
                 {draft.headers.map((header, index) => (
                   <div
                     key={index}

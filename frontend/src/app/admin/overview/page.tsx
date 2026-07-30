@@ -84,15 +84,16 @@ export default function OverviewPage() {
               Часть данных временно недоступна: {data.degraded_sections.join(", ")}.
             </div>
           )}
-          <div className="grid gap-px bg-border sm:grid-cols-2 xl:grid-cols-5">
-            <StatCard label="Всего пользователей" value={data.users.total} icon={<Users className="h-5 w-5" />} />
-            <StatCard label="Активные" value={data.users.active} icon={<ShieldCheck className="h-5 w-5" />} tone="emerald" />
-            <StatCard label="Истекли" value={data.users.expired} icon={<AlertTriangle className="h-5 w-5" />} tone="rose" />
-            <StatCard label="Ключи доступны" value={`${data.keys.up}/${data.keys.total}`} icon={<KeyRound className="h-5 w-5" />} tone={data.keys.down ? "amber" : "cyan"} />
-            <StatCard label="Источники" value={data.sources.total} hint={data.sources.errors ? `Ошибок: ${data.sources.errors}` : "Ошибок нет"} icon={<RadioTower className="h-5 w-5" />} tone={data.sources.errors ? "rose" : "zinc"} />
-          </div>
+          <div className="ui-joined-list technical-frame">
+            <div className="ui-joined-grid grid sm:grid-cols-2 xl:grid-cols-5">
+              <StatCard label="Всего пользователей" value={data.users.total} icon={<Users className="h-5 w-5" />} />
+              <StatCard label="Активные" value={data.users.active} icon={<ShieldCheck className="h-5 w-5" />} tone="emerald" />
+              <StatCard label="Истекли" value={data.users.expired} icon={<AlertTriangle className="h-5 w-5" />} tone="rose" />
+              <StatCard label="Ключи доступны" value={`${data.keys.up}/${data.keys.total}`} icon={<KeyRound className="h-5 w-5" />} tone={data.keys.down ? "amber" : "cyan"} />
+              <StatCard label="Источники" value={data.sources.total} hint={data.sources.errors ? `Ошибок: ${data.sources.errors}` : "Ошибок нет"} icon={<RadioTower className="h-5 w-5" />} tone={data.sources.errors ? "rose" : "zinc"} />
+            </div>
 
-          <div className="grid gap-px bg-border xl:grid-cols-[1.4fr_1fr]">
+            <div className="ui-joined-grid grid xl:grid-cols-[1.4fr_1fr]">
             <section className="technical-frame border border-border bg-surface-1">
               <div className="border-b border-border px-5 py-4">
                 <h2 className="font-semibold text-zinc-200">Последние действия</h2>
@@ -115,7 +116,7 @@ export default function OverviewPage() {
 
             <section className="technical-frame border border-border bg-surface-1 p-5">
               <h2 className="font-semibold text-zinc-200">Операционный статус</h2>
-              <div className="mt-5 space-y-3">
+              <div className="ui-joined-list mt-5">
                 {[
                   ["Приостановлены", data.users.paused, "text-amber-300"],
                   ["Заблокированы", data.users.blocked, "text-rose-300"],
@@ -146,8 +147,8 @@ export default function OverviewPage() {
                 ))}
               </div>
             </section>
-          </div>
-          <section className="technical-frame border border-border bg-surface-1">
+            </div>
+            <section className="technical-frame border border-border bg-surface-1">
             <div className="border-b border-border px-5 py-4">
               <h2 className="font-semibold text-zinc-200">Фоновые задания</h2>
               <p className="mt-1 text-xs text-zinc-600">Синхронизации источников и массовые проверки ключей.</p>
@@ -168,7 +169,8 @@ export default function OverviewPage() {
               ))}
               {!jobsError && jobs.length === 0 && <div className="px-5 py-10 text-center text-sm text-zinc-600">Заданий пока нет</div>}
             </div>
-          </section>
+            </section>
+          </div>
         </>
       ) : (
         <ResourceError error={dashboardError} onRetry={() => void load()} title="Не удалось загрузить обзор" />

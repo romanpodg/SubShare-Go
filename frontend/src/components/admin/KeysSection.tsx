@@ -8,6 +8,7 @@ import { useToast } from "@/components/ui/Toast";
 import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
 import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
+import { Select } from "@/components/ui/Select";
 import { StatusBadge } from "@/components/ui/StatusBadge";
 import { AddKeyModal } from "./AddKeyModal";
 import { BulkEditKeysModal } from "./BulkEditKeysModal";
@@ -20,6 +21,22 @@ import {
   alphaHexColor,
   normalizeKeyCategoryColor,
 } from "./keyCategoryColors";
+import {
+  ArrowDown,
+  ArrowUp,
+  ChevronDown,
+  Eye,
+  EyeOff,
+  FolderPlus,
+  KeyRound,
+  Pencil,
+  Plus,
+  RadioTower,
+  RefreshCw,
+  Search,
+  Trash2,
+  X,
+} from "lucide-react";
 
 const UNCATEGORIZED_LABEL = "Без категории";
 
@@ -95,6 +112,73 @@ function moveArrayItem<T>(items: T[], fromIndex: number, toIndex: number): T[] {
   return next;
 }
 
+const DRAG_AUTO_SCROLL_EDGE_PX = 120;
+const DRAG_AUTO_SCROLL_MAX_PX = 28;
+
+export function dragAutoScrollVelocity(
+  pointerY: number,
+  top: number,
+  bottom: number,
+  edgeSize = DRAG_AUTO_SCROLL_EDGE_PX,
+  maxVelocity = DRAG_AUTO_SCROLL_MAX_PX
+): number {
+  const height = bottom - top;
+  if (!Number.isFinite(pointerY) || height <= 0 || edgeSize <= 0 || maxVelocity <= 0) {
+    return 0;
+  }
+
+  const edge = Math.min(edgeSize, height / 2);
+  const upperBoundary = top + edge;
+  const lowerBoundary = bottom - edge;
+
+  if (pointerY < upperBoundary) {
+    const proximity = Math.min(1, Math.max(0, (upperBoundary - pointerY) / edge));
+    return proximity === 0 ? 0 : -Math.max(2, Math.round(maxVelocity * proximity * proximity));
+  }
+  if (pointerY > lowerBoundary) {
+    const proximity = Math.min(1, Math.max(0, (pointerY - lowerBoundary) / edge));
+    return proximity === 0 ? 0 : Math.max(2, Math.round(maxVelocity * proximity * proximity));
+  }
+  return 0;
+}
+
+function dragScrollTargetAt(clientX: number, clientY: number): { target: HTMLElement; velocity: number } | null {
+  const candidates: HTMLElement[] = [];
+  let element = document.elementFromPoint(clientX, clientY);
+
+  while (element instanceof HTMLElement) {
+    const style = window.getComputedStyle(element);
+    if (
+      /(auto|scroll)/.test(style.overflowY) &&
+      element.scrollHeight > element.clientHeight + 1
+    ) {
+      candidates.push(element);
+    }
+    element = element.parentElement;
+  }
+
+  const root = document.scrollingElement;
+  if (root instanceof HTMLElement && !candidates.includes(root)) {
+    candidates.push(root);
+  }
+
+  for (const target of candidates) {
+    const isRoot = target === document.scrollingElement;
+    const rect = isRoot
+      ? { top: 0, bottom: window.innerHeight }
+      : target.getBoundingClientRect();
+    const velocity = dragAutoScrollVelocity(clientY, rect.top, rect.bottom);
+    const canScrollUp = target.scrollTop > 0;
+    const canScrollDown = target.scrollTop + target.clientHeight < target.scrollHeight - 1;
+
+    if ((velocity < 0 && canScrollUp) || (velocity > 0 && canScrollDown)) {
+      return { target, velocity };
+    }
+  }
+
+  return null;
+}
+
 interface InsertGapActionsProps {
   index: number;
   categoryHint?: string;
@@ -165,6 +249,20 @@ interface CategoryGroup {
   keys: VLESSKey[];
 }
 
+export interface AlignedKeyRow {
+  key: VLESSKey;
+  informational: VLESSKey | null;
+  real: VLESSKey | null;
+}
+
+export function alignKeysBySubscriptionOrder(keys: VLESSKey[]): AlignedKeyRow[] {
+  return keys.map((key) => ({
+    key,
+    informational: key.kind === "informational" ? key : null,
+    real: key.kind === "informational" ? null : key,
+  }));
+}
+
 export function KeysSection({ keys, subscriptionFormat, onRefresh }: Props) {
   const { toast } = useToast();
 
@@ -199,8 +297,64 @@ export function KeysSection({ keys, subscriptionFormat, onRefresh }: Props) {
   const [hasUnsavedOrder, setHasUnsavedOrder] = useState(false);
   const [insertAtIndex, setInsertAtIndex] = useState<number | null>(null);
   const [addKeyCategoryHint, setAddKeyCategoryHint] = useState<string | undefined>(undefined);
+  const [addKeyKind, setAddKeyKind] = useState<"real" | "informational">("real");
 
   const selectAllRef = useRef<HTMLInputElement | null>(null);
+  const uncategorizedBlockRef = useRef<HTMLDivElement | null>(null);
+  const categoryBlockRefs = useRef<Map<string, HTMLDivElement>>(new Map());
+  const dragAutoScrollRef = useRef<{
+    frame: number | null;
+    target: HTMLElement | null;
+    velocity: number;
+  }>({ frame: null, target: null, velocity: 0 });
+
+  const stopDragAutoScroll = useCallback(() => {
+    const state = dragAutoScrollRef.current;
+    if (state.frame !== null) {
+      window.cancelAnimationFrame(state.frame);
+    }
+    state.frame = null;
+    state.target = null;
+    state.velocity = 0;
+  }, []);
+
+  const updateDragAutoScroll = useCallback(
+    (clientX: number, clientY: number) => {
+      const decision = dragScrollTargetAt(clientX, clientY);
+      if (!decision) {
+        stopDragAutoScroll();
+        return;
+      }
+
+      const state = dragAutoScrollRef.current;
+      state.target = decision.target;
+      state.velocity = decision.velocity;
+      if (state.frame !== null) {
+        return;
+      }
+
+      const scrollFrame = () => {
+        const current = dragAutoScrollRef.current;
+        if (!current.target || current.velocity === 0) {
+          current.frame = null;
+          return;
+        }
+
+        const before = current.target.scrollTop;
+        current.target.scrollTop += current.velocity;
+        if (current.target.scrollTop === before) {
+          current.frame = null;
+          current.target = null;
+          current.velocity = 0;
+          return;
+        }
+        current.frame = window.requestAnimationFrame(scrollFrame);
+      };
+
+      state.frame = window.requestAnimationFrame(scrollFrame);
+    },
+    [stopDragAutoScroll]
+  );
 
   // Filter keys based on search query and status filter
   const filteredOrderedKeys = useMemo(() => {
@@ -248,6 +402,31 @@ export function KeysSection({ keys, subscriptionFormat, onRefresh }: Props) {
     }
     selectAllRef.current.indeterminate = selectedCount > 0 && !allSelected;
   }, [selectedCount, allSelected]);
+
+  useEffect(() => {
+    if (!dragging) {
+      stopDragAutoScroll();
+      return;
+    }
+
+    const handleDragOver = (event: DragEvent) => {
+      updateDragAutoScroll(event.clientX, event.clientY);
+    };
+    const handleDragFinished = () => {
+      stopDragAutoScroll();
+    };
+
+    document.addEventListener("dragover", handleDragOver, true);
+    document.addEventListener("drop", handleDragFinished, true);
+    document.addEventListener("dragend", handleDragFinished, true);
+
+    return () => {
+      document.removeEventListener("dragover", handleDragOver, true);
+      document.removeEventListener("drop", handleDragFinished, true);
+      document.removeEventListener("dragend", handleDragFinished, true);
+      stopDragAutoScroll();
+    };
+  }, [dragging, stopDragAutoScroll, updateDragAutoScroll]);
 
   const loadKeyCategories = useCallback(async () => {
     try {
@@ -358,6 +537,22 @@ export function KeysSection({ keys, subscriptionFormat, onRefresh }: Props) {
 
   const informationalHidden = hiddenPane === "informational";
   const realHidden = hiddenPane === "real";
+
+  const scrollToCategory = useCallback((categoryName: string | null) => {
+    const target = categoryName
+      ? categoryBlockRefs.current.get(categoryName)
+      : uncategorizedBlockRef.current;
+    if (!target) {
+      return;
+    }
+
+    const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    target.scrollIntoView({
+      behavior: reduceMotion ? "auto" : "smooth",
+      block: "start",
+    });
+    window.requestAnimationFrame(() => target.focus({ preventScroll: true }));
+  }, []);
 
   const moveKeyToIndex = useCallback((keyID: number, targetIndex: number) => {
     setOrderedKeys((previous) => {
@@ -524,9 +719,14 @@ export function KeysSection({ keys, subscriptionFormat, onRefresh }: Props) {
     }
   };
 
-  const startAddConfiguration = (index: number, categoryHint?: string) => {
+  const startAddConfiguration = (
+    index: number,
+    categoryHint?: string,
+    kind: "real" | "informational" = "real"
+  ) => {
     setInsertAtIndex(index);
     setAddKeyCategoryHint(categoryHint ? normalizeCategory(categoryHint) : undefined);
+    setAddKeyKind(kind);
     setShowAddKey(true);
   };
 
@@ -611,83 +811,78 @@ export function KeysSection({ keys, subscriptionFormat, onRefresh }: Props) {
         }}
         onDrop={(event) => {
           event.preventDefault();
+          event.stopPropagation();
           if (!dragging || dragging.id === key.id) {
             return;
           }
           moveKeyToIndex(dragging.id, globalIndex);
           setDragging(null);
         }}
-        className={`h-full rounded-lg border px-3 py-2 transition-opacity ${isDragging ? "opacity-40" : "opacity-100"} ${
+        className={`ui-key-card ${isDragging ? "opacity-40" : "opacity-100"} ${
           isSelected
-            ? "border-accent/60 bg-accent/5"
+            ? "!border-accent/60 !bg-accent/5"
             : isInactiveJSON
-              ? "border-zinc-700 bg-zinc-900/25"
-              : "border-border bg-surface-2"
+              ? "!border-zinc-700 !bg-zinc-900/25"
+              : ""
         }`}
       >
-        <div className="mb-1 flex items-center justify-between gap-2">
-          <div className="flex min-w-0 items-center gap-2">
-            <label className="flex h-7 w-7 cursor-pointer items-center justify-center rounded-xl border border-transparent transition-colors hover:border-border/70 hover:bg-surface-2/60">
-              <input
-                type="checkbox"
-                checked={isSelected}
-                onChange={() => toggleKeySelection(key.id)}
-                aria-label={`Выбрать конфигурацию ${key.label}`}
-                className="peer sr-only"
-              />
-              <span
-                className={`flex h-5 w-5 items-center justify-center rounded-md border shadow-[inset_0_1px_0_rgba(255,255,255,0.04)] transition-all peer-focus-visible:ring-2 peer-focus-visible:ring-accent peer-focus-visible:ring-offset-2 peer-focus-visible:ring-offset-surface-1 ${
-                  isSelected
-                    ? "border-accent/80 bg-accent/20 text-accent"
-                    : "border-border bg-surface-2 text-transparent"
-                }`}
-              >
-                <svg
-                  viewBox="0 0 16 16"
-                  aria-hidden="true"
-                  className={`h-3.5 w-3.5 transition-opacity ${isSelected ? "opacity-100" : "opacity-0"}`}
-                >
-                  <path
-                    d="M4 8.25 6.5 10.75 12 5.25"
-                    fill="none"
-                    stroke="currentColor"
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    strokeWidth="2"
-                  />
-                </svg>
-              </span>
-            </label>
+        <div className="mb-2 flex min-w-0 items-center gap-2">
+          <label className="flex h-9 w-9 shrink-0 cursor-pointer items-center justify-center rounded-sm border border-border bg-surface-1 transition-colors hover:border-border/70 hover:bg-surface-2/60">
+            <input
+              type="checkbox"
+              checked={isSelected}
+              onChange={() => toggleKeySelection(key.id)}
+              aria-label={`Выбрать конфигурацию ${key.label}`}
+              className="peer sr-only"
+            />
             <span
-              className="cursor-grab text-zinc-500 transition-colors hover:text-zinc-300 active:cursor-grabbing"
-              aria-label="Перетащить конфигурацию"
-              title="Перетащите для изменения порядка"
+              className={`flex h-5 w-5 items-center justify-center rounded-md border shadow-[inset_0_1px_0_rgba(255,255,255,0.04)] transition-all peer-focus-visible:ring-2 peer-focus-visible:ring-accent peer-focus-visible:ring-offset-2 peer-focus-visible:ring-offset-surface-1 ${
+                isSelected
+                  ? "border-accent/80 bg-accent/20 text-accent"
+                  : "border-border bg-surface-2 text-transparent"
+              }`}
             >
-              <svg width="14" height="14" viewBox="0 0 14 14" fill="currentColor" aria-hidden>
-                <circle cx="4" cy="3" r="1" />
-                <circle cx="10" cy="3" r="1" />
-                <circle cx="4" cy="7" r="1" />
-                <circle cx="10" cy="7" r="1" />
-                <circle cx="4" cy="11" r="1" />
-                <circle cx="10" cy="11" r="1" />
+              <svg
+                viewBox="0 0 16 16"
+                aria-hidden="true"
+                className={`h-3.5 w-3.5 transition-opacity ${isSelected ? "opacity-100" : "opacity-0"}`}
+              >
+                <path
+                  d="M4 8.25 6.5 10.75 12 5.25"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth="2"
+                />
               </svg>
             </span>
-            <span className="font-mono text-xs text-zinc-400">ID {key.id}</span>
-            <span className={`truncate text-sm font-medium ${isInactiveJSON ? "text-zinc-300" : "text-zinc-100"}`}>
-              <EmojiText text={key.label} />
-            </span>
-          </div>
-
-          <div className="flex items-center gap-2">
-            {isExternalKey ? (
-              <span className="rounded-full bg-blue-500/15 px-2 py-0.5 text-xs text-blue-300">
-                <EmojiText
-                  text={key.external_source_name ? `Источник: ${key.external_source_name}` : "Сторонняя подписка"}
-                />
-              </span>
-            ) : null}
+          </label>
+          <span
+            className="shrink-0 cursor-grab text-zinc-500 transition-colors hover:text-zinc-300 active:cursor-grabbing"
+            aria-label="Перетащить конфигурацию"
+            title="Перетащите для изменения порядка"
+          >
+            <svg width="14" height="14" viewBox="0 0 14 14" fill="currentColor" aria-hidden>
+              <circle cx="4" cy="3" r="1" />
+              <circle cx="10" cy="3" r="1" />
+              <circle cx="4" cy="7" r="1" />
+              <circle cx="10" cy="7" r="1" />
+              <circle cx="4" cy="11" r="1" />
+              <circle cx="10" cy="11" r="1" />
+            </svg>
+          </span>
+          <span className="shrink-0 font-mono text-[12px] text-zinc-500">ID {key.id}</span>
+          <EmojiText
+            text={key.label}
+            truncate
+            className={`ui-key-card-title min-w-0 flex-1 text-[15px] font-semibold leading-5 ${
+              isInactiveJSON ? "text-zinc-300" : "text-zinc-100"
+            }`}
+          />
+          <div className="flex shrink-0 items-center">
             {isInactiveJSON ? (
-              <span className="rounded-full bg-zinc-500/20 px-2 py-0.5 text-xs text-zinc-300">
+              <span className="border border-border bg-surface-1 px-2.5 py-1 text-[12px] text-zinc-300">
                 <EmojiText text="Неактивен JSON" />
               </span>
             ) : (
@@ -696,23 +891,37 @@ export function KeysSection({ keys, subscriptionFormat, onRefresh }: Props) {
           </div>
         </div>
 
+        {isExternalKey ? (
+          <div className="mb-2 min-w-0">
+            <span className="inline-flex max-w-full min-w-0 border border-border bg-surface-1 px-2.5 py-1 text-[12px] text-zinc-300">
+              <EmojiText
+                text={key.external_source_name ? `Источник: ${key.external_source_name}` : "Сторонняя подписка"}
+                truncate
+                className="ui-key-card-source min-w-0"
+              />
+            </span>
+          </div>
+        ) : null}
+
         {isReal ? (
           <>
-            <div className={`mb-2 text-xs ${isInactiveJSON ? "text-zinc-500" : "text-zinc-400"}`}>
-              Название в клиенте:{" "}
-              <span className="text-zinc-300">
-                <EmojiText text={key.client_display_name || key.label} />
-              </span>
+            <div className={`mb-2 flex min-w-0 items-baseline gap-1 text-sm leading-5 ${isInactiveJSON ? "text-zinc-500" : "text-zinc-400"}`}>
+              <span className="shrink-0">Название в клиенте:</span>
+              <EmojiText
+                text={key.client_display_name || key.label}
+                truncate
+                className="ui-key-card-client-name min-w-0 flex-1 text-zinc-300"
+              />
             </div>
             <div className="mb-2 flex items-center gap-2">
               {healthDot(key.check_status, key.check_status_label)}
-              <span className={`text-xs ${isInactiveJSON ? "text-zinc-500" : "text-zinc-400"}`}>
+              <span className={`text-[13px] leading-5 ${isInactiveJSON ? "text-zinc-500" : "text-zinc-400"}`}>
                 {isInactiveJSON
                   ? "JSON-конфиг отключен для ссылочного формата подписки"
                   : statusParts.join(" · ")}
               </span>
             </div>
-            <div className="flex gap-1.5">
+            <div className="flex flex-nowrap gap-1.5 overflow-x-auto">
               <Button variant="ghost" className="text-xs" onClick={() => handleCheck(key.id)}>
                 Проверить
               </Button>
@@ -726,13 +935,13 @@ export function KeysSection({ keys, subscriptionFormat, onRefresh }: Props) {
           </>
         ) : (
           <>
-            <div className="mb-2 text-xs text-zinc-400">
+            <div className="mb-2 text-sm leading-5 text-zinc-400">
               <EmojiText text={key.template_text || key.label} />
             </div>
-            <div className="mb-2 text-[11px] text-zinc-500">
+            <div className="mb-2 text-[13px] text-zinc-500">
               Категория: <span className="text-zinc-300">{categoryDisplayName(normalizeCategory(key.category))}</span>
             </div>
-            <div className="flex gap-1.5">
+            <div className="flex flex-nowrap gap-1.5 overflow-x-auto">
               <Button variant="ghost" className="text-xs" onClick={() => setEditKey(key)}>
                 Изменить
               </Button>
@@ -747,75 +956,126 @@ export function KeysSection({ keys, subscriptionFormat, onRefresh }: Props) {
   };
 
   const renderKeyRows = (sectionKeys: VLESSKey[], categoryHint?: string) => {
-    const infoKeys = sectionKeys.filter((key) => key.kind === "informational");
-    const realKeys = sectionKeys.filter((key) => key.kind !== "informational");
+    const alignedRows = alignKeysBySubscriptionOrder(sectionKeys);
+    const infoKeys = alignedRows.map((row) => row.informational);
+    const realKeys = alignedRows.map((row) => row.real);
+    const infoKeysCount = infoKeys.filter((key) => key !== null).length;
+    const realKeysCount = realKeys.filter((key) => key !== null).length;
 
     if (sectionKeys.length === 0) {
       return null;
     }
 
     return (
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+      <div
+        className={`ui-key-order-grid ${
+          informationalHidden ? "ui-key-order-grid-info-hidden" : realHidden ? "ui-key-order-grid-real-hidden" : ""
+        }`}
+      >
         {/* Информационная колонка */}
         <div 
-          className={`space-y-2 transition-all duration-300 ${informationalHidden ? "hidden" : "block"}`}
+          className={`ui-key-order-column ui-key-order-column-info ${informationalHidden ? "hidden" : ""}`}
           onDragOver={(event) => event.preventDefault()}
           onDrop={(event) => {
             event.preventDefault();
             if (dragging) {
-              const lastInfo = infoKeys[infoKeys.length - 1];
-              const targetIndex = lastInfo ? (keyIndexByID.get(lastInfo.id) ?? 0) + 1 : 0;
+              const lastKey = sectionKeys[sectionKeys.length - 1];
+              const targetIndex = lastKey ? (keyIndexByID.get(lastKey.id) ?? 0) + 1 : orderedKeys.length;
               moveKeyToIndex(dragging.id, targetIndex);
               setDragging(null);
             }
           }}
         >
-          <div className="flex items-center justify-between border-b border-border/40 pb-1 mb-2">
-            <span className="text-xs font-semibold text-zinc-400 uppercase tracking-wider">Информационные сообщения ({infoKeys.length})</span>
+          <div className="ui-key-column-title mb-2">
+            <span>Информационные сообщения ({infoKeysCount})</span>
             <button
-              onClick={() => startAddConfiguration(orderedKeys.length, categoryHint)}
-              className="text-[10px] text-accent hover:underline cursor-pointer"
+              onClick={() => startAddConfiguration(orderedKeys.length, categoryHint, "informational")}
+              className="inline-flex h-9 min-h-9 -translate-y-0.5 shrink-0 items-center gap-1.5 border border-border bg-surface-1 px-3 font-mono text-[11px] font-semibold uppercase tracking-[0.08em] text-accent transition-colors hover:border-[var(--border-strong)] hover:bg-surface-2"
             >
-              + Добавить
+              <Plus className="h-3.5 w-3.5" aria-hidden="true" />
+              Добавить
             </button>
           </div>
-          {infoKeys.map((key) => renderKeyCard(key))}
-          {infoKeys.length === 0 && (
-            <div className="border border-dashed border-border/50 rounded-lg p-4 text-center text-xs text-zinc-500">
-              Нет сообщений
+          {alignedRows.map((row, rowIndex) => (
+            <div
+              key={`informational-slot-${row.key.id}`}
+              className={`ui-key-order-slot ${row.informational ? "" : "ui-key-order-placeholder-slot"}`}
+              style={{ gridRow: rowIndex + 2 }}
+              data-order-position={(keyIndexByID.get(row.key.id) ?? rowIndex) + 1}
+            >
+              {row.informational ? (
+                renderKeyCard(row.informational)
+              ) : (
+                <div
+                  className="ui-key-order-gap"
+                  aria-hidden="true"
+                  onDragOver={(event) => event.preventDefault()}
+                  onDrop={(event) => {
+                    event.preventDefault();
+                    event.stopPropagation();
+                    if (!dragging || dragging.id === row.key.id) {
+                      return;
+                    }
+                    moveKeyToIndex(dragging.id, keyIndexByID.get(row.key.id) ?? rowIndex);
+                    setDragging(null);
+                  }}
+                />
+              )}
             </div>
-          )}
+          ))}
         </div>
 
         {/* Колонка конфигураций */}
         <div 
-          className={`space-y-2 transition-all duration-300 ${realHidden ? "hidden" : "block"}`}
+          className={`ui-key-order-column ui-key-order-column-real ${realHidden ? "hidden" : ""}`}
           onDragOver={(event) => event.preventDefault()}
           onDrop={(event) => {
             event.preventDefault();
             if (dragging) {
-              const lastReal = realKeys[realKeys.length - 1];
-              const targetIndex = lastReal ? (keyIndexByID.get(lastReal.id) ?? 0) + 1 : orderedKeys.length;
+              const lastKey = sectionKeys[sectionKeys.length - 1];
+              const targetIndex = lastKey ? (keyIndexByID.get(lastKey.id) ?? 0) + 1 : orderedKeys.length;
               moveKeyToIndex(dragging.id, targetIndex);
               setDragging(null);
             }
           }}
         >
-          <div className="flex items-center justify-between border-b border-border/40 pb-1 mb-2">
-            <span className="text-xs font-semibold text-zinc-400 uppercase tracking-wider">Рабочие конфигурации ({realKeys.length})</span>
+          <div className="ui-key-column-title mb-2">
+            <span>Рабочие конфигурации ({realKeysCount})</span>
             <button
-              onClick={() => startAddConfiguration(orderedKeys.length, categoryHint)}
-              className="text-[10px] text-accent hover:underline cursor-pointer"
+              onClick={() => startAddConfiguration(orderedKeys.length, categoryHint, "real")}
+              className="inline-flex h-9 min-h-9 -translate-y-0.5 shrink-0 items-center gap-1.5 border border-border bg-surface-1 px-3 font-mono text-[11px] font-semibold uppercase tracking-[0.08em] text-accent transition-colors hover:border-[var(--border-strong)] hover:bg-surface-2"
             >
-              + Добавить
+              <Plus className="h-3.5 w-3.5" aria-hidden="true" />
+              Добавить
             </button>
           </div>
-          {realKeys.map((key) => renderKeyCard(key))}
-          {realKeys.length === 0 && (
-            <div className="border border-dashed border-border/50 rounded-lg p-4 text-center text-xs text-zinc-500">
-              Нет конфигураций
+          {alignedRows.map((row, rowIndex) => (
+            <div
+              key={`real-slot-${row.key.id}`}
+              className={`ui-key-order-slot ${row.real ? "" : "ui-key-order-placeholder-slot"}`}
+              style={{ gridRow: rowIndex + 2 }}
+              data-order-position={(keyIndexByID.get(row.key.id) ?? rowIndex) + 1}
+            >
+              {row.real ? (
+                renderKeyCard(row.real)
+              ) : (
+                <div
+                  className="ui-key-order-gap"
+                  aria-hidden="true"
+                  onDragOver={(event) => event.preventDefault()}
+                  onDrop={(event) => {
+                    event.preventDefault();
+                    event.stopPropagation();
+                    if (!dragging || dragging.id === row.key.id) {
+                      return;
+                    }
+                    moveKeyToIndex(dragging.id, keyIndexByID.get(row.key.id) ?? rowIndex);
+                    setDragging(null);
+                  }}
+                />
+              )}
             </div>
-          )}
+          ))}
         </div>
       </div>
     );
@@ -827,7 +1087,12 @@ export function KeysSection({ keys, subscriptionFormat, onRefresh }: Props) {
     }
 
     return (
-      <div className="rounded-2xl border border-border bg-surface-2/20 p-3">
+      <div
+        ref={uncategorizedBlockRef}
+        tabIndex={-1}
+        data-category-block="uncategorized"
+        className="scroll-mt-24 rounded-2xl border border-border bg-surface-2/20 p-3 focus:outline-none"
+      >
         <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
           <div className="flex flex-wrap items-center gap-2">
             <span className="rounded-full border border-zinc-700 bg-zinc-900/45 px-2.5 py-1 text-xs font-medium text-zinc-300">
@@ -853,10 +1118,19 @@ export function KeysSection({ keys, subscriptionFormat, onRefresh }: Props) {
     return (
       <div
         key={`${categoryName}-${empty ? "empty" : categoryKeys[0]?.id ?? "run"}`}
-        className="grid gap-4 md:grid-cols-[minmax(0,1fr)_68px]"
+        ref={(node) => {
+          if (node) {
+            categoryBlockRefs.current.set(categoryName, node);
+          } else {
+            categoryBlockRefs.current.delete(categoryName);
+          }
+        }}
+        tabIndex={-1}
+        data-category-block={categoryName}
+        className="ui-key-category-block relative scroll-mt-24 focus:outline-none"
       >
         <div
-          className="min-w-0 rounded-2xl border p-3"
+          className="ui-key-category-panel min-w-0 rounded-2xl border p-3"
           style={{
             borderColor: alphaHexColor(categoryColor, "33"),
             backgroundColor: alphaHexColor(categoryColor, "08"),
@@ -880,37 +1154,53 @@ export function KeysSection({ keys, subscriptionFormat, onRefresh }: Props) {
               </span>
             </div>
 
-            <div className="flex flex-wrap items-center gap-2">
+            <div className="ui-key-category-controls flex flex-wrap items-center gap-1">
               <Button
                 variant="ghost"
-                className="text-xs"
+                className="ui-key-category-icon w-11 px-0"
                 onClick={() => void moveCategoryBlock(categoryName, -1)}
                 disabled={categoryIndex <= 0}
+                aria-label={`Переместить категорию «${categoryName}» вверх`}
+                title="Переместить вверх"
               >
-                Вверх
+                <ArrowUp className="h-4 w-4" aria-hidden="true" />
               </Button>
               <Button
                 variant="ghost"
-                className="text-xs"
+                className="ui-key-category-icon w-11 px-0"
                 onClick={() => void moveCategoryBlock(categoryName, 1)}
                 disabled={categoryIndex === -1 || categoryIndex >= allCategoryNames.length - 1}
+                aria-label={`Переместить категорию «${categoryName}» вниз`}
+                title="Переместить вниз"
               >
-                Вниз
-              </Button>
-              <Button variant="ghost" className="text-xs" onClick={() => openCategoryEditor(categoryName)}>
-                Редактировать категорию
+                <ArrowDown className="h-4 w-4" aria-hidden="true" />
               </Button>
               <Button
                 variant="ghost"
-                className="text-xs"
+                className="ui-key-category-icon w-11 px-0"
+                onClick={() => openCategoryEditor(categoryName)}
+                aria-label={`Редактировать категорию «${categoryName}»`}
+                title="Редактировать категорию"
+              >
+                <Pencil className="h-4 w-4" aria-hidden="true" />
+              </Button>
+              <Button
+                variant="ghost"
+                className="ui-key-category-icon w-11 px-0"
                 onClick={() =>
                   setHiddenCategories((previous) => ({
                     ...previous,
                     [categoryName]: !previous[categoryName],
                   }))
                 }
+                aria-label={`${hidden ? "Показать" : "Скрыть"} категорию «${categoryName}»`}
+                title={hidden ? "Показать категорию" : "Скрыть категорию"}
               >
-                {hidden ? "Показать категорию" : "Скрыть категорию"}
+                {hidden ? (
+                  <Eye className="h-4 w-4" aria-hidden="true" />
+                ) : (
+                  <EyeOff className="h-4 w-4" aria-hidden="true" />
+                )}
               </Button>
             </div>
           </div>
@@ -928,15 +1218,20 @@ export function KeysSection({ keys, subscriptionFormat, onRefresh }: Props) {
           )}
         </div>
 
-        <div className="relative hidden md:block">
-          <div
-            className="absolute inset-y-0 left-1/2 w-px -translate-x-1/2 rounded-full"
-            style={{ backgroundColor: alphaHexColor(categoryColor, "73") }}
-          />
-          <div className="sticky top-28 flex justify-center">
+        <div
+          className="ui-key-category-rail"
+          style={{
+            "--ui-key-category-color": categoryColor,
+            "--ui-key-category-rail-color": alphaHexColor(categoryColor, "73"),
+          } as React.CSSProperties}
+          aria-hidden="true"
+        >
+          <div className="ui-key-category-rail-line" />
+          <div className="ui-key-category-rail-label flex justify-center pt-3">
             <span
-              className="inline-flex rounded-xl px-2 py-3 text-[10px] font-semibold uppercase tracking-[0.16em] text-zinc-900 shadow-[0_8px_24px_rgba(0,0,0,0.35)]"
-              style={{ backgroundColor: categoryColor, writingMode: "vertical-rl", textOrientation: "mixed" }}
+              className="ui-key-category-rail-badge inline-flex max-h-52 overflow-hidden rounded-xl px-2 py-3 text-[10px] font-semibold uppercase tracking-[0.16em] text-zinc-900 shadow-[0_8px_24px_rgba(0,0,0,0.35)]"
+              style={{ writingMode: "vertical-rl", textOrientation: "mixed" }}
+              title={categoryName}
             >
               {categoryName}
             </span>
@@ -947,18 +1242,18 @@ export function KeysSection({ keys, subscriptionFormat, onRefresh }: Props) {
   };
 
   return (
-    <Card>
-      <div className="mb-4 flex items-center justify-between">
-        <div className="flex items-center gap-2">
+    <Card className="ui-key-module-card !p-0">
+      <div className="ui-section-header ui-section-header--responsive ui-key-module-header">
+        <div className="ui-key-module-title">
           <button
             onClick={() => setCollapsed(!collapsed)}
-            className="flex h-8 w-8 items-center justify-center rounded-lg border border-border bg-surface-2 transition-all hover:bg-surface-1"
+            className="ui-icon-button"
             aria-expanded={!collapsed}
             aria-label={collapsed ? "Развернуть" : "Свернуть"}
           >
-            <span className={`text-zinc-400 transition-transform ${collapsed ? "-rotate-90" : ""}`}>▼</span>
+            <ChevronDown className={`h-4 w-4 text-zinc-400 transition-transform ${collapsed ? "-rotate-90" : ""}`} />
           </button>
-          <label className="flex h-9 w-9 cursor-pointer items-center justify-center rounded-xl border border-transparent transition-colors hover:border-border/70 hover:bg-surface-2/60">
+          <label className="ui-icon-button cursor-pointer">
             <input
               ref={selectAllRef}
               type="checkbox"
@@ -995,81 +1290,116 @@ export function KeysSection({ keys, subscriptionFormat, onRefresh }: Props) {
             </span>
           </label>
           <h2 className="text-lg font-semibold">
-            <EmojiText text={`🔐 Ключи (${orderedKeys.length})`} />
+            <span className="flex items-center gap-2">
+              <KeyRound className="h-4 w-4 text-accent" aria-hidden="true" />
+              <span>Ключи ({orderedKeys.length})</span>
+              {selectedCount > 0 ? (
+                <span className="ui-key-selection-count" role="status">
+                  Выбрано: {selectedCount}
+                </span>
+              ) : null}
+            </span>
           </h2>
         </div>
 
-        <div className="flex gap-2">
-          <Link
-            href="/admin/sources"
-            className="rounded-lg border border-transparent bg-transparent px-4 py-2 text-xs font-medium text-[var(--text-main)] transition-colors hover:bg-surface-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-bg"
-          >
-            Внешние источники
-          </Link>
-          <Button
-            variant="ghost"
-            className="text-xs"
-            onClick={() => setShowBulkEdit(true)}
-            disabled={selectedCount === 0}
-          >
-            Изменить
-          </Button>
+        <div
+          className={`ui-toolbar-actions ui-key-module-actions ${
+            selectedCount > 0 ? "ui-key-module-actions--selection" : ""
+          }`}
+        >
+          {selectedCount === 0 ? (
+            <Link
+              href="/admin/sources"
+              role="button"
+              className="inline-flex h-11 min-h-11 shrink-0 items-center justify-center gap-2 whitespace-nowrap rounded-sm border border-border bg-transparent px-4 font-mono text-xs font-semibold uppercase tracking-[0.08em] text-zinc-300 transition-colors hover:border-[var(--border-strong)] hover:bg-surface-2"
+            >
+              <RadioTower className="h-4 w-4" aria-hidden="true" />
+              Внешние источники
+            </Link>
+          ) : null}
           {selectedCount > 0 ? (
-            <Button variant="danger" className="text-xs" onClick={openDeleteSelectedDialog}>
-              Удалить ({selectedCount})
-            </Button>
+            <>
+              <Button
+                variant="ghost"
+                className="ui-key-bulk-icon w-11 px-0"
+                onClick={() => setShowBulkEdit(true)}
+                aria-label={`Изменить выбранные ключи (${selectedCount})`}
+                title={`Изменить выбранные ключи (${selectedCount})`}
+              >
+                <Pencil className="h-4 w-4" aria-hidden="true" />
+              </Button>
+              <Button
+                variant="danger"
+                className="ui-key-bulk-icon w-11 px-0"
+                onClick={openDeleteSelectedDialog}
+                aria-label={`Удалить выбранные ключи (${selectedCount})`}
+                title={`Удалить выбранные ключи (${selectedCount})`}
+              >
+                <Trash2 className="h-4 w-4" aria-hidden="true" />
+              </Button>
+            </>
           ) : null}
           <Button variant="ghost" onClick={handleCheckAll} loading={checkingAll} className="text-xs">
+            <RefreshCw className="h-4 w-4" aria-hidden="true" />
             Проверить все
           </Button>
           <Button variant="ghost" className="text-xs" onClick={() => openCreateCategory()}>
+            <FolderPlus className="h-4 w-4" aria-hidden="true" />
             Добавить категорию
           </Button>
-          <Button onClick={() => startAddConfiguration(orderedKeys.length)} className="text-xs">
-            + Добавить конфигурацию
+          <Button
+            onClick={() => startAddConfiguration(orderedKeys.length)}
+            aria-label="Добавить конфигурацию"
+            title="Добавить конфигурацию"
+            className="ui-key-add-icon w-11 shrink-0 px-0"
+          >
+            <Plus className="h-4 w-4" aria-hidden="true" />
           </Button>
         </div>
       </div>
 
       {/* Панель поиска и фильтров */}
       {!collapsed && (
-        <div className="flex flex-col md:flex-row gap-3 mb-4 p-3 bg-surface-2/30 rounded-xl border border-border">
+        <div className="ui-list-filters">
           <div className="flex-1 relative flex items-center">
-            <span className="absolute left-3 text-zinc-500">🔍</span>
+            <Search className="pointer-events-none absolute left-3 h-4 w-4 text-zinc-500" aria-hidden="true" />
             <input
               type="text"
               placeholder="Поиск по названию, категории, URL, ID..."
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              className="w-full h-9 bg-surface-2 border border-border rounded-lg pl-9 pr-8 text-sm focus:outline-none focus:border-accent text-zinc-100 placeholder-zinc-500 transition-colors"
+              className="ui-control w-full pl-9 pr-10 text-sm placeholder:text-zinc-600"
             />
             {searchQuery && (
               <button
                 onClick={() => setSearchQuery("")}
-                className="absolute right-2.5 top-1/2 -translate-y-1/2 text-zinc-500 hover:text-zinc-300 text-xs w-5 h-5 flex items-center justify-center rounded-full hover:bg-surface-1"
+                aria-label="Очистить поиск"
+                className="absolute right-0 top-0 flex h-11 min-h-11 w-11 items-center justify-center border-l border-border text-zinc-500 hover:bg-surface-1 hover:text-zinc-200"
               >
-                ✕
+                <X className="h-3.5 w-3.5" aria-hidden="true" />
               </button>
             )}
           </div>
           <div className="flex gap-2">
-            <select
+            <Select
+              ariaLabel="Фильтр по статусу"
               value={statusFilter}
               onChange={(e) =>
                 setStatusFilter(e.target.value as "all" | "active" | "inactive")
               }
-              className="h-9 bg-surface-2 border border-border rounded-lg px-3 text-sm focus:outline-none focus:border-accent text-zinc-300 cursor-pointer"
-            >
-              <option value="all">Все статусы</option>
-              <option value="active">Активен</option>
-              <option value="inactive">Неактивен</option>
-            </select>
+              className="w-52 min-w-52"
+              options={[
+                { value: "all", label: "Все статусы" },
+                { value: "active", label: "Активен" },
+                { value: "inactive", label: "Неактивен" },
+              ]}
+            />
           </div>
         </div>
       )}
 
       {!collapsed ? (
-        <div className="space-y-4">
+        <div className="space-y-4 p-4">
           <div className="grid text-sm font-medium text-zinc-300" style={gridLayoutStyle}>
             <div
               className={`flex items-center justify-between gap-2 overflow-hidden transition-all duration-300 ${
@@ -1108,45 +1438,103 @@ export function KeysSection({ keys, subscriptionFormat, onRefresh }: Props) {
             </div>
           </div>
 
-          <div className="flex flex-wrap gap-2">
-            {uncategorizedCount > 0 ? (
-              <span className="rounded-full border border-zinc-700 bg-zinc-900/45 px-2.5 py-1 text-xs text-zinc-400">
-                {UNCATEGORIZED_LABEL} ({uncategorizedCount})
-              </span>
-            ) : null}
-            {allCategoryNames.map((categoryName) => {
-              const hidden = Boolean(hiddenCategories[categoryName]);
-              const count = categoryCounts.get(categoryName) || 0;
+          {uncategorizedCount > 0 || allCategoryNames.length > 0 ? (
+            <section className="ui-key-category-nav" aria-labelledby="key-category-nav-title">
+              <div className="ui-key-category-nav-header">
+                <div>
+                  <div id="key-category-nav-title" className="font-medium text-zinc-300">
+                    Категории
+                  </div>
+                  <div className="mt-0.5 text-xs text-zinc-600">
+                    Перейдите к блоку или измените его видимость
+                  </div>
+                </div>
+                <span className="font-mono text-[10px] uppercase tracking-[0.12em] text-zinc-600">
+                  {allCategoryNames.length + (uncategorizedCount > 0 ? 1 : 0)} блоков
+                </span>
+              </div>
 
-              return (
-                <button
-                  key={categoryName}
-                  type="button"
-                  onClick={() =>
-                    setHiddenCategories((previous) => ({
-                      ...previous,
-                      [categoryName]: !previous[categoryName],
-                    }))
-                  }
-                  className={`rounded-full border px-2.5 py-1 text-xs transition ${
-                    hidden ? "border-zinc-700 bg-zinc-900/45 text-zinc-400" : ""
-                  }`}
-                  style={
-                    hidden
-                      ? undefined
-                      : {
-                          borderColor: alphaHexColor(getCategoryColor(categoryName), "66"),
-                          backgroundColor: alphaHexColor(getCategoryColor(categoryName), "18"),
-                          color: getCategoryColor(categoryName),
+              <div className="ui-key-category-nav-grid">
+                {uncategorizedCount > 0 ? (
+                  <div className="ui-key-category-nav-item ui-key-category-nav-item--static">
+                    <button
+                      type="button"
+                      className="ui-key-category-nav-main"
+                      onClick={() => scrollToCategory(null)}
+                      aria-label={`Перейти к категории «${UNCATEGORIZED_LABEL}»`}
+                      title={UNCATEGORIZED_LABEL}
+                    >
+                      <span className="ui-key-category-color bg-zinc-500" aria-hidden="true" />
+                      <span className="min-w-0">
+                        <span className="block truncate font-medium text-zinc-300">{UNCATEGORIZED_LABEL}</span>
+                        <span className="mt-1 block truncate text-[11px] text-zinc-600">
+                          Инфо: {uncategorizedKeys.filter((key) => key.kind === "informational").length} · Конфигурации:{" "}
+                          {uncategorizedKeys.filter((key) => key.kind !== "informational").length}
+                        </span>
+                      </span>
+                      <span className="ui-key-category-count">{uncategorizedCount}</span>
+                    </button>
+                  </div>
+                ) : null}
+
+                {categoryGroups.map((group) => {
+                  const categoryName = group.category;
+                  const hidden = Boolean(hiddenCategories[categoryName]);
+                  const count = categoryCounts.get(categoryName) || 0;
+                  const categoryColor = getCategoryColor(categoryName);
+                  const informationalCount = group.keys.filter((key) => key.kind === "informational").length;
+                  const configurationCount = group.keys.length - informationalCount;
+
+                  return (
+                    <div
+                      key={categoryName}
+                      className={`ui-key-category-nav-item ${hidden ? "ui-key-category-nav-item--hidden" : ""}`}
+                    >
+                      <button
+                        type="button"
+                        className="ui-key-category-nav-main"
+                        onClick={() => scrollToCategory(categoryName)}
+                        aria-label={`Перейти к категории «${categoryName}»`}
+                        title={categoryName}
+                      >
+                        <span
+                          className="ui-key-category-color"
+                          style={{ backgroundColor: categoryColor }}
+                          aria-hidden="true"
+                        />
+                        <span className="min-w-0">
+                          <span className="block truncate font-medium text-zinc-300">{categoryName}</span>
+                          <span className="mt-1 block truncate text-[11px] text-zinc-600">
+                            Инфо: {informationalCount} · Конфигурации: {configurationCount}
+                          </span>
+                        </span>
+                        <span className="ui-key-category-count">{count}</span>
+                      </button>
+                      <button
+                        type="button"
+                        className="ui-key-category-visibility"
+                        onClick={() =>
+                          setHiddenCategories((previous) => ({
+                            ...previous,
+                            [categoryName]: !previous[categoryName],
+                          }))
                         }
-                  }
-                  title={hidden ? "Показать категорию" : "Скрыть категорию"}
-                >
-                  {categoryName} ({count})
-                </button>
-              );
-            })}
-          </div>
+                        aria-pressed={hidden}
+                        aria-label={`${hidden ? "Показать" : "Скрыть"} категорию «${categoryName}»`}
+                        title={hidden ? "Показать категорию" : "Скрыть категорию"}
+                      >
+                        {hidden ? (
+                          <Eye className="h-4 w-4" aria-hidden="true" />
+                        ) : (
+                          <EyeOff className="h-4 w-4" aria-hidden="true" />
+                        )}
+                      </button>
+                    </div>
+                  );
+                })}
+              </div>
+            </section>
+          ) : null}
 
           {renderUncategorizedSection()}
           {categoryGroups.map((group) => renderCategoryBlock(group.category, group.keys, group.keys.length === 0))}
@@ -1202,10 +1590,12 @@ export function KeysSection({ keys, subscriptionFormat, onRefresh }: Props) {
           setShowAddKey(false);
           setInsertAtIndex(null);
           setAddKeyCategoryHint(undefined);
+          setAddKeyKind("real");
         }}
         onRefresh={refreshKeysData}
         insertAtIndex={insertAtIndex}
         initialCategory={addKeyCategoryHint}
+        initialKind={addKeyKind}
         onCreated={() => {
           if (insertAtIndex !== null) {
             setTimeout(async () => {
@@ -1225,6 +1615,7 @@ export function KeysSection({ keys, subscriptionFormat, onRefresh }: Props) {
               }
               setInsertAtIndex(null);
               setAddKeyCategoryHint(undefined);
+              setAddKeyKind("real");
             }, 100);
           }
         }}

@@ -235,6 +235,79 @@ var schemaMigrations = []schemaMigration{
 			 VALUES(1, '[]', '', '{"expired":[],"paused":[],"blocked":[],"limited":[],"empty":[]}')`,
 		},
 	},
+	{
+		version: 7,
+		name:    "subscription_entitlements_and_health_policy",
+		statements: []string{
+			`ALTER TABLE users ADD COLUMN key_assignment_mode TEXT NOT NULL DEFAULT 'all'
+			 CHECK (key_assignment_mode IN ('all','selected'))`,
+			`ALTER TABLE vless_keys ADD COLUMN health_failure_count INTEGER NOT NULL DEFAULT 0`,
+			`UPDATE users
+			 SET key_assignment_mode = CASE
+			   WHEN (SELECT COUNT(*) FROM user_keys uk WHERE uk.user_id = users.id) <
+			        (SELECT COUNT(*) FROM vless_keys)
+			   THEN 'selected'
+			   ELSE 'all'
+			 END`,
+			`UPDATE users
+			    SET blocked_reason = NULLIF(TRIM(COALESCE(blocked_reason, '')), ''),
+			        subscription_name = NULLIF(TRIM(COALESCE(subscription_name, '')), ''),
+			        subscription_info_url = NULLIF(TRIM(COALESCE(subscription_info_url, '')), ''),
+			        subscription_extra_url = NULLIF(TRIM(COALESCE(subscription_extra_url, '')), ''),
+			        subscription_extra_status = NULLIF(TRIM(COALESCE(subscription_extra_status, '')), '')`,
+			`UPDATE users
+			 SET subscription_refresh_hours = 0
+			 WHERE subscription_refresh_hours = 12
+			   AND TRIM(COALESCE(subscription_name, '')) = ''
+			   AND TRIM(COALESCE(subscription_info_url, '')) = ''
+			   AND TRIM(COALESCE(subscription_extra_url, '')) = ''
+			   AND TRIM(COALESCE(subscription_extra_status, '')) = ''`,
+			`CREATE INDEX IF NOT EXISTS idx_users_key_assignment_mode
+			 ON users(key_assignment_mode, id)`,
+			`CREATE INDEX IF NOT EXISTS idx_vless_keys_delivery_health
+			 ON vless_keys(status, key_kind, health_failure_count, sort_order, id)`,
+		},
+	},
+	{
+		version: 8,
+		name:    "category_ids_as_canonical_source",
+		statements: []string{
+			`UPDATE vless_keys
+			    SET category_id = (SELECT id FROM key_categories WHERE name = vless_keys.category)
+			  WHERE category_id IS NULL AND TRIM(COALESCE(category, '')) <> ''`,
+			`UPDATE external_subscription_sources
+			    SET source_category_id = (SELECT id FROM external_source_categories WHERE name = external_subscription_sources.category),
+			        key_category_id = (SELECT id FROM key_categories WHERE name = external_subscription_sources.key_category)
+			  WHERE source_category_id IS NULL OR key_category_id IS NULL`,
+			`DROP TRIGGER IF EXISTS trg_vless_keys_category_update`,
+			`CREATE TRIGGER IF NOT EXISTS trg_vless_keys_category_id_insert
+			 AFTER INSERT ON vless_keys
+			 WHEN NEW.category_id IS NOT NULL
+			 BEGIN
+			   UPDATE vless_keys
+			      SET category = COALESCE((SELECT name FROM key_categories WHERE id = NEW.category_id), '')
+			    WHERE id = NEW.id;
+			 END`,
+			`CREATE TRIGGER IF NOT EXISTS trg_vless_keys_category_id_update
+			 AFTER UPDATE OF category_id ON vless_keys
+			 BEGIN
+			   UPDATE vless_keys
+			      SET category = COALESCE((SELECT name FROM key_categories WHERE id = NEW.category_id), '')
+			    WHERE id = NEW.id;
+			 END`,
+			`CREATE TRIGGER IF NOT EXISTS trg_key_categories_name_compat
+			 AFTER UPDATE OF name ON key_categories
+			 BEGIN
+			   UPDATE vless_keys SET category = NEW.name WHERE category_id = NEW.id;
+			   UPDATE external_subscription_sources SET key_category = NEW.name WHERE key_category_id = NEW.id;
+			 END`,
+			`CREATE TRIGGER IF NOT EXISTS trg_external_source_category_name_compat
+			 AFTER UPDATE OF name ON external_source_categories
+			 BEGIN
+			   UPDATE external_subscription_sources SET category = NEW.name WHERE source_category_id = NEW.id;
+			 END`,
+		},
+	},
 }
 
 func runVersionedMigrations(db *sql.DB) error {

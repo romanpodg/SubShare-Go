@@ -1,6 +1,7 @@
 package model
 
 import (
+	"encoding/json"
 	"strings"
 	"time"
 )
@@ -30,8 +31,14 @@ const (
 	SubscriptionFormatXrayJSON = "xray-json"
 )
 
+const (
+	KeyAssignmentModeAll      = "all"
+	KeyAssignmentModeSelected = "selected"
+)
+
 // DefaultDeviceLimitMessage is the fallback message when the HWID device limit is exceeded.
 const DefaultDeviceLimitMessage = "You have reached the maximum number of allowed devices for your subscription"
+const AdminSessionCookieName = "subshare_admin_session"
 
 // Admin represents an administrator account.
 type Admin struct {
@@ -78,6 +85,7 @@ type User struct {
 	ConnectedDeviceCount     int               `json:"connected_device_count"`
 	ConnectedHWIDs           []string          `json:"connected_hwids"`
 	ConnectedDevices         []ConnectedDevice `json:"connected_devices"`
+	KeyAssignmentMode        string            `json:"key_assignment_mode"`
 	CreatedAt                time.Time         `json:"created_at"`
 }
 
@@ -178,6 +186,57 @@ type UpdateSubscriptionRequest struct {
 	SubscriptionInfoURL      string `json:"subscription_info_url"`
 	SubscriptionExtraURL     string `json:"subscription_extra_url"`
 	SubscriptionExtraStatus  string `json:"subscription_extra_status"`
+}
+
+// OptionalString distinguishes an omitted JSON field from an explicit null.
+type OptionalString struct {
+	Value string
+	Set   bool
+	Null  bool
+}
+
+func (value *OptionalString) UnmarshalJSON(data []byte) error {
+	value.Set = true
+	if string(data) == "null" {
+		value.Null = true
+		value.Value = ""
+		return nil
+	}
+	return json.Unmarshal(data, &value.Value)
+}
+
+// OptionalInt distinguishes an omitted JSON field from an explicit null.
+type OptionalInt struct {
+	Value int
+	Set   bool
+	Null  bool
+}
+
+func (value *OptionalInt) UnmarshalJSON(data []byte) error {
+	value.Set = true
+	if string(data) == "null" {
+		value.Null = true
+		value.Value = 0
+		return nil
+	}
+	return json.Unmarshal(data, &value.Value)
+}
+
+type PatchSubscriptionRequest struct {
+	Status                   OptionalString `json:"status"`
+	StartsAt                 OptionalString `json:"starts_at"`
+	ExpiresAt                OptionalString `json:"expires_at"`
+	BlockedReason            OptionalString `json:"blocked_reason"`
+	SubscriptionName         OptionalString `json:"subscription_name"`
+	SubscriptionRefreshHours OptionalInt    `json:"subscription_refresh_hours"`
+	SubscriptionInfoURL      OptionalString `json:"subscription_info_url"`
+	SubscriptionExtraURL     OptionalString `json:"subscription_extra_url"`
+	SubscriptionExtraStatus  OptionalString `json:"subscription_extra_status"`
+}
+
+type UpdateKeyAssignmentRequest struct {
+	Mode   string  `json:"mode"`
+	KeyIDs []int64 `json:"key_ids"`
 }
 
 // UpdateUserSettingsRequest is the payload for PUT /api/admin/users/{id}/settings.
@@ -571,6 +630,16 @@ func NormalizeKeyKind(raw string) (string, bool) {
 	switch kind {
 	case KeyKindReal, KeyKindInformational:
 		return kind, true
+	default:
+		return "", false
+	}
+}
+
+func NormalizeKeyAssignmentMode(raw string) (string, bool) {
+	mode := strings.ToLower(strings.TrimSpace(raw))
+	switch mode {
+	case KeyAssignmentModeAll, KeyAssignmentModeSelected:
+		return mode, true
 	default:
 		return "", false
 	}

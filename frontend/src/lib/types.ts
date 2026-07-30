@@ -17,6 +17,7 @@ export interface User {
   starts_at: string;
   expires_at: string;
   blocked_reason: string;
+  key_assignment_mode: "all" | "selected";
   assigned_key_ids: string;
   max_devices: number;
   connected_device_count: number;

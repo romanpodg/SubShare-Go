@@ -8,8 +8,8 @@ import { Input } from "@/components/ui/Input";
 import { PasswordInput } from "@/components/ui/PasswordInput";
 import { Button } from "@/components/ui/Button";
 import {
-  InfrastructureDiagram,
   OperationalStatus,
+  SignalCoreDiagram,
   SystemLabel,
   TechnicalFrame,
 } from "@/components/ui/Technical";
@@ -88,7 +88,7 @@ export default function LoginPage() {
                 </div>
               )}
               <div>
-                <div className="font-display text-lg font-medium text-zinc-100">
+                <div data-testid="login-display-en" className="font-display text-lg font-medium text-zinc-100">
                   <EmojiText text={settings.panelTitle || "SubShare"} />
                 </div>
                 <SystemLabel>Infrastructure access layer</SystemLabel>
@@ -99,8 +99,13 @@ export default function LoginPage() {
 
           <div className="relative z-10 max-w-[650px]">
             <SystemLabel className="text-accent/80">CONTROL PLANE / AUTH GATE</SystemLabel>
-            <h1 className="mt-5 max-w-2xl font-display text-5xl font-medium leading-[0.96] tracking-[-0.055em] text-zinc-100 xl:text-6xl">
-              Конфигурации под контролем. Доставка без шума.
+            <h1
+              data-testid="login-display-ru"
+              className="mt-5 max-w-2xl font-display text-[2.75rem] font-medium leading-[0.98] tracking-[-0.045em] text-zinc-100 xl:text-[3.5rem]"
+            >
+              <span className="block">Конфигурации</span>
+              <span className="block">под контролем.</span>
+              <span className="block text-zinc-300">Доставка без шума.</span>
             </h1>
             <p className="mt-6 max-w-xl text-base leading-7 text-zinc-500">
               Единый операционный контур для пользователей, ключей, источников и персональных VPN-подписок.
@@ -108,11 +113,11 @@ export default function LoginPage() {
           </div>
 
           <TechnicalFrame className="technical-grid mt-8 h-[290px] overflow-hidden bg-[#080909]">
-            <InfrastructureDiagram className="h-full w-full text-zinc-500" />
+            <SignalCoreDiagram className="h-full w-full text-zinc-500" />
             <div className="absolute bottom-4 left-4 flex gap-6">
-              <div><SystemLabel>Transport</SystemLabel><div className="mt-1 font-mono text-xs text-zinc-300">TLS / VLESS</div></div>
+              <div><SystemLabel>Channel</SystemLabel><div className="mt-1 font-mono text-xs text-zinc-300">TLS / VLESS</div></div>
               <div><SystemLabel>State</SystemLabel><div className="mt-1 font-mono text-xs text-accent">SYNCHRONIZED</div></div>
-              <div><SystemLabel>Mode</SystemLabel><div className="mt-1 font-mono text-xs text-zinc-300">SELF-HOSTED</div></div>
+              <div><SystemLabel>Routes</SystemLabel><div className="mt-1 font-mono text-xs text-zinc-300">04 / ACTIVE</div></div>
             </div>
           </TechnicalFrame>
         </section>

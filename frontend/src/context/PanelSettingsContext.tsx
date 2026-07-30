@@ -105,7 +105,7 @@ async function saveToAPI(s: PanelSettings): Promise<boolean> {
     const token = getCsrfToken();
     const headers: Record<string, string> = { "Content-Type": "application/json" };
     if (token) headers["X-CSRF-Token"] = token;
-    const r = await fetch("/api/admin/panel-settings", {
+    const r = await fetch("/api/v1/panel-settings", {
       method: "PUT",
       headers,
       credentials: "same-origin",
@@ -174,7 +174,7 @@ export function PanelSettingsProvider({ children }: { children: ReactNode }) {
   // If the API still has pure defaults but we have richer local cache, push the cache up
   // (migrates users who saved before the backend endpoint existed).
   useEffect(() => {
-    fetch("/api/panel-settings")
+    fetch("/api/v1/panel-settings")
       .then((r) => (r.ok ? (r.json() as Promise<APIPanelSettings>) : Promise.reject(r.status)))
       .then((api) => {
         const apiSettings = fromAPI(api);

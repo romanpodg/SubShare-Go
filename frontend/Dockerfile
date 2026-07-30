@@ -2,14 +2,14 @@
 # SubShare - Frontend Dockerfile
 # =============================================================================
 # Stage 1: Build Next.js static export
-# Stage 2: Serve with nginx and reverse-proxy API to the backend
+# Stage 2: Serve with Caddy and reverse-proxy API to the backend
 # =============================================================================
 
 # ---------------------------------------------------------------------------
 # Build arguments
 # ---------------------------------------------------------------------------
 ARG NODE_VERSION=22
-ARG NGINX_VERSION=1.27.3-alpine
+ARG CADDY_VERSION=2.11.4-alpine
 
 # ---------------------------------------------------------------------------
 # Stage 1 - Build static export
@@ -27,28 +27,24 @@ COPY . .
 RUN npm run build
 
 # ---------------------------------------------------------------------------
-# Stage 2 - Serve with nginx
+# Stage 2 - Serve with Caddy
 # ---------------------------------------------------------------------------
-FROM nginxinc/nginx-unprivileged:${NGINX_VERSION} AS runtime
+FROM caddy:${CADDY_VERSION} AS runtime
 
 # OCI image labels
 LABEL org.opencontainers.image.title="SubShare Frontend" \
       org.opencontainers.image.description="Technical operations interface for SubShare" \
-      org.opencontainers.image.source="https://github.com/romanpodg/SubShare-Go" \
+      org.opencontainers.image.source="https://github.com/romanpodg/vless-keys-to-sub" \
       org.opencontainers.image.licenses="MIT"
 
-# Switch to root to set up config and static files, then back to nginx user
-USER root
-RUN rm -rf /etc/nginx/conf.d/default.conf /usr/share/nginx/html/*
-COPY nginx.conf /etc/nginx/conf.d/default.conf
-COPY --from=builder /app/out /usr/share/nginx/html
-RUN chown -R nginx:nginx /usr/share/nginx/html
-USER nginx
+COPY Caddyfile /etc/caddy/Caddyfile
+COPY --from=builder /app/out /srv
 
-EXPOSE 3000 3443
+EXPOSE 80 443 443/udp
 
-# Health check: verify nginx is serving the frontend
+# The admin endpoint is bound to loopback and provides a stable local probe
+# regardless of whether the public site uses HTTP or automatic HTTPS.
 HEALTHCHECK --interval=30s --timeout=5s --start-period=5s --retries=3 \
-    CMD wget -qO /dev/null http://127.0.0.1:3000/ || exit 1
+    CMD wget -q --spider http://127.0.0.1:2019/config/ || exit 1
 
-CMD ["nginx", "-g", "daemon off;"]
+CMD ["caddy", "run", "--config", "/etc/caddy/Caddyfile", "--adapter", "caddyfile"]

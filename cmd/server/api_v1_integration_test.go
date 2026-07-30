@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -165,5 +166,30 @@ func TestV1CompatibilityTransformsLegacyErrors(t *testing.T) {
 	payload := decodeJSONMap(t, recorder)
 	if recorder.Code != http.StatusBadRequest || payload["code"] != "compatibility_error" {
 		t.Fatalf("unexpected compatibility response: status=%d payload=%#v", recorder.Code, payload)
+	}
+}
+
+func TestV1GetUserReturnsEmptyDeviceArrays(t *testing.T) {
+	app := newIntegrationApp(t)
+	userID := seedSubscriptionUser(t, app, "active")
+	request := httptest.NewRequest(http.MethodGet, "/api/v1/users/1", nil)
+	request.SetPathValue("id", strconv.FormatInt(userID, 10))
+	recorder := httptest.NewRecorder()
+
+	app.apiV1GetUser(recorder, request)
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("status = %d, body = %s", recorder.Code, recorder.Body.String())
+	}
+	payload := decodeJSONMap(t, recorder)
+	data, ok := payload["data"].(map[string]any)
+	if !ok {
+		t.Fatalf("user data missing from response: %#v", payload)
+	}
+	if devices, ok := data["connected_devices"].([]any); !ok || len(devices) != 0 {
+		t.Fatalf("connected_devices = %#v, want []", data["connected_devices"])
+	}
+	if hwids, ok := data["connected_hwids"].([]any); !ok || len(hwids) != 0 {
+		t.Fatalf("connected_hwids = %#v, want []", data["connected_hwids"])
 	}
 }

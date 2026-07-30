@@ -30,16 +30,16 @@
 
 .hero {
   display: grid;
-  min-height: 520px;
+  min-height: 540px;
   border-bottom: 1px solid rgba(255, 255, 255, 0.1);
-  grid-template-columns: minmax(0, 1.05fr) minmax(420px, 0.95fr);
+  grid-template-columns: minmax(0, 1.04fr) minmax(380px, 0.96fr);
 }
 
 .heroCopy {
   display: flex;
   flex-direction: column;
   justify-content: center;
-  padding: clamp(32px, 6vw, 76px);
+  padding: clamp(34px, 5vw, 64px);
 }
 
 .heroTop {
@@ -47,7 +47,7 @@
   align-items: flex-start;
   justify-content: space-between;
   gap: 16px;
-  margin-bottom: clamp(52px, 7vw, 88px);
+  margin-bottom: clamp(42px, 5vw, 64px);
 }
 
 .brand {
@@ -102,14 +102,14 @@
 }
 
 .subhead {
-  max-width: 610px;
+  max-width: 620px;
   margin: 20px 0 0;
   color: #f2f3ef;
   font-family: var(--font-display);
-  font-size: clamp(34px, 4.5vw, 62px);
+  font-size: clamp(34px, 3.9vw, 54px);
   font-weight: 500;
-  letter-spacing: -0.055em;
-  line-height: 0.98;
+  letter-spacing: -0.045em;
+  line-height: 1.06;
 }
 
 .statusBadge {
@@ -119,7 +119,7 @@
   align-items: center;
   gap: 9px;
   margin-top: 30px;
-  padding: 0 11px;
+  padding: 8px 11px;
   border: 1px solid rgba(255, 255, 255, 0.1);
   border-radius: 2px;
   background: #090a0b;
@@ -128,49 +128,44 @@
   font-size: 9px;
   font-weight: 600;
   letter-spacing: 0.12em;
+  line-height: 1;
   text-transform: uppercase;
 }
 
 .statusDot {
+  display: block;
   width: 6px;
   height: 6px;
+  flex: 0 0 6px;
+  align-self: center;
   background: #b7ff2a;
   animation: status-pulse 2.8s ease-in-out infinite;
 }
 
+.statusText {
+  display: block;
+  line-height: 1.2;
+}
+
 .heroDiagram {
   position: relative;
+  display: grid;
   min-height: 420px;
   overflow: hidden;
+  place-items: center;
+  padding: 28px 24px;
   border-left: 1px solid rgba(255, 255, 255, 0.1);
   background:
+    radial-gradient(circle at 50% 48%, rgba(255, 255, 255, 0.025), transparent 52%),
     linear-gradient(rgba(183, 255, 42, 0.025) 1px, transparent 1px),
     linear-gradient(90deg, rgba(183, 255, 42, 0.025) 1px, transparent 1px),
     #080909;
   background-size: 24px 24px;
 }
 
-.infrastructureDiagram {
+.numericGlobe {
+  z-index: 1;
   width: 100%;
-  height: 100%;
-  min-height: 470px;
-  color: #737a74;
-}
-
-.heroTelemetry {
-  position: absolute;
-  right: 18px;
-  bottom: 16px;
-  left: 18px;
-  display: flex;
-  justify-content: space-between;
-  gap: 12px;
-  padding-top: 12px;
-  border-top: 1px solid rgba(255, 255, 255, 0.1);
-  color: #858b85;
-  font-family: var(--font-mono);
-  font-size: 8px;
-  letter-spacing: 0.1em;
 }
 
 .section {
@@ -213,12 +208,17 @@
   position: relative;
   display: grid;
   min-width: 0;
+  align-items: start;
   gap: 18px;
   padding: clamp(20px, 3vw, 32px);
   border-right: 1px solid rgba(255, 255, 255, 0.1);
   border-bottom: 1px solid rgba(255, 255, 255, 0.1);
   background: #090a0b;
   grid-template-columns: 36px minmax(0, 1fr);
+}
+
+.step:last-child:nth-child(odd) {
+  grid-column: 1 / -1;
 }
 
 .step::after {
@@ -236,6 +236,7 @@
   display: flex;
   width: 36px;
   height: 36px;
+  flex: 0 0 36px;
   align-items: center;
   justify-content: center;
   border: 1px solid rgba(183, 255, 42, 0.24);
@@ -245,6 +246,7 @@
   font-family: var(--font-mono);
   font-size: 11px;
   font-weight: 650;
+  line-height: 1;
 }
 
 .stepContent {
@@ -252,12 +254,16 @@
 }
 
 .stepTitle {
+  display: flex;
+  min-height: 36px;
+  align-items: center;
   margin: 0 0 7px;
   color: #f2f3ef;
   font-family: var(--font-display);
   font-size: 18px;
   font-weight: 520;
   letter-spacing: -0.025em;
+  line-height: 1.25;
 }
 
 .stepText {
@@ -299,6 +305,7 @@
   color: #f2f3ef;
   font-family: var(--font-mono);
   font-size: 12px;
+  line-height: 1;
 }
 
 .activationInput::placeholder {
@@ -340,6 +347,72 @@
   margin-top: 14px;
 }
 
+.linkButtonsBlock {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  margin-top: 18px;
+}
+
+.linkButtonsBlock .buttons {
+  margin-top: 0;
+}
+
+.platformFilters {
+  display: flex;
+  width: 100%;
+  flex-wrap: wrap;
+  gap: 8px;
+  background: transparent;
+}
+
+.platformFilter {
+  display: inline-flex;
+  min-width: 0;
+  min-height: 40px;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  padding: 0 12px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 2px;
+  background: #090a0b;
+  color: #7f8580;
+  cursor: pointer;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 650;
+  letter-spacing: 0.06em;
+  line-height: 1;
+  text-transform: uppercase;
+  transition: color 180ms ease, border-color 180ms ease, background 180ms ease;
+}
+
+.platformFilter:hover {
+  border-color: rgba(255, 255, 255, 0.22);
+  background: #0d0f11;
+  color: #f2f3ef;
+}
+
+.platformFilterActive,
+.platformFilterActive:hover {
+  border-color: rgba(183, 255, 42, 0.35);
+  background: rgba(183, 255, 42, 0.07);
+  color: #b7ff2a;
+}
+
+.platformFilter:focus-visible {
+  outline: 1px solid #b7ff2a;
+  outline-offset: 2px;
+}
+
+.platformFilterIcon {
+  display: block;
+  width: 15px;
+  height: 15px;
+  flex: 0 0 15px;
+}
+
 .button {
   display: inline-flex;
   min-height: 44px;
@@ -354,6 +427,7 @@
   font-size: 10px;
   font-weight: 650;
   letter-spacing: 0.08em;
+  line-height: 1;
   text-decoration: none;
   text-transform: uppercase;
   transition: color 180ms ease, border-color 180ms ease, background 180ms ease;
@@ -365,11 +439,17 @@
 }
 
 .buttonIcon {
-  display: inline-block;
+  display: block;
   width: 18px;
   height: 18px;
   flex: 0 0 auto;
   object-fit: contain;
+}
+
+.buttonIconMonochrome {
+  background: currentColor;
+  -webkit-mask: var(--button-icon-mask) center / contain no-repeat;
+  mask: var(--button-icon-mask) center / contain no-repeat;
 }
 
 .buttonPrimary,
@@ -418,6 +498,19 @@
   font-size: 9px;
 }
 
+.subLinkLabel {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  white-space: nowrap;
+}
+
+.inlineIcon {
+  width: 15px;
+  height: 15px;
+  flex: 0 0 auto;
+}
+
 .subLinkCode {
   min-width: 0;
   flex: 1;
@@ -427,7 +520,11 @@
 }
 
 .copyLink {
+  display: inline-flex;
   min-height: 40px;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
   padding: 0 12px;
   border: 1px solid rgba(255, 255, 255, 0.12);
   border-radius: 2px;
@@ -472,6 +569,7 @@
   display: inline-flex;
   min-height: 34px;
   align-items: center;
+  gap: 7px;
   padding: 0 11px;
   border: 1px solid rgba(255, 255, 255, 0.1);
   border-radius: 2px;
@@ -495,8 +593,12 @@
     border-left: 0;
   }
 
-  .infrastructureDiagram {
-    min-height: 350px;
+  .steps {
+    grid-template-columns: 1fr;
+  }
+
+  .step:last-child:nth-child(odd) {
+    grid-column: auto;
   }
 }
 
@@ -521,10 +623,6 @@
 
   .heroTop {
     margin-bottom: 52px;
-  }
-
-  .steps {
-    grid-template-columns: 1fr;
   }
 
   .section {
@@ -561,6 +659,38 @@
   .footer {
     align-items: flex-start;
     flex-direction: column;
+  }
+}
+
+@media (max-width: 520px) {
+  .platformFilter {
+    flex: 1 1 82px;
+  }
+
+  .step {
+    gap: 12px;
+    grid-template-columns: 32px minmax(0, 1fr);
+  }
+
+  .stepNumber {
+    width: 32px;
+    height: 32px;
+    flex-basis: 32px;
+  }
+
+  .stepTitle {
+    min-height: 32px;
+  }
+}
+
+@keyframes status-pulse {
+  0%,
+  100% {
+    opacity: 0.55;
+  }
+
+  50% {
+    opacity: 1;
   }
 }
 

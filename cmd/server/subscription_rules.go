@@ -12,6 +12,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"subshare/internal/model"
 )
 
 type subscriptionTemplate struct {
@@ -310,14 +312,28 @@ func (a *App) listResponseRules() ([]responseRule, error) {
 			item.TemplateID = &value
 		}
 		if err := json.Unmarshal([]byte(conditionsJSON), &item.Conditions); err != nil {
-			item.Conditions = []responseRuleCondition{}
+			a.disableInvalidResponseRule(item.ID, "conditions_json", err)
+			return nil, fmt.Errorf("response rule %d has invalid conditions JSON: %w", item.ID, err)
 		}
 		if err := json.Unmarshal([]byte(headersJSON), &item.Headers); err != nil {
-			item.Headers = []responseHeader{}
+			a.disableInvalidResponseRule(item.ID, "headers_json", err)
+			return nil, fmt.Errorf("response rule %d has invalid headers JSON: %w", item.ID, err)
 		}
 		out = append(out, item)
 	}
 	return out, rows.Err()
+}
+
+func (a *App) disableInvalidResponseRule(id int64, field string, decodeErr error) {
+	_, _ = a.db.Exec(`UPDATE response_rules SET enabled = 0, updated_at = CURRENT_TIMESTAMP WHERE id = ?`, id)
+	metadata, _ := json.Marshal(map[string]string{
+		"field": field,
+		"error": decodeErr.Error(),
+	})
+	_, _ = a.db.Exec(`
+		INSERT INTO audit_events(action, target_type, target_id, metadata_json)
+		VALUES('response_rule.disabled_invalid', 'response_rule', ?, ?)
+	`, strconv.FormatInt(id, 10), string(metadata))
 }
 
 func (a *App) matchSubscriptionResponseRule(r *http.Request) (*responseRule, error) {
@@ -637,132 +653,216 @@ func parseVLESSForClient(raw string, index int) (map[string]any, url.Values, boo
 	}, parsed.Query(), true
 }
 
-func renderMihomoSubscription(raw string) (string, error) {
+func splitSubscriptionEntries(raw string) []string {
 	lines := strings.Split(strings.ReplaceAll(raw, "\r\n", "\n"), "\n")
-	proxies := make([]map[string]any, 0, len(lines))
-	for index, line := range lines {
-		proxy, query, ok := parseVLESSForClient(line, index)
-		if !ok {
+	entries := make([]string, 0, len(lines))
+	var jsonBuffer strings.Builder
+	for _, line := range lines {
+		trimmed := strings.TrimSpace(line)
+		if trimmed == "" {
 			continue
 		}
-		proxy["type"] = "vless"
+		if jsonBuffer.Len() > 0 || strings.HasPrefix(trimmed, "{") {
+			if jsonBuffer.Len() > 0 {
+				jsonBuffer.WriteByte('\n')
+			}
+			jsonBuffer.WriteString(trimmed)
+			if json.Valid([]byte(jsonBuffer.String())) {
+				entries = append(entries, jsonBuffer.String())
+				jsonBuffer.Reset()
+			}
+			continue
+		}
+		entries = append(entries, trimmed)
+	}
+	if jsonBuffer.Len() > 0 {
+		entries = append(entries, jsonBuffer.String())
+	}
+	return entries
+}
+
+func subscriptionDrafts(raw string) ([]linkConfigurationDraft, error) {
+	entries := splitSubscriptionEntries(raw)
+	drafts := make([]linkConfigurationDraft, 0, len(entries))
+	for _, entry := range entries {
+		var parsed []linkConfigurationDraft
+		var err error
+		if supportedConfigScheme(entry) == model.SubscriptionFormatXrayJSON {
+			parsed, err = parseXrayJSONDrafts(entry)
+		} else {
+			var draft linkConfigurationDraft
+			draft, err = parseLinkConfiguration(entry)
+			if err == nil {
+				parsed = []linkConfigurationDraft{draft}
+			}
+		}
+		if err != nil {
+			return nil, fmt.Errorf("parse subscription entry: %w", err)
+		}
+		drafts = append(drafts, parsed...)
+	}
+	if len(drafts) == 0 {
+		return nil, fmt.Errorf("subscription contains no supported configurations")
+	}
+	return drafts, nil
+}
+
+func draftDisplayName(draft linkConfigurationDraft, index int) string {
+	if name := strings.TrimSpace(draft.Remark); name != "" {
+		return name
+	}
+	if name := strings.TrimSpace(draft.ServerDescription); name != "" {
+		return name
+	}
+	return fmt.Sprintf("%s-%d", draft.Server, index+1)
+}
+
+func applyMihomoTransport(proxy map[string]any, draft linkConfigurationDraft) {
+	network := strings.TrimSpace(draft.Network)
+	if network == "" {
+		network = "tcp"
+	}
+	proxy["network"] = network
+	switch network {
+	case "ws":
+		options := map[string]any{}
+		if draft.Path != "" {
+			options["path"] = draft.Path
+		}
+		if draft.Host != "" {
+			options["headers"] = map[string]string{"Host": draft.Host}
+		}
+		if len(options) > 0 {
+			proxy["ws-opts"] = options
+		}
+	case "grpc":
+		if draft.GRPCServiceName != "" {
+			proxy["grpc-opts"] = map[string]string{"grpc-service-name": draft.GRPCServiceName}
+		}
+	}
+}
+
+func renderMihomoSubscription(raw string) (string, error) {
+	drafts, err := subscriptionDrafts(raw)
+	if err != nil {
+		return "", err
+	}
+	proxies := make([]map[string]any, 0, len(drafts))
+	for index, draft := range drafts {
+		proxy := map[string]any{
+			"name": draftDisplayName(draft, index), "type": draft.Protocol,
+			"server": draft.Server, "port": draft.Port,
+		}
+		switch draft.Protocol {
+		case "vless":
+			proxy["uuid"] = draft.Identifier
+			if draft.Flow != "" {
+				proxy["flow"] = draft.Flow
+			}
+		case "vmess":
+			proxy["uuid"] = draft.Identifier
+			alterID, _ := strconv.Atoi(firstNonEmpty(draft.VMessAlterID, "0"))
+			proxy["alterId"] = alterID
+			proxy["cipher"] = firstNonEmpty(draft.VMessSecurity, "auto")
+		case "trojan":
+			proxy["password"] = draft.Identifier
+		}
 		proxy["udp"] = true
-		network := strings.TrimSpace(query.Get("type"))
-		if network == "" {
-			network = "tcp"
-		}
-		proxy["network"] = network
-		if flow := strings.TrimSpace(query.Get("flow")); flow != "" {
-			proxy["flow"] = flow
-		}
-		security := strings.ToLower(strings.TrimSpace(query.Get("security")))
+		security := strings.ToLower(strings.TrimSpace(draft.Security))
 		if security == "tls" || security == "reality" {
 			proxy["tls"] = true
-			if sni := strings.TrimSpace(query.Get("sni")); sni != "" {
-				proxy["servername"] = sni
+			if draft.SNI != "" {
+				proxy["servername"] = draft.SNI
 			}
-			if fingerprint := strings.TrimSpace(query.Get("fp")); fingerprint != "" {
-				proxy["client-fingerprint"] = fingerprint
+			if draft.Fingerprint != "" {
+				proxy["client-fingerprint"] = draft.Fingerprint
 			}
+			proxy["skip-cert-verify"] = draft.AllowInsecure
 		}
 		if security == "reality" {
 			reality := map[string]any{}
-			if publicKey := strings.TrimSpace(query.Get("pbk")); publicKey != "" {
-				reality["public-key"] = publicKey
+			if draft.PublicKey != "" {
+				reality["public-key"] = draft.PublicKey
 			}
-			if shortID := strings.TrimSpace(query.Get("sid")); shortID != "" {
-				reality["short-id"] = shortID
+			if draft.ShortID != "" {
+				reality["short-id"] = draft.ShortID
 			}
 			if len(reality) > 0 {
 				proxy["reality-opts"] = reality
 			}
 		}
-		switch network {
-		case "ws":
-			options := map[string]any{}
-			if path := strings.TrimSpace(query.Get("path")); path != "" {
-				options["path"] = path
-			}
-			if host := strings.TrimSpace(query.Get("host")); host != "" {
-				options["headers"] = map[string]string{"Host": host}
-			}
-			if len(options) > 0 {
-				proxy["ws-opts"] = options
-			}
-		case "grpc":
-			if serviceName := strings.TrimSpace(query.Get("serviceName")); serviceName != "" {
-				proxy["grpc-opts"] = map[string]string{"grpc-service-name": serviceName}
-			}
-		}
+		applyMihomoTransport(proxy, draft)
 		proxies = append(proxies, proxy)
-	}
-	if len(proxies) == 0 {
-		return "", fmt.Errorf("subscription contains no VLESS keys supported by the Mihomo renderer")
 	}
 	payload, err := json.MarshalIndent(map[string]any{"proxies": proxies}, "", "  ")
 	return string(payload), err
 }
 
 func renderSingBoxSubscription(raw string) (string, error) {
-	lines := strings.Split(strings.ReplaceAll(raw, "\r\n", "\n"), "\n")
-	outbounds := make([]map[string]any, 0, len(lines))
-	for index, line := range lines {
-		base, query, ok := parseVLESSForClient(line, index)
-		if !ok {
-			continue
-		}
+	drafts, err := subscriptionDrafts(raw)
+	if err != nil {
+		return "", err
+	}
+	outbounds := make([]map[string]any, 0, len(drafts))
+	for index, draft := range drafts {
 		outbound := map[string]any{
-			"type":        "vless",
-			"tag":         base["name"],
-			"server":      base["server"],
-			"server_port": base["port"],
-			"uuid":        base["uuid"],
+			"type": draft.Protocol, "tag": draftDisplayName(draft, index),
+			"server": draft.Server, "server_port": draft.Port,
 		}
-		if flow := strings.TrimSpace(query.Get("flow")); flow != "" {
-			outbound["flow"] = flow
-		}
-		security := strings.ToLower(strings.TrimSpace(query.Get("security")))
-		if security == "tls" || security == "reality" {
-			tlsOptions := map[string]any{"enabled": true}
-			if sni := strings.TrimSpace(query.Get("sni")); sni != "" {
-				tlsOptions["server_name"] = sni
+		switch draft.Protocol {
+		case "vless":
+			outbound["uuid"] = draft.Identifier
+			if draft.Flow != "" {
+				outbound["flow"] = draft.Flow
 			}
-			if fingerprint := strings.TrimSpace(query.Get("fp")); fingerprint != "" {
-				tlsOptions["utls"] = map[string]any{"enabled": true, "fingerprint": fingerprint}
+		case "vmess":
+			outbound["uuid"] = draft.Identifier
+			outbound["security"] = firstNonEmpty(draft.VMessSecurity, "auto")
+			if alterID, parseErr := strconv.Atoi(draft.VMessAlterID); parseErr == nil && alterID > 0 {
+				outbound["alter_id"] = alterID
+			}
+		case "trojan":
+			outbound["password"] = draft.Identifier
+		}
+		security := strings.ToLower(strings.TrimSpace(draft.Security))
+		if security == "tls" || security == "reality" {
+			tlsOptions := map[string]any{"enabled": true, "insecure": draft.AllowInsecure}
+			if draft.SNI != "" {
+				tlsOptions["server_name"] = draft.SNI
+			}
+			if draft.Fingerprint != "" {
+				tlsOptions["utls"] = map[string]any{"enabled": true, "fingerprint": draft.Fingerprint}
 			}
 			if security == "reality" {
 				reality := map[string]any{"enabled": true}
-				if publicKey := strings.TrimSpace(query.Get("pbk")); publicKey != "" {
-					reality["public_key"] = publicKey
+				if draft.PublicKey != "" {
+					reality["public_key"] = draft.PublicKey
 				}
-				if shortID := strings.TrimSpace(query.Get("sid")); shortID != "" {
-					reality["short_id"] = shortID
+				if draft.ShortID != "" {
+					reality["short_id"] = draft.ShortID
 				}
 				tlsOptions["reality"] = reality
 			}
 			outbound["tls"] = tlsOptions
 		}
-		switch strings.TrimSpace(query.Get("type")) {
+		switch strings.TrimSpace(draft.Network) {
 		case "ws":
 			transport := map[string]any{"type": "ws"}
-			if path := strings.TrimSpace(query.Get("path")); path != "" {
-				transport["path"] = path
+			if draft.Path != "" {
+				transport["path"] = draft.Path
 			}
-			if host := strings.TrimSpace(query.Get("host")); host != "" {
-				transport["headers"] = map[string]string{"Host": host}
+			if draft.Host != "" {
+				transport["headers"] = map[string]string{"Host": draft.Host}
 			}
 			outbound["transport"] = transport
 		case "grpc":
 			transport := map[string]any{"type": "grpc"}
-			if serviceName := strings.TrimSpace(query.Get("serviceName")); serviceName != "" {
-				transport["service_name"] = serviceName
+			if draft.GRPCServiceName != "" {
+				transport["service_name"] = draft.GRPCServiceName
 			}
 			outbound["transport"] = transport
 		}
 		outbounds = append(outbounds, outbound)
-	}
-	if len(outbounds) == 0 {
-		return "", fmt.Errorf("subscription contains no VLESS keys supported by the Sing-box renderer")
 	}
 	payload, err := json.MarshalIndent(map[string]any{"outbounds": outbounds}, "", "  ")
 	return string(payload), err

@@ -6,6 +6,7 @@ import emojiRegex from "emoji-regex";
 interface EmojiTextProps {
   text: string;
   className?: string;
+  truncate?: boolean;
 }
 
 const APPLE_EMOJI_BASE_URL = "https://cdn.jsdelivr.net/npm/emoji-datasource-apple@15.0.1/img/apple/64/";
@@ -33,11 +34,13 @@ function AppleEmojiImg({ emoji, unified }: { emoji: string; unified: string }) {
   );
 }
 
-export function EmojiText({ text, className = "" }: EmojiTextProps) {
+export function EmojiText({ text, className = "", truncate = false }: EmojiTextProps) {
   const regex = emojiRegex();
   const nodes: ReactNode[] = [];
   let lastIndex = 0;
   let keyIndex = 0;
+  const rootClassName = `emoji-text ${truncate ? "emoji-text--truncate" : ""} ${className}`.trim();
+  const title = truncate ? text : undefined;
 
   for (const match of text.matchAll(regex)) {
     const matchIndex = typeof match.index === "number" ? match.index : -1;
@@ -71,8 +74,8 @@ export function EmojiText({ text, className = "" }: EmojiTextProps) {
   }
 
   if (nodes.length === 0) {
-    return <span className={`emoji-text ${className}`.trim()}>{text}</span>;
+    return <span className={rootClassName} title={title}>{text}</span>;
   }
 
-  return <span className={`emoji-text ${className}`.trim()}>{nodes}</span>;
+  return <span className={rootClassName} title={title}>{nodes}</span>;
 }

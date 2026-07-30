@@ -25,7 +25,7 @@ export function PageHeader({
           {description && <p className="mt-2 max-w-3xl text-sm leading-6 text-zinc-500">{description}</p>}
         </div>
       </div>
-      {actions && <div className="flex shrink-0 items-center gap-2">{actions}</div>}
+      {actions && <div className="ui-page-actions">{actions}</div>}
     </div>
   );
 }

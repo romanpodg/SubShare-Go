@@ -26,7 +26,7 @@ export function Button({
 }: ButtonProps) {
   return (
     <button
-      className={`relative inline-flex min-h-11 items-center justify-center gap-2 rounded-sm border px-4 py-2 font-mono text-xs font-semibold uppercase tracking-[0.08em] transition-[background-color,border-color,color] duration-200 disabled:cursor-not-allowed disabled:opacity-45 ${variants[variant]} ${className}`}
+      className={`relative inline-flex h-11 min-h-11 shrink-0 items-center justify-center gap-2 whitespace-nowrap rounded-sm border px-4 py-2 font-mono text-xs font-semibold uppercase tracking-[0.08em] transition-[background-color,border-color,color] duration-200 disabled:cursor-not-allowed disabled:opacity-45 ${variants[variant]} ${className}`}
       disabled={disabled || loading}
       {...props}
     >

@@ -1,0 +1,462 @@
+package main
+
+import (
+	"bytes"
+	"encoding/base64"
+	"encoding/json"
+	"errors"
+	"net/http"
+	"net/http/httptest"
+	"strings"
+	"testing"
+	"time"
+
+	"subshare/internal/model"
+)
+
+func seedSubscriptionUser(t *testing.T, app *App, status string) int64 {
+	t.Helper()
+	result, err := app.db.Exec(`
+		INSERT INTO users(
+			name, email, token, activation_code, subscription_id, status,
+			starts_at, expires_at, max_devices, subscription_name,
+			subscription_refresh_hours, subscription_info_url
+		) VALUES('Alice', 'alice@example.test', 'legacy-token', 'activation-token',
+		         'subscription-token', ?, ?, ?, 1, 'Personal title', 24,
+		         'https://user.example/info')
+	`, status, time.Now().Add(-time.Hour).UTC(), time.Now().Add(time.Hour).UTC())
+	if err != nil {
+		t.Fatalf("seed user: %v", err)
+	}
+	id, _ := result.LastInsertId()
+	return id
+}
+
+func TestPatchSubscriptionPreservesOmittedOverridesAndClearsNull(t *testing.T) {
+	app := newIntegrationApp(t)
+	userID := seedSubscriptionUser(t, app, model.UserStatusActive)
+
+	request := httptest.NewRequest(http.MethodPatch, "/api/v1/users/1/subscription", strings.NewReader(`{"status":"paused"}`))
+	request.SetPathValue("id", "1")
+	recorder := httptest.NewRecorder()
+	app.apiV1PatchUserSubscription(recorder, request)
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("patch status = %d, body=%s", recorder.Code, recorder.Body.String())
+	}
+
+	var status, title, infoURL string
+	var refresh int
+	if err := app.db.QueryRow(`
+		SELECT status, subscription_name, subscription_refresh_hours, subscription_info_url
+		  FROM users WHERE id = ?
+	`, userID).Scan(&status, &title, &refresh, &infoURL); err != nil {
+		t.Fatalf("load patched user: %v", err)
+	}
+	if status != model.UserStatusPaused || title != "Personal title" || refresh != 24 || infoURL != "https://user.example/info" {
+		t.Fatalf("omitted overrides were changed: status=%q title=%q refresh=%d info=%q", status, title, refresh, infoURL)
+	}
+
+	request = httptest.NewRequest(http.MethodPatch, "/api/v1/users/1/subscription", strings.NewReader(`{"subscription_name":null,"subscription_refresh_hours":null}`))
+	request.SetPathValue("id", "1")
+	recorder = httptest.NewRecorder()
+	app.apiV1PatchUserSubscription(recorder, request)
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("clear patch status = %d, body=%s", recorder.Code, recorder.Body.String())
+	}
+	var nullName, nullRefresh any
+	if err := app.db.QueryRow(`SELECT subscription_name, subscription_refresh_hours FROM users WHERE id = ?`, userID).Scan(&nullName, &nullRefresh); err != nil {
+		t.Fatalf("load cleared overrides: %v", err)
+	}
+	if nullName != nil || nullRefresh != int64(0) {
+		t.Fatalf("null did not clear overrides: name=%#v refresh=%#v", nullName, nullRefresh)
+	}
+}
+
+func TestPatchSubscriptionStoresUserTimezoneInputAsUTC(t *testing.T) {
+	app := newIntegrationApp(t)
+	userID := seedSubscriptionUser(t, app, model.UserStatusActive)
+	if _, err := app.db.Exec(`UPDATE users SET time_zone = 'Asia/Omsk' WHERE id = ?`, userID); err != nil {
+		t.Fatal(err)
+	}
+	request := httptest.NewRequest(http.MethodPatch, "/api/v1/users/1/subscription", strings.NewReader(`{"starts_at":"2026-07-29 12:00"}`))
+	request.SetPathValue("id", "1")
+	recorder := httptest.NewRecorder()
+	app.apiV1PatchUserSubscription(recorder, request)
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("patch status=%d body=%s", recorder.Code, recorder.Body.String())
+	}
+	var stored time.Time
+	if err := app.db.QueryRow(`SELECT starts_at FROM users WHERE id = ?`, userID).Scan(&stored); err != nil {
+		t.Fatal(err)
+	}
+	if got := stored.UTC().Format(time.RFC3339); got != "2026-07-29T06:00:00Z" {
+		t.Fatalf("stored UTC=%s", got)
+	}
+}
+
+func TestKeyAssignmentModesControlFutureKeys(t *testing.T) {
+	app := newIntegrationApp(t)
+	allUser := seedSubscriptionUser(t, app, model.UserStatusActive)
+	selectedResult, err := app.db.Exec(`
+		INSERT INTO users(name, token, activation_code, subscription_id, status, key_assignment_mode)
+		VALUES('Selected', 'selected-token', 'selected-code', 'selected-sub', 'active', 'selected')
+	`)
+	if err != nil {
+		t.Fatalf("seed selected user: %v", err)
+	}
+	selectedUser, _ := selectedResult.LastInsertId()
+
+	body := `{"label":"new","url":"vless://11111111-1111-1111-1111-111111111111@example.com:443?security=tls","status":"active","kind":"real"}`
+	recorder := httptest.NewRecorder()
+	app.apiCreateKey(recorder, httptest.NewRequest(http.MethodPost, "/api/v1/keys", strings.NewReader(body)))
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("create key status=%d body=%s", recorder.Code, recorder.Body.String())
+	}
+
+	var allCount, selectedCount int
+	if err := app.db.QueryRow(`SELECT COUNT(*) FROM user_keys WHERE user_id = ?`, allUser).Scan(&allCount); err != nil {
+		t.Fatal(err)
+	}
+	if err := app.db.QueryRow(`SELECT COUNT(*) FROM user_keys WHERE user_id = ?`, selectedUser).Scan(&selectedCount); err != nil {
+		t.Fatal(err)
+	}
+	if allCount != 1 || selectedCount != 0 {
+		t.Fatalf("future assignment mismatch: all=%d selected=%d", allCount, selectedCount)
+	}
+}
+
+func TestUpdateKeyAssignmentAllSelectedAndValidation(t *testing.T) {
+	app := newIntegrationApp(t)
+	userID := seedSubscriptionUser(t, app, model.UserStatusActive)
+	first, err := app.db.Exec(`INSERT INTO vless_keys(label, url, status) VALUES('one', 'vless://assignment-one', 'active')`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := app.db.Exec(`INSERT INTO vless_keys(label, url, status) VALUES('two', 'vless://assignment-two', 'active')`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	firstID, _ := first.LastInsertId()
+	secondID, _ := second.LastInsertId()
+
+	if err := app.updateUserKeyAssignment(userID, model.KeyAssignmentModeAll, nil); err != nil {
+		t.Fatalf("assign all: %v", err)
+	}
+	var count int
+	if err := app.db.QueryRow(`SELECT COUNT(*) FROM user_keys WHERE user_id = ?`, userID).Scan(&count); err != nil || count != 2 {
+		t.Fatalf("all assignment count=%d err=%v", count, err)
+	}
+	if err := app.updateUserKeyAssignment(userID, model.KeyAssignmentModeSelected, []int64{secondID, secondID}); err != nil {
+		t.Fatalf("assign selected: %v", err)
+	}
+	var selectedID int64
+	if err := app.db.QueryRow(`SELECT key_id FROM user_keys WHERE user_id = ?`, userID).Scan(&selectedID); err != nil || selectedID != secondID {
+		t.Fatalf("selected assignment=%d err=%v", selectedID, err)
+	}
+	if err := app.updateUserKeyAssignment(userID, "invalid", []int64{firstID}); err == nil {
+		t.Fatal("invalid mode was accepted")
+	}
+	if err := app.updateUserKeyAssignment(userID, model.KeyAssignmentModeSelected, []int64{999999}); !errors.Is(err, errAssignmentKeyNotFound) {
+		t.Fatalf("missing key error=%v", err)
+	}
+}
+
+func TestSubscriptionDeliveryStatePolicy(t *testing.T) {
+	tests := []struct {
+		name       string
+		setup      func(t *testing.T, app *App)
+		subID      string
+		wantCode   int
+		wantStatus string
+		wantReason string
+	}{
+		{name: "unknown", subID: "missing", wantCode: http.StatusNotFound, wantStatus: "not-found", wantReason: "not found"},
+		{name: "paused", subID: "subscription-token", setup: func(t *testing.T, app *App) {
+			_, _ = app.db.Exec(`UPDATE users SET status = 'paused' WHERE subscription_id = 'subscription-token'`)
+		}, wantCode: http.StatusForbidden, wantStatus: "paused", wantReason: "paused"},
+		{name: "blocked reason", subID: "subscription-token", setup: func(t *testing.T, app *App) {
+			_, _ = app.db.Exec(`UPDATE users SET status = 'blocked', blocked_reason = 'billing hold' WHERE subscription_id = 'subscription-token'`)
+		}, wantCode: http.StatusForbidden, wantStatus: "blocked", wantReason: "billing hold"},
+		{name: "future", subID: "subscription-token", setup: func(t *testing.T, app *App) {
+			_, _ = app.db.Exec(`UPDATE users SET starts_at = ? WHERE subscription_id = 'subscription-token'`, time.Now().Add(time.Hour).UTC())
+		}, wantCode: http.StatusForbidden, wantStatus: "future", wantReason: "not active"},
+		{name: "expired", subID: "subscription-token", setup: func(t *testing.T, app *App) {
+			_, _ = app.db.Exec(`UPDATE users SET expires_at = ? WHERE subscription_id = 'subscription-token'`, time.Now().Add(-time.Hour).UTC())
+		}, wantCode: http.StatusGone, wantStatus: "expired", wantReason: "expired"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			app := newIntegrationApp(t)
+			seedSubscriptionUser(t, app, model.UserStatusActive)
+			if test.setup != nil {
+				test.setup(t, app)
+			}
+			request := httptest.NewRequest(http.MethodGet, "/sub/"+test.subID, nil)
+			_, code, status, reason, err := app.prepareSubscriptionDelivery(request, test.subID, false)
+			if err != nil {
+				t.Fatalf("prepare: %v", err)
+			}
+			if code != test.wantCode || status != test.wantStatus || !strings.Contains(reason, test.wantReason) {
+				t.Fatalf("code=%d status=%q reason=%q", code, status, reason)
+			}
+		})
+	}
+}
+
+func TestSubscriptionDevicePolicyMandatoryOptionalAndLimit(t *testing.T) {
+	app := newIntegrationApp(t)
+	seedSubscriptionUser(t, app, model.UserStatusActive)
+	optional := httptest.NewRequest(http.MethodGet, "/sub/subscription-token", nil)
+	if _, code, _, _, err := app.prepareSubscriptionDelivery(optional, "subscription-token", false); err != nil || code != 0 {
+		t.Fatalf("optional request denied: code=%d err=%v", code, err)
+	}
+
+	if _, err := app.db.Exec(`UPDATE subscription_settings SET provider_id = 'ABCDEFGH', happ_mandatory_hwid = 1 WHERE id = 1`); err != nil {
+		t.Fatal(err)
+	}
+	if _, code, status, reason, err := app.prepareSubscriptionDelivery(optional, "subscription-token", false); err != nil || code != http.StatusForbidden || status != "limited" || !strings.Contains(reason, "required") {
+		t.Fatalf("mandatory HWID policy: code=%d status=%q reason=%q err=%v", code, status, reason, err)
+	}
+
+	firstDevice := httptest.NewRequest(http.MethodGet, "/sub/subscription-token?hwid=device-one", nil)
+	if _, code, _, _, err := app.prepareSubscriptionDelivery(firstDevice, "subscription-token", false); err != nil || code != 0 {
+		t.Fatalf("first device denied: code=%d err=%v", code, err)
+	}
+	secondDevice := httptest.NewRequest(http.MethodGet, "/sub/subscription-token?hwid=device-two", nil)
+	if _, code, status, _, err := app.prepareSubscriptionDelivery(secondDevice, "subscription-token", false); err != nil || code != http.StatusForbidden || status != "limited" {
+		t.Fatalf("device limit not enforced: code=%d status=%q err=%v", code, status, err)
+	}
+	invalidDevice := httptest.NewRequest(http.MethodGet, "/sub/subscription-token?hwid="+strings.Repeat("x", 129), nil)
+	if _, code, _, reason, err := app.prepareSubscriptionDelivery(invalidDevice, "subscription-token", false); err != nil || code != http.StatusForbidden || reason != "invalid HWID" {
+		t.Fatalf("invalid HWID policy: code=%d reason=%q err=%v", code, reason, err)
+	}
+}
+
+func TestEffectiveSettingsInheritanceAndDenialHeaders(t *testing.T) {
+	app := newIntegrationApp(t)
+	seedSubscriptionUser(t, app, model.UserStatusActive)
+	settings, _, _, err := app.effectiveSubscriptionSettings("subscription-token")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if settings.Title != "Personal title" || settings.RefreshHours != 24 || settings.InfoURL != "https://user.example/info" {
+		t.Fatalf("user overrides ignored: %#v", settings)
+	}
+	if _, err := app.db.Exec(`
+		UPDATE users SET subscription_name = NULL, subscription_refresh_hours = 0, subscription_info_url = NULL
+		WHERE subscription_id = 'subscription-token'
+	`); err != nil {
+		t.Fatal(err)
+	}
+	settings, _, _, err = app.effectiveSubscriptionSettings("subscription-token")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if settings.Title != "AllKeys" || settings.RefreshHours != 12 {
+		t.Fatalf("global inheritance failed: %#v", settings)
+	}
+
+	recorder := httptest.NewRecorder()
+	writeSubscriptionDenial(recorder, http.StatusGone, "expired", "expired")
+	if recorder.Code != http.StatusGone || recorder.Header().Get("Subscription-Status") != "expired" {
+		t.Fatalf("denial headers missing: code=%d headers=%v", recorder.Code, recorder.Header())
+	}
+}
+
+func TestResponseRuleBlockPrecedesBrowserFallbackAcrossSubBody(t *testing.T) {
+	app := newIntegrationApp(t)
+	seedSubscriptionUser(t, app, model.UserStatusActive)
+	if _, err := app.db.Exec(`
+		INSERT INTO response_rules(
+			name, enabled, priority, operator, conditions_json, response_type, headers_json
+		) VALUES('block browser', 1, 1, 'AND',
+		         '[{"headerName":"user-agent","operator":"CONTAINS","value":"mozilla","caseSensitive":false}]',
+		         'block', '[]')
+	`); err != nil {
+		t.Fatalf("insert rule: %v", err)
+	}
+
+	request := httptest.NewRequest(http.MethodGet, "/sub/subscription-token/subbody", nil)
+	request.SetPathValue("subscription_id", "subscription-token")
+	request.Header.Set("User-Agent", "Mozilla/5.0")
+	recorder := httptest.NewRecorder()
+	app.handleSubscriptionSubBody(recorder, request)
+	if recorder.Code != http.StatusForbidden || recorder.Header().Get("Subscription-Status") != "blocked" {
+		t.Fatalf("block rule bypassed: status=%d subscription-status=%q body=%s",
+			recorder.Code, recorder.Header().Get("Subscription-Status"), recorder.Body.String())
+	}
+}
+
+func TestSubBodyAdaptersReturn503WhenEmptyAndActiveHeadersWhenAvailable(t *testing.T) {
+	app := newIntegrationApp(t)
+	userID := seedSubscriptionUser(t, app, model.UserStatusActive)
+	for _, handler := range []struct {
+		name string
+		run  func(http.ResponseWriter, *http.Request)
+		path string
+	}{
+		{"base64", app.handleSubscriptionSubBody, "/sub/subscription-token/subbody"},
+		{"plain", app.handleSubscriptionSubBodyPlain, "/sub/subscription-token/subbody/plain"},
+	} {
+		t.Run(handler.name+" empty", func(t *testing.T) {
+			request := httptest.NewRequest(http.MethodGet, handler.path, nil)
+			request.SetPathValue("subscription_id", "subscription-token")
+			recorder := httptest.NewRecorder()
+			handler.run(recorder, request)
+			if recorder.Code != http.StatusServiceUnavailable || recorder.Header().Get("Subscription-Status") != "empty" {
+				t.Fatalf("status=%d subscription-status=%q body=%s", recorder.Code, recorder.Header().Get("Subscription-Status"), recorder.Body.String())
+			}
+		})
+	}
+
+	keyResult, err := app.db.Exec(`
+		INSERT INTO vless_keys(label, url, status, key_kind, health_failure_count)
+		VALUES('edge', 'vless://11111111-1111-1111-1111-111111111111@example.com:443?security=tls', 'active', 'real', 0)
+	`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	keyID, _ := keyResult.LastInsertId()
+	if _, err := app.db.Exec(`INSERT INTO user_keys(user_id, key_id) VALUES(?, ?)`, userID, keyID); err != nil {
+		t.Fatal(err)
+	}
+	request := httptest.NewRequest(http.MethodGet, "/sub/subscription-token/subbody/plain", nil)
+	request.SetPathValue("subscription_id", "subscription-token")
+	recorder := httptest.NewRecorder()
+	app.handleSubscriptionSubBodyPlain(recorder, request)
+	if recorder.Code != http.StatusOK || recorder.Header().Get("Subscription-Status") != "active" || !strings.Contains(recorder.Body.String(), "vless://") {
+		t.Fatalf("status=%d subscription-status=%q body=%s", recorder.Code, recorder.Header().Get("Subscription-Status"), recorder.Body.String())
+	}
+}
+
+func TestPrepareDeliveryRuleNotFoundNoMatchAndInvalidRule(t *testing.T) {
+	t.Run("not-found", func(t *testing.T) {
+		app := newIntegrationApp(t)
+		seedSubscriptionUser(t, app, model.UserStatusActive)
+		if _, err := app.db.Exec(`
+			INSERT INTO response_rules(name, enabled, priority, operator, conditions_json, response_type, headers_json)
+			VALUES('hide', 1, 0, 'AND', '[]', 'not-found', '[]')
+		`); err != nil {
+			t.Fatal(err)
+		}
+		request := httptest.NewRequest(http.MethodGet, "/sub/subscription-token", nil)
+		_, code, status, _, err := app.prepareSubscriptionDelivery(request, "subscription-token", true)
+		if err != nil || code != http.StatusNotFound || status != "not-found" {
+			t.Fatalf("code=%d status=%q err=%v", code, status, err)
+		}
+	})
+
+	t.Run("no-match", func(t *testing.T) {
+		app := newIntegrationApp(t)
+		seedSubscriptionUser(t, app, model.UserStatusActive)
+		if _, err := app.db.Exec(`UPDATE response_rules SET enabled = 0`); err != nil {
+			t.Fatal(err)
+		}
+		request := httptest.NewRequest(http.MethodGet, "/sub/subscription-token", nil)
+		delivery, code, _, _, err := app.prepareSubscriptionDelivery(request, "subscription-token", true)
+		if err != nil || code != 0 || delivery.Rule != nil {
+			t.Fatalf("code=%d rule=%#v err=%v", code, delivery.Rule, err)
+		}
+	})
+
+	t.Run("invalid rule is disabled and audited", func(t *testing.T) {
+		app := newIntegrationApp(t)
+		seedSubscriptionUser(t, app, model.UserStatusActive)
+		result, err := app.db.Exec(`
+			INSERT INTO response_rules(name, enabled, priority, operator, conditions_json, response_type, headers_json)
+			VALUES('broken', 1, 0, 'AND', '{', 'plain', '[]')
+		`)
+		if err != nil {
+			t.Fatal(err)
+		}
+		ruleID, _ := result.LastInsertId()
+		request := httptest.NewRequest(http.MethodGet, "/sub/subscription-token", nil)
+		if _, _, _, _, err := app.prepareSubscriptionDelivery(request, "subscription-token", true); err == nil {
+			t.Fatal("invalid persisted rule did not fail closed")
+		}
+		var enabled, audits int
+		if err := app.db.QueryRow(`SELECT enabled FROM response_rules WHERE id = ?`, ruleID).Scan(&enabled); err != nil {
+			t.Fatal(err)
+		}
+		if err := app.db.QueryRow(`
+			SELECT COUNT(*) FROM audit_events
+			WHERE action = 'response_rule.disabled_invalid' AND target_id = ?
+		`, ruleID).Scan(&audits); err != nil {
+			t.Fatal(err)
+		}
+		if enabled != 0 || audits != 1 {
+			t.Fatalf("enabled=%d audits=%d", enabled, audits)
+		}
+	})
+}
+
+func TestRenderersPreserveVMessTrojanAndXrayOutbounds(t *testing.T) {
+	vmessPayload, _ := json.Marshal(map[string]any{
+		"v": "2", "ps": "vmess", "add": "vmess.example", "port": "443",
+		"id": "22222222-2222-2222-2222-222222222222", "aid": "0",
+		"net": "ws", "path": "/socket", "host": "cdn.example", "tls": "tls", "sni": "vmess.example",
+	})
+	vmess := "vmess://" + base64.StdEncoding.EncodeToString(vmessPayload)
+	trojan := "trojan://secret@trojan.example:443?security=tls&sni=trojan.example&type=grpc&serviceName=edge#trojan"
+	xray := `{"outbounds":[{"protocol":"vless","tag":"xray-vless","settings":{"vnext":[{"address":"xray.example","port":443,"users":[{"id":"33333333-3333-3333-3333-333333333333","encryption":"none"}]}]},"streamSettings":{"network":"grpc","security":"reality","realitySettings":{"serverName":"xray.example","publicKey":"public","shortId":"abcd"}}}]}`
+	raw := strings.Join([]string{vmess, trojan, xray}, "\n")
+
+	for name, render := range map[string]func(string) (string, error){
+		"mihomo":   renderMihomoSubscription,
+		"sing-box": renderSingBoxSubscription,
+	} {
+		t.Run(name, func(t *testing.T) {
+			rendered, err := render(raw)
+			if err != nil {
+				t.Fatalf("render: %v", err)
+			}
+			for _, expected := range []string{"vmess", "trojan", "xray-vless"} {
+				if !strings.Contains(rendered, expected) {
+					t.Fatalf("%s disappeared from output: %s", expected, rendered)
+				}
+			}
+		})
+	}
+}
+
+func TestStrictJSONRejectsUnknownTrailingAndOversizedBodies(t *testing.T) {
+	tests := []struct {
+		name string
+		body string
+	}{
+		{"unknown", `{"mode":"all","surprise":true}`},
+		{"trailing", `{"mode":"all"} {"mode":"selected"}`},
+		{"oversized", `{"mode":"` + strings.Repeat("x", 1024) + `"}`},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			var request model.UpdateKeyAssignmentRequest
+			err := readJSONWithLimit(httptest.NewRecorder(), httptest.NewRequest(http.MethodPut, "/", bytes.NewBufferString(test.body)), &request, 128)
+			if err == nil {
+				t.Fatal("invalid JSON body was accepted")
+			}
+		})
+	}
+}
+
+func TestPublicPageEscapesScriptCSSAndUnsafeURLs(t *testing.T) {
+	cfg := defaultSubscriptionPageConfig()
+	cfg.Theme["pageBackground"] = `red;} </style><script>alert(1)</script>`
+	cfg.Blocks[0].Logo.Src = `javascript:alert(1)`
+	cfg.Blocks[1].Steps[0].Block.Buttons[0].Href = `javascript:alert(2)`
+	htmlDocument := renderSubscriptionPageHTML(
+		cfg,
+		model.PanelSettings{PanelTitle: `</script><script>alert(3)</script>`},
+		`</title><script>alert(4)</script>`,
+		`javascript:alert(5)`,
+		`javascript:alert(6)`,
+		`https://example.test/sub/</script><script>alert(7)</script>`,
+		`happ://add/</script><script>alert(8)</script>`,
+	)
+	if strings.Contains(htmlDocument, "<script>alert(") || strings.Contains(htmlDocument, "javascript:") {
+		t.Fatalf("unsafe content reached page: %s", htmlDocument)
+	}
+	if !strings.Contains(htmlDocument, `\u003c/script\u003e`) {
+		t.Fatalf("inline JSON was not safely encoded: %s", htmlDocument)
+	}
+}

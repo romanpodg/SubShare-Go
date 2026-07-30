@@ -1,9 +1,8 @@
 "use client";
 
-import { FormEvent, useMemo, useState, useEffect } from "react";
+import { CSSProperties, FormEvent, useMemo, useState, useEffect } from "react";
 import Image from "next/image";
-import { Smartphone, Monitor, Terminal, Layers } from "lucide-react";
-import { InfrastructureDiagram } from "@/components/ui/Technical";
+import { Check, Clipboard, Languages, Layers, Link2, Monitor, Send, Smartphone, Terminal } from "lucide-react";
 import type {
   ActivationStepBlockConfig,
   FooterBlockConfig,
@@ -13,6 +12,7 @@ import type {
   PageBlock,
   StepConfig,
 } from "./pageConfig";
+import { NumericGlobe } from "./NumericGlobe";
 import styles from "./subscription-page.module.css";
 
 interface ActivationRuntime {
@@ -102,15 +102,37 @@ function DownloadIcon() {
   );
 }
 
+const MONOCHROME_ICON_SOURCES = new Set([
+  "/subscription/apple.svg",
+  "/subscription/linux.svg",
+  "/subscription/windows.svg",
+]);
+
+export function isMonochromeButtonIcon(button: LinkButtonConfig): boolean {
+  if (button.icon?.type !== "image" || !button.icon.src) return false;
+  const sourcePath = button.icon.src.split(/[?#]/, 1)[0].toLowerCase();
+  return MONOCHROME_ICON_SOURCES.has(sourcePath);
+}
+
 function renderButtonIcon(button: LinkButtonConfig) {
   if (!button.icon) return null;
   if (button.icon.type === "download") return <DownloadIcon />;
   if (!button.icon.src) return null;
 
+  if (isMonochromeButtonIcon(button)) {
+    return (
+      <span
+        className={`${styles.buttonIcon} ${styles.buttonIconMonochrome}`}
+        style={{ "--button-icon-mask": `url("${button.icon.src}")` } as CSSProperties}
+        aria-hidden="true"
+      />
+    );
+  }
+
   return (
     <Image
       src={button.icon.src}
-      alt={button.icon.alt || ""}
+      alt=""
       className={styles.buttonIcon}
       width={20}
       height={20}
@@ -198,11 +220,11 @@ function LinkButtonsBlock({
   }, []);
 
   const platformTabs: Array<{ id: PlatformTab; label: string; icon: React.ReactNode }> = [
-    { id: "all", label: "Все", icon: <Layers className="w-3.5 h-3.5" /> },
-    { id: "android", label: "Android", icon: <Smartphone className="w-3.5 h-3.5" /> },
-    { id: "apple", label: "Apple", icon: <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="currentColor" xmlns="http://www.w3.org/2000/svg"><path d="M12.152 6.896c-.948 0-2.415-1.078-3.96-1.078-2.04 0-3.905 1.158-4.966 3.002-2.117 3.69-.54 9.139 1.519 12.096 1.007 1.452 2.207 3.074 3.774 3.074 1.51 0 2.09-.91 3.916-.91 1.815 0 2.348.91 3.927.91 1.597 0 2.68-1.474 3.675-2.923 1.158-1.688 1.637-3.32 1.67-3.41-.035-.02-3.197-1.22-3.23-4.832-.027-3.013 2.47-4.463 2.585-4.532-1.42-2.073-3.602-2.31-4.38-2.373-2.031-.157-3.23 1.078-4.13 1.078zM15.98 3.82c.835-1.013 1.393-2.422 1.242-3.82-1.2.049-2.657.801-3.52 1.814-.755.877-1.414 2.301-1.233 3.682 1.336.103 2.705-.688 3.511-1.676z"/></svg> },
-    { id: "windows", label: "Windows", icon: <Monitor className="w-3.5 h-3.5" /> },
-    { id: "linux", label: "Linux", icon: <Terminal className="w-3.5 h-3.5" /> },
+    { id: "all", label: "Все", icon: <Layers className={styles.platformFilterIcon} /> },
+    { id: "android", label: "Android", icon: <Smartphone className={styles.platformFilterIcon} /> },
+    { id: "apple", label: "Apple", icon: <svg className={styles.platformFilterIcon} viewBox="0 0 24 24" fill="currentColor" xmlns="http://www.w3.org/2000/svg"><path d="M12.152 6.896c-.948 0-2.415-1.078-3.96-1.078-2.04 0-3.905 1.158-4.966 3.002-2.117 3.69-.54 9.139 1.519 12.096 1.007 1.452 2.207 3.074 3.774 3.074 1.51 0 2.09-.91 3.916-.91 1.815 0 2.348.91 3.927.91 1.597 0 2.68-1.474 3.675-2.923 1.158-1.688 1.637-3.32 1.67-3.41-.035-.02-3.197-1.22-3.23-4.832-.027-3.013 2.47-4.463 2.585-4.532-1.42-2.073-3.602-2.31-4.38-2.373-2.031-.157-3.23 1.078-4.13 1.078zM15.98 3.82c.835-1.013 1.393-2.422 1.242-3.82-1.2.049-2.657.801-3.52 1.814-.755.877-1.414 2.301-1.233 3.682 1.336.103 2.705-.688 3.511-1.676z"/></svg> },
+    { id: "windows", label: "Windows", icon: <Monitor className={styles.platformFilterIcon} /> },
+    { id: "linux", label: "Linux", icon: <Terminal className={styles.platformFilterIcon} /> },
   ];
 
   const getButtonsForPlatform = () => {
@@ -228,19 +250,17 @@ function LinkButtonsBlock({
   const visibleButtons = getButtonsForPlatform();
 
   return (
-    <div className="flex flex-col gap-4 mt-3">
-      {/* Платформы */}
-      <div className="flex w-fit flex-wrap gap-px border border-white/10 bg-white/10">
+    <div className={styles.linkButtonsBlock}>
+      <div className={styles.platformFilters} role="group" aria-label="Выбор платформы">
         {platformTabs.map((tab) => (
           <button
             type="button"
             key={tab.id}
             onClick={() => setSelectedPlatform(tab.id)}
-            className={`flex min-h-10 cursor-pointer items-center gap-1.5 border px-3 font-mono text-[10px] font-semibold uppercase tracking-wide transition-colors ${
-              selectedPlatform === tab.id
-                ? "border-accent/30 bg-accent/8 text-accent"
-                : "border-transparent bg-[#090a0b] text-zinc-500 hover:bg-[#0d0f11] hover:text-zinc-200"
+            className={`${styles.platformFilter} ${
+              selectedPlatform === tab.id ? styles.platformFilterActive : ""
             }`}
+            aria-pressed={selectedPlatform === tab.id}
           >
             {tab.icon}
             <span>{tab.label}</span>
@@ -248,7 +268,6 @@ function LinkButtonsBlock({
         ))}
       </div>
 
-      {/* Кнопки скачивания */}
       <div className={styles.buttons}>
         {visibleButtons.map((button) => {
           const recommended = recommendedButtonIDs.has(button.id);
@@ -316,15 +335,24 @@ function ActivationBlock({
         <>
           <div className={styles.buttons}>
             <a href={activation.subscriptionUrl} className={`${styles.button} ${styles.buttonSubscribe}`}>
-              {block.addButtonLabel}
+              <Send className={styles.buttonIcon} aria-hidden="true" />
+              <span>{block.addButtonLabel}</span>
             </a>
           </div>
 
           <div className={styles.subLinkRow}>
-            <span>{block.manualLinkLabel}</span>
+            <span className={styles.subLinkLabel}>
+              <Link2 className={styles.inlineIcon} aria-hidden="true" />
+              <span>{block.manualLinkLabel}</span>
+            </span>
             <code className={styles.subLinkCode}>{activation.subscriptionUrl}</code>
             <button type="button" className={styles.copyLink} onClick={activation.onCopy}>
-              {activation.copied ? block.copiedLabel : block.copyLabel}
+              {activation.copied ? (
+                <Check className={styles.inlineIcon} aria-hidden="true" />
+              ) : (
+                <Clipboard className={styles.inlineIcon} aria-hidden="true" />
+              )}
+              <span>{activation.copied ? block.copiedLabel : block.copyLabel}</span>
             </button>
           </div>
         </>
@@ -404,18 +432,13 @@ function HeroBlock({
 
         {block.statusBadge ? (
           <div className={styles.statusBadge}>
-            <span className={styles.statusDot} />
-            {block.statusBadge}
+            <span className={styles.statusDot} aria-hidden="true" />
+            <span className={styles.statusText}>{block.statusBadge}</span>
           </div>
         ) : null}
       </div>
       <div className={styles.heroDiagram}>
-        <InfrastructureDiagram className={styles.infrastructureDiagram} />
-        <div className={styles.heroTelemetry}>
-          <span>CORE / ONLINE</span>
-          <span>DELIVERY / READY</span>
-          <span>TLS / ACTIVE</span>
-        </div>
+        <NumericGlobe className={styles.numericGlobe} />
       </div>
     </header>
   );
@@ -431,7 +454,10 @@ function FooterBlock({ block }: { block: FooterBlockConfig }) {
             {block.footerLink.label}
           </a>
         ) : null}
-        <span className={styles.languageBadge}>{block.languageBadge}</span>
+        <span className={styles.languageBadge}>
+          <Languages className={styles.inlineIcon} aria-hidden="true" />
+          <span>{block.languageBadge}</span>
+        </span>
       </div>
     </footer>
   );

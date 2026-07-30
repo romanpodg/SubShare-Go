@@ -6,10 +6,10 @@ import { Input } from "@/components/ui/Input";
 import { Select } from "@/components/ui/Select";
 import { Button } from "@/components/ui/Button";
 import { useToast } from "@/components/ui/Toast";
-import { EmojiText } from "@/components/ui/EmojiText";
 import { users as usersApi } from "@/lib/api";
 import { normalizeDateTimeLocalValue } from "@/lib/datetime";
 import type { User } from "@/lib/types";
+import { CalendarDays } from "lucide-react";
 
 interface Props {
   user: User;
@@ -68,10 +68,10 @@ export function EditSubscriptionModal({ user, onClose, onRefresh }: Props) {
               type="datetime-local"
               value={expiresAt}
               onChange={(e) => setExpiresAt(e.target.value)}
-              className="input-calendar-emoji bg-surface-2 border border-border rounded-lg px-3 py-2 pr-11 text-sm text-zinc-200 placeholder:text-zinc-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-bg w-full"
+              className="input-calendar-icon bg-surface-2 border border-border rounded-lg px-3 py-2 pr-11 text-sm text-zinc-200 placeholder:text-zinc-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-bg w-full"
             />
-            <span className="pointer-events-none absolute inset-y-0 right-0 flex w-11 items-center justify-center text-lg">
-              <EmojiText text="🗓️" />
+            <span className="pointer-events-none absolute inset-y-0 right-0 flex w-11 items-center justify-center text-zinc-500">
+              <CalendarDays className="h-4 w-4" aria-hidden="true" />
             </span>
           </div>
         </div>

@@ -2,7 +2,7 @@
 
 SubShare — лёгкий self-hosted Subscription Hub для управления пользователями, VPN-конфигурациями и персональными ссылками подписок. Проект состоит из Go API, SQLite и маршрутизируемой панели на Next.js. Интерфейс построен как тёмная техническая операционная система: связанная модульная сетка, инфраструктурные схемы, телеметрия и единый signal-green акцент.
 
-Приватный upstream: `https://github.com/romanpodg/SubShare-Go`.
+Репозиторий: `https://github.com/romanpodg/vless-keys-to-sub`.
 
 SubShare не управляет Xray-нодами и не измеряет фактический VPN-трафик. Его задача — безопасно хранить, агрегировать и выдавать конфигурации подходящего формата конкретному клиенту.
 
@@ -34,42 +34,55 @@ cmd/server/openapi.yaml     OpenAPI 3.1 для /api/v1
 - Go 1.24, `net/http`
 - SQLite через `modernc.org/sqlite`
 - Next.js 16, React 19, TypeScript, Tailwind CSS
-- Docker Compose, nginx
+- Docker Compose, Caddy с автоматическим HTTPS
 
 ## Быстрый запуск
 
-Требуются Go 1.24+, Node.js 22+ и npm.
+Для production-запуска нужны только Git и Docker Compose v2. Go, Node.js,
+Caddy и SQLite устанавливаются внутри контейнеров.
 
-PowerShell:
-
-```powershell
-$env:ADMIN_USER = "admin"
-$env:ADMIN_PASSWORD = "admin"
-go run ./cmd/server
-```
-
-В отдельном терминале:
-
-```powershell
-Set-Location frontend
-npm ci
-npm run dev
-```
-
-Откройте `http://localhost:3000/admin/login`. Next.js dev server проксирует `/api/*` и `/sub/*` на `http://localhost:8080`.
-
-Backend не запускается без `ADMIN_PASSWORD`. Начальный `owner` создаётся только когда таблица администраторов пуста.
-
-## Docker
+Ubuntu:
 
 ```bash
-cp .env.example .env
-# задайте ADMIN_PASSWORD, BASE_URL, DOMAIN и SSL_EMAIL
-docker compose up -d --build
-docker compose logs -f
+git clone https://github.com/romanpodg/vless-keys-to-sub.git
+cd vless-keys-to-sub
+bash scripts/start.sh
 ```
 
-Frontend публикуется на портах 80/443; backend доступен только внутри compose-сети. Каталог `data/` монтируется в контейнер и должен храниться на надёжном диске.
+Windows 10/11 с Docker Desktop в режиме Linux containers:
+
+```powershell
+git clone https://github.com/romanpodg/vless-keys-to-sub.git
+Set-Location vless-keys-to-sub
+powershell -ExecutionPolicy Bypass -File .\scripts\start.ps1
+```
+
+При первом запуске скрипт создаёт закрытый `.env`, генерирует стойкий пароль
+owner, собирает образы, выполняет миграции и ждёт готовности сервисов. По
+умолчанию панель открывается на `http://localhost/admin/login`.
+
+Для публичного HTTPS укажите при первом запросе адрес вида
+`https://vpn.example.com`. DNS домена должен указывать на сервер, а порты 80 и
+443 должны быть открыты. Caddy самостоятельно получает и обновляет сертификаты.
+
+Повторный запуск тем же скриптом сохраняет `.env`, БД и сертификаты. Основные
+операции:
+
+```bash
+docker compose logs -f
+docker compose restart
+docker compose down
+```
+
+`docker compose down` сохраняет named volumes. Не используйте `down -v`, если
+не хотите безвозвратно удалить БД и TLS-состояние.
+
+### Локальная разработка
+
+Для разработки без production-контейнеров требуются Go 1.24+, Node.js 22+ и
+npm. Запустите backend с `ADMIN_PASSWORD`, затем `npm ci && npm run dev` в
+`frontend/`. Next.js проксирует `/api/*` и `/sub/*` на `http://localhost:8080`.
+Начальный `owner` создаётся только когда таблица администраторов пуста.
 
 ## Переменные окружения
 
@@ -78,15 +91,16 @@ Frontend публикуется на портах 80/443; backend доступе
 | `ADMIN_USER` | Логин первого owner, по умолчанию `admin` |
 | `ADMIN_PASSWORD` | Обязательный пароль первого owner |
 | `PORT` | Порт Go API, по умолчанию `8080` |
-| `DB_PATH` | Файл SQLite, по умолчанию `data/app.db` |
+| `DB_PATH` | Файл SQLite; в Compose используется `/app/data/app.db` в named volume |
 | `DB_JOURNAL_MODE` | `WAL` по умолчанию; также поддерживаются режимы SQLite из `.env.example` |
-| `BASE_URL` | Публичный origin без завершающего `/` |
+| `BASE_URL` | Публичный origin без завершающего `/`; `http://` оставляет HTTP, `https://` включает automatic HTTPS |
+| `APP_ENV` | При `production` приложение не запускается без корректного `BASE_URL` |
 | `CORS_ORIGINS` | Разрешённые origins через запятую; пусто — CORS выключен |
-| `TRUSTED_PROXIES` | IP/CIDR доверенных reverse proxy; loopback доверен автоматически |
+| `TRUSTED_PROXIES` | IP/CIDR доверенных reverse proxy; без явного разрешения forwarded-заголовки игнорируются |
 | `DEVICE_LIMIT_MESSAGE` | Сообщение при превышении HWID-лимита |
 | `SUBSCRIPTION_BODY_ENCODING` | Legacy fallback: `base64` или `plain`; response rules имеют приоритет |
 | `HAPP_CRYPTO_API_URL` | Опциональный доверенный endpoint шифрования Happ; выключен по умолчанию, так как получает полную subscription URL |
-| `BACKUP_PATH` | Путь вне репозитория для периодического `VACUUM INTO` |
+| `BACKUP_PATH` | Путь консистентной резервной копии; Compose хранит её в persistent volume |
 | `BACKUP_INTERVAL` | Go duration, например `1h` |
 
 Build metadata передаётся линкером:
@@ -159,20 +173,31 @@ curl -H "Authorization: Bearer ss_..." https://example.com/api/v1/dashboard
 
 ## Backup и восстановление
 
-Не храните резервные копии в Git. Для консистентного backup используйте штатный `BACKUP_PATH` или SQLite CLI:
+Backend немедленно создаёт и затем раз в `BACKUP_INTERVAL` атомарно обновляет
+проверенную SQLite-копию внутри persistent volume. Экспортируйте её на хост:
 
 ```bash
-sqlite3 data/app.db ".backup '/secure/path/subshare-$(date +%F).db'"
-sqlite3 /secure/path/subshare-2026-07-28.db "PRAGMA integrity_check;"
+bash scripts/backup.sh
 ```
 
-Перед восстановлением остановите backend, сохраните текущую БД отдельно, замените `data/app.db`, удалите только её `-wal`/`-shm` sidecars и запустите сервис. Проверьте `/health`, вход и существующую subscription URL.
+```powershell
+.\scripts\backup.ps1
+```
+
+Копии создаются в `backups/` и игнорируются Git. Перед восстановлением
+остановите stack и сохраните текущую БД отдельно. Не копируйте активный
+`app.db` напрямую: используйте только экспортированный backup. После
+восстановления проверьте `/health`, вход и существующую subscription URL.
+
+При первом переходе со старой bind-mount конфигурации start-скрипт обнаруживает
+`data/app.db` и копирует его вместе с WAL sidecars в новый named volume, только
+если volume ещё не содержит БД. Исходные файлы не изменяются и не удаляются.
 
 ## Модель угроз
 
 - Внешние источники принимают только HTTP(S). Loopback, private, link-local, unspecified и другие специальные адреса запрещены после DNS resolution и на каждом redirect.
 - Ответ источника имеет лимит размера и времени; redirects ограничены.
-- `X-Forwarded-For` и `X-Real-IP` учитываются только от loopback или явно заданных `TRUSTED_PROXIES`.
+- `X-Forwarded-*` и `X-Real-IP` учитываются только от явно заданных `TRUSTED_PROXIES`.
 - Unsafe browser-запросы требуют CSRF; cookies имеют HttpOnly/SameSite.
 - Rate limiter ограничивает число хранимых IP.
 - Audit и метрики не должны содержать subscription IDs, activation codes, ключи или HWID.

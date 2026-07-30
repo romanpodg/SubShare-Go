@@ -69,7 +69,12 @@ export function CreateKeyCategoryModal({
   };
 
   return (
-    <Modal open={open} onClose={() => (!saving ? onClose() : undefined)} title={title} className="max-w-md">
+    <Modal
+      open={open}
+      onClose={() => (!saving ? onClose() : undefined)}
+      title={title}
+      className="max-w-md max-h-[88dvh]"
+    >
       <div className="space-y-4">
         <Input
           label="Название категории"
@@ -87,14 +92,14 @@ export function CreateKeyCategoryModal({
               value={color}
               onChange={(event) => setColor(normalizeKeyCategoryColor(event.target.value))}
               disabled={saving}
-              className="h-10 w-12 cursor-pointer rounded border border-border bg-transparent p-0"
+              className="h-11 w-11 cursor-pointer rounded-sm border border-border bg-transparent p-0"
             />
             <input
               value={color}
               onChange={(event) => setColor(normalizeKeyCategoryColor(event.target.value))}
               maxLength={7}
               disabled={saving}
-              className="h-10 flex-1 rounded-lg border border-border bg-bg px-3 py-2 text-sm text-zinc-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-bg"
+              className="ui-control flex-1 bg-bg px-3 text-sm"
             />
           </div>
           <div className="flex flex-wrap gap-2">
@@ -104,7 +109,7 @@ export function CreateKeyCategoryModal({
                 type="button"
                 onClick={() => setColor(preset)}
                 disabled={saving}
-                className={`h-8 w-8 rounded-full border transition ${
+                className={`h-11 w-11 rounded-sm border transition ${
                   color === preset ? "border-white ring-2 ring-white/30" : "border-border"
                 }`}
                 style={{ backgroundColor: preset }}

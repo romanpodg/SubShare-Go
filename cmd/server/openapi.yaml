@@ -4,7 +4,7 @@ info:
   version: 1.0.0
   description: |
     Versioned administration API for SubShare. Browser sessions use the
-    `ss_admin_session` cookie and CSRF protection on unsafe requests. API
+    `subshare_admin_session` cookie and CSRF protection on unsafe requests. API
     clients use a scoped bearer token created in Security settings.
 servers:
   - url: /api/v1
@@ -92,6 +92,46 @@ paths:
                 properties:
                   data: { type: object, additionalProperties: true }
         "404": { $ref: "#/components/responses/Error" }
+  /users/{id}/subscription:
+    patch:
+      tags: [Users, Subscription]
+      summary: Partially update user subscription overrides
+      description: Omitted fields are preserved; null clears an override so the global value is inherited.
+      parameters:
+        - { $ref: "#/components/parameters/ID" }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/PatchUserSubscription" }
+      responses:
+        "200": { description: Subscription settings updated }
+        "404": { $ref: "#/components/responses/Error" }
+        default: { $ref: "#/components/responses/Error" }
+    put:
+      deprecated: true
+      tags: [Users, Subscription]
+      summary: Legacy full subscription update
+      parameters:
+        - { $ref: "#/components/parameters/ID" }
+      responses:
+        "200": { description: Subscription settings updated }
+        default: { $ref: "#/components/responses/Error" }
+  /users/{id}/key-assignment:
+    put:
+      tags: [Users, Keys]
+      summary: Set automatic or fixed key assignment mode
+      parameters:
+        - { $ref: "#/components/parameters/ID" }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/KeyAssignment" }
+      responses:
+        "200": { description: Key assignment updated atomically }
+        "404": { $ref: "#/components/responses/Error" }
+        default: { $ref: "#/components/responses/Error" }
   /admins:
     get:
       tags: [Admins]
@@ -533,6 +573,29 @@ components:
         commit: { type: string }
         build_time: { type: string }
         schema_version: { type: integer }
+    PatchUserSubscription:
+      type: object
+      additionalProperties: false
+      properties:
+        status: { type: [string, "null"], enum: [active, paused, blocked, null] }
+        starts_at: { type: [string, "null"], format: date-time }
+        expires_at: { type: [string, "null"], format: date-time }
+        blocked_reason: { type: [string, "null"], maxLength: 500 }
+        subscription_name: { type: [string, "null"], maxLength: 200 }
+        subscription_refresh_hours: { type: [integer, "null"], minimum: 1, maximum: 8760 }
+        subscription_info_url: { type: [string, "null"], format: uri }
+        subscription_extra_url: { type: [string, "null"], format: uri }
+        subscription_extra_status: { type: [string, "null"], maxLength: 200 }
+    KeyAssignment:
+      type: object
+      additionalProperties: false
+      required: [mode]
+      properties:
+        mode: { type: string, enum: [all, selected] }
+        key_ids:
+          type: array
+          uniqueItems: true
+          items: { type: integer, format: int64, minimum: 1 }
     UserSummary:
       type: object
       required: [id, name, status, effective_status]

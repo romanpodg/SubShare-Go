@@ -1,0 +1,29 @@
+{
+	admin 127.0.0.1:2019
+}
+
+{$BASE_URL:http://localhost} {
+	encode zstd gzip
+
+	header {
+		-Server
+		X-Content-Type-Options "nosniff"
+		X-Frame-Options "SAMEORIGIN"
+		Referrer-Policy "strict-origin-when-cross-origin"
+		Strict-Transport-Security "max-age=63072000; includeSubDomains; preload"
+	}
+
+	@immutable path /_next/static/*
+	header @immutable Cache-Control "public, max-age=31536000, immutable"
+
+	@backend path /api/* /sub/* /health
+	handle @backend {
+		reverse_proxy backend:8080
+	}
+
+	handle {
+		root * /srv
+		try_files {path} {path}.html {path}/index.html /index.html
+		file_server
+	}
+}

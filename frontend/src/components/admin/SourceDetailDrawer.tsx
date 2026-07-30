@@ -186,7 +186,7 @@ export function SourceDetailDrawer({
                 <Input label="Категория источника" value={detail.category} onChange={(event) => update("category", event.target.value)} />
                 <Input label="Категория ключей" value={detail.key_category} onChange={(event) => update("key_category", event.target.value)} />
               </div>
-              <div className="grid gap-3 sm:grid-cols-2">
+              <div className="ui-joined-grid grid sm:grid-cols-2">
                 <label className="flex items-center gap-3 rounded-lg border border-border bg-surface-2 px-3 py-2 text-sm text-zinc-300">
                   <input type="checkbox" checked={detail.enabled} onChange={(event) => update("enabled", event.target.checked)} className="accent-cyan-500" />
                   Источник активен
@@ -219,7 +219,7 @@ export function SourceDetailDrawer({
               )}
             </section>
 
-            <section className="grid gap-3 sm:grid-cols-2">
+            <section className="ui-joined-grid grid sm:grid-cols-2">
               {[
                 ["Состояние", detail.import_status],
                 ["Импортировано", detail.imported_keys],

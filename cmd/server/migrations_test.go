@@ -23,8 +23,18 @@ func TestMigrateAppliesVersionedMigrationsIdempotently(t *testing.T) {
 	if err := migrate(db); err != nil {
 		t.Fatalf("first migrate: %v", err)
 	}
+	if _, err := db.Exec(`UPDATE subscription_settings SET refresh_hours = 0 WHERE id = 1`); err != nil {
+		t.Fatalf("prepare no-startup-data-fix assertion: %v", err)
+	}
 	if err := migrate(db); err != nil {
 		t.Fatalf("second migrate: %v", err)
+	}
+	var refreshHours int
+	if err := db.QueryRow(`SELECT refresh_hours FROM subscription_settings WHERE id = 1`).Scan(&refreshHours); err != nil {
+		t.Fatalf("read subscription settings: %v", err)
+	}
+	if refreshHours != 0 {
+		t.Fatalf("startup modified data outside a versioned migration: refresh_hours=%d", refreshHours)
 	}
 
 	var versions int

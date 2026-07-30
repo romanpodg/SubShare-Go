@@ -958,6 +958,25 @@ func syncExternalSourceTx(tx *sql.Tx, source externalSourceRow, parsed externalS
 		statusValue = model.KeyStatusNonActive
 	}
 	targetCategory := normalizeKeyCategory(source.KeyCategory)
+	var targetCategoryID any
+	if targetCategory != "" {
+		var nextCategoryOrder int64
+		if err := tx.QueryRow(`SELECT COALESCE(MAX(sort_order), 0) + 1 FROM key_categories`).Scan(&nextCategoryOrder); err != nil {
+			return 0, 0, err
+		}
+		if _, err := tx.Exec(`
+			INSERT INTO key_categories(name, color, sort_order, updated_at)
+			VALUES(?, '#d8b33d', ?, CURRENT_TIMESTAMP)
+			ON CONFLICT(name) DO NOTHING
+		`, targetCategory, nextCategoryOrder); err != nil {
+			return 0, 0, err
+		}
+		var categoryID int64
+		if err := tx.QueryRow(`SELECT id FROM key_categories WHERE name = ?`, targetCategory).Scan(&categoryID); err != nil {
+			return 0, 0, err
+		}
+		targetCategoryID = categoryID
+	}
 	insertMode := normalizeKeyInsertMode(source.KeyInsertMode)
 
 	type existingKey struct {
@@ -999,17 +1018,17 @@ func syncExternalSourceTx(tx *sql.Tx, source externalSourceRow, parsed externalS
 	var nextSortOrder int64
 	if insertMode == "top" {
 		if err := tx.QueryRow(
-			`SELECT COALESCE(MIN(sort_order), 1) - ? FROM vless_keys WHERE category = ? AND external_source_id != ?`,
+			`SELECT COALESCE(MIN(sort_order), 1) - ? FROM vless_keys WHERE category_id IS ? AND external_source_id != ?`,
 			len(parsed.Keys)+8,
-			targetCategory,
+			targetCategoryID,
 			sourceID,
 		).Scan(&nextSortOrder); err != nil {
 			return 0, 0, err
 		}
 	} else {
 		if err := tx.QueryRow(
-			`SELECT COALESCE(MAX(sort_order), 0) + 1 FROM vless_keys WHERE category = ? AND external_source_id != ?`,
-			targetCategory,
+			`SELECT COALESCE(MAX(sort_order), 0) + 1 FROM vless_keys WHERE category_id IS ? AND external_source_id != ?`,
+			targetCategoryID,
 			sourceID,
 		).Scan(&nextSortOrder); err != nil {
 			return 0, 0, err
@@ -1047,11 +1066,12 @@ func syncExternalSourceTx(tx *sql.Tx, source externalSourceRow, parsed externalS
 		if existing, ok := existingByRef[ref]; ok {
 			if _, err := tx.Exec(
 				`UPDATE vless_keys
-				 SET label = ?, url = ?, category = ?, status = ?, key_kind = 'real', template_text = NULL,
+				 SET label = ?, url = ?, category_id = ?, category = ?, status = ?, key_kind = 'real', template_text = NULL,
 				     check_status = 'unknown', check_error = NULL, last_checked_at = NULL, last_latency_ms = NULL,
+				     health_failure_count = 0,
 				     external_source_id = ?, external_key_ref = ?, sort_order = ?
 				 WHERE id = ?`,
-				label, urlValue, targetCategory, statusValue, sourceID, ref, nextSortOrder, existing.ID,
+				label, urlValue, targetCategoryID, targetCategory, statusValue, sourceID, ref, nextSortOrder, existing.ID,
 			); err != nil {
 				return importedCount, skippedCount, err
 			}
@@ -1063,10 +1083,10 @@ func syncExternalSourceTx(tx *sql.Tx, source externalSourceRow, parsed externalS
 
 		result, err := tx.Exec(
 			`INSERT INTO vless_keys(
-				label, url, category, status, check_status, key_kind, template_text, sort_order,
+				label, url, category_id, category, status, check_status, key_kind, template_text, sort_order,
 				external_source_id, external_key_ref
-			) VALUES(?, ?, ?, ?, 'unknown', 'real', NULL, ?, ?, ?)`,
-			label, urlValue, targetCategory, statusValue, nextSortOrder, sourceID, ref,
+			) VALUES(?, ?, ?, ?, ?, 'unknown', 'real', NULL, ?, ?, ?)`,
+			label, urlValue, targetCategoryID, targetCategory, statusValue, nextSortOrder, sourceID, ref,
 		)
 		if err != nil {
 			// Keep idempotent behavior: duplicate URL in local DB -> skip entry.
@@ -1083,7 +1103,7 @@ func syncExternalSourceTx(tx *sql.Tx, source externalSourceRow, parsed externalS
 		}
 		if _, err := tx.Exec(
 			`INSERT OR IGNORE INTO user_keys(user_id, key_id)
-			 SELECT id, ? FROM users`,
+			 SELECT id, ? FROM users WHERE key_assignment_mode = 'all'`,
 			keyID,
 		); err != nil {
 			return importedCount, skippedCount, err
@@ -1292,11 +1312,8 @@ func (a *App) apiPreviewExternalSource(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	previewItems := make([]map[string]any, 0, 12)
-	for index, item := range parsed.Keys {
-		if index >= 12 {
-			break
-		}
+	previewItems := make([]map[string]any, 0, len(parsed.Keys))
+	for _, item := range parsed.Keys {
 		previewItems = append(previewItems, map[string]any{
 			"label":     item.Label,
 			"scheme":    item.Scheme,

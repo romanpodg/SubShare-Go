@@ -2,6 +2,8 @@ package main
 
 import (
 	"encoding/json"
+	"net/http"
+	"net/http/httptest"
 	"testing"
 )
 
@@ -39,5 +41,31 @@ func TestBuildInformationalXrayJSON(t *testing.T) {
 	protocol, _ := firstOutbound["protocol"].(string)
 	if protocol != "vless" {
 		t.Fatalf("unexpected outbound protocol: %q", protocol)
+	}
+}
+
+func TestResolveBaseURLTrustsOnlyConfiguredProxyAndValidOrigin(t *testing.T) {
+	app := &App{}
+	t.Setenv("TRUSTED_PROXIES", "10.0.0.0/8")
+
+	untrusted := httptest.NewRequest(http.MethodGet, "http://direct.example/sub", nil)
+	untrusted.RemoteAddr = "198.51.100.20:443"
+	untrusted.Header.Set("X-Forwarded-Proto", "https")
+	untrusted.Header.Set("X-Forwarded-Host", "spoofed.example")
+	if got := app.resolveBaseURL(untrusted); got != "http://direct.example" {
+		t.Fatalf("untrusted forwarded origin used: %q", got)
+	}
+
+	trusted := httptest.NewRequest(http.MethodGet, "http://backend:8080/sub", nil)
+	trusted.RemoteAddr = "10.1.2.3:443"
+	trusted.Header.Set("X-Forwarded-Proto", "https")
+	trusted.Header.Set("X-Forwarded-Host", "vpn.example")
+	if got := app.resolveBaseURL(trusted); got != "https://vpn.example" {
+		t.Fatalf("trusted origin ignored: %q", got)
+	}
+
+	trusted.Header.Set("X-Forwarded-Host", "good.example/evil")
+	if got := app.resolveBaseURL(trusted); got != "https://backend:8080" {
+		t.Fatalf("invalid forwarded host accepted: %q", got)
 	}
 }

@@ -7,6 +7,7 @@ import type { SubscriptionTemplate, SubscriptionTemplateFormat } from "@/lib/typ
 import { PageHeader } from "@/components/admin/PageHeader";
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
+import { Select } from "@/components/ui/Select";
 import { useToast } from "@/components/ui/Toast";
 import { InitialLoading, ResourceError } from "@/components/ui/ResourceState";
 import { useAuth } from "@/hooks/useAuth";
@@ -130,18 +131,19 @@ export default function TemplatesPage() {
         </div>
       )}
 
-      <div className="grid gap-px bg-border xl:grid-cols-[340px_1fr]">
+      <div className="ui-joined-grid technical-frame grid xl:grid-cols-[340px_1fr]">
         <aside className="technical-frame overflow-hidden border border-border bg-surface-1">
           <div className="border-b border-border px-4 py-3 text-xs font-semibold uppercase tracking-wider text-zinc-600">
             Доступные шаблоны
           </div>
-          <div className="max-h-[680px] divide-y divide-border overflow-y-auto">
+          <div className="ui-selection-list max-h-[680px] overflow-y-auto">
             {templates.map((item) => (
               <button
                 key={item.id}
                 type="button"
                 onClick={() => edit(item)}
-                className={`w-full px-4 py-4 text-left transition ${selected?.id === item.id ? "bg-cyan-400/10" : "hover:bg-zinc-900/40"}`}
+                aria-current={selected?.id === item.id}
+                className="ui-selection-row px-4 py-4"
               >
                 <div className="flex items-center justify-between gap-3">
                   <span className="truncate text-sm font-medium text-zinc-200">{item.name}</span>
@@ -165,21 +167,19 @@ export default function TemplatesPage() {
           <div className="space-y-5 p-5">
             <div className="grid gap-4 md:grid-cols-[1fr_240px]">
               <Input label="Название" value={draft.name} disabled={!isOwner} onChange={(event) => setDraft((value) => ({ ...value, name: event.target.value }))} />
-              <label className="flex flex-col gap-1.5 text-sm text-zinc-400">
-                Формат
-                <select
-                  value={draft.format}
-                  disabled={!isOwner}
-                  onChange={(event) => setDraft((value) => ({ ...value, format: event.target.value as SubscriptionTemplateFormat }))}
-                  className="rounded-lg border border-border bg-surface-2 px-3 py-2 text-sm text-zinc-200 focus:outline-none focus:ring-2 focus:ring-accent"
-                >
-                  <option value="base64">Base64</option>
-                  <option value="plain">Plain links</option>
-                  <option value="xray-json">Xray JSON</option>
-                  <option value="mihomo">Mihomo YAML</option>
-                  <option value="sing-box">Sing-box JSON</option>
-                </select>
-              </label>
+              <Select
+                label="Формат"
+                value={draft.format}
+                disabled={!isOwner}
+                onChange={(event) => setDraft((value) => ({ ...value, format: event.target.value as SubscriptionTemplateFormat }))}
+                options={[
+                  { value: "base64", label: "Base64" },
+                  { value: "plain", label: "Plain links" },
+                  { value: "xray-json", label: "Xray JSON" },
+                  { value: "mihomo", label: "Mihomo YAML" },
+                  { value: "sing-box", label: "Sing-box JSON" },
+                ]}
+              />
             </div>
 
             <label className="flex flex-col gap-1.5 text-sm text-zinc-400">

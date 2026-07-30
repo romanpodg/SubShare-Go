@@ -122,6 +122,7 @@ export function DashboardShell({ children }: { children: ReactNode }) {
 
   const sidebar = (
     <aside
+      data-collapsed={collapsed}
       className={`flex h-full flex-col border-r border-border bg-[#070808] ${
         collapsed ? "w-[72px]" : "w-[248px]"
       } transition-[width] duration-200`}
@@ -145,18 +146,21 @@ export function DashboardShell({ children }: { children: ReactNode }) {
         )}
       </div>
 
-      <nav className="flex-1 overflow-y-auto py-4" aria-label="Основная навигация">
+      <nav className="ui-sidebar-nav flex-1 overflow-y-auto py-4" aria-label="Основная навигация">
         {navigation.map((section) => {
           const visible = section.items.filter((item) => !item.ownerOnly || isOwner);
           if (!visible.length) return null;
           return (
             <div key={section.label} className="mb-5">
-              {!collapsed && (
-                <div className="mb-2 flex items-center justify-between px-4">
-                  <SystemLabel>{section.label}</SystemLabel>
-                  <span className="font-mono text-[9px] text-zinc-700">{section.code}</span>
-                </div>
-              )}
+              <div
+                aria-hidden={collapsed}
+                className={`mb-2 flex h-3.5 items-center justify-between overflow-hidden ${
+                  collapsed ? "invisible px-0" : "px-4"
+                }`}
+              >
+                <SystemLabel>{section.label}</SystemLabel>
+                <span className="font-mono text-[9px] text-zinc-700">{section.code}</span>
+              </div>
               <div className="border-y border-border/60">
                 {visible.map((item, index) => {
                   const Icon = item.icon;
@@ -167,7 +171,7 @@ export function DashboardShell({ children }: { children: ReactNode }) {
                       href={item.href}
                       onClick={() => setMobileOpen(false)}
                       title={collapsed ? item.label : undefined}
-                      className={`group relative flex min-h-11 items-center border-b border-border/60 px-4 text-sm transition-colors last:border-b-0 ${
+                      className={`ui-sidebar-nav-item group relative flex min-h-11 items-center border-b border-border/60 px-4 text-sm transition-colors last:border-b-0 ${
                         active
                           ? "bg-accent/[0.075] text-zinc-100"
                           : "text-zinc-500 hover:bg-surface-1 hover:text-zinc-100"
@@ -213,7 +217,7 @@ export function DashboardShell({ children }: { children: ReactNode }) {
   );
 
   return (
-    <div className="min-h-screen bg-bg text-zinc-100">
+    <div className="admin-control-plane min-h-screen bg-bg text-zinc-100">
       <div className="fixed inset-y-0 left-0 z-40 hidden lg:block">{sidebar}</div>
 
       {mobileOpen && (

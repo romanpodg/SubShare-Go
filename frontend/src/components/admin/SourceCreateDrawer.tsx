@@ -13,6 +13,7 @@ import { Button } from "@/components/ui/Button";
 import { Drawer } from "@/components/ui/Drawer";
 import { Input } from "@/components/ui/Input";
 import { ResourceError } from "@/components/ui/ResourceState";
+import { Select } from "@/components/ui/Select";
 
 interface Props {
   open: boolean;
@@ -193,7 +194,7 @@ export function SourceCreateDrawer({
       description="Подключение выполняется только сервером с защитой от SSRF."
       footer={footer}
     >
-      <div className="mb-6 grid grid-cols-3 gap-2" aria-label={`Шаг ${step} из 3`}>
+      <div className="ui-joined-grid mb-6 grid grid-cols-3" aria-label={`Шаг ${step} из 3`}>
         {["Подключение", "Параметры", "Проверка"].map((label, index) => {
           const value = index + 1;
           return (
@@ -299,20 +300,18 @@ export function SourceCreateDrawer({
               {sourceCategoryNames.map((item) => <option key={item} value={item} />)}
             </datalist>
           </div>
-          <label className="flex flex-col gap-1.5 text-sm text-zinc-400">
-            Категория импортированных ключей
-            <select
-              value={keyCategory}
-              onChange={(event) => setKeyCategory(event.target.value)}
-              className="rounded-lg border border-border bg-surface-2 px-3 py-2.5 text-sm text-zinc-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
-            >
-              <option value="">Без категории</option>
-              {keyCategories.map((item) => <option key={item.name} value={item.name}>{item.name}</option>)}
-            </select>
-          </label>
+          <Select
+            label="Категория импортированных ключей"
+            value={keyCategory}
+            onChange={(event) => setKeyCategory(event.target.value)}
+            options={[
+              { value: "", label: "Без категории" },
+              ...keyCategories.map((item) => ({ value: item.name, label: item.name })),
+            ]}
+          />
           <div>
             <div className="mb-2 text-sm text-zinc-400">Позиция новых ключей</div>
-            <div className="grid grid-cols-2 gap-2">
+            <div className="ui-joined-grid grid grid-cols-2">
               {(["top", "bottom"] as const).map((value) => (
                 <button
                   key={value}
@@ -338,7 +337,7 @@ export function SourceCreateDrawer({
 
       {step === 3 && preview && (
         <div className="space-y-5">
-          <section className="grid gap-3 sm:grid-cols-2">
+          <section className="ui-joined-grid grid sm:grid-cols-2">
             {[
               ["Источник", name || preview.suggested_name],
               ["Формат", preview.detected_format],
@@ -360,7 +359,7 @@ export function SourceCreateDrawer({
             </section>
           )}
           <section className="overflow-hidden rounded-xl border border-border bg-surface-1">
-            <div className="border-b border-border px-4 py-3 text-sm font-medium text-zinc-300">Примеры ключей</div>
+            <div className="border-b border-border px-4 py-3 text-sm font-medium text-zinc-300">Все ключи</div>
             <div className="divide-y divide-border">
               {preview.keys.map((key, index) => (
                 <div key={`${key.url_short}-${index}`} className="px-4 py-3">

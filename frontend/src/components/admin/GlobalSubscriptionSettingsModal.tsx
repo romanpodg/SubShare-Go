@@ -37,7 +37,6 @@ interface Props {
 }
 
 type SubscriptionFormatOption = "links" | "xray-json";
-type HappNoLimitOption = "none" | "no-limit" | "xhttp-only";
 
 interface SegmentedOption<T extends string> {
   value: T;
@@ -48,50 +47,6 @@ const SUBSCRIPTION_FORMAT_OPTIONS: SegmentedOption<SubscriptionFormatOption>[] =
   { value: "links", label: "Ссылки-ключи" },
   { value: "xray-json", label: "XRAY-JSON" },
 ];
-
-const HAPP_NO_LIMIT_OPTIONS: SegmentedOption<HappNoLimitOption>[] = [
-  { value: "none", label: "No effect" },
-  { value: "no-limit", label: "No limit Mode" },
-  { value: "xhttp-only", label: "No limit mode XHTTP" },
-];
-
-function HappToggle({
-  label,
-  checked,
-  onChange,
-  disabled,
-}: {
-  label: string;
-  checked: boolean;
-  onChange: (next: boolean) => void;
-  disabled: boolean;
-}) {
-  return (
-    <button
-      type="button"
-      onClick={() => !disabled && onChange(!checked)}
-      disabled={disabled}
-      className={`flex items-center justify-between rounded-xl border px-4 py-2.5 text-left transition-colors ${
-        disabled
-          ? "cursor-not-allowed border-border bg-surface-2/40 text-zinc-500 opacity-60"
-          : "border-border bg-surface-2 hover:bg-surface-1"
-      }`}
-    >
-      <span className="text-sm font-medium text-inherit">{label}</span>
-      <span
-        className={`relative inline-flex h-5.5 w-10 shrink-0 items-center rounded-full transition-colors ${
-          checked && !disabled ? "bg-accent" : "bg-zinc-700"
-        }`}
-      >
-        <span
-          className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
-            checked ? "translate-x-5" : "translate-x-1"
-          }`}
-        />
-      </span>
-    </button>
-  );
-}
 
 function SegmentedSelector<T extends string>({
   label,
@@ -155,6 +110,8 @@ export function GlobalSubscriptionSettingsModal({ open, onClose, onSaved }: Prop
   const [customTimeZone, setCustomTimeZone] = useState("");
   const [language, setLanguage] = useState("ru");
   const [providerID, setProviderID] = useState("");
+  const [infoURL, setInfoURL] = useState("");
+  const [happSubscriptionBody, setHappSubscriptionBody] = useState("");
   const [happNoLimitMode, setHappNoLimitMode] = useState(false);
   const [happNoLimitModeXHTTPOnly, setHappNoLimitModeXHTTPOnly] = useState(false);
   const [happMandatoryHWID, setHappMandatoryHWID] = useState(false);
@@ -214,6 +171,8 @@ export function GlobalSubscriptionSettingsModal({ open, onClose, onSaved }: Prop
         setCustomTimeZone(hasPresetTimeZone ? "" : normalizedTimeZone);
         setLanguage(next.language);
         setProviderID(next.providerID);
+        setInfoURL(data.info_url || "");
+        setHappSubscriptionBody(data.happ_subscription_body || "");
         setHappNoLimitMode(next.happNoLimitMode);
         setHappNoLimitModeXHTTPOnly(next.happNoLimitModeXHTTPOnly);
         setHappMandatoryHWID(next.happMandatoryHWID);
@@ -243,8 +202,6 @@ export function GlobalSubscriptionSettingsModal({ open, onClose, onSaved }: Prop
     }
     return timeZoneChoice;
   }, [timeZoneChoice, customTimeZone]);
-
-  const hasProviderID = providerID.trim() !== "";
 
   const hasChanges = useMemo(() => {
     return (
@@ -279,35 +236,12 @@ export function GlobalSubscriptionSettingsModal({ open, onClose, onSaved }: Prop
     initialState,
   ]);
 
+  const validProviderID = providerID.trim() === "" || /^[A-Za-z0-9]{8}$/.test(providerID.trim());
   const canSubmit =
     initialLoaded &&
     hasChanges &&
+    validProviderID &&
     !(timeZoneChoice === CUSTOM_TIMEZONE_VALUE && effectiveTimeZone === "");
-
-  const happNoLimitModeOption: HappNoLimitOption = useMemo(() => {
-    if (happNoLimitModeXHTTPOnly) {
-      return "xhttp-only";
-    }
-    if (happNoLimitMode) {
-      return "no-limit";
-    }
-    return "none";
-  }, [happNoLimitMode, happNoLimitModeXHTTPOnly]);
-
-  const setHappNoLimitOption = (next: HappNoLimitOption) => {
-    if (next === "no-limit") {
-      setHappNoLimitMode(true);
-      setHappNoLimitModeXHTTPOnly(false);
-      return;
-    }
-    if (next === "xhttp-only") {
-      setHappNoLimitMode(false);
-      setHappNoLimitModeXHTTPOnly(true);
-      return;
-    }
-    setHappNoLimitMode(false);
-    setHappNoLimitModeXHTTPOnly(false);
-  };
 
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();
@@ -318,19 +252,19 @@ export function GlobalSubscriptionSettingsModal({ open, onClose, onSaved }: Prop
       await subscriptionSettingsApi.update({
         title,
         refresh_hours: parsedRefreshHours,
-        info_url: "",
+        info_url: infoURL,
         extra_url: extraURL,
         extra_status: extraStatus,
         subscription_format: subscriptionFormat,
         time_zone: effectiveTimeZone,
         language,
         provider_id: providerID.trim(),
-        happ_no_limit_mode: hasProviderID ? happNoLimitMode : false,
-        happ_no_limit_mode_xhttp_only: hasProviderID ? happNoLimitModeXHTTPOnly : false,
-        happ_mandatory_hwid: hasProviderID ? happMandatoryHWID : false,
-        happ_notify_expiration: hasProviderID ? happNotifyExpiration : false,
-        happ_hide_server_settings: hasProviderID ? happHideServerSettings : false,
-        happ_subscription_body: "",
+        happ_no_limit_mode: happNoLimitMode,
+        happ_no_limit_mode_xhttp_only: happNoLimitModeXHTTPOnly,
+        happ_mandatory_hwid: happMandatoryHWID,
+        happ_notify_expiration: happNotifyExpiration,
+        happ_hide_server_settings: happHideServerSettings,
+        happ_subscription_body: happSubscriptionBody,
       });
       toast("Общие настройки подписки обновлены", "success");
       setInitialState({
@@ -342,11 +276,11 @@ export function GlobalSubscriptionSettingsModal({ open, onClose, onSaved }: Prop
         timeZone: effectiveTimeZone,
         language,
         providerID,
-        happNoLimitMode: hasProviderID ? happNoLimitMode : false,
-        happNoLimitModeXHTTPOnly: hasProviderID ? happNoLimitModeXHTTPOnly : false,
-        happMandatoryHWID: hasProviderID ? happMandatoryHWID : false,
-        happNotifyExpiration: hasProviderID ? happNotifyExpiration : false,
-        happHideServerSettings: hasProviderID ? happHideServerSettings : false,
+        happNoLimitMode,
+        happNoLimitModeXHTTPOnly,
+        happMandatoryHWID,
+        happNotifyExpiration,
+        happHideServerSettings,
       });
       if (onSaved) {
         await onSaved();
@@ -364,10 +298,10 @@ export function GlobalSubscriptionSettingsModal({ open, onClose, onSaved }: Prop
       open={open}
       onClose={onClose}
       title="Настройки сервиса"
-      className="w-[96vw] max-w-[96rem] max-h-[92vh] overflow-y-auto"
+      className="w-[96vw] max-w-[96rem] max-h-[92dvh]"
     >
       <form onSubmit={handleSubmit} className="flex flex-col gap-4">
-        <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_minmax(26rem,1fr)]">
+        <div className="ui-joined-grid grid xl:grid-cols-[minmax(0,1fr)_minmax(26rem,1fr)]">
           <div className="grid content-start gap-3 rounded-xl border border-border bg-surface-2/20 p-4">
             <div className="text-sm font-semibold text-zinc-200">Редактор подписки</div>
             <Input
@@ -480,51 +414,11 @@ export function GlobalSubscriptionSettingsModal({ open, onClose, onSaved }: Prop
                 markFieldChange();
                 setProviderID(e.target.value);
               }}
-              placeholder="Например, happ-provider-main"
+              placeholder="Например, A1B2C3D4"
+              maxLength={8}
             />
-            {!hasProviderID && (
-              <div className="rounded-lg border border-border bg-surface-2/50 px-3 py-2 text-xs text-zinc-500">
-                Пока Provider ID не заполнен, Happ-тогглы ниже неактивны и не будут применяться к подписке.
-              </div>
-            )}
-            <div className="grid gap-2.5">
-              <SegmentedSelector
-                label="No Limit Mode"
-                value={happNoLimitModeOption}
-                options={HAPP_NO_LIMIT_OPTIONS}
-                onChange={(next) => {
-                  markFieldChange();
-                  setHappNoLimitOption(next);
-                }}
-                disabled={!hasProviderID}
-              />
-              <HappToggle
-                label="Неотключаемый HWID"
-                checked={happMandatoryHWID}
-                onChange={(next) => {
-                  markFieldChange();
-                  setHappMandatoryHWID(next);
-                }}
-                disabled={!hasProviderID}
-              />
-              <HappToggle
-                label="Уведомление об окончании подписки"
-                checked={happNotifyExpiration}
-                onChange={(next) => {
-                  markFieldChange();
-                  setHappNotifyExpiration(next);
-                }}
-                disabled={!hasProviderID}
-              />
-              <HappToggle
-                label="Скрыть настройки сервера в подписке"
-                checked={happHideServerSettings}
-                onChange={(next) => {
-                  markFieldChange();
-                  setHappHideServerSettings(next);
-                }}
-                disabled={!hasProviderID}
-              />
+            <div className={`rounded-lg border px-3 py-2 text-xs ${validProviderID ? "border-border bg-surface-2/50 text-zinc-500" : "border-red-500/40 bg-red-500/10 text-red-300"}`}>
+              Provider ID должен состоять ровно из 8 латинских букв или цифр. Неподтверждённые Happ-параметры скрыты; их прежние значения сохраняются.
             </div>
           </div>
         </div>

@@ -272,11 +272,8 @@ func (a *App) apiV1PreviewSource(w http.ResponseWriter, r *http.Request) {
 		writeV1FieldError(w, r, http.StatusBadRequest, "source_preview_failed", err.Error(), "source_url")
 		return
 	}
-	previewItems := make([]map[string]any, 0, 12)
-	for index, item := range parsed.Keys {
-		if index >= 12 {
-			break
-		}
+	previewItems := make([]map[string]any, 0, len(parsed.Keys))
+	for _, item := range parsed.Keys {
 		previewItems = append(previewItems, map[string]any{
 			"label": item.Label, "scheme": item.Scheme, "url_short": vless.TruncateMiddle(item.URL, 88),
 		})
@@ -340,29 +337,50 @@ func (a *App) apiV1CreateSource(w http.ResponseWriter, r *http.Request) {
 	}
 	category := normalizeExternalSourceCategory(req.Category)
 	keyCategory := normalizeKeyCategory(req.KeyCategory)
-	if err := a.upsertExternalSourceCategory(category); err != nil {
-		writeV1Error(w, r, http.StatusInternalServerError, "source_category_failed", "failed to save source category")
-		return
-	}
-	if keyCategory != "" {
-		if err := a.upsertKeyCategory(keyCategory); err != nil {
-			writeV1Error(w, r, http.StatusInternalServerError, "key_category_failed", "failed to save key category")
-			return
-		}
-	}
 	tx, err := a.db.Begin()
 	if err != nil {
 		writeV1Error(w, r, http.StatusInternalServerError, "source_create_failed", "failed to create source")
 		return
 	}
 	defer tx.Rollback()
+	if _, err := tx.Exec(`INSERT OR IGNORE INTO external_source_categories(name) VALUES(?)`, category); err != nil {
+		writeV1Error(w, r, http.StatusInternalServerError, "source_category_failed", "failed to save source category")
+		return
+	}
+	var sourceCategoryID int64
+	if err := tx.QueryRow(`SELECT id FROM external_source_categories WHERE name = ?`, category).Scan(&sourceCategoryID); err != nil {
+		writeV1Error(w, r, http.StatusInternalServerError, "source_category_failed", "failed to resolve source category")
+		return
+	}
+	var keyCategoryID any
+	if keyCategory != "" {
+		var nextCategoryOrder int64
+		if err := tx.QueryRow(`SELECT COALESCE(MAX(sort_order), 0) + 1 FROM key_categories`).Scan(&nextCategoryOrder); err != nil {
+			writeV1Error(w, r, http.StatusInternalServerError, "key_category_failed", "failed to save key category")
+			return
+		}
+		if _, err := tx.Exec(`
+			INSERT INTO key_categories(name, color, sort_order, updated_at)
+			VALUES(?, '#d8b33d', ?, CURRENT_TIMESTAMP)
+			ON CONFLICT(name) DO NOTHING
+		`, keyCategory, nextCategoryOrder); err != nil {
+			writeV1Error(w, r, http.StatusInternalServerError, "key_category_failed", "failed to save key category")
+			return
+		}
+		var resolvedID int64
+		if err := tx.QueryRow(`SELECT id FROM key_categories WHERE name = ?`, keyCategory).Scan(&resolvedID); err != nil {
+			writeV1Error(w, r, http.StatusInternalServerError, "key_category_failed", "failed to resolve key category")
+			return
+		}
+		keyCategoryID = resolvedID
+	}
 
 	result, err := tx.Exec(`
 		INSERT INTO external_subscription_sources(
-			name, category, key_category, key_insert_mode, source_url, enabled, apply_remote_metadata,
+			name, source_category_id, category, key_category_id, key_category, key_insert_mode, source_url, enabled, apply_remote_metadata,
 			pass_hwid, hwid_version, hwid_model_name, hwid_value, import_status, updated_at
-		) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'syncing', CURRENT_TIMESTAMP)
-	`, name, category, keyCategory, normalizeKeyInsertMode(req.KeyInsertMode), sourceURL,
+		) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'syncing', CURRENT_TIMESTAMP)
+	`, name, sourceCategoryID, category, keyCategoryID, keyCategory, normalizeKeyInsertMode(req.KeyInsertMode), sourceURL,
 		boolToInt(req.Enabled), boolToInt(req.ApplyRemoteMetadata), boolToInt(hwidProfile.PassHWID),
 		nullStringValue(hwidProfile.Version), nullStringValue(hwidProfile.ModelName), nullStringValue(hwidProfile.HWID))
 	if err != nil {

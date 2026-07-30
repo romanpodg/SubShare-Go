@@ -62,6 +62,21 @@ func clientDisplayNameFromKeyURL(rawURL, fallback string) string {
 }
 
 func migrate(db *sql.DB) error {
+	// Legacy bootstrap remains only for databases created before versioned
+	// migrations existed. Once schema_migrations is present, startup must be a
+	// pure versioned migration runner and must not repeat data-fix UPDATEs.
+	var migrationTableCount int
+	if err := db.QueryRow(`
+		SELECT COUNT(*)
+		  FROM sqlite_master
+		 WHERE type = 'table' AND name = 'schema_migrations'
+	`).Scan(&migrationTableCount); err != nil {
+		return err
+	}
+	if migrationTableCount > 0 {
+		return runVersionedMigrations(db)
+	}
+
 	queries := []string{
 		`CREATE TABLE IF NOT EXISTS users (
 			id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -568,9 +583,10 @@ func (a *App) listUsers() ([]model.User, error) {
 			u.subscription_info_url, u.subscription_extra_url, u.subscription_extra_status,
 			u.activation_used_at, u.status, u.starts_at, u.expires_at,
 			u.blocked_reason,
-			COALESCE(NULLIF(u.max_devices, 0), 1) AS max_devices,
+			COALESCE(u.max_devices, 0) AS max_devices,
 			COALESCE(d.connected_devices, 0) AS connected_devices,
 			COALESCE(d.connected_hwids, '') AS connected_hwids,
+			COALESCE(NULLIF(TRIM(u.key_assignment_mode), ''), 'all') AS key_assignment_mode,
 			u.created_at,
 			COALESCE(k.assigned_key_ids, '') AS assigned_key_ids
 		FROM users u
@@ -626,6 +642,7 @@ func (a *App) listUsers() ([]model.User, error) {
 			&maxDevices,
 			&connectedDevices,
 			&connectedHWIDs,
+			&u.KeyAssignmentMode,
 			&u.CreatedAt,
 			&assignedKeyIDs,
 		); err != nil {
@@ -649,14 +666,18 @@ func (a *App) listUsers() ([]model.User, error) {
 		u.SubscriptionInfoURL = strings.TrimSpace(subscriptionInfoURL.String)
 		u.SubscriptionExtraURL = strings.TrimSpace(subscriptionExtraURL.String)
 		u.SubscriptionExtraStatus = strings.TrimSpace(subscriptionExtraStatus.String)
+		location, locationErr := time.LoadLocation(u.TimeZone)
+		if locationErr != nil {
+			location = time.UTC
+		}
 		if activationUsedAt.Valid {
-			u.ActivationUsedAt = activationUsedAt.Time.Local().Format("02/01/2006 15:04")
+			u.ActivationUsedAt = activationUsedAt.Time.In(location).Format("02/01/2006 15:04")
 		}
 		u.Status = model.NormalizeStoredStatus(status.String)
-		u.StartsAtInput = formatDateTimeInput(startsAt)
-		u.ExpiresAtInput = formatDateTimeInput(expiresAt)
+		u.StartsAtInput = formatDateTimeInputInLocation(startsAt, location)
+		u.ExpiresAtInput = formatDateTimeInputInLocation(expiresAt, location)
 		u.BlockedReason = strings.TrimSpace(blockedReason.String)
-		u.MaxDevices = 1
+		u.MaxDevices = 0
 		if maxDevices.Valid && maxDevices.Int64 > 0 {
 			u.MaxDevices = int(maxDevices.Int64)
 		}
@@ -754,7 +775,14 @@ func (a *App) listUsers() ([]model.User, error) {
 	}
 
 	for index := range out {
-		out[index].ConnectedDevices = devicesByUser[out[index].ID]
+		devices := devicesByUser[out[index].ID]
+		if devices == nil {
+			devices = make([]model.ConnectedDevice, 0)
+		}
+		out[index].ConnectedDevices = devices
+		if out[index].ConnectedHWIDs == nil {
+			out[index].ConnectedHWIDs = make([]string, 0)
+		}
 	}
 
 	return out, nil
@@ -1024,7 +1052,11 @@ func (a *App) subscriptionAccessAllowed(subscriptionID string) (bool, int64, int
 	now := time.Now().UTC()
 
 	if normalizedStatus == model.UserStatusBlocked {
-		return false, userID, http.StatusForbidden, "subscription blocked", nil
+		reason := strings.TrimSpace(blockedReason.String)
+		if reason == "" {
+			reason = "subscription blocked"
+		}
+		return false, userID, http.StatusForbidden, reason, nil
 	}
 	if normalizedStatus == model.UserStatusPaused {
 		return false, userID, http.StatusForbidden, "subscription paused", nil
@@ -1033,7 +1065,7 @@ func (a *App) subscriptionAccessAllowed(subscriptionID string) (bool, int64, int
 		return false, userID, http.StatusForbidden, "subscription is not active yet", nil
 	}
 	if expiresAt.Valid && now.After(expiresAt.Time.UTC()) {
-		return false, userID, http.StatusForbidden, "subscription expired", nil
+		return false, userID, http.StatusGone, "subscription expired", nil
 	}
 
 	return true, userID, http.StatusOK, "", nil

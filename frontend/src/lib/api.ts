@@ -137,18 +137,18 @@ export const auth = {
 
 // Admins
 export const admins = {
-  list: () => request<{ admins: Admin[] }>("GET", "/api/admin/admins"),
+  list: () => request<{ admins: Admin[] }>("GET", "/api/v1/admins"),
   create: (data: { username: string; password: string; role: string }) =>
-    request<{ message: string }>("POST", "/api/admin/admins", data),
+    request<{ message: string }>("POST", "/api/v1/admins", data),
   update: (id: number, data: { password?: string; role?: string }) =>
-    request<{ message: string }>("PUT", `/api/admin/admins/${id}`, data),
+    request<{ message: string }>("PUT", `/api/v1/admins/${id}`, data),
   delete: (id: number) =>
-    request<{ message: string }>("DELETE", `/api/admin/admins/${id}`),
+    request<{ message: string }>("DELETE", `/api/v1/admins/${id}`),
 };
 
 // Users
 export const users = {
-  list: () => request<{ users: User[] }>("GET", "/api/admin/users"),
+  list: () => request<{ users: User[] }>("GET", "/api/v1/users/full"),
   create: (data: {
     name: string;
     email: string;
@@ -156,63 +156,66 @@ export const users = {
     status: string;
     issue_days: number;
     blocked_reason?: string;
-  }) => request<{ message: string }>("POST", "/api/admin/users", data),
-  delete: (id: number) => request<{ message: string }>("DELETE", `/api/admin/users/${id}`),
+  }) => request<{ message: string }>("POST", "/api/v1/users", data),
+  delete: (id: number) => request<{ message: string }>("DELETE", `/api/v1/users/${id}`),
   updateKeys: (id: number, key_ids: number[]) =>
-    request<{ message: string }>("PUT", `/api/admin/users/${id}/keys`, { key_ids }),
+    request<{ message: string }>("PUT", `/api/v1/users/${id}/key-assignment`, { mode: "selected", key_ids }),
+  updateKeyAssignment: (id: number, mode: "all" | "selected", key_ids: number[] = []) =>
+    request<{ message: string }>("PUT", `/api/v1/users/${id}/key-assignment`, { mode, key_ids }),
   updateSubscription: (
     id: number,
     data: {
-      status: string;
-      starts_at: string;
-      expires_at: string;
-      blocked_reason?: string;
-      subscription_name?: string;
-      subscription_refresh_hours?: number;
-      subscription_info_url?: string;
-      subscription_extra_url?: string;
-      subscription_extra_status?: string;
+      status?: string | null;
+      starts_at?: string | null;
+      expires_at?: string | null;
+      blocked_reason?: string | null;
+      subscription_name?: string | null;
+      subscription_refresh_hours?: number | null;
+      subscription_info_url?: string | null;
+      subscription_extra_url?: string | null;
+      subscription_extra_status?: string | null;
     }
-  ) => request<{ message: string }>("PUT", `/api/admin/users/${id}/subscription`, data),
+  ) => request<{ message: string }>("PATCH", `/api/v1/users/${id}/subscription`, data),
   getSubscriptionURLs: (id: number) =>
-    request<{ plain_url: string; encrypted_url: string }>("GET", `/api/admin/users/${id}/subscription-urls`),
+    request<{ plain_url: string; encrypted_url: string }>("GET", `/api/v1/users/${id}/subscription-urls`),
   updateSettings: (
     id: number,
     data: {
       time_zone: string;
       language: string;
     }
-  ) => request<{ message: string }>("PUT", `/api/admin/users/${id}/settings`, data),
+  ) => request<{ message: string }>("PUT", `/api/v1/users/${id}/settings`, data),
   updateHwid: (id: number, max_devices: number) =>
-    request<{ message: string }>("PUT", `/api/admin/users/${id}/hwid`, { max_devices }),
+    request<{ message: string }>("PUT", `/api/v1/users/${id}/hwid`, { max_devices }),
   deleteHwid: (id: number, hwid: string) =>
     request<{ message: string }>(
       "DELETE",
-      `/api/admin/users/${id}/hwid/${encodeURIComponent(hwid)}`
+      `/api/v1/users/${id}/hwid/${encodeURIComponent(hwid)}`
     ),
 };
 
 // Keys
 export const keys = {
-  list: () => request<{ keys: VLESSKey[] }>("GET", "/api/admin/keys"),
+  list: () => request<{ keys: VLESSKey[] }>("GET", "/api/v1/keys/full"),
   listCategories: () =>
-    request<{ categories: KeyCategory[] }>("GET", "/api/admin/key-categories"),
+    request<{ data: KeyCategory[] }>("GET", "/api/v1/key-categories")
+      .then(({ data }) => ({ categories: data })),
   createCategory: (name: string, color?: string) =>
-    request<{ category: KeyCategory; message: string }>("POST", "/api/admin/key-categories", { name, color }),
+    request<{ category: KeyCategory; message: string }>("POST", "/api/v1/key-categories", { name, color }),
   updateCategory: (old_name: string, new_name: string, color: string) =>
-    request<{ category: KeyCategory; message: string }>("PUT", "/api/admin/key-categories", { old_name, new_name, color }),
+    request<{ category: KeyCategory; message: string }>("PUT", "/api/v1/key-categories", { old_name, new_name, color }),
   reorderCategories: (names: string[]) =>
-    request<{ message: string }>("PUT", "/api/admin/key-categories/order", { names }),
+    request<{ message: string }>("PUT", "/api/v1/key-categories/order", { names }),
   renameCategory: (old_name: string, new_name: string) =>
-    request<{ message: string }>("PUT", "/api/admin/key-categories/rename", { old_name, new_name }),
+    request<{ message: string }>("PUT", "/api/v1/key-categories/rename", { old_name, new_name }),
   deleteCategory: (name: string, mode: "delete_with_keys" | "keep_keys") =>
-    request<{ message: string }>("POST", "/api/admin/key-categories/delete", { name, mode }),
+    request<{ message: string }>("POST", "/api/v1/key-categories/delete", { name, mode }),
   create: (data: { label: string; url?: string; status: string; kind: string; category?: string; template_text?: string }) =>
-    request<{ message: string }>("POST", "/api/admin/keys", data),
+    request<{ message: string }>("POST", "/api/v1/keys", data),
   bulkUpdateStatus: (ids: number[], status: string, category?: string) =>
-    request<{ message: string; updated: number }>("POST", "/api/admin/keys/bulk/status", { ids, status, category }),
+    request<{ message: string; updated: number }>("POST", "/api/v1/keys/bulk/status", { ids, status, category }),
   bulkDelete: (ids: number[]) =>
-    request<{ message: string; deleted: number }>("POST", "/api/admin/keys/bulk/delete", { ids }),
+    request<{ message: string; deleted: number }>("POST", "/api/v1/keys/bulk/delete", { ids }),
   update: (
     id: number,
     data: {
@@ -228,13 +231,13 @@ export const keys = {
       category?: string;
       template_text?: string;
     }
-  ) => request<{ message: string }>("PUT", `/api/admin/keys/${id}`, data),
-  delete: (id: number) => request<{ message: string }>("DELETE", `/api/admin/keys/${id}`),
-  check: (id: number) => request<KeyCheckResult>("POST", `/api/admin/keys/${id}/check`),
+  ) => request<{ message: string }>("PUT", `/api/v1/keys/${id}`, data),
+  delete: (id: number) => request<{ message: string }>("DELETE", `/api/v1/keys/${id}`),
+  check: (id: number) => request<KeyCheckResult>("POST", `/api/v1/keys/${id}/check`),
   checkAll: () =>
-    request<{ checked: number; keys: KeyCheckResult[] }>("POST", "/api/admin/keys/check-all"),
+    request<{ checked: number; keys: KeyCheckResult[] }>("POST", "/api/v1/keys/check-all"),
   reorder: (ids: number[]) =>
-    request<{ message: string }>("PUT", "/api/admin/keys/order", { ids }),
+    request<{ message: string }>("PUT", "/api/v1/keys/order", { ids }),
 };
 
 // Subscription
@@ -242,38 +245,38 @@ export const subscription = {
   activate: (activation_code: string) =>
     request<{ subscription_url: string; message: string }>(
       "POST",
-      "/api/subscription/activate",
+      "/api/v1/subscriptions/activate",
       { activation_code }
     ),
 };
 
 export const subscriptionSettings = {
-  get: () => request<SubscriptionSettings>("GET", "/api/admin/subscription-settings"),
+  get: () => request<SubscriptionSettings>("GET", "/api/v1/subscription-settings"),
   update: (data: SubscriptionSettings) =>
-    request<{ message: string }>("PUT", "/api/admin/subscription-settings", data),
+    request<{ message: string }>("PUT", "/api/v1/subscription-settings", data),
 };
 
 export const routingSettings = {
-  get: () => request<{ config_json: string }>("GET", "/api/admin/routing-settings"),
+  get: () => request<{ config_json: string }>("GET", "/api/v1/routing-settings"),
   update: (config_json: string) =>
-    request<{ message: string }>("PUT", "/api/admin/routing-settings", { config_json }),
+    request<{ message: string }>("PUT", "/api/v1/routing-settings", { config_json }),
 };
 
 export const subscriptionPageConfig = {
   getPublic: () =>
     request<{ config_json: string; default_config_json: string }>(
       "GET",
-      "/api/subscription-page-config"
+      "/api/v1/subscription-page-config"
     ),
   getAdmin: () =>
     request<{ config_json: string; default_config_json: string }>(
       "GET",
-      "/api/admin/subscription-page-config"
+      "/api/v1/subscription-page-config"
     ),
   update: (config_json: string) =>
     request<{ config_json: string }>(
       "PUT",
-      "/api/admin/subscription-page-config",
+      "/api/v1/subscription-page-config",
       { config_json }
     ),
 };

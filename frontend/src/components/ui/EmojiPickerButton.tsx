@@ -11,6 +11,54 @@ interface Props {
   iconOnly?: boolean;
 }
 
+function applyEmojiPickerScrollbarTheme(picker: HTMLElement) {
+  const shadowRoot = picker.shadowRoot;
+  if (!shadowRoot || shadowRoot.querySelector("[data-subshare-scrollbar-theme]")) {
+    return;
+  }
+
+  const style = document.createElement("style");
+  style.dataset.subshareScrollbarTheme = "true";
+  style.textContent = `
+    #root { --sidebar-width: 10px; }
+    .scroll {
+      scrollbar-color: #282e29 #08090a;
+      scrollbar-width: thin;
+    }
+    .scroll::-webkit-scrollbar {
+      width: 10px;
+      height: 10px;
+    }
+    .scroll::-webkit-scrollbar-track {
+      background: #08090a;
+    }
+    .scroll::-webkit-scrollbar-thumb {
+      min-height: 32px;
+      border: 2px solid #08090a;
+      border-radius: 0;
+      background: #282e29;
+      background-clip: padding-box;
+    }
+    .scroll::-webkit-scrollbar-thumb:hover {
+      background: #66862d !important;
+      background-clip: padding-box;
+    }
+    .scroll::-webkit-scrollbar-thumb:active {
+      background: #b7ff2a !important;
+      background-clip: padding-box;
+    }
+    .scroll::-webkit-scrollbar-button {
+      display: none;
+      width: 0;
+      height: 0;
+    }
+    .scroll::-webkit-scrollbar-corner {
+      background: transparent;
+    }
+  `;
+  shadowRoot.appendChild(style);
+}
+
 export function EmojiPickerButton({ onSelect, className = "", inline = false, iconOnly = false }: Props) {
   const [open, setOpen] = useState(false);
   const rootRef = useRef<HTMLDivElement | null>(null);
@@ -84,8 +132,10 @@ export function EmojiPickerButton({ onSelect, className = "", inline = false, ic
         },
       });
 
+      const pickerElement = picker as unknown as HTMLElement;
       container.replaceChildren();
-      container.appendChild(picker as unknown as Node);
+      container.appendChild(pickerElement);
+      applyEmojiPickerScrollbarTheme(pickerElement);
     };
 
     mountPicker();
@@ -103,8 +153,8 @@ export function EmojiPickerButton({ onSelect, className = "", inline = false, ic
         onClick={() => setOpen((prev) => !prev)}
         className={
           iconOnly
-            ? `flex h-8 w-8 items-center justify-center rounded-md border border-border bg-surface-2 text-zinc-100 transition-colors hover:bg-surface-1 ${open ? "bg-surface-1" : ""}`
-            : "h-9 rounded-lg border border-border bg-surface-2 px-3 text-sm text-zinc-200 transition-colors hover:bg-surface-1"
+            ? `ui-icon-button ${open ? "border-[var(--border-strong)] bg-surface-1" : ""}`
+            : "ui-control px-3 text-sm text-zinc-200"
         }
         aria-haspopup="dialog"
         aria-expanded={open}

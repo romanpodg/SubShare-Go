@@ -102,13 +102,21 @@ export default function SubscriptionSettingsPage() {
           Режим просмотра: изменять настройки может только владелец.
         </div>
       )}
-      <div className="grid gap-px bg-border lg:grid-cols-2">
+      <div className="ui-joined-grid technical-frame grid lg:grid-cols-2">
         <section className="technical-frame border border-border bg-surface-1 p-5">
           <div className="flex items-start justify-between gap-4">
-            <div className="flex gap-3"><div className="rounded-xl border border-cyan-400/20 bg-cyan-400/10 p-2.5 text-cyan-300"><Globe2 className="h-5 w-5" /></div><div><h2 className="font-semibold text-zinc-200">Метаданные</h2><p className="mt-1 text-sm text-zinc-600">Название, интервал обновления, ссылки и заголовки клиента.</p></div></div>
+            <div className="flex min-w-0 items-start gap-3">
+              <div className="ui-settings-section-icon flex h-11 w-11 shrink-0 items-center justify-center self-start rounded-sm border border-cyan-400/20 bg-cyan-400/10 text-cyan-300">
+                <Globe2 className="h-5 w-5" aria-hidden="true" />
+              </div>
+              <div className="min-w-0">
+                <h2 className="font-semibold text-zinc-200">Метаданные</h2>
+                <p className="mt-1 text-sm text-zinc-600">Название, интервал обновления, ссылки и заголовки клиента.</p>
+              </div>
+            </div>
             <Button variant="outline" onClick={() => setSettingsOpen(true)} disabled={!isOwner}>Изменить</Button>
           </div>
-          <dl className="mt-6 grid grid-cols-2 gap-3">
+          <dl className="ui-joined-grid mt-6 grid grid-cols-2">
             <div className="rounded-xl border border-border bg-zinc-950/30 p-3"><dt className="text-xs text-zinc-600">Название</dt><dd className="mt-1 text-sm text-zinc-300">{settings?.title || "—"}</dd></div>
             <div className="rounded-xl border border-border bg-zinc-950/30 p-3"><dt className="text-xs text-zinc-600">Формат fallback</dt><dd className="mt-1 font-mono text-sm text-cyan-300">{settings?.subscription_format || "—"}</dd></div>
             <div className="rounded-xl border border-border bg-zinc-950/30 p-3"><dt className="text-xs text-zinc-600">Обновление</dt><dd className="mt-1 text-sm text-zinc-300">{settings?.refresh_hours ?? "—"} ч</dd></div>
@@ -118,7 +126,15 @@ export default function SubscriptionSettingsPage() {
 
         <section className="technical-frame border border-border bg-surface-1 p-5">
           <div className="flex items-start justify-between gap-4">
-            <div className="flex gap-3"><div className="rounded-xl border border-cyan-400/20 bg-cyan-400/10 p-2.5 text-cyan-300"><Route className="h-5 w-5" /></div><div><h2 className="font-semibold text-zinc-200">Маршрутизация Happ</h2><p className="mt-1 text-sm text-zinc-600">DNS, исключения и routing-конфигурация для автоматического импорта.</p></div></div>
+            <div className="flex min-w-0 items-start gap-3">
+              <div className="ui-settings-section-icon flex h-11 w-11 shrink-0 items-center justify-center self-start rounded-sm border border-cyan-400/20 bg-cyan-400/10 text-cyan-300">
+                <Route className="h-5 w-5" aria-hidden="true" />
+              </div>
+              <div className="min-w-0">
+                <h2 className="font-semibold text-zinc-200">Маршрутизация Happ</h2>
+                <p className="mt-1 text-sm text-zinc-600">DNS, исключения и routing-конфигурация для автоматического импорта.</p>
+              </div>
+            </div>
             <Button variant="outline" onClick={() => setRoutingOpen(true)} disabled={!isOwner}>Открыть редактор</Button>
           </div>
           <div className="mt-6 rounded-xl border border-border bg-zinc-950/30 p-4 text-sm text-zinc-500">
@@ -172,7 +188,7 @@ export default function SubscriptionSettingsPage() {
           )}
 
           {deliveryTab === "headers" && (
-            <div className="space-y-3">
+            <div className="ui-joined-list">
               {delivery.response_headers.map((header, index) => (
                 <div key={index} className="grid gap-3 rounded-xl border border-border bg-zinc-950/30 p-3 md:grid-cols-[minmax(180px,0.4fr)_1fr_auto]">
                   <Input
@@ -220,7 +236,7 @@ export default function SubscriptionSettingsPage() {
           )}
 
           {deliveryTab === "remarks" && (
-            <div className="grid gap-4 lg:grid-cols-2">
+            <div className="ui-joined-grid grid lg:grid-cols-2">
               {(Object.keys(remarkLabels) as Array<keyof SubscriptionDeliverySettings["remarks"]>).map((status) => (
                 <label key={status} className="flex flex-col gap-2 rounded-xl border border-border bg-zinc-950/30 p-4 text-sm text-zinc-400">
                   <span className="font-medium text-zinc-300">{remarkLabels[status]}</span>

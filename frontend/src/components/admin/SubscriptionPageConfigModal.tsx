@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/Button";
 import { useToast } from "@/components/ui/Toast";
 import { subscriptionPageConfig as subscriptionPageConfigApi } from "@/lib/api";
 import { subscriptionPageConfig } from "@/app/subscription/pageConfig";
+import { Palette } from "lucide-react";
 
 interface Props {
   open: boolean;
@@ -161,7 +162,12 @@ export function SubscriptionPageConfigModal({ open, onClose }: Props) {
   };
 
   return (
-    <Modal open={open} onClose={onClose} title="🎨 Дизайн страницы /sub">
+    <Modal
+      open={open}
+      onClose={onClose}
+      title="Дизайн страницы /sub"
+      icon={<Palette className="h-4 w-4" aria-hidden="true" />}
+    >
       <div className="flex flex-col gap-3">
         <p className="text-xs leading-relaxed text-zinc-400">
           JSON управляет блоками, текстами, кнопками и цветами страницы подписки по адресу

@@ -6,6 +6,8 @@ import (
 	"html"
 	"log"
 	"net/http"
+	"net/url"
+	"regexp"
 	"strings"
 
 	"subshare/internal/model"
@@ -293,7 +295,43 @@ func cssVar(theme map[string]string, key string, fallback string) string {
 	if value == "" {
 		return fallback
 	}
+	if len(value) > 256 || strings.ContainsAny(value, "{};<>\\\r\n") {
+		return fallback
+	}
+	lower := strings.ToLower(value)
+	if strings.Contains(lower, "url(") || strings.Contains(lower, "expression(") || strings.Contains(lower, "@import") {
+		return fallback
+	}
 	return value
+}
+
+var safeDataImagePattern = regexp.MustCompile(`(?i)^data:image/(?:png|jpeg|gif|webp);base64,[a-z0-9+/=\s]+$`)
+
+func safePageURL(input string, vars map[string]string, allowHapp bool, allowDataImage bool) string {
+	value := strings.TrimSpace(applyTemplate(input, vars))
+	if value == "" || strings.ContainsAny(value, "\r\n\t\\") {
+		return ""
+	}
+	if strings.HasPrefix(value, "/") && !strings.HasPrefix(value, "//") {
+		return html.EscapeString(value)
+	}
+	if allowDataImage && safeDataImagePattern.MatchString(value) {
+		return html.EscapeString(value)
+	}
+	parsed, err := url.Parse(value)
+	if err != nil || parsed.Host == "" || parsed.User != nil {
+		return ""
+	}
+	scheme := strings.ToLower(parsed.Scheme)
+	if scheme != "http" && scheme != "https" && !(allowHapp && scheme == "happ") {
+		return ""
+	}
+	return html.EscapeString(value)
+}
+
+func inlineJSON(value string) string {
+	encoded, _ := json.Marshal(value)
+	return string(encoded)
 }
 
 func buildButtonIconHTML(icon model.SubscriptionPageIcon, vars map[string]string) string {
@@ -301,7 +339,9 @@ func buildButtonIconHTML(icon model.SubscriptionPageIcon, vars map[string]string
 		return `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" style="stroke: currentColor; stroke-width:1.6" aria-hidden="true"><path d="M12 3v12m0 0-3-3m3 3 3-3M5 17h14" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"/><rect x="4" y="19" width="16" height="2" fill="currentColor" stroke="none"/></svg>`
 	}
 	if icon.Type == "image" && strings.TrimSpace(icon.Src) != "" {
-		return `<img src="` + htmlAttr(icon.Src, vars) + `" alt="` + htmlText(icon.Alt, vars) + `" onerror="this.style.display='none'">`
+		if src := safePageURL(icon.Src, vars, false, true); src != "" {
+			return `<img src="` + src + `" alt="` + htmlText(icon.Alt, vars) + `">`
+		}
 	}
 	return ""
 }
@@ -338,7 +378,9 @@ func renderSubscriptionPageHTML(cfg model.SubscriptionPageConfig, panelSettings 
 			content.WriteString(`<div class="brand">`)
 			content.WriteString(`<div class="fox-logo">`)
 			if strings.TrimSpace(logoSrc) != "" {
-				content.WriteString(`<img src="` + htmlAttr(logoSrc, vars) + `" alt="` + htmlText(logoAlt, vars) + `">`)
+				if src := safePageURL(logoSrc, vars, false, true); src != "" {
+					content.WriteString(`<img src="` + src + `" alt="` + htmlText(logoAlt, vars) + `">`)
+				}
 			}
 			content.WriteString(`</div>`)
 			content.WriteString(`<div class="brand-text">`)
@@ -377,7 +419,11 @@ func renderSubscriptionPageHTML(cfg model.SubscriptionPageConfig, panelSettings 
 							if strings.TrimSpace(href) == "" {
 								continue
 							}
-							content.WriteString(`<a class="` + buttonClass(btn.Variant) + `" href="` + htmlAttr(href, vars) + `"`)
+							safeHref := safePageURL(href, vars, false, false)
+							if safeHref == "" {
+								continue
+							}
+							content.WriteString(`<a class="` + buttonClass(btn.Variant) + `" href="` + safeHref + `"`)
 							if btn.External {
 								content.WriteString(` target="_blank" rel="noreferrer"`)
 							}
@@ -402,7 +448,9 @@ func renderSubscriptionPageHTML(cfg model.SubscriptionPageConfig, panelSettings 
 					}
 
 					content.WriteString(`<div class="buttons">`)
-					content.WriteString(`<a id="btnAddHapp" class="button subscribe" href="` + htmlAttr(importSubscriptionURL, vars) + `">` + htmlText(addLabel, vars) + `</a>`)
+					if safeImportURL := safePageURL(importSubscriptionURL, vars, true, false); safeImportURL != "" {
+						content.WriteString(`<a id="btnAddHapp" class="button subscribe" href="` + safeImportURL + `">` + htmlText(addLabel, vars) + `</a>`)
+					}
 					content.WriteString(`</div>`)
 					content.WriteString(`<div class="sub-link-row" id="manualLinkRow" style="display: none;">`)
 					content.WriteString(`<span>` + htmlText(manualLabel, vars) + `</span>`)
@@ -420,7 +468,9 @@ func renderSubscriptionPageHTML(cfg model.SubscriptionPageConfig, panelSettings 
 			content.WriteString(`<span>` + htmlText(block.Copyright, vars) + `</span>`)
 			content.WriteString(`<div class="footer-right">`)
 			if block.FooterLink != nil && strings.TrimSpace(block.FooterLink.Href) != "" {
-				content.WriteString(`<a class="footer-link" href="` + htmlAttr(block.FooterLink.Href, vars) + `">` + htmlText(block.FooterLink.Label, vars) + `</a>`)
+				if safeHref := safePageURL(block.FooterLink.Href, vars, false, false); safeHref != "" {
+					content.WriteString(`<a class="footer-link" href="` + safeHref + `">` + htmlText(block.FooterLink.Label, vars) + `</a>`)
+				}
 			}
 			content.WriteString(`<div class="lang">` + htmlText(block.LanguageBadge, vars) + `</div></div></footer>`)
 		}
@@ -428,7 +478,9 @@ func renderSubscriptionPageHTML(cfg model.SubscriptionPageConfig, panelSettings 
 
 	faviconTag := ""
 	if strings.TrimSpace(faviconURL) != "" {
-		faviconTag = `<link rel="icon" href="` + html.EscapeString(faviconURL) + `">`
+		if safeFaviconURL := safePageURL(faviconURL, vars, false, true); safeFaviconURL != "" {
+			faviconTag = `<link rel="icon" href="` + safeFaviconURL + `">`
+		}
 	}
 
 	copiedLabel := "✅ Скопировано"
@@ -769,10 +821,10 @@ func renderSubscriptionPageHTML(cfg model.SubscriptionPageConfig, panelSettings 
   </div>
 
   <script>
-    const plainSubscriptionUrl = %q;
-    const importSubscriptionUrl = %q;
-    const copiedLabel = %q;
-    const copyLabel = %q;
+    const plainSubscriptionUrl = %s;
+    const importSubscriptionUrl = %s;
+    const copiedLabel = %s;
+    const copyLabel = %s;
 
     const addBtn = document.getElementById("btnAddHapp");
     const manualRow = document.getElementById("manualLinkRow");
@@ -868,10 +920,10 @@ func renderSubscriptionPageHTML(cfg model.SubscriptionPageConfig, panelSettings 
 		cssVar(theme, "languageBadgeText", "#334155"),
 		cssVar(theme, "fontFamily", "'Inter', system-ui, -apple-system, 'Segoe UI', Roboto, Helvetica, sans-serif"),
 		content.String(),
-		subscriptionURL,
-		importSubscriptionURL,
-		copiedLabel,
-		copyLabel,
+		inlineJSON(subscriptionURL),
+		inlineJSON(importSubscriptionURL),
+		inlineJSON(copiedLabel),
+		inlineJSON(copyLabel),
 	)
 }
 
@@ -899,9 +951,8 @@ func (a *App) apiGetSubscriptionPageConfig(w http.ResponseWriter, r *http.Reques
 }
 
 func (a *App) apiUpdateSubscriptionPageConfig(w http.ResponseWriter, r *http.Request) {
-	r.Body = http.MaxBytesReader(w, r.Body, 1<<20)
 	var req model.UpdateSubscriptionPageConfigRequest
-	if err := readJSON(r, &req); err != nil {
+	if err := readJSONWithLimit(w, r, &req, 1<<20); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid request body")
 		return
 	}
