@@ -14,12 +14,12 @@ import (
 	"syscall"
 	"time"
 
-	"golang.org/x/crypto/bcrypt"
 	_ "modernc.org/sqlite"
 
 	"github.com/romanpodg/SubShare-Go/internal/middleware"
 	"github.com/romanpodg/SubShare-Go/internal/model"
 	"github.com/romanpodg/SubShare-Go/internal/platform/configuration"
+	adminpassword "github.com/romanpodg/SubShare-Go/internal/security/password"
 )
 
 func main() {
@@ -71,20 +71,12 @@ func runConfigured(config configuration.Config) error {
 	}
 	defer db.Close()
 
-	adminPassHash, err := bcrypt.GenerateFromPassword([]byte(config.AdminPassword), bcrypt.DefaultCost)
+	passwordHasher := adminpassword.NewDefault()
+	createdOwner, err := ensureBootstrapOwner(context.Background(), db, config.AdminUser, config.AdminPassword, passwordHasher)
 	if err != nil {
-		return fmt.Errorf("hash admin password: %w", err)
+		return err
 	}
-
-	// Seed root admin if no admins exist
-	var adminCount int
-	if err := db.QueryRow(`SELECT COUNT(*) FROM admins`).Scan(&adminCount); err != nil {
-		return fmt.Errorf("count admins: %w", err)
-	}
-	if adminCount == 0 {
-		if _, err := db.Exec(`INSERT INTO admins (username, password_hash, role) VALUES (?, ?, 'owner')`, config.AdminUser, string(adminPassHash)); err != nil {
-			return fmt.Errorf("seed root admin: %w", err)
-		}
+	if createdOwner {
 		log.Printf("Seeded root admin account: %s (role: owner)", config.AdminUser)
 	}
 
@@ -103,6 +95,7 @@ func runConfigured(config configuration.Config) error {
 		baseURL:                  config.BaseURL,
 		happCryptoAPIURL:         config.HappCryptoAPIURL,
 		subscriptionBodyEncoding: config.SubscriptionBodyEncoding,
+		adminPasswordHasher:      passwordHasher,
 	}
 	app.recoverInterruptedJobs()
 

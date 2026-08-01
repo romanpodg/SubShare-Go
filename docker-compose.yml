@@ -25,7 +25,8 @@ services:
       # The backend validates all environment values before opening SQLite or
       # accepting requests. See .env.example for accepted values and defaults.
       APP_ENV: production
-      ADMIN_PASSWORD: ${ADMIN_PASSWORD:?Set ADMIN_PASSWORD in .env}
+      # Required by the backend only when it must create the initial owner.
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:-}
       BASE_URL: ${BASE_URL:?Set BASE_URL in .env}
       DB_PATH: /app/data/app.db
       BACKUP_PATH: ${BACKUP_PATH:-/app/data/backups/app.db}

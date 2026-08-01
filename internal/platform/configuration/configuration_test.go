@@ -73,7 +73,7 @@ func TestLoadRejectsUnsupportedEnumsAndInvalidValues(t *testing.T) {
 	}
 }
 
-func TestLoadRequiresProductionBaseURLAndNeverLeaksSecrets(t *testing.T) {
+func TestLoadRequiresProductionBaseURLAndPreservesPasswordExactly(t *testing.T) {
 	secret := "not-for-logs"
 	_, err := LoadFromMap(testEnvironment(map[string]string{
 		"ADMIN_PASSWORD": secret,
@@ -83,9 +83,10 @@ func TestLoadRequiresProductionBaseURLAndNeverLeaksSecrets(t *testing.T) {
 		t.Fatalf("unsafe production error: %v", err)
 	}
 
-	_, err = LoadFromMap(map[string]string{"ADMIN_PASSWORD": ""})
-	if err == nil || strings.Contains(err.Error(), "ADMIN_PASSWORD=") {
-		t.Fatalf("unsafe required-secret error: %v", err)
+	exact := "  synthetic password  "
+	config, err := LoadFromMap(map[string]string{"ADMIN_PASSWORD": exact})
+	if err != nil || config.AdminPassword != exact {
+		t.Fatalf("password was transformed: value_equal=%v error=%v", config.AdminPassword == exact, err)
 	}
 }
 

@@ -3,6 +3,8 @@ package main
 import (
 	"database/sql"
 	"sync"
+
+	adminpassword "github.com/romanpodg/SubShare-Go/internal/security/password"
 )
 
 type App struct {
@@ -13,5 +15,6 @@ type App struct {
 	baseURL                  string
 	happCryptoAPIURL         string
 	subscriptionBodyEncoding string
+	adminPasswordHasher      *adminpassword.Hasher
 	mu                       sync.RWMutex
 }

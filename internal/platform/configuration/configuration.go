@@ -77,9 +77,10 @@ func LoadFromMap(values map[string]string) (Config, error) {
 	if value := trimmed(values, "ADMIN_USER"); value != "" {
 		config.AdminUser = value
 	}
-	if config.AdminPassword = trimmed(values, "ADMIN_PASSWORD"); config.AdminPassword == "" {
-		return Config{}, fmt.Errorf("ADMIN_PASSWORD is required")
-	}
+	// Passwords are exact-value secrets: never trim or otherwise transform them.
+	// Bootstrap decides whether this optional value is required after inspecting
+	// the administrator table.
+	config.AdminPassword = values["ADMIN_PASSWORD"]
 	config.DeviceLimitMessage = trimmed(values, "DEVICE_LIMIT_MESSAGE")
 
 	var err error

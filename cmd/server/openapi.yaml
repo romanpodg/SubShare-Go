@@ -151,6 +151,11 @@ paths:
     post:
       tags: [Admins]
       summary: Create an administrator account
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/CreateAdministrator" }
       responses:
         "200": { description: Administrator created }
         default: { $ref: "#/components/responses/Error" }
@@ -159,6 +164,11 @@ paths:
       tags: [Admins]
       summary: Update an administrator account
       parameters: [{ $ref: "#/components/parameters/ID" }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/UpdateAdministrator" }
       responses:
         "200": { description: Administrator updated }
         default: { $ref: "#/components/responses/Error" }
@@ -539,6 +549,26 @@ components:
         application/json:
           schema: { $ref: "#/components/schemas/Error" }
   schemas:
+    AdministratorPassword:
+      type: string
+      minLength: 15
+      maxLength: 256
+      writeOnly: true
+      description: Exact, unnormalized password value; spaces are allowed and UTF-8 encoding is limited to 1024 bytes.
+    CreateAdministrator:
+      type: object
+      additionalProperties: false
+      required: [username, password, role]
+      properties:
+        username: { type: string, minLength: 1 }
+        password: { $ref: "#/components/schemas/AdministratorPassword" }
+        role: { type: string, enum: [viewer, operator, owner, support_admin, super_admin] }
+    UpdateAdministrator:
+      type: object
+      additionalProperties: false
+      properties:
+        password: { $ref: "#/components/schemas/AdministratorPassword" }
+        role: { type: string, enum: [viewer, operator, owner, support_admin, super_admin] }
     Error:
       type: object
       required: [code, message, request_id]

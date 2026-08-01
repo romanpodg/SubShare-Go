@@ -11,6 +11,10 @@ import { Modal } from "@/components/ui/Modal";
 import { Input } from "@/components/ui/Input";
 import { Select } from "@/components/ui/Select";
 import { PasswordInput } from "@/components/ui/PasswordInput";
+import {
+  ADMIN_PASSWORD_INPUT_MAX_LENGTH,
+  validateNewAdministratorPassword,
+} from "@/lib/adminPassword";
 import { ChevronDown, Crown, Edit, KeyRound, Plus, ShieldAlert, Trash2, UserPlus } from "lucide-react";
 
 interface Props {
@@ -57,8 +61,13 @@ export function AdminsSection({ currentRole }: Props) {
 
   const handleCreate = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!newUsername.trim() || newPassword.length < 6) {
-      toast("Заполните все поля (пароль от 6 символов)", "error");
+    if (!newUsername.trim()) {
+      toast("Укажите имя администратора", "error");
+      return;
+    }
+    const passwordError = validateNewAdministratorPassword(newPassword);
+    if (passwordError) {
+      toast(passwordError, "error");
       return;
     }
     setSubmitLoading(true);
@@ -84,9 +93,12 @@ export function AdminsSection({ currentRole }: Props) {
   const handleUpdate = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!editingAdmin) return;
-    if (editPassword && editPassword.length < 6) {
-      toast("Пароль должен быть от 6 символов", "error");
-      return;
+    if (editPassword) {
+      const passwordError = validateNewAdministratorPassword(editPassword);
+      if (passwordError) {
+        toast(passwordError, "error");
+        return;
+      }
     }
     setSubmitLoading(true);
     try {
@@ -253,8 +265,12 @@ export function AdminsSection({ currentRole }: Props) {
             value={newPassword}
             onChange={(e) => setNewPassword(e.target.value)}
             required
-            placeholder="Не менее 6 символов"
+            maxLength={ADMIN_PASSWORD_INPUT_MAX_LENGTH}
+            placeholder="15–256 символов Unicode"
           />
+          <p className="text-xs text-zinc-500">
+            15–256 символов Unicode. Пробелы разрешены; пароль сохраняется точно введённым.
+          </p>
           <Select
             label="Роль"
             value={newRole}
@@ -279,8 +295,12 @@ export function AdminsSection({ currentRole }: Props) {
             label="Новый пароль"
             value={editPassword}
             onChange={(e) => setEditPassword(e.target.value)}
+            maxLength={ADMIN_PASSWORD_INPUT_MAX_LENGTH}
             placeholder="Оставьте пустым, чтобы не менять"
           />
+          <p className="text-xs text-zinc-500">
+            Новый пароль: 15–256 символов Unicode; пробелы разрешены. Пустое поле не меняет пароль.
+          </p>
           <Select
             label="Роль"
             value={editRole}

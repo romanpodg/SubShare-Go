@@ -13,7 +13,6 @@ frontend:
 	cd frontend && npm ci && npm run build
 
 run: backend
-	@test -n "$(ADMIN_PASSWORD)" || (echo "ADMIN_PASSWORD is required" && exit 1)
 	ADMIN_PASSWORD="$(ADMIN_PASSWORD)" $(SERVER_BIN)
 
 clean:

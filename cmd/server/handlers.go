@@ -16,10 +16,9 @@ import (
 	"sync"
 	"time"
 
-	"golang.org/x/crypto/bcrypt"
-
 	"github.com/romanpodg/SubShare-Go/internal/middleware"
 	"github.com/romanpodg/SubShare-Go/internal/model"
+	adminpassword "github.com/romanpodg/SubShare-Go/internal/security/password"
 	"github.com/romanpodg/SubShare-Go/internal/vless"
 )
 
@@ -226,21 +225,13 @@ func (a *App) apiLogin(w http.ResponseWriter, r *http.Request) {
 	}
 
 	username := strings.TrimSpace(req.Username)
-	password := strings.TrimSpace(req.Password)
-
-	var adminID int64
-	var passwordHash string
-	if err := a.db.QueryRow(`SELECT id, password_hash FROM admins WHERE username = ?`, username).Scan(&adminID, &passwordHash); err != nil {
-		if errors.Is(err, sql.ErrNoRows) {
-			writeError(w, http.StatusUnauthorized, "invalid credentials")
-			return
-		}
+	adminID, authenticated, err := a.authenticateAdministrator(r.Context(), username, req.Password)
+	if err != nil {
 		log.Printf("apiLogin: %v", err)
 		writeError(w, http.StatusInternalServerError, "internal server error")
 		return
 	}
-
-	if bcrypt.CompareHashAndPassword([]byte(passwordHash), []byte(password)) != nil {
+	if !authenticated {
 		writeError(w, http.StatusUnauthorized, "invalid credentials")
 		return
 	}
@@ -339,15 +330,10 @@ func (a *App) apiCreateAdmin(w http.ResponseWriter, r *http.Request) {
 	}
 
 	username := strings.TrimSpace(req.Username)
-	password := strings.TrimSpace(req.Password)
 	role, roleOK := normalizeAdminRole(req.Role)
 
 	if username == "" {
 		writeError(w, http.StatusBadRequest, "username is required")
-		return
-	}
-	if len(password) < 6 {
-		writeError(w, http.StatusBadRequest, "password must be at least 6 characters")
 		return
 	}
 	if !roleOK {
@@ -368,14 +354,18 @@ func (a *App) apiCreateAdmin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	passwordHash, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
+	passwordHash, err := a.passwordHasher().Hash(req.Password)
 	if err != nil {
-		log.Printf("apiCreateAdmin bcrypt error: %v", err)
+		if adminpassword.IsPolicyError(err) {
+			writeError(w, http.StatusBadRequest, err.Error())
+			return
+		}
+		log.Printf("apiCreateAdmin: password hashing failed")
 		writeError(w, http.StatusInternalServerError, "failed to hash password")
 		return
 	}
 
-	result, err := a.db.Exec(`INSERT INTO admins (username, password_hash, role) VALUES (?, ?, ?)`, username, string(passwordHash), role)
+	result, err := a.db.Exec(`INSERT INTO admins (username, password_hash, role) VALUES (?, ?, ?)`, username, passwordHash, role)
 	if err != nil {
 		log.Printf("apiCreateAdmin insert: %v", err)
 		writeError(w, http.StatusInternalServerError, "failed to create admin")
@@ -402,7 +392,7 @@ func (a *App) apiUpdateAdmin(w http.ResponseWriter, r *http.Request) {
 	}
 
 	role := strings.TrimSpace(req.Role)
-	password := strings.TrimSpace(req.Password)
+	passwordValue := req.Password
 
 	session, _, _ := a.adminSessionFromRequest(r)
 
@@ -421,18 +411,18 @@ func (a *App) apiUpdateAdmin(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Update password if provided
-	if password != "" {
-		if len(password) < 6 {
-			writeError(w, http.StatusBadRequest, "password must be at least 6 characters")
-			return
-		}
-		passwordHash, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
+	if passwordValue != "" {
+		passwordHash, err := a.passwordHasher().Hash(passwordValue)
 		if err != nil {
-			log.Printf("apiUpdateAdmin bcrypt error: %v", err)
+			if adminpassword.IsPolicyError(err) {
+				writeError(w, http.StatusBadRequest, err.Error())
+				return
+			}
+			log.Printf("apiUpdateAdmin: password hashing failed")
 			writeError(w, http.StatusInternalServerError, "failed to hash password")
 			return
 		}
-		_, err = a.db.Exec(`UPDATE admins SET password_hash = ? WHERE id = ?`, string(passwordHash), id)
+		_, err = a.db.Exec(`UPDATE admins SET password_hash = ? WHERE id = ?`, passwordHash, id)
 		if err != nil {
 			log.Printf("apiUpdateAdmin password update: %v", err)
 			writeError(w, http.StatusInternalServerError, "failed to update password")
@@ -490,7 +480,7 @@ func (a *App) apiUpdateAdmin(w http.ResponseWriter, r *http.Request) {
 
 	a.recordAuditEvent(r, "admin.update", "admin", strconv.FormatInt(id, 10), map[string]any{
 		"role":             role,
-		"password_changed": password != "",
+		"password_changed": passwordValue != "",
 	})
 	writeMessage(w, "administrator updated successfully")
 }
