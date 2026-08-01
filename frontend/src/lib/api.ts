@@ -22,6 +22,8 @@ import type {
   SourceDetail,
   SourceSummary,
   SourceWriteInput,
+  ExternalImportResultCounts,
+  ExternalSourcePreviewKey,
 } from "./types";
 
 let csrfToken: string | null = null;
@@ -354,6 +356,8 @@ export const apiV1 = {
         skipped_count: number;
         warnings: string[];
         detected_format: "links" | "xray-json";
+        result_counts: ExternalImportResultCounts;
+        items: ExternalSourcePreviewKey[];
       }>("POST", "/api/v1/sources", data),
     update: (id: number, data: SourceWriteInput) =>
       request<{ message: string }>("PUT", `/api/v1/sources/${id}`, data),

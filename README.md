@@ -83,6 +83,10 @@ docker compose down
 Для разработки без production-контейнеров требуются Go 1.24+, Node.js 22+ и
 npm. Для пустой БД запустите backend с `ADMIN_PASSWORD`, соответствующим
 политике ниже; если администратор уже существует, переменную можно не задавать.
+Каждый прямой backend startup также требует стабильный
+`PROFILE_FINGERPRINT_KEY`; сгенерируйте 32 random bytes один раз, сохраните их
+как 64 hexadecimal characters в локальном secret environment и не меняйте при
+обычном restart.
 Затем выполните `npm ci && npm run dev` в `frontend/`. Next.js проксирует
 `/api/*` и `/sub/*` на `http://localhost:8080`. Начальный `owner` создаётся
 только когда таблица администраторов пуста.
@@ -93,6 +97,8 @@ npm. Для пустой БД запустите backend с `ADMIN_PASSWORD`, с
 |---|---|
 | `ADMIN_USER` | Логин первого owner; по умолчанию `admin` |
 | `ADMIN_PASSWORD` | Пароль первого owner: обязателен только при пустой таблице администраторов; 15–256 Unicode code points и не более 1024 UTF-8 bytes; пробелы сохраняются |
+| `PROFILE_FINGERPRINT_KEY` | Обязательный отдельный секрет: минимум 32 случайных байта в hexadecimal; используется только для HMAC semantic fingerprint профилей и должен сохраняться между перезапусками |
+| `PROFILE_FINGERPRINT_PREVIOUS_KEYS` | Необязательный список прежних fingerprint-ключей через запятую на период ротации; удаляйте старый ключ только после синхронизации всех источников |
 | `APP_ENV` | `development` (по умолчанию) или `production`; production требует корректный `BASE_URL` |
 | `PORT` | `8080` по умолчанию; номер `1–65535` или валидный `host:port` |
 | `DB_PATH` | Файл SQLite; по умолчанию `data/app.db`; в Compose — `/app/data/app.db` |
@@ -112,6 +118,49 @@ npm. Для пустой БД запустите backend с `ADMIN_PASSWORD`, с
 SQLite, запуска фоновых задач и HTTP listener. Startup-ошибки называют
 переменную, но не выводят пароли, URL с credentials, query-параметры или другие
 секреты.
+
+`PROFILE_FINGERPRINT_KEY` не имеет development/default fallback и не должен
+переиспользовать пароль администратора, session/CSRF secret или публичный ID.
+Скрипты первого запуска создают 32 случайных байта и сохраняют их только в
+приватном `.env`. Для ротации новый ключ становится текущим, а прежний временно
+добавляется в `PROFILE_FINGERPRINT_PREVIOUS_KEYS`: importer сопоставляет старые
+HMAC и при очередной синхронизации записывает новый. Прежний ключ можно удалить
+после успешной синхронизации всех внешних источников; преждевременное удаление
+может ослабить semantic deduplication, но не меняет legacy public references.
+
+При обновлении существующей установки обычный backend startup намеренно
+завершается с ошибкой до открытия SQLite, миграций, фоновых задач и HTTP
+listener, пока администратор не задаст `PROFILE_FINGERPRINT_KEY`. Команды
+`scripts/start.sh` и `scripts/start.ps1` являются явным setup/bootstrap путём:
+они генерируют ключ только при его отсутствии и сохраняют его в приватном
+пользовательском `.env`; настроенное непустое значение не заменяется. Поэтому
+перезапуск или rebuild с тем же `.env` сохраняет semantic identity. Старые
+ключи ротации должны оставаться настроенными до хотя бы одной успешной
+синхронизации каждого внешнего источника новым ключом. После этого их удаление
+безопасно для deduplication; удаление раньше может создать новые строки вместо
+сопоставления со старыми fingerprint.
+
+Raw URI внешних профилей содержат credentials и сейчас хранятся в plaintext
+SQLite column `vless_keys.url`. Файловые permissions не являются
+application-level encryption. До первого публичного stable release требуется
+отдельная ограниченная задача по шифрованию raw profile storage и миграции
+существующих строк без изменения delivery. Audit, preview, warnings и profile
+metadata не должны копировать raw URI.
+
+Importer использует пять разных идентификаторов, которые нельзя подменять друг
+другом: SQLite `vless_keys.id` адресует конкретную source-owned строку и её
+assignments; `external_key_ref` остаётся стабильным legacy/public reference
+внутри источника; `url` хранит точный raw input для reparse/delivery;
+`profile_fingerprint` — keyed semantic identity, уникальный только внутри
+`external_source_id`; preview `ir1_` — краткоживущий HMAC raw bytes вместе с
+one-based item index и не является database/public identity.
+
+Base64 subscription input принимает standard и URL-safe alphabet, с padding
+или без него; необязательный регистронезависимый префикс `base64:` и ASCII
+whitespace разрешены. Encoded и decoded размеры ограничены до parsing, а
+decoded body принимается только если явно распознаётся как поддерживаемый URI
+body или JSON. Base64-looking malformed input возвращает стабильный
+`invalid_base64_subscription`, не попадая в unknown-URI диагностику.
 
 ### Пароли администраторов
 
@@ -218,6 +267,10 @@ bash scripts/backup.sh
 остановите stack и сохраните текущую БД отдельно. Не копируйте активный
 `app.db` напрямую: используйте только экспортированный backup. После
 восстановления проверьте `/health`, вход и существующую subscription URL.
+Backup содержит ту же plaintext колонку `vless_keys.url`, включая пароли,
+UUID, auth values и другие profile credentials. Храните и передавайте backup
+как credential-bearing secret; ограничьте доступ, не публикуйте его и удаляйте
+ненужные копии безопасным способом.
 
 При первом переходе со старой bind-mount конфигурации start-скрипт обнаруживает
 `data/app.db` и копирует его вместе с WAL sidecars в новый named volume, только

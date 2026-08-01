@@ -102,7 +102,7 @@ func migrate(db *sql.DB) error {
 		`CREATE TABLE IF NOT EXISTS vless_keys (
 			id INTEGER PRIMARY KEY AUTOINCREMENT,
 			label TEXT NOT NULL,
-			url TEXT NOT NULL UNIQUE,
+			url TEXT NOT NULL,
 			created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
 		);`,
 		`CREATE TABLE IF NOT EXISTS user_keys (
@@ -790,7 +790,7 @@ func (a *App) listUsers() ([]model.User, error) {
 
 func (a *App) listKeys() ([]model.VLESSKey, error) {
 	rows, err := a.db.Query(`
-		SELECT k.id, k.label, k.url, k.category_id, COALESCE(kc.name, k.category), k.key_kind, k.template_text, k.status, k.check_status, k.check_error, k.last_checked_at, k.last_latency_ms, k.created_at, k.external_source_id, COALESCE(es.name, '')
+		SELECT k.id, k.label, k.url, k.category_id, COALESCE(kc.name, k.category), k.key_kind, k.template_text, k.status, k.check_status, k.check_error, k.last_checked_at, k.last_latency_ms, k.created_at, k.external_source_id, COALESCE(es.name, ''), k.protocol, k.profile_schema_version, k.profile_compatibility, k.profile_warnings_json
 		FROM vless_keys k
 		LEFT JOIN key_categories kc ON kc.id = k.category_id
 		LEFT JOIN external_subscription_sources es ON es.id = k.external_source_id
@@ -815,8 +815,12 @@ func (a *App) listKeys() ([]model.VLESSKey, error) {
 		var categoryID sql.NullInt64
 		var externalSourceID sql.NullInt64
 		var externalSourceName sql.NullString
-		if err := rows.Scan(&key.ID, &key.Label, &key.URL, &categoryID, &category, &kind, &templateText, &status, &checkStatus, &checkError, &lastCheckedAt, &latency, &key.CreatedAt, &externalSourceID, &externalSourceName); err != nil {
+		var warningsJSON string
+		if err := rows.Scan(&key.ID, &key.Label, &key.URL, &categoryID, &category, &kind, &templateText, &status, &checkStatus, &checkError, &lastCheckedAt, &latency, &key.CreatedAt, &externalSourceID, &externalSourceName, &key.Protocol, &key.ProfileSchemaVersion, &key.ProfileCompatibility, &warningsJSON); err != nil {
 			return nil, err
+		}
+		if err := json.Unmarshal([]byte(warningsJSON), &key.ProfileWarnings); err != nil || key.ProfileWarnings == nil {
+			key.ProfileWarnings = []string{}
 		}
 		if categoryID.Valid {
 			key.CategoryID = categoryID.Int64

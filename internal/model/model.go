@@ -31,6 +31,36 @@ const (
 	SubscriptionFormatXrayJSON = "xray-json"
 )
 
+// External profile protocol identifiers are shared by persistence and API
+// DTOs. "xray-json" remains the legacy structured configuration container.
+const (
+	ProfileProtocolLegacy      = "legacy"
+	ProfileProtocolVLESS       = "vless"
+	ProfileProtocolVMess       = "vmess"
+	ProfileProtocolTrojan      = "trojan"
+	ProfileProtocolXrayJSON    = "xray-json"
+	ProfileProtocolShadowsocks = "shadowsocks"
+	ProfileProtocolHysteria2   = "hysteria2"
+	ProfileProtocolTUIC        = "tuic"
+)
+
+const (
+	ProfileCompatibilityLegacy   = "legacy"
+	ProfileCompatibilityFull     = "full"
+	ProfileCompatibilityReadOnly = "read_only"
+)
+
+const (
+	ExternalImportStatusAccepted          = "accepted"
+	ExternalImportStatusRejected          = "rejected"
+	ExternalImportStatusDuplicate         = "duplicate"
+	ExternalImportStatusUpdated           = "updated"
+	ExternalImportStatusUnchanged         = "unchanged"
+	ExternalImportStatusCompatibilityOnly = "compatibility_only"
+	ExternalImportStatusAmbiguous         = "ambiguous"
+	ExternalImportStatusUnsupported       = "unsupported"
+)
+
 const (
 	KeyAssignmentModeAll      = "all"
 	KeyAssignmentModeSelected = "selected"
@@ -128,30 +158,34 @@ type ConnectedDevice struct {
 
 // VLESSKey represents a VLESS server key.
 type VLESSKey struct {
-	ID                 int64     `json:"id"`
-	Label              string    `json:"label"`
-	URL                string    `json:"url"`
-	CategoryID         int64     `json:"category_id"`
-	Category           string    `json:"category"`
-	Kind               string    `json:"kind"`
-	TemplateText       string    `json:"template_text"`
-	URLShort           string    `json:"url_short"`
-	Status             string    `json:"status"`
-	StatusLabel        string    `json:"status_label"`
-	CheckStatus        string    `json:"check_status"`
-	CheckStatusLabel   string    `json:"check_status_label"`
-	CheckError         string    `json:"check_error"`
-	LastLatencyMS      int64     `json:"last_latency_ms"`
-	LastCheckedAtText  string    `json:"last_checked_at"`
-	EditUUID           string    `json:"edit_uuid"`
-	EditHost           string    `json:"edit_host"`
-	EditPort           string    `json:"edit_port"`
-	EditQuery          string    `json:"edit_query"`
-	EditFragment       string    `json:"edit_fragment"`
-	ExternalSourceID   int64     `json:"external_source_id"`
-	ExternalSourceName string    `json:"external_source_name"`
-	ClientDisplayName  string    `json:"client_display_name"`
-	CreatedAt          time.Time `json:"created_at"`
+	ID                   int64     `json:"id"`
+	Label                string    `json:"label"`
+	URL                  string    `json:"url"`
+	CategoryID           int64     `json:"category_id"`
+	Category             string    `json:"category"`
+	Kind                 string    `json:"kind"`
+	TemplateText         string    `json:"template_text"`
+	URLShort             string    `json:"url_short"`
+	Status               string    `json:"status"`
+	StatusLabel          string    `json:"status_label"`
+	CheckStatus          string    `json:"check_status"`
+	CheckStatusLabel     string    `json:"check_status_label"`
+	CheckError           string    `json:"check_error"`
+	LastLatencyMS        int64     `json:"last_latency_ms"`
+	LastCheckedAtText    string    `json:"last_checked_at"`
+	EditUUID             string    `json:"edit_uuid"`
+	EditHost             string    `json:"edit_host"`
+	EditPort             string    `json:"edit_port"`
+	EditQuery            string    `json:"edit_query"`
+	EditFragment         string    `json:"edit_fragment"`
+	ExternalSourceID     int64     `json:"external_source_id"`
+	ExternalSourceName   string    `json:"external_source_name"`
+	ClientDisplayName    string    `json:"client_display_name"`
+	Protocol             string    `json:"protocol"`
+	ProfileSchemaVersion int       `json:"profile_schema_version"`
+	ProfileCompatibility string    `json:"profile_compatibility"`
+	ProfileWarnings      []string  `json:"profile_warnings"`
+	CreatedAt            time.Time `json:"created_at"`
 }
 
 // LoginRequest is the payload for POST /api/auth/login.
@@ -424,20 +458,21 @@ type ExternalSourcePreviewRequest struct {
 }
 
 type ExternalSourceImportRequest struct {
-	Name                string `json:"name"`
-	Category            string `json:"category"`
-	KeyCategory         string `json:"key_category"`
-	KeyInsertMode       string `json:"key_insert_mode"`
-	SourceURL           string `json:"source_url"`
-	Enabled             bool   `json:"enabled"`
-	ApplyRemoteMetadata bool   `json:"apply_remote_metadata"`
-	PassHWID            bool   `json:"pass_hwid"`
-	HWIDVersion         string `json:"hwid_version"`
-	HWIDModelName       string `json:"hwid_model_name"`
-	HWIDValue           string `json:"hwid_value"`
-	RawBody             string `json:"raw_body"`
-	RawContentType      string `json:"raw_content_type"`
-	RawFinalURL         string `json:"raw_final_url"`
+	Name                string   `json:"name"`
+	Category            string   `json:"category"`
+	KeyCategory         string   `json:"key_category"`
+	KeyInsertMode       string   `json:"key_insert_mode"`
+	SourceURL           string   `json:"source_url"`
+	Enabled             bool     `json:"enabled"`
+	ApplyRemoteMetadata bool     `json:"apply_remote_metadata"`
+	PassHWID            bool     `json:"pass_hwid"`
+	HWIDVersion         string   `json:"hwid_version"`
+	HWIDModelName       string   `json:"hwid_model_name"`
+	HWIDValue           string   `json:"hwid_value"`
+	RawBody             string   `json:"raw_body"`
+	RawContentType      string   `json:"raw_content_type"`
+	RawFinalURL         string   `json:"raw_final_url"`
+	SelectedItemRefs    []string `json:"selected_item_refs"`
 }
 
 type ExternalSourceUpdateRequest struct {

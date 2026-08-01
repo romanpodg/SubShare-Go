@@ -242,8 +242,17 @@ paths:
     post:
       tags: [Operations]
       summary: Fetch, validate and preview a source without saving it
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/SourcePreviewInput" }
       responses:
-        "200": { description: Detected format, metadata, warnings and safe key samples }
+        "200":
+          description: Detected format, metadata, stable warning codes and secret-free item results
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/SourcePreview" }
         default: { $ref: "#/components/responses/Error" }
   /sources/{id}:
     get:
@@ -654,6 +663,12 @@ components:
         last_checked_at: { type: string }
         external_source_id: { type: integer, format: int64 }
         external_source_name: { type: string }
+        protocol: { $ref: "#/components/schemas/ProfileProtocol" }
+        profile_schema_version: { type: integer, minimum: 0 }
+        profile_compatibility: { $ref: "#/components/schemas/ProfileCompatibility" }
+        profile_warnings:
+          type: array
+          items: { type: string }
         created_at: { type: string, format: date-time }
     SourceSummary:
       type: object
@@ -715,6 +730,83 @@ components:
         raw_body: { type: string, maxLength: 1048576 }
         raw_content_type: { type: string }
         raw_final_url: { type: string, format: uri }
+        selected_item_refs:
+          type: array
+          uniqueItems: true
+          description: Optional references from preview. Apply reparses the authoritative body and rejects any reference that no longer matches.
+          items: { type: string, pattern: '^ir1_[0-9a-f]{32}$' }
+    SourcePreviewInput:
+      type: object
+      additionalProperties: false
+      required: [source_url]
+      properties:
+        source_url: { type: string, format: uri }
+        pass_hwid: { type: boolean }
+        hwid_version: { type: string }
+        hwid_model_name: { type: string }
+        hwid_value: { type: string, writeOnly: true }
+        raw_body: { type: string, maxLength: 1048576, writeOnly: true }
+        raw_content_type: { type: string }
+        raw_final_url: { type: string, format: uri }
+    ProfileProtocol:
+      type: string
+      enum: [legacy, vless, vmess, trojan, xray-json, shadowsocks, hysteria2, tuic]
+    ProfileCompatibility:
+      type: string
+      enum: [legacy, full, read_only, unsupported]
+    ExternalImportItemStatus:
+      type: string
+      enum: [accepted, rejected, duplicate, updated, unchanged, compatibility_only, ambiguous, unsupported]
+    ExternalImportResultCounts:
+      type: object
+      required: [accepted, rejected, duplicate, updated, unchanged, compatibility_only, ambiguous, unsupported]
+      properties:
+        accepted: { type: integer, minimum: 0 }
+        rejected: { type: integer, minimum: 0 }
+        duplicate: { type: integer, minimum: 0 }
+        updated: { type: integer, minimum: 0 }
+        unchanged: { type: integer, minimum: 0 }
+        compatibility_only: { type: integer, minimum: 0 }
+        ambiguous: { type: integer, minimum: 0 }
+        unsupported: { type: integer, minimum: 0 }
+    ExternalImportItem:
+      type: object
+      required: [item_ref, line_index, protocol, scheme, display_name, host, port, compatibility, status, warnings]
+      properties:
+        item_ref: { type: string, pattern: '^ir1_[0-9a-f]{32}$' }
+        line_index: { type: integer, minimum: 1 }
+        protocol: { type: string }
+        scheme: { type: string }
+        display_name: { type: string }
+        label: { type: string, deprecated: true }
+        host: { type: string }
+        port: { type: string }
+        compatibility: { $ref: "#/components/schemas/ProfileCompatibility" }
+        status: { $ref: "#/components/schemas/ExternalImportItemStatus" }
+        warnings:
+          type: array
+          items: { type: string }
+        error_code: { type: string }
+        url_short:
+          type: string
+          deprecated: true
+          description: Secret-free host/port summary retained for old clients; never a URI.
+    SourcePreview:
+      type: object
+      required: [source_url, suggested_name, detected_format, key_count, warnings, result_counts, keys]
+      properties:
+        source_url: { type: string, format: uri }
+        suggested_name: { type: string }
+        detected_format: { type: string, enum: [links, xray-json] }
+        key_count: { type: integer, minimum: 0 }
+        metadata: { type: object }
+        warnings:
+          type: array
+          items: { type: string }
+        result_counts: { $ref: "#/components/schemas/ExternalImportResultCounts" }
+        keys:
+          type: array
+          items: { $ref: "#/components/schemas/ExternalImportItem" }
     TemplateInput:
       type: object
       required: [name, format, content, enabled]

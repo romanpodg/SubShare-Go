@@ -10,6 +10,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/romanpodg/SubShare-Go/internal/profiles"
 )
 
 type vmessConfigPayload struct {
@@ -1013,6 +1015,45 @@ func normalizeConfigurationForSubscriptionOutput(raw string, format string, fall
 }
 
 func checkConfigurationAvailability(raw string) (string, string, int64) {
+	scheme := supportedConfigScheme(raw)
+	if scheme == "hysteria2" || scheme == "hy2" || scheme == "tuic" {
+		profile, parseErr := profiles.Parse(raw)
+		if parseErr != nil {
+			return "down", "invalid_configuration", 0
+		}
+		ctx, cancel := context.WithTimeout(context.Background(), 4*time.Second)
+		defer cancel()
+		if _, resolveErr := resolveExternalHost(ctx, profile.Server); resolveErr != nil {
+			return "down", "destination_not_permitted", 0
+		}
+		return "unknown", "dns_resolved_udp_quic_probe_unsupported", 0
+	}
+	if scheme == "ss" {
+		profile, parseErr := profiles.Parse(raw)
+		if parseErr != nil {
+			return "down", "invalid_configuration", 0
+		}
+		ctx, cancel := context.WithTimeout(context.Background(), 4*time.Second)
+		defer cancel()
+		addresses, resolveErr := resolveExternalHost(ctx, profile.Server)
+		if resolveErr != nil {
+			return "down", "destination_not_permitted", 0
+		}
+		dialer := &net.Dialer{Timeout: 4 * time.Second}
+		start := time.Now()
+		var connection net.Conn
+		for _, address := range addresses {
+			connection, parseErr = dialer.DialContext(ctx, "tcp", net.JoinHostPort(address.String(), profile.Port.Expression))
+			if parseErr == nil {
+				break
+			}
+		}
+		if parseErr != nil {
+			return "down", "tcp_unreachable", 0
+		}
+		_ = connection.Close()
+		return "unknown", "tcp_reachable_authentication_not_performed", time.Since(start).Milliseconds()
+	}
 	host, port, err := parseConfigTarget(raw)
 	if err != nil {
 		return "down", "invalid configuration", 0

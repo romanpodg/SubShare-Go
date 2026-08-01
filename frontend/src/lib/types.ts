@@ -67,6 +67,10 @@ export interface VLESSKey {
   external_source_id: number;
   external_source_name: string;
   client_display_name: string;
+  protocol?: ExternalProfileProtocol;
+  profile_schema_version?: number;
+  profile_compatibility?: ExternalProfileCompatibility;
+  profile_warnings?: string[];
   created_at: string;
 }
 
@@ -169,6 +173,7 @@ export interface SourceWriteInput {
   raw_body?: string;
   raw_content_type?: string;
   raw_final_url?: string;
+  selected_item_refs?: string[];
 }
 
 export interface ExternalSourceCategory {
@@ -184,9 +189,53 @@ export interface KeyCategory {
 }
 
 export interface ExternalSourcePreviewKey {
+  item_ref?: string;
+  line_index?: number;
   label: string;
+  display_name?: string;
+  protocol?: ExternalProfileProtocol | "unknown";
   scheme: string;
+  host?: string;
+  port?: string;
+  compatibility?: ExternalProfileCompatibility | "unsupported";
+  status?: ExternalImportItemStatus;
+  warnings?: string[];
+  error_code?: string;
+  /** Deprecated safe endpoint summary; never a complete URI. */
   url_short: string;
+}
+
+export type ExternalProfileProtocol =
+  | "legacy"
+  | "vless"
+  | "vmess"
+  | "trojan"
+  | "xray-json"
+  | "shadowsocks"
+  | "hysteria2"
+  | "tuic";
+
+export type ExternalProfileCompatibility = "legacy" | "full" | "read_only";
+
+export type ExternalImportItemStatus =
+  | "accepted"
+  | "rejected"
+  | "duplicate"
+  | "updated"
+  | "unchanged"
+  | "compatibility_only"
+  | "ambiguous"
+  | "unsupported";
+
+export interface ExternalImportResultCounts {
+  accepted: number;
+  rejected: number;
+  duplicate: number;
+  updated: number;
+  unchanged: number;
+  compatibility_only: number;
+  ambiguous: number;
+  unsupported: number;
 }
 
 export interface ExternalSourcePreview {
@@ -206,6 +255,7 @@ export interface ExternalSourcePreview {
     final_url: string;
   };
   warnings: string[];
+  result_counts?: ExternalImportResultCounts;
   keys: ExternalSourcePreviewKey[];
 }
 
@@ -250,6 +300,10 @@ export interface KeySummary {
   last_checked_at: string;
   external_source_id: number;
   external_source_name: string;
+  protocol?: ExternalProfileProtocol;
+  profile_schema_version?: number;
+  profile_compatibility?: ExternalProfileCompatibility;
+  profile_warnings?: string[];
   created_at: string;
 }
 
@@ -360,6 +414,7 @@ export interface SourceSyncRun {
   status: "running" | "succeeded" | "failed";
   imported_count: number;
   skipped_count: number;
+  result_counts?: ExternalImportResultCounts;
   error_message: string;
   started_at: string;
   finished_at: string | null;

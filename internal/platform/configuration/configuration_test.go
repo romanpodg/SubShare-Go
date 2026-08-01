@@ -1,13 +1,18 @@
 package configuration
 
 import (
+	"bytes"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
 )
 
 func testEnvironment(values map[string]string) map[string]string {
-	result := map[string]string{"ADMIN_PASSWORD": "test-password"}
+	result := map[string]string{
+		"ADMIN_PASSWORD":          "test-password",
+		"PROFILE_FINGERPRINT_KEY": strings.Repeat("ab", 32),
+	}
 	for key, value := range values {
 		result[key] = value
 	}
@@ -84,9 +89,73 @@ func TestLoadRequiresProductionBaseURLAndPreservesPasswordExactly(t *testing.T) 
 	}
 
 	exact := "  synthetic password  "
-	config, err := LoadFromMap(map[string]string{"ADMIN_PASSWORD": exact})
+	config, err := LoadFromMap(testEnvironment(map[string]string{"ADMIN_PASSWORD": exact}))
 	if err != nil || config.AdminPassword != exact {
 		t.Fatalf("password was transformed: value_equal=%v error=%v", config.AdminPassword == exact, err)
+	}
+}
+
+func TestLoadRequiresStrongProfileFingerprintKeyAndSupportsRotation(t *testing.T) {
+	missing := testEnvironment(nil)
+	delete(missing, "PROFILE_FINGERPRINT_KEY")
+	if _, err := LoadFromMap(missing); err == nil || !strings.Contains(err.Error(), "PROFILE_FINGERPRINT_KEY") {
+		t.Fatalf("missing key error = %v", err)
+	}
+	for _, values := range []map[string]string{
+		{"PROFILE_FINGERPRINT_KEY": ""},
+		{"PROFILE_FINGERPRINT_KEY": "not-hex"},
+		{"PROFILE_FINGERPRINT_KEY": strings.Repeat("aa", 16)},
+	} {
+		_, err := LoadFromMap(testEnvironment(values))
+		if err == nil || !strings.Contains(err.Error(), "PROFILE_FINGERPRINT_KEY") {
+			t.Fatalf("weak key error = %v", err)
+		}
+	}
+
+	current := strings.Repeat("01", 32)
+	previousOne := strings.Repeat("02", 32)
+	previousTwo := strings.Repeat("03", 32)
+	environment := testEnvironment(map[string]string{
+		"PROFILE_FINGERPRINT_KEY":           current,
+		"PROFILE_FINGERPRINT_PREVIOUS_KEYS": previousOne + "," + previousTwo,
+	})
+	config, err := LoadFromMap(environment)
+	if err != nil {
+		t.Fatalf("LoadFromMap rotation keys: %v", err)
+	}
+	if len(config.ProfileFingerprintKey) != 32 || len(config.ProfileFingerprintOldKeys) != 2 {
+		t.Fatalf("unexpected keyring lengths: current=%d previous=%d", len(config.ProfileFingerprintKey), len(config.ProfileFingerprintOldKeys))
+	}
+	if !bytes.Equal(config.ProfileFingerprintOldKeys[0], bytes.Repeat([]byte{0x02}, 32)) || !bytes.Equal(config.ProfileFingerprintOldKeys[1], bytes.Repeat([]byte{0x03}, 32)) {
+		t.Fatalf("previous key order was not preserved")
+	}
+	restarted, err := LoadFromMap(environment)
+	if err != nil || !bytes.Equal(config.ProfileFingerprintKey, restarted.ProfileFingerprintKey) ||
+		!bytes.Equal(config.ProfileFingerprintOldKeys[0], restarted.ProfileFingerprintOldKeys[0]) ||
+		!bytes.Equal(config.ProfileFingerprintOldKeys[1], restarted.ProfileFingerprintOldKeys[1]) {
+		t.Fatalf("same configuration did not survive independent startup: err=%v", err)
+	}
+	formatted := fmt.Sprintf("%s %v %+v %#v", config, config, config, config)
+	if strings.Contains(formatted, current) || strings.Contains(formatted, previousOne) || strings.Contains(formatted, previousTwo) || strings.Contains(formatted, "test-password") {
+		t.Fatalf("configuration formatting exposed a secret: %q", formatted)
+	}
+
+	for name, previous := range map[string]string{
+		"current repeated":     current,
+		"previous repeated":    previousOne + "," + previousOne,
+		"whitespace only":      "   ",
+		"empty middle entry":   previousOne + ",   ," + previousTwo,
+		"empty trailing entry": previousOne + ",",
+	} {
+		t.Run(name, func(t *testing.T) {
+			_, err := LoadFromMap(testEnvironment(map[string]string{
+				"PROFILE_FINGERPRINT_KEY":           current,
+				"PROFILE_FINGERPRINT_PREVIOUS_KEYS": previous,
+			}))
+			if err == nil || strings.Contains(err.Error(), current) || strings.Contains(err.Error(), previousOne) || strings.Contains(err.Error(), previousTwo) {
+				t.Fatalf("unsafe/accepted previous key list: %v", err)
+			}
+		})
 	}
 }
 

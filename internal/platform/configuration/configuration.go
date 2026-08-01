@@ -3,7 +3,9 @@
 package configuration
 
 import (
+	"encoding/hex"
 	"fmt"
+	"io"
 	"net"
 	"net/netip"
 	"net/url"
@@ -26,21 +28,33 @@ const (
 // Config contains validated runtime configuration. Secret values are retained
 // only for the startup code that needs them and are never included in errors.
 type Config struct {
-	DBPath                   string
-	AdminUser                string
-	AdminPassword            string
-	DeviceLimitMessage       string
-	BaseURL                  string
-	Environment              string
-	HappCryptoAPIURL         string
-	SubscriptionBodyEncoding string
-	CORSOrigins              []string
-	TrustedProxyNetworks     []netip.Prefix
-	ListenAddress            string
-	SQLiteJournalMode        string
-	BackupPath               string
-	BackupInterval           time.Duration
+	DBPath                    string
+	AdminUser                 string
+	AdminPassword             string
+	DeviceLimitMessage        string
+	BaseURL                   string
+	Environment               string
+	HappCryptoAPIURL          string
+	SubscriptionBodyEncoding  string
+	CORSOrigins               []string
+	TrustedProxyNetworks      []netip.Prefix
+	ListenAddress             string
+	SQLiteJournalMode         string
+	BackupPath                string
+	BackupInterval            time.Duration
+	ProfileFingerprintKey     []byte
+	ProfileFingerprintOldKeys [][]byte
 }
+
+// Format prevents configuration secrets from being emitted by fmt/log calls.
+func (config Config) Format(state fmt.State, _ rune) {
+	_, _ = io.WriteString(state, "configuration{environment="+config.Environment+", secrets=[redacted]}")
+}
+
+func (config Config) String() string {
+	return "configuration{environment=" + config.Environment + ", secrets=[redacted]}"
+}
+func (config Config) GoString() string { return config.String() }
 
 // Load parses os.Environ()-style entries. It is separated from os.Getenv so
 // callers can validate before runtime initialization and tests are hermetic.
@@ -122,8 +136,50 @@ func LoadFromMap(values map[string]string) (Config, error) {
 	if config.BackupInterval, err = parsePositiveDuration("BACKUP_INTERVAL", trimmed(values, "BACKUP_INTERVAL"), DefaultBackupInterval); err != nil {
 		return Config{}, err
 	}
+	if config.ProfileFingerprintKey, err = parseFingerprintKey("PROFILE_FINGERPRINT_KEY", trimmed(values, "PROFILE_FINGERPRINT_KEY")); err != nil {
+		return Config{}, err
+	}
+	previousFingerprintKeys := values["PROFILE_FINGERPRINT_PREVIOUS_KEYS"]
+	if previousFingerprintKeys != "" && strings.TrimSpace(previousFingerprintKeys) == "" {
+		return Config{}, fmt.Errorf("PROFILE_FINGERPRINT_PREVIOUS_KEYS must not contain whitespace-only entries")
+	}
+	if config.ProfileFingerprintOldKeys, err = parseFingerprintOldKeys(strings.TrimSpace(previousFingerprintKeys), config.ProfileFingerprintKey); err != nil {
+		return Config{}, err
+	}
 
 	return config, nil
+}
+
+func parseFingerprintKey(name, raw string) ([]byte, error) {
+	if raw == "" {
+		return nil, fmt.Errorf("%s is required", name)
+	}
+	decoded, err := hex.DecodeString(raw)
+	if err != nil || len(decoded) < 32 {
+		return nil, fmt.Errorf("%s must be hexadecimal encoding of at least 32 random bytes", name)
+	}
+	return decoded, nil
+}
+
+func parseFingerprintOldKeys(raw string, current []byte) ([][]byte, error) {
+	if raw == "" {
+		return nil, nil
+	}
+	seen := map[string]struct{}{hex.EncodeToString(current): {}}
+	result := make([][]byte, 0)
+	for _, item := range strings.Split(raw, ",") {
+		key, err := parseFingerprintKey("PROFILE_FINGERPRINT_PREVIOUS_KEYS", strings.TrimSpace(item))
+		if err != nil {
+			return nil, err
+		}
+		encoded := hex.EncodeToString(key)
+		if _, exists := seen[encoded]; exists {
+			return nil, fmt.Errorf("PROFILE_FINGERPRINT_PREVIOUS_KEYS must contain distinct keys")
+		}
+		seen[encoded] = struct{}{}
+		result = append(result, key)
+	}
+	return result, nil
 }
 
 // ParseBoolean accepts only true or false, ignoring case and surrounding

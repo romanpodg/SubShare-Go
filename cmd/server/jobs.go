@@ -2,6 +2,7 @@ package main
 
 import (
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log"
@@ -114,18 +115,26 @@ func (a *App) startSourceSyncRun(sourceID int64) int64 {
 	return id
 }
 
-func (a *App) finishSourceSyncRun(id int64, imported, skipped int, err error) {
+func (a *App) finishSourceSyncRun(id int64, result externalSyncResult, err error) {
 	if id == 0 {
 		return
 	}
 	if err != nil {
-		_, _ = a.db.Exec(`UPDATE source_sync_runs SET status = 'failed', error_message = ?, finished_at = CURRENT_TIMESTAMP WHERE id = ?`, err.Error(), id)
+		_, _ = a.db.Exec(`UPDATE source_sync_runs SET status = 'failed', error_message = ?, result_counts_json = ?, finished_at = CURRENT_TIMESTAMP WHERE id = ?`, err.Error(), marshalExternalCounts(result.Counts), id)
 		return
 	}
 	_, _ = a.db.Exec(`
 		UPDATE source_sync_runs SET status = 'succeeded', imported_count = ?, skipped_count = ?,
-		       error_message = '', finished_at = CURRENT_TIMESTAMP WHERE id = ?
-	`, imported, skipped, id)
+		       result_counts_json = ?, error_message = '', finished_at = CURRENT_TIMESTAMP WHERE id = ?
+	`, result.Imported, result.Skipped, marshalExternalCounts(result.Counts), id)
+}
+
+func marshalExternalCounts(counts externalImportCounts) string {
+	payload, err := json.Marshal(counts)
+	if err != nil {
+		return "{}"
+	}
+	return string(payload)
 }
 
 func (a *App) apiV1ListJobs(w http.ResponseWriter, r *http.Request) {
@@ -200,7 +209,7 @@ func (a *App) apiV1ListSourceSyncRuns(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	rows, err := a.db.Query(`
-		SELECT id, status, imported_count, skipped_count, error_message, started_at, finished_at
+		SELECT id, status, imported_count, skipped_count, result_counts_json, error_message, started_at, finished_at
 		FROM source_sync_runs WHERE source_id = ? ORDER BY id DESC LIMIT 50
 	`, sourceID)
 	if err != nil {
@@ -211,17 +220,19 @@ func (a *App) apiV1ListSourceSyncRuns(w http.ResponseWriter, r *http.Request) {
 	items := []map[string]any{}
 	for rows.Next() {
 		var id int64
-		var status, errorMessage string
+		var status, resultCountsJSON, errorMessage string
 		var imported, skipped int
 		var started time.Time
 		var finished sql.NullTime
-		if err := rows.Scan(&id, &status, &imported, &skipped, &errorMessage, &started, &finished); err != nil {
+		if err := rows.Scan(&id, &status, &imported, &skipped, &resultCountsJSON, &errorMessage, &started, &finished); err != nil {
 			writeV1Error(w, r, http.StatusInternalServerError, "sync_runs_list_failed", "failed to load sync history")
 			return
 		}
+		var resultCounts externalImportCounts
+		_ = json.Unmarshal([]byte(resultCountsJSON), &resultCounts)
 		items = append(items, map[string]any{
 			"id": id, "source_id": sourceID, "status": status, "imported_count": imported,
-			"skipped_count": skipped, "error_message": errorMessage, "started_at": started,
+			"skipped_count": skipped, "result_counts": resultCounts, "error_message": errorMessage, "started_at": started,
 			"finished_at": nullTimePointer(finished),
 		})
 	}
@@ -334,30 +345,31 @@ func (a *App) runQueuedSourceSync(jobID, sourceID, actorAdminID int64, requestID
 	source, err := a.getExternalSourceByID(sourceID)
 	if err != nil {
 		a.finishTrackedJob(jobID, err)
-		a.finishSourceSyncRun(runID, 0, 0, err)
+		a.finishSourceSyncRun(runID, externalSyncResult{}, err)
 		return
 	}
 	a.markExternalSourceStatus(sourceID, "syncing", "")
 	hwidProfile := normalizeExternalHWIDProfile(source.PassHWID, source.HWIDVersion, source.HWIDModelName, source.HWIDValue)
-	parsed, err := fetchExternalSubscription(source.SourceURL, hwidProfile)
+	parsed, err := fetchExternalSubscription(source.SourceURL, hwidProfile, a.externalProfileFingerprintKeys())
 	if err != nil {
 		a.markExternalSourceStatus(sourceID, "error", err.Error())
 		a.finishTrackedJob(jobID, err)
-		a.finishSourceSyncRun(runID, 0, 0, err)
+		a.finishSourceSyncRun(runID, externalSyncResult{}, err)
 		return
 	}
-	imported, skipped, err := a.syncExternalSource(sourceID, parsed)
+	syncResult, err := a.syncExternalSource(sourceID, parsed)
 	if err != nil {
 		a.markExternalSourceStatus(sourceID, "error", err.Error())
 		a.finishTrackedJob(jobID, err)
-		a.finishSourceSyncRun(runID, imported, skipped, err)
+		a.finishSourceSyncRun(runID, syncResult, err)
 		return
 	}
 	a.finishTrackedJob(jobID, nil)
-	a.finishSourceSyncRun(runID, imported, skipped, nil)
+	a.finishSourceSyncRun(runID, syncResult, nil)
 	a.recordAuditEventForActor(actorAdminID, requestID, "external_source.sync", "external_source", strconv.FormatInt(sourceID, 10), map[string]any{
-		"imported_count": imported,
-		"skipped_count":  skipped,
+		"imported_count": syncResult.Imported,
+		"skipped_count":  syncResult.Skipped,
+		"result_counts":  syncResult.Counts,
 		"job_id":         jobID,
 	})
 }

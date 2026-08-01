@@ -88,14 +88,16 @@ func runConfigured(config configuration.Config) error {
 	middleware.ConfigureTrustedProxyNetworks(config.TrustedProxyNetworks)
 
 	app := &App{
-		db:                       db,
-		dbPath:                   dbPath,
-		backupPath:               config.BackupPath,
-		deviceLimitMessage:       deviceLimitMessage,
-		baseURL:                  config.BaseURL,
-		happCryptoAPIURL:         config.HappCryptoAPIURL,
-		subscriptionBodyEncoding: config.SubscriptionBodyEncoding,
-		adminPasswordHasher:      passwordHasher,
+		db:                        db,
+		dbPath:                    dbPath,
+		backupPath:                config.BackupPath,
+		deviceLimitMessage:        deviceLimitMessage,
+		baseURL:                   config.BaseURL,
+		happCryptoAPIURL:          config.HappCryptoAPIURL,
+		subscriptionBodyEncoding:  config.SubscriptionBodyEncoding,
+		adminPasswordHasher:       passwordHasher,
+		profileFingerprintKey:     append([]byte(nil), config.ProfileFingerprintKey...),
+		profileFingerprintOldKeys: cloneByteSlices(config.ProfileFingerprintOldKeys),
 	}
 	app.recoverInterruptedJobs()
 

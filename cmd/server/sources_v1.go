@@ -10,7 +10,6 @@ import (
 
 	"github.com/romanpodg/SubShare-Go/internal/middleware"
 	"github.com/romanpodg/SubShare-Go/internal/model"
-	"github.com/romanpodg/SubShare-Go/internal/vless"
 )
 
 type sourceV1Summary struct {
@@ -251,19 +250,13 @@ func (a *App) apiV1PreviewSource(w http.ResponseWriter, r *http.Request) {
 	}
 	var parsed externalSubscriptionParseResult
 	if strings.TrimSpace(req.RawBody) != "" {
-		parsed, err = parseExternalSubscriptionFromRawBody(sourceURL, req.RawBody, metadata)
+		parsed, err = parseExternalSubscriptionFromRawBody(sourceURL, req.RawBody, metadata, a.externalProfileFingerprintKeys())
 	} else {
-		parsed, err = fetchExternalSubscription(sourceURL, hwidProfile)
+		parsed, err = fetchExternalSubscription(sourceURL, hwidProfile, a.externalProfileFingerprintKeys())
 	}
 	if err != nil {
 		writeV1FieldError(w, r, http.StatusBadRequest, "source_preview_failed", err.Error(), "source_url")
 		return
-	}
-	previewItems := make([]map[string]any, 0, len(parsed.Keys))
-	for _, item := range parsed.Keys {
-		previewItems = append(previewItems, map[string]any{
-			"label": item.Label, "scheme": item.Scheme, "url_short": vless.TruncateMiddle(item.URL, 88),
-		})
 	}
 	writeJSON(w, http.StatusOK, map[string]any{
 		"source_url": sourceURL, "suggested_name": suggestExternalSourceName(sourceURL, parsed.Metadata),
@@ -275,7 +268,7 @@ func (a *App) apiV1PreviewSource(w http.ResponseWriter, r *http.Request) {
 			"content_disp": parsed.Metadata.ContentDisp, "http_status": parsed.Metadata.HTTPStatusLabel,
 			"final_url": parsed.Metadata.SourceFinalURL,
 		},
-		"warnings": nonNilWarnings(parsed.Warnings), "keys": previewItems,
+		"warnings": nonNilWarnings(parsed.Warnings), "result_counts": parsed.Counts, "keys": parsed.Items,
 	})
 }
 
@@ -310,12 +303,17 @@ func (a *App) apiV1CreateSource(w http.ResponseWriter, r *http.Request) {
 	}
 	var parsed externalSubscriptionParseResult
 	if strings.TrimSpace(req.RawBody) != "" {
-		parsed, err = parseExternalSubscriptionFromRawBody(sourceURL, req.RawBody, metadata)
+		parsed, err = parseExternalSubscriptionFromRawBody(sourceURL, req.RawBody, metadata, a.externalProfileFingerprintKeys())
 	} else {
-		parsed, err = fetchExternalSubscription(sourceURL, hwidProfile)
+		parsed, err = fetchExternalSubscription(sourceURL, hwidProfile, a.externalProfileFingerprintKeys())
 	}
 	if err != nil {
 		writeV1FieldError(w, r, http.StatusBadRequest, "source_import_failed", err.Error(), "source_url")
+		return
+	}
+	parsed, err = filterExternalSelection(parsed, req.SelectedItemRefs)
+	if err != nil {
+		writeV1FieldError(w, r, http.StatusBadRequest, "source_selection_invalid", err.Error(), "selected_item_refs")
 		return
 	}
 	if len(parsed.Keys) == 0 {
@@ -394,7 +392,7 @@ func (a *App) apiV1CreateSource(w http.ResponseWriter, r *http.Request) {
 		HWIDValue:           hwidProfile.HWID,
 		ImportStatus:        "syncing",
 	}
-	imported, skipped, err := syncExternalSourceTx(tx, source, parsed)
+	syncResult, err := syncExternalSourceTx(tx, source, parsed)
 	if err != nil {
 		writeV1Error(w, r, http.StatusInternalServerError, "source_create_failed", "failed to save imported source")
 		return
@@ -409,12 +407,12 @@ func (a *App) apiV1CreateSource(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	a.recordAuditEvent(r, "external_source.create", "external_source", strconv.FormatInt(sourceID, 10), map[string]any{
-		"imported_count": imported, "skipped_count": skipped,
+		"imported_count": syncResult.Imported, "skipped_count": syncResult.Skipped, "result_counts": syncResult.Counts,
 	})
 	writeJSON(w, http.StatusCreated, map[string]any{
-		"data": sourceDetailFromRow(row, imported), "imported_count": imported,
-		"skipped_count": skipped, "warnings": nonNilWarnings(parsed.Warnings),
-		"detected_format": parsed.DetectedFormat,
+		"data": sourceDetailFromRow(row, syncResult.Imported), "imported_count": syncResult.Imported,
+		"skipped_count": syncResult.Skipped, "warnings": nonNilWarnings(parsed.Warnings),
+		"detected_format": parsed.DetectedFormat, "result_counts": syncResult.Counts, "items": syncResult.Items,
 	})
 }
 

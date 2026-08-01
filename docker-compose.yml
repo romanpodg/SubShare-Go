@@ -27,6 +27,10 @@ services:
       APP_ENV: production
       # Required by the backend only when it must create the initial owner.
       ADMIN_PASSWORD: ${ADMIN_PASSWORD:-}
+      # Mandatory and stable. Compose/backend never generate this value; the
+      # explicit start scripts persist one to .env when bootstrapping/upgrading.
+      PROFILE_FINGERPRINT_KEY: ${PROFILE_FINGERPRINT_KEY:?Set PROFILE_FINGERPRINT_KEY in .env}
+      PROFILE_FINGERPRINT_PREVIOUS_KEYS: ${PROFILE_FINGERPRINT_PREVIOUS_KEYS:-}
       BASE_URL: ${BASE_URL:?Set BASE_URL in .env}
       DB_PATH: /app/data/app.db
       BACKUP_PATH: ${BACKUP_PATH:-/app/data/backups/app.db}

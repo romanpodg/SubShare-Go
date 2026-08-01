@@ -8,13 +8,23 @@ import (
 )
 
 type App struct {
-	db                       *sql.DB
-	dbPath                   string
-	backupPath               string
-	deviceLimitMessage       string
-	baseURL                  string
-	happCryptoAPIURL         string
-	subscriptionBodyEncoding string
-	adminPasswordHasher      *adminpassword.Hasher
-	mu                       sync.RWMutex
+	db                        *sql.DB
+	dbPath                    string
+	backupPath                string
+	deviceLimitMessage        string
+	baseURL                   string
+	happCryptoAPIURL          string
+	subscriptionBodyEncoding  string
+	adminPasswordHasher       *adminpassword.Hasher
+	profileFingerprintKey     []byte
+	profileFingerprintOldKeys [][]byte
+	mu                        sync.RWMutex
+}
+
+func cloneByteSlices(values [][]byte) [][]byte {
+	cloned := make([][]byte, len(values))
+	for index := range values {
+		cloned[index] = append([]byte(nil), values[index]...)
+	}
+	return cloned
 }

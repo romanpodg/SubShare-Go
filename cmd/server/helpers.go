@@ -186,12 +186,14 @@ func (a *App) checkAndPersistKey(keyID int64, rawURL string) error {
 		 SET check_status = ?, check_error = ?, last_latency_ms = ?, last_checked_at = CURRENT_TIMESTAMP,
 		     health_failure_count = CASE
 		       WHEN ? = 'up' THEN 0
-		       ELSE COALESCE(health_failure_count, 0) + 1
+		       WHEN ? = 'down' THEN COALESCE(health_failure_count, 0) + 1
+		       ELSE COALESCE(health_failure_count, 0)
 		     END
 		 WHERE id = ?`,
 		status,
 		nullStringValue(checkErr),
 		nullInt64Value(latency),
+		status,
 		status,
 		keyID,
 	)

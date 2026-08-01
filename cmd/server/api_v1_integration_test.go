@@ -23,7 +23,7 @@ func newIntegrationApp(t *testing.T) *App {
 		t.Fatalf("initialize sqlite: %v", err)
 	}
 	t.Cleanup(func() { _ = db.Close() })
-	return &App{db: db, subscriptionBodyEncoding: "base64"}
+	return &App{db: db, subscriptionBodyEncoding: "base64", profileFingerprintKey: []byte("0123456789abcdef0123456789abcdef")}
 }
 
 func seedIntegrationSession(t *testing.T, app *App, role string) (string, string, int64) {

@@ -1,14 +1,17 @@
 package main
 
 import (
+	"context"
 	"database/sql"
 	"fmt"
 )
 
 type schemaMigration struct {
-	version    int
-	name       string
-	statements []string
+	version            int
+	name               string
+	statements         []string
+	disableForeignKeys bool
+	verifyForeignKeys  bool
 }
 
 var schemaMigrations = []schemaMigration{
@@ -308,6 +311,114 @@ var schemaMigrations = []schemaMigration{
 			 END`,
 		},
 	},
+	{
+		version: 9,
+		name:    "external_protocol_profile_persistence",
+		statements: []string{
+			`ALTER TABLE vless_keys ADD COLUMN protocol TEXT NOT NULL DEFAULT 'legacy'`,
+			`ALTER TABLE vless_keys ADD COLUMN profile_fingerprint TEXT`,
+			`ALTER TABLE vless_keys ADD COLUMN profile_schema_version INTEGER NOT NULL DEFAULT 0`,
+			`ALTER TABLE vless_keys ADD COLUMN profile_compatibility TEXT NOT NULL DEFAULT 'legacy'`,
+			`ALTER TABLE vless_keys ADD COLUMN profile_warnings_json TEXT NOT NULL DEFAULT '[]'`,
+			`CREATE INDEX IF NOT EXISTS idx_vless_keys_external_source_fingerprint
+			 ON vless_keys(external_source_id, profile_fingerprint)`,
+			`ALTER TABLE source_sync_runs ADD COLUMN result_counts_json TEXT NOT NULL DEFAULT '{}'`,
+		},
+	},
+	{
+		version:            10,
+		name:               "source_owned_profile_urls",
+		disableForeignKeys: true,
+		verifyForeignKeys:  true,
+		statements: []string{
+			`CREATE TABLE vless_keys_source_owned (
+				id INTEGER PRIMARY KEY AUTOINCREMENT,
+				label TEXT NOT NULL,
+				url TEXT NOT NULL,
+				created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+				check_status TEXT NOT NULL DEFAULT 'unknown',
+				check_error TEXT,
+				last_checked_at DATETIME,
+				last_latency_ms INTEGER,
+				status TEXT NOT NULL DEFAULT 'active',
+				key_kind TEXT NOT NULL DEFAULT 'real',
+				template_text TEXT,
+				sort_order INTEGER NOT NULL DEFAULT 0,
+				starts_at DATETIME,
+				expires_at DATETIME,
+				blocked_reason TEXT,
+				external_source_id INTEGER,
+				external_key_ref TEXT,
+				category TEXT NOT NULL DEFAULT '',
+				category_id INTEGER REFERENCES key_categories(id) ON DELETE SET NULL,
+				health_failure_count INTEGER NOT NULL DEFAULT 0,
+				protocol TEXT NOT NULL DEFAULT 'legacy',
+				profile_fingerprint TEXT,
+				profile_schema_version INTEGER NOT NULL DEFAULT 0,
+				profile_compatibility TEXT NOT NULL DEFAULT 'legacy',
+				profile_warnings_json TEXT NOT NULL DEFAULT '[]'
+			)`,
+			`INSERT INTO vless_keys_source_owned(
+				id, label, url, created_at, check_status, check_error, last_checked_at, last_latency_ms,
+				status, key_kind, template_text, sort_order, starts_at, expires_at, blocked_reason,
+				external_source_id, external_key_ref, category, category_id, health_failure_count,
+				protocol, profile_fingerprint, profile_schema_version, profile_compatibility, profile_warnings_json
+			)
+			SELECT id, label, url, created_at, check_status, check_error, last_checked_at, last_latency_ms,
+			       status, key_kind, template_text, sort_order, starts_at, expires_at, blocked_reason,
+			       external_source_id, external_key_ref, category, category_id, health_failure_count,
+			       protocol, profile_fingerprint, profile_schema_version, profile_compatibility, profile_warnings_json
+			  FROM vless_keys`,
+			`DROP TRIGGER IF EXISTS trg_key_categories_name_compat`,
+			`DROP TABLE vless_keys`,
+			`ALTER TABLE vless_keys_source_owned RENAME TO vless_keys`,
+			`CREATE INDEX idx_vless_keys_url ON vless_keys(url)`,
+			`CREATE UNIQUE INDEX idx_vless_keys_local_url
+				 ON vless_keys(url) WHERE external_source_id IS NULL`,
+			`CREATE INDEX idx_vless_keys_kind_sort ON vless_keys(key_kind, sort_order, id)`,
+			`CREATE INDEX idx_vless_keys_category_sort ON vless_keys(category, sort_order, id)`,
+			`CREATE INDEX idx_vless_keys_external_source ON vless_keys(external_source_id)`,
+			`CREATE UNIQUE INDEX idx_vless_keys_external_source_ref
+				 ON vless_keys(external_source_id, external_key_ref)`,
+			`CREATE INDEX idx_vless_keys_category_id ON vless_keys(category_id, sort_order, id)`,
+			`CREATE INDEX idx_vless_keys_delivery_health
+				 ON vless_keys(status, key_kind, health_failure_count, sort_order, id)`,
+			`CREATE UNIQUE INDEX idx_vless_keys_external_source_fingerprint
+				 ON vless_keys(external_source_id, profile_fingerprint)
+				 WHERE external_source_id IS NOT NULL
+				   AND profile_fingerprint IS NOT NULL
+				   AND TRIM(profile_fingerprint) <> ''`,
+			`CREATE TRIGGER trg_vless_keys_category_insert
+				 AFTER INSERT ON vless_keys
+				 WHEN NEW.category_id IS NULL AND TRIM(COALESCE(NEW.category, '')) <> ''
+				 BEGIN
+				   UPDATE vless_keys
+				      SET category_id = (SELECT id FROM key_categories WHERE name = NEW.category)
+				    WHERE id = NEW.id;
+				 END`,
+			`CREATE TRIGGER trg_vless_keys_category_id_insert
+				 AFTER INSERT ON vless_keys
+				 WHEN NEW.category_id IS NOT NULL
+				 BEGIN
+				   UPDATE vless_keys
+				      SET category = COALESCE((SELECT name FROM key_categories WHERE id = NEW.category_id), '')
+				    WHERE id = NEW.id;
+				 END`,
+			`CREATE TRIGGER trg_vless_keys_category_id_update
+				 AFTER UPDATE OF category_id ON vless_keys
+				 BEGIN
+				   UPDATE vless_keys
+				      SET category = COALESCE((SELECT name FROM key_categories WHERE id = NEW.category_id), '')
+				    WHERE id = NEW.id;
+				 END`,
+			`CREATE TRIGGER trg_key_categories_name_compat
+				 AFTER UPDATE OF name ON key_categories
+				 BEGIN
+				   UPDATE vless_keys SET category = NEW.name WHERE category_id = NEW.id;
+				   UPDATE external_subscription_sources SET key_category = NEW.name WHERE key_category_id = NEW.id;
+				 END`,
+		},
+	},
 }
 
 func runVersionedMigrations(db *sql.DB) error {
@@ -319,36 +430,77 @@ func runVersionedMigrations(db *sql.DB) error {
 		return fmt.Errorf("create schema_migrations: %w", err)
 	}
 
+	ctx := context.Background()
+	conn, err := db.Conn(ctx)
+	if err != nil {
+		return fmt.Errorf("acquire migration connection: %w", err)
+	}
+	defer conn.Close()
+
 	for _, migration := range schemaMigrations {
 		var applied int
-		if err := db.QueryRow(`SELECT COUNT(*) FROM schema_migrations WHERE version = ?`, migration.version).Scan(&applied); err != nil {
+		if err := conn.QueryRowContext(ctx, `SELECT COUNT(*) FROM schema_migrations WHERE version = ?`, migration.version).Scan(&applied); err != nil {
 			return fmt.Errorf("check migration %d: %w", migration.version, err)
 		}
 		if applied > 0 {
 			continue
 		}
 
-		tx, err := db.Begin()
-		if err != nil {
-			return fmt.Errorf("begin migration %d: %w", migration.version, err)
+		if err := applySchemaMigration(ctx, conn, migration); err != nil {
+			return err
 		}
-		for _, statement := range migration.statements {
-			if _, err := tx.Exec(statement); err != nil {
-				_ = tx.Rollback()
-				return fmt.Errorf("apply migration %d (%s): %w", migration.version, migration.name, err)
+	}
+	return nil
+}
+
+func applySchemaMigration(ctx context.Context, conn *sql.Conn, migration schemaMigration) (resultErr error) {
+	foreignKeysEnabled := false
+	if migration.disableForeignKeys {
+		var enabled int
+		if err := conn.QueryRowContext(ctx, `PRAGMA foreign_keys`).Scan(&enabled); err != nil {
+			return fmt.Errorf("read foreign key state for migration %d: %w", migration.version, err)
+		}
+		foreignKeysEnabled = enabled != 0
+		if foreignKeysEnabled {
+			if _, err := conn.ExecContext(ctx, `PRAGMA foreign_keys = OFF`); err != nil {
+				return fmt.Errorf("disable foreign keys for migration %d: %w", migration.version, err)
 			}
+			defer func() {
+				if _, err := conn.ExecContext(ctx, `PRAGMA foreign_keys = ON`); err != nil && resultErr == nil {
+					resultErr = fmt.Errorf("restore foreign keys after migration %d: %w", migration.version, err)
+				}
+			}()
 		}
-		if _, err := tx.Exec(
-			`INSERT INTO schema_migrations(version, name) VALUES(?, ?)`,
-			migration.version,
-			migration.name,
-		); err != nil {
-			_ = tx.Rollback()
-			return fmt.Errorf("record migration %d: %w", migration.version, err)
+	}
+
+	tx, err := conn.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("begin migration %d: %w", migration.version, err)
+	}
+	defer tx.Rollback()
+	for _, statement := range migration.statements {
+		if _, err := tx.ExecContext(ctx, statement); err != nil {
+			return fmt.Errorf("apply migration %d (%s): %w", migration.version, migration.name, err)
 		}
-		if err := tx.Commit(); err != nil {
-			return fmt.Errorf("commit migration %d: %w", migration.version, err)
+	}
+	if migration.verifyForeignKeys {
+		var violations int
+		if err := tx.QueryRowContext(ctx, `SELECT COUNT(*) FROM pragma_foreign_key_check`).Scan(&violations); err != nil {
+			return fmt.Errorf("verify foreign keys for migration %d: %w", migration.version, err)
 		}
+		if violations != 0 {
+			return fmt.Errorf("verify foreign keys for migration %d: %d violation(s)", migration.version, violations)
+		}
+	}
+	if _, err := tx.ExecContext(ctx,
+		`INSERT INTO schema_migrations(version, name) VALUES(?, ?)`,
+		migration.version,
+		migration.name,
+	); err != nil {
+		return fmt.Errorf("record migration %d: %w", migration.version, err)
+	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("commit migration %d: %w", migration.version, err)
 	}
 	return nil
 }
