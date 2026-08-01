@@ -87,7 +87,7 @@ export default function AuditPage() {
                         {new Date(event.created_at).toLocaleString("ru-RU")}
                       </td>
                       <td className="px-5 py-4 font-medium text-zinc-300">{event.actor}</td>
-                      <td className="px-5 py-4 text-cyan-300">{event.action}</td>
+                      <td className="px-5 py-4 text-info">{event.action}</td>
                       <td className="px-5 py-4 text-zinc-400">
                         {event.target_type} {event.target_id && `#${event.target_id}`}
                       </td>

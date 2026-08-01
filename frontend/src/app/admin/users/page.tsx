@@ -198,7 +198,7 @@ export default function UsersPage() {
                     type="checkbox"
                     checked={allSelected}
                     onChange={() => setSelectedIDs(allSelected ? [] : items.map((item) => item.id))}
-                    className="accent-cyan-500"
+                    className="accent-accent"
                   />
                 </th>
                 <th className="px-4 py-3">Пользователь</th>
@@ -217,7 +217,7 @@ export default function UsersPage() {
                       type="checkbox"
                       checked={selectedIDs.includes(user.id)}
                       onChange={() => setSelectedIDs((current) => current.includes(user.id) ? current.filter((id) => id !== user.id) : [...current, user.id])}
-                      className="accent-cyan-500"
+                      className="accent-accent"
                     />
                   </td>
                   <td className="px-4 py-3">
@@ -291,7 +291,7 @@ export default function UsersPage() {
                     ["devices", "Устройства"],
                     ["history", "История"],
                   ] as const).map(([value, label]) => (
-                    <button key={value} type="button" onClick={() => setDrawerTab(value)} className={`border-b-2 px-3 py-3 text-sm ${drawerTab === value ? "border-cyan-400 text-cyan-200" : "border-transparent text-zinc-600"}`}>
+                    <button key={value} type="button" onClick={() => setDrawerTab(value)} role="tab" aria-selected={drawerTab === value} className="ui-tab ui-tab--underline px-3 py-3 text-sm">
                       {label}
                     </button>
                   ))}

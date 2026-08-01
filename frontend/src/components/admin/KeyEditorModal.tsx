@@ -1,6 +1,7 @@
 "use client";
 
 import {
+  ClipboardEvent as ReactClipboardEvent,
   FormEvent,
   ReactNode,
   useCallback,
@@ -30,26 +31,37 @@ import { keys as keysApi } from "@/lib/api";
 import { copyToClipboard } from "@/lib/clipboard";
 import {
   buildConfiguration,
-  buildXrayJSONConfiguration,
   createConfigurationFromXrayJSON,
   createXrayJSONFromConfiguration,
   extractLabelFromConfiguration,
   getConfigurationPlaceholder,
   getXrayJSONPlaceholder,
   isXrayJSONConfiguration,
+  patchXrayJSONConfiguration,
   parseConfiguration,
   parseXrayJSONConfiguration,
   type ConfigurationDraft,
   type RealConfigurationMode,
   type XrayJSONDraft,
 } from "@/lib/configuration";
+import {
+  CONFIG_LIMIT,
+  configurationByteLength,
+  DuplicateJSONKeyError,
+  formatXrayJSON,
+  formatXrayJSONWithinLimit,
+  inspectXrayJSONDocument,
+} from "@/lib/xray-json-document";
 import type { KeyCategory } from "@/lib/types";
 import { CreateKeyCategoryModal } from "./CreateKeyCategoryModal";
 import { keyTemplateVariables } from "./keyTemplateVariables";
 
 const LABEL_LIMIT = 255;
-const CONFIG_LIMIT = 65_535;
 const TEMPLATE_LIMIT = 8_192;
+const DUPLICATE_JSON_WARNING =
+  "JSON содержит повторяющиеся ключи. Форматирование, преобразование и структурированное редактирование отключены; копирование и сохранение используют исходный текст.";
+const FORMAT_LIMIT_WARNING =
+  "Форматированная версия превышает лимит 65 535 байт. Исходный компактный JSON сохранён без изменений.";
 
 const TEMPLATE_PREVIEW_VALUES: Record<string, string> = {
   "{user_name}": "Иван",
@@ -103,7 +115,7 @@ type PendingConversion = {
 const fieldLabelClass =
   "font-mono text-[10px] font-semibold uppercase tracking-[0.14em] text-zinc-500";
 const textareaClass =
-  "w-full min-w-0 resize-y rounded-sm border border-border bg-surface-2 px-3 py-2 font-mono text-xs leading-5 text-zinc-200 placeholder:text-zinc-600 transition-colors hover:border-[var(--border-strong)] focus-visible:border-accent focus-visible:outline-none";
+  "w-full min-w-0 resize-y rounded-sm border border-border bg-surface-2 px-3 py-2 font-mono text-xs leading-5 text-zinc-200 placeholder:text-zinc-600 transition-colors hover:border-[var(--border-strong)] focus:border-accent focus-visible:border-accent";
 const toolButtonClass =
   "inline-flex h-9 items-center justify-center gap-2 rounded-sm border border-border bg-transparent px-3 font-mono text-[10px] font-semibold uppercase tracking-[0.08em] text-zinc-400 transition-colors duration-200 hover:border-[var(--border-strong)] hover:bg-surface-2 hover:text-zinc-100 disabled:cursor-not-allowed disabled:opacity-40";
 
@@ -168,9 +180,7 @@ export function findUnknownKeyTemplateTokens(template: string) {
   );
 }
 
-export function formatXrayJSON(raw: string) {
-  return JSON.stringify(JSON.parse(raw), null, 2);
-}
+export { formatXrayJSON };
 
 function stateSnapshot(value: {
   label: string;
@@ -183,6 +193,33 @@ function stateSnapshot(value: {
   xrayRaw: string;
 }) {
   return JSON.stringify(value);
+}
+
+function normalizeInitialXrayJSON(raw: string) {
+  if (!raw.trim()) return raw;
+  try {
+    return formatXrayJSONWithinLimit(raw).value;
+  } catch {
+    return raw;
+  }
+}
+
+function initialEditorState(initialValue: KeyEditorInitialValue) {
+  const configMode: RealConfigurationMode =
+    initialValue.kind === "real" && isXrayJSONConfiguration(initialValue.rawConfig)
+      ? "xray-json"
+      : "link";
+  return {
+    label: initialValue.label,
+    status: initialValue.status,
+    category: initialValue.category || "",
+    kind: initialValue.kind,
+    templateText: initialValue.templateText || "",
+    configMode,
+    linkRaw: configMode === "link" ? initialValue.rawConfig : "",
+    xrayRaw:
+      configMode === "xray-json" ? normalizeInitialXrayJSON(initialValue.rawConfig) : "",
+  };
 }
 
 function EditorSection({
@@ -216,11 +253,13 @@ function ValidationState({
   raw,
   error,
   valid,
+  warning,
   description,
 }: {
   raw: string;
   error: string;
   valid: boolean;
+  warning?: string;
   description: string;
 }) {
   if (!raw.trim()) {
@@ -242,8 +281,19 @@ function ValidationState({
       </div>
     );
   }
+  if (warning) {
+    return (
+      <div
+        role="status"
+        className="flex items-start gap-2 rounded-sm border border-amber-500/30 bg-amber-500/8 px-3 py-2 text-xs text-amber-200"
+      >
+        <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
+        <span className="min-w-0 break-words">{warning}</span>
+      </div>
+    );
+  }
   return (
-    <div className="flex items-start gap-2 rounded-sm border border-emerald-500/25 bg-emerald-500/8 px-3 py-2 text-xs text-emerald-200">
+    <div className="flex items-start gap-2 rounded-sm border border-success/25 bg-success/8 px-3 py-2 text-xs text-success">
       <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
       <span>{description}</span>
     </div>
@@ -261,22 +311,19 @@ export function KeyEditorModal({
 }: KeyEditorModalProps) {
   const { toast } = useToast();
   const templateInputRef = useRef<AppleEmojiInputHandle>(null);
-  const baselineRef = useRef("");
+  const firstState = initialEditorState(initialValue);
+  const baselineRef = useRef(stateSnapshot(firstState));
   const bypassCloseGuardRef = useRef(false);
 
-  const initialMode: RealConfigurationMode =
-    initialValue.kind === "real" && isXrayJSONConfiguration(initialValue.rawConfig)
-      ? "xray-json"
-      : "link";
-  const [label, setLabel] = useState(initialValue.label);
+  const [label, setLabel] = useState(firstState.label);
   const [labelTouched, setLabelTouched] = useState(!autofillLabelFromConfig);
-  const [status, setStatus] = useState<KeyEditorStatus>(initialValue.status);
-  const [category, setCategory] = useState(initialValue.category);
-  const [kind, setKind] = useState<KeyEditorKind>(initialValue.kind);
-  const [templateText, setTemplateText] = useState(initialValue.templateText);
-  const [configMode, setConfigMode] = useState<RealConfigurationMode>(initialMode);
-  const [linkRaw, setLinkRaw] = useState(initialMode === "link" ? initialValue.rawConfig : "");
-  const [xrayRaw, setXrayRaw] = useState(initialMode === "xray-json" ? initialValue.rawConfig : "");
+  const [status, setStatus] = useState<KeyEditorStatus>(firstState.status);
+  const [category, setCategory] = useState(firstState.category);
+  const [kind, setKind] = useState<KeyEditorKind>(firstState.kind);
+  const [templateText, setTemplateText] = useState(firstState.templateText);
+  const [configMode, setConfigMode] = useState<RealConfigurationMode>(firstState.configMode);
+  const [linkRaw, setLinkRaw] = useState(firstState.linkRaw);
+  const [xrayRaw, setXrayRaw] = useState(firstState.xrayRaw);
   const [availableCategories, setAvailableCategories] = useState<KeyCategory[]>([]);
   const [loading, setLoading] = useState(false);
   const [showCreateCategory, setShowCreateCategory] = useState(false);
@@ -296,20 +343,14 @@ export function KeyEditorModal({
   const dirty = currentSnapshot !== baselineRef.current;
 
   const resetEditor = useCallback(() => {
-    const nextMode: RealConfigurationMode =
-      initialValue.kind === "real" && isXrayJSONConfiguration(initialValue.rawConfig)
-        ? "xray-json"
-        : "link";
-    const nextState = {
+    const nextState = initialEditorState({
       label: initialValue.label,
       status: initialValue.status,
-      category: initialValue.category || "",
+      category: initialValue.category,
       kind: initialValue.kind,
-      templateText: initialValue.templateText || "",
-      configMode: nextMode,
-      linkRaw: nextMode === "link" ? initialValue.rawConfig : "",
-      xrayRaw: nextMode === "xray-json" ? initialValue.rawConfig : "",
-    };
+      templateText: initialValue.templateText,
+      rawConfig: initialValue.rawConfig,
+    });
     setLabel(nextState.label);
     setLabelTouched(!autofillLabelFromConfig);
     setStatus(nextState.status);
@@ -345,10 +386,52 @@ export function KeyEditorModal({
 
   const linkParsed = useMemo(() => parseLink(linkRaw), [linkRaw]);
   const xrayParsed = useMemo(() => parseXray(xrayRaw), [xrayRaw]);
+  const xrayDocument = useMemo(() => {
+    if (!xrayRaw.trim()) {
+      return {
+        duplicateKeys: [],
+        formatted: "",
+        formattedExceedsLimit: false,
+      };
+    }
+    try {
+      const { duplicateKeys } = inspectXrayJSONDocument(xrayRaw);
+      if (duplicateKeys.length > 0) {
+        return {
+          duplicateKeys,
+          formatted: "",
+          formattedExceedsLimit: false,
+        };
+      }
+      const formatted = formatXrayJSON(xrayRaw);
+      return {
+        duplicateKeys,
+        formatted,
+        formattedExceedsLimit: configurationByteLength(formatted) > CONFIG_LIMIT,
+      };
+    } catch {
+      return {
+        duplicateKeys: [],
+        formatted: "",
+        formattedExceedsLimit: false,
+      };
+    }
+  }, [xrayRaw]);
   const activeRaw = configMode === "link" ? linkRaw : xrayRaw;
+  const activeByteLength = configurationByteLength(activeRaw);
   const activeError = configMode === "link" ? linkParsed.error : xrayParsed.error;
   const activeValid =
     configMode === "link" ? Boolean(linkParsed.value) : Boolean(xrayParsed.value);
+  const xrayHasDuplicateKeys = xrayDocument.duplicateKeys.length > 0;
+  const xrayTransformable = Boolean(xrayParsed.value) && !xrayHasDuplicateKeys;
+  const activeWarning =
+    configMode === "xray-json"
+      ? xrayHasDuplicateKeys
+        ? DUPLICATE_JSON_WARNING
+        : xrayDocument.formattedExceedsLimit
+          ? FORMAT_LIMIT_WARNING
+          : ""
+      : "";
   const activePort =
     configMode === "link"
       ? linkParsed.value?.port
@@ -376,9 +459,9 @@ export function KeyEditorModal({
   const canSubmit =
     !loading &&
     labelValid &&
-    (kind === "informational" ||
+      (kind === "informational" ||
       (activeRaw.trim().length > 0 &&
-        activeRaw.length <= CONFIG_LIMIT &&
+        activeByteLength <= CONFIG_LIMIT &&
         activeValid &&
         activePortValid));
 
@@ -414,14 +497,13 @@ export function KeyEditorModal({
   };
 
   const updateXrayDraft = (patch: Partial<XrayJSONDraft>) => {
-    const parsed = xrayParsed.value;
-    if (!parsed) return;
+    if (!xrayTransformable) return;
     try {
-      const rebuilt = buildXrayJSONConfiguration(
-        { ...parsed.draft, ...patch },
-        parsed.config,
-        parsed.outboundIndex
-      );
+      const rebuilt = patchXrayJSONConfiguration(xrayRaw, patch);
+      if (configurationByteLength(rebuilt) > CONFIG_LIMIT) {
+        toast(FORMAT_LIMIT_WARNING, "info");
+        return;
+      }
       setXrayRaw(rebuilt);
       maybeAutofillLabel(rebuilt, "xray-json");
     } catch (error: unknown) {
@@ -452,6 +534,10 @@ export function KeyEditorModal({
   };
 
   const requestConversion = (target: RealConfigurationMode) => {
+    if (configMode === "xray-json" && xrayHasDuplicateKeys) {
+      toast(DUPLICATE_JSON_WARNING, "info");
+      return;
+    }
     const sourceValid = target === "xray-json" ? Boolean(linkParsed.value) : Boolean(xrayParsed.value);
     if (!sourceValid) {
       toast("Сначала исправьте исходную конфигурацию", "error");
@@ -466,17 +552,62 @@ export function KeyEditorModal({
   };
 
   const copyActiveConfiguration = async () => {
-    const copied = await copyToClipboard(activeRaw);
-    toast(copied ? "Конфигурация скопирована" : "Не удалось скопировать конфигурацию", copied ? "success" : "error");
+    const valueToCopy =
+      configMode === "xray-json" && xrayDocument.formatted && !xrayHasDuplicateKeys
+        ? xrayDocument.formatted
+        : activeRaw;
+    const copied = await copyToClipboard(valueToCopy);
+    if (!copied) {
+      toast("Не удалось скопировать конфигурацию", "error");
+    } else if (configMode === "xray-json" && xrayHasDuplicateKeys) {
+      toast("JSON с повторяющимися ключами скопирован без форматирования", "info");
+    } else {
+      toast("Конфигурация скопирована", "success");
+    }
   };
 
   const formatActiveJSON = () => {
     try {
-      setXrayRaw(formatXrayJSON(xrayRaw));
+      const result = formatXrayJSONWithinLimit(xrayRaw);
+      if (result.exceededLimit) {
+        toast(FORMAT_LIMIT_WARNING, "info");
+        return;
+      }
+      setXrayRaw(result.value);
       toast("JSON отформатирован", "success");
-    } catch {
-      toast("Сначала исправьте синтаксис JSON", "error");
+    } catch (error: unknown) {
+      toast(
+        error instanceof DuplicateJSONKeyError
+          ? DUPLICATE_JSON_WARNING
+          : "Сначала исправьте синтаксис JSON",
+        error instanceof DuplicateJSONKeyError ? "info" : "error"
+      );
     }
+  };
+
+  const pasteXrayJSON = (event: ReactClipboardEvent<HTMLTextAreaElement>) => {
+    if (configMode !== "xray-json") return;
+    const pasted = event.clipboardData.getData("text/plain");
+    if (!pasted) return;
+
+    event.preventDefault();
+    const textarea = event.currentTarget;
+    const selectionStart = textarea.selectionStart ?? xrayRaw.length;
+    const selectionEnd = textarea.selectionEnd ?? selectionStart;
+    const pastedRaw = `${xrayRaw.slice(0, selectionStart)}${pasted}${xrayRaw.slice(selectionEnd)}`;
+    let nextValue = pastedRaw;
+    try {
+      const result = formatXrayJSONWithinLimit(pastedRaw);
+      if (result.exceededLimit) {
+        toast(FORMAT_LIMIT_WARNING, "info");
+      } else {
+        nextValue = result.value;
+      }
+    } catch {
+      // Invalid, partial, and duplicate-key JSON must remain exactly as pasted.
+    }
+    setXrayRaw(nextValue);
+    maybeAutofillLabel(nextValue, "xray-json");
   };
 
   const requestClose = () => {
@@ -498,7 +629,10 @@ export function KeyEditorModal({
         category,
         kind,
         templateText,
-        rawConfig: activeRaw.trim(),
+        rawConfig:
+          configMode === "xray-json" && !xrayHasDuplicateKeys
+            ? formatXrayJSONWithinLimit(xrayRaw).value
+            : activeRaw.trim(),
       });
       bypassCloseGuardRef.current = true;
       onClose();
@@ -636,7 +770,8 @@ export function KeyEditorModal({
                           type="button"
                           className={toolButtonClass}
                           onClick={formatActiveJSON}
-                          disabled={!xrayRaw}
+                          disabled={!xrayRaw || xrayHasDuplicateKeys}
+                          title={xrayHasDuplicateKeys ? DUPLICATE_JSON_WARNING : undefined}
                         >
                           <Braces className="h-3.5 w-3.5" aria-hidden="true" />
                           Форматировать
@@ -649,6 +784,7 @@ export function KeyEditorModal({
                     id="key-editor-raw"
                     value={activeRaw}
                     onChange={(event) => changeRaw(event.target.value)}
+                    onPaste={pasteXrayJSON}
                     placeholder={
                       configMode === "xray-json"
                         ? getXrayJSONPlaceholder()
@@ -661,7 +797,7 @@ export function KeyEditorModal({
                   />
                   <div className="mt-1 flex items-center justify-between gap-3 font-mono text-[10px] text-zinc-600">
                     <span>{configMode === "xray-json" ? "JSON OBJECT" : "VLESS / VMESS / TROJAN"}</span>
-                    <span>{activeRaw.length}/{CONFIG_LIMIT}</span>
+                    <span>{activeByteLength}/{CONFIG_LIMIT} B</span>
                   </div>
 
                   <div className="mt-3">
@@ -669,6 +805,7 @@ export function KeyEditorModal({
                       raw={activeRaw}
                       error={activeError || (!activePortValid && activeValid ? "Порт должен быть от 1 до 65535" : "")}
                       valid={activeValid && activePortValid}
+                      warning={activeWarning}
                       description={
                         configMode === "link" && linkDraft
                           ? `${linkDraft.protocol.toUpperCase()} · ${linkDraft.server}:${linkDraft.port}`
@@ -690,6 +827,7 @@ export function KeyEditorModal({
                       onClick={() =>
                         requestConversion(configMode === "link" ? "xray-json" : "link")
                       }
+                      disabled={configMode === "xray-json" && xrayHasDuplicateKeys}
                     >
                       <ArrowRightLeft className="h-3.5 w-3.5" aria-hidden="true" />
                       {configMode === "link" ? "Создать XRAY-JSON" : "Извлечь ключ-ссылку"}
@@ -752,6 +890,10 @@ export function KeyEditorModal({
                         </div>
                       </EditorSection>
                     </>
+                  ) : xrayHasDuplicateKeys ? (
+                    <div className="rounded-sm border border-amber-500/30 bg-amber-500/8 p-5 text-sm leading-6 text-amber-200">
+                      {DUPLICATE_JSON_WARNING}
+                    </div>
                   ) : xrayDraft ? (
                     <>
                       <EditorSection title="Подключение">

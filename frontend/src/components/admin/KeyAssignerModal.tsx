@@ -81,7 +81,7 @@ export function KeyAssignerModal({ user, assignableKeys, onClose, onRefresh }: P
         </button>
       </div>
       {mode === "all" && (
-        <div className="mb-4 rounded-lg border border-cyan-400/20 bg-cyan-400/10 px-3 py-2 text-xs text-cyan-200">
+        <div className="mb-4 rounded-lg border border-info/20 bg-info/10 px-3 py-2 text-xs text-info">
           Пользователь получит все текущие и автоматически получит новые ключи.
         </div>
       )}

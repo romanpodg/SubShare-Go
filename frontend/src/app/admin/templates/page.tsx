@@ -147,12 +147,12 @@ export default function TemplatesPage() {
               >
                 <div className="flex items-center justify-between gap-3">
                   <span className="truncate text-sm font-medium text-zinc-200">{item.name}</span>
-                  <span className="rounded-md border border-border bg-zinc-950/40 px-2 py-1 font-mono text-[10px] text-cyan-300">{item.format}</span>
+                  <span className="rounded-md border border-border bg-surface-3 px-2 py-1 font-mono text-[10px] text-info">{item.format}</span>
                 </div>
                 <div className="mt-1 flex items-center gap-2 text-xs text-zinc-600">
                   <span>{item.is_system ? "Системный" : "Пользовательский"}</span>
                   <span>·</span>
-                  <span className={item.enabled ? "text-emerald-400" : "text-zinc-600"}>{item.enabled ? "Включён" : "Выключен"}</span>
+                  <span className={item.enabled ? "text-success" : "text-dim"}>{item.enabled ? "Включён" : "Выключен"}</span>
                 </div>
               </button>
             ))}
@@ -189,13 +189,13 @@ export default function TemplatesPage() {
                 disabled={!isOwner}
                 onChange={(event) => setDraft((value) => ({ ...value, content: event.target.value }))}
                 spellCheck={false}
-                className="min-h-[360px] resize-y rounded-xl border border-border bg-[#0a0f16] p-4 font-mono text-sm leading-6 text-zinc-300 focus:outline-none focus:ring-2 focus:ring-accent"
+                className="min-h-[360px] resize-y rounded-xl border border-border bg-surface-2 p-4 font-mono text-sm leading-6 text-zinc-300 hover:border-[var(--border-strong)] focus:border-accent focus-visible:border-accent"
                 placeholder={"# Для Mihomo/Sing-box добавьте {{subscription}}\n# Пустое значение использует стандартную выдачу"}
               />
             </label>
 
             <label className="flex items-center gap-3 rounded-xl border border-border bg-zinc-950/30 px-4 py-3 text-sm text-zinc-300">
-              <input type="checkbox" checked={draft.enabled} disabled={!isOwner} onChange={(event) => setDraft((value) => ({ ...value, enabled: event.target.checked }))} className="h-4 w-4 accent-cyan-500" />
+              <input type="checkbox" checked={draft.enabled} disabled={!isOwner} onChange={(event) => setDraft((value) => ({ ...value, enabled: event.target.checked }))} className="h-4 w-4 accent-accent" />
               Шаблон доступен для response rules
             </label>
           </div>
@@ -211,7 +211,7 @@ export default function TemplatesPage() {
       {preview && (
       <section className="technical-frame border border-accent/20 bg-surface-1">
           <div className="flex items-center justify-between border-b border-border px-5 py-4">
-            <div><h2 className="font-semibold text-zinc-200">Предварительный просмотр</h2><p className="mt-1 font-mono text-xs text-cyan-400">{preview.content_type}</p></div>
+            <div><h2 className="font-semibold text-zinc-200">Предварительный просмотр</h2><p className="mt-1 font-mono text-xs text-info">{preview.content_type}</p></div>
             <button type="button" onClick={() => setPreview(null)} aria-label="Закрыть preview" className="rounded-lg p-2 text-zinc-500 hover:bg-zinc-800"><X className="h-4 w-4" /></button>
           </div>
           <pre className="max-h-[520px] overflow-auto whitespace-pre-wrap p-5 font-mono text-xs leading-6 text-zinc-300">{preview.content}</pre>

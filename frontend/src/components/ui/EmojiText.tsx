@@ -2,6 +2,7 @@
 
 import { type ReactNode, useState } from "react";
 import emojiRegex from "emoji-regex";
+import { getEmojiAssetURL } from "@/lib/emoji-assets";
 
 interface EmojiTextProps {
   text: string;
@@ -9,28 +10,12 @@ interface EmojiTextProps {
   truncate?: boolean;
 }
 
-const APPLE_EMOJI_BASE_URL = "https://cdn.jsdelivr.net/npm/emoji-datasource-apple@15.0.1/img/apple/64/";
-
-function toUnified(emoji: string): string {
-  return Array.from(emoji)
-    .map((char) => char.codePointAt(0)?.toString(16) ?? "")
-    .filter(Boolean)
-    .join("-");
-}
-
-function AppleEmojiImg({ emoji, unified }: { emoji: string; unified: string }) {
+export function EmojiGlyph({ emoji, assetURL = getEmojiAssetURL(emoji) }: { emoji: string; assetURL?: string | null }) {
   const [failed, setFailed] = useState(false);
-  if (failed) return <span>{emoji}</span>;
+  if (!assetURL || failed) return <span className="emoji-native">{emoji}</span>;
   return (
     // eslint-disable-next-line @next/next/no-img-element
-    <img
-      src={`${APPLE_EMOJI_BASE_URL}${unified}.png`}
-      alt={emoji}
-      className="emoji-image"
-      draggable={false}
-      loading="lazy"
-      onError={() => setFailed(true)}
-    />
+    <img src={assetURL} alt={emoji} className="emoji-image" draggable={false} loading="lazy" onError={() => setFailed(true)} />
   );
 }
 
@@ -40,42 +25,17 @@ export function EmojiText({ text, className = "", truncate = false }: EmojiTextP
   let lastIndex = 0;
   let keyIndex = 0;
   const rootClassName = `emoji-text ${truncate ? "emoji-text--truncate" : ""} ${className}`.trim();
-  const title = truncate ? text : undefined;
 
   for (const match of text.matchAll(regex)) {
     const matchIndex = typeof match.index === "number" ? match.index : -1;
-    if (matchIndex < 0) {
-      continue;
-    }
-
-    if (matchIndex > lastIndex) {
-      nodes.push(
-        <span key={`text-${keyIndex++}`}>
-          {text.slice(lastIndex, matchIndex)}
-        </span>
-      );
-    }
-
+    if (matchIndex < 0) continue;
+    if (matchIndex > lastIndex) nodes.push(<span key={`text-${keyIndex++}`}>{text.slice(lastIndex, matchIndex)}</span>);
     const nativeEmoji = match[0];
-    const unified = toUnified(nativeEmoji);
-    nodes.push(
-      <AppleEmojiImg key={`emoji-${keyIndex++}`} emoji={nativeEmoji} unified={unified} />
-    );
-
+    nodes.push(<EmojiGlyph key={`emoji-${keyIndex++}`} emoji={nativeEmoji} />);
     lastIndex = matchIndex + nativeEmoji.length;
   }
 
-  if (lastIndex < text.length) {
-    nodes.push(
-      <span key={`text-${keyIndex++}`}>
-        {text.slice(lastIndex)}
-      </span>
-    );
-  }
-
-  if (nodes.length === 0) {
-    return <span className={rootClassName} title={title}>{text}</span>;
-  }
-
-  return <span className={rootClassName} title={title}>{nodes}</span>;
+  if (lastIndex < text.length) nodes.push(<span key={`text-${keyIndex++}`}>{text.slice(lastIndex)}</span>);
+  if (nodes.length === 0) return <span className={rootClassName} title={truncate ? text : undefined}>{text}</span>;
+  return <span className={rootClassName} title={truncate ? text : undefined}>{nodes}</span>;
 }

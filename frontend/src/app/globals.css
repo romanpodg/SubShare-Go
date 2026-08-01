@@ -39,6 +39,7 @@
   --color-bg: var(--bg);
   --color-surface-1: var(--surface-1);
   --color-surface-2: var(--surface-2);
+  --color-surface-3: var(--surface-3);
   --color-border: var(--border);
   --color-accent: var(--accent);
   --color-accent-hover: var(--accent-hover);
@@ -46,6 +47,9 @@
   --color-success: var(--success);
   --color-danger: var(--danger);
   --color-warning: var(--warning);
+  --color-info: var(--info);
+  --color-text-muted: var(--text-muted);
+  --color-text-dim: var(--text-dim);
   --font-sans: var(--font-sans);
   --font-mono: var(--font-mono);
   --animate-fade-in: fade-in 180ms ease-out;
@@ -210,7 +214,7 @@ textarea {
   input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="color"]):not([type="file"]):not([type="hidden"]),
   select,
   textarea
-):hover:not(:disabled) {
+):hover:not(:disabled):not(:focus) {
   border-color: var(--border-strong);
 }
 
@@ -218,9 +222,17 @@ textarea {
   input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="color"]):not([type="file"]):not([type="hidden"]),
   select,
   textarea
-):focus-visible {
+):focus {
   border-color: var(--accent);
-  outline: none;
+}
+
+.admin-control-plane :where(
+  input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="color"]):not([type="file"]):not([type="hidden"]),
+  select,
+  textarea
+):focus-visible {
+  outline: 1px solid var(--accent);
+  outline-offset: 3px;
 }
 
 .admin-control-plane :where(input, select, textarea, button):disabled {
@@ -339,13 +351,12 @@ a {
     color 160ms ease;
 }
 
-.ui-control:hover {
+.ui-control:hover:not(:disabled):not(:focus) {
   border-color: var(--border-strong);
 }
 
-.ui-control:focus-visible {
+.ui-control:focus {
   border-color: var(--accent);
-  outline: none;
 }
 
 .ui-input-group {
@@ -369,6 +380,107 @@ a {
 
 .ui-input-group:focus-within {
   border-color: var(--accent);
+}
+
+.ui-input-group:has(.ui-input-group-control:focus-visible),
+.ui-json-editor:has(.ui-json-editor-textarea:focus-visible) {
+  outline: 1px solid var(--accent);
+  outline-offset: 3px;
+}
+
+.admin-control-plane .ui-text-input:focus,
+.admin-control-plane .ui-text-input:hover:focus,
+.admin-control-plane .ui-select-trigger:focus,
+.admin-control-plane .ui-select-trigger:hover:focus,
+.apple-emoji-input:focus,
+.apple-emoji-input:hover:focus {
+  border-color: var(--accent);
+}
+
+.apple-emoji-input:hover:not(:focus) {
+  border-color: var(--border-strong);
+}
+
+.ui-tab {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  color: var(--text-dim);
+  transition: border-color 160ms ease, background-color 160ms ease, color 160ms ease;
+}
+
+.ui-tab:hover:not(:disabled):not([aria-selected="true"]) {
+  border-color: var(--border-strong);
+  color: var(--text-muted);
+}
+
+.ui-tab[aria-selected="true"] {
+  border-color: color-mix(in srgb, var(--accent) 40%, transparent);
+  background: color-mix(in srgb, var(--accent) 8%, transparent);
+  color: var(--accent);
+}
+
+.ui-tab--underline {
+  border-width: 0 0 2px;
+  border-radius: 0;
+  background: transparent;
+}
+
+.ui-tab--underline[aria-selected="true"] {
+  background: transparent;
+}
+
+.ui-settings-section-icon {
+  border-color: color-mix(in srgb, var(--info) 28%, transparent);
+  background: color-mix(in srgb, var(--info) 10%, transparent);
+  color: var(--info);
+}
+
+.ui-scope-control {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  color: var(--text-dim);
+  transition: border-color 160ms ease, background-color 160ms ease, color 160ms ease;
+}
+
+.ui-scope-control:hover:not([data-selected="true"]) {
+  border-color: var(--border-strong);
+}
+
+.ui-scope-control[data-selected="true"] {
+  border-color: color-mix(in srgb, var(--accent) 32%, transparent);
+  background: color-mix(in srgb, var(--accent) 8%, transparent);
+  color: var(--accent);
+}
+
+.ui-json-editor {
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface-2);
+  transition: border-color 160ms ease;
+}
+
+.ui-json-editor:hover:not(:focus-within) {
+  border-color: var(--border-strong);
+}
+
+.ui-json-editor:focus-within {
+  border-color: var(--accent);
+}
+
+.admin-control-plane .ui-json-editor > .ui-json-editor-textarea {
+  display: block;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: var(--text-main);
+  outline: none;
+}
+
+.admin-control-plane .ui-json-editor > .ui-json-editor-textarea:hover,
+.admin-control-plane .ui-json-editor > .ui-json-editor-textarea:focus {
+  border: 0;
+  background: transparent;
 }
 
 .admin-control-plane .ui-input-group > .ui-input-group-control {
@@ -1209,6 +1321,10 @@ a {
   flex: 0 0 auto;
 }
 
+.emoji-native {
+  font-family: "Apple Color Emoji", "Segoe UI Emoji", "Noto Color Emoji", sans-serif;
+}
+
 .apple-emoji-input {
   display: block;
   min-height: 2.75rem;
@@ -1235,23 +1351,62 @@ a {
   vertical-align: -0.15em;
 }
 
-em-emoji-picker {
-  width: 100% !important;
-  height: 100% !important;
+.emoji-picker-surface {
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface-2);
+  color: var(--text-main);
+}
+
+.emoji-picker-popover {
+  position: fixed;
+  z-index: 1200;
+}
+
+.emoji-picker-surface--inline {
+  width: 100%;
+  height: 320px;
+}
+
+.emoji-picker-container {
+  width: 100%;
+  height: 100%;
+}
+
+.emoji-picker-state {
+  display: flex;
+  width: 100%;
+  height: 100%;
+  min-height: 180px;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  padding: 24px;
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  letter-spacing: 0.04em;
+  text-align: center;
+  text-transform: uppercase;
+}
+
+.emoji-picker-host {
+  display: block;
+  width: 100%;
+  height: 100%;
   --em-rgb-background: 9, 10, 11;
   --em-rgb-input: 13, 15, 17;
   --em-rgb-color: 242, 243, 239;
   --rgb-accent: 183, 255, 42;
   --color-border: rgba(255, 255, 255, 0.09);
   --color-border-over: rgba(183, 255, 42, 0.45);
+  --border-radius: var(--radius-sm);
   --category-icon-size: 18px;
+  --font-family: var(--font-sans);
   --font-size: 14px;
 }
-
-em-emoji-picker .padding { padding: 8px !important; }
-em-emoji-picker input.search { padding: 6px 8px !important; font-size: 13px !important; }
-em-emoji-picker .category { margin-bottom: 4px !important; }
-em-emoji-picker .category-name { padding: 4px 0 !important; font-size: 12px !important; }
 
 .input-calendar-icon::-webkit-calendar-picker-indicator {
   opacity: 0;

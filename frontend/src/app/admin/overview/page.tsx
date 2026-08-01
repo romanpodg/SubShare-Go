@@ -118,11 +118,11 @@ export default function OverviewPage() {
               <h2 className="font-semibold text-zinc-200">Операционный статус</h2>
               <div className="ui-joined-list mt-5">
                 {[
-                  ["Приостановлены", data.users.paused, "text-amber-300"],
-                  ["Заблокированы", data.users.blocked, "text-rose-300"],
-                  ["Достигли HWID-лимита", data.users.limited, "text-cyan-300"],
-                  ["Подключённые устройства", data.devices, "text-zinc-200"],
-                  ["Ключи с ошибкой", data.keys.down, "text-rose-300"],
+                  ["Приостановлены", data.users.paused, "text-warning"],
+                  ["Заблокированы", data.users.blocked, "text-danger"],
+                  ["Достигли HWID-лимита", data.users.limited, "text-warning"],
+                  ["Подключённые устройства", data.devices, "text-main"],
+                  ["Ключи с ошибкой", data.keys.down, "text-danger"],
                   ["Ключи без проверки", data.keys.unknown, "text-zinc-400"],
                   [
                     "Резервная копия",
@@ -134,10 +134,10 @@ export default function OverviewPage() {
                           ? "ошибка"
                           : "выключена",
                     data.backup.status === "healthy"
-                      ? "text-emerald-300"
+                      ? "text-success"
                       : data.backup.status === "error"
-                        ? "text-rose-300"
-                        : "text-zinc-400",
+                        ? "text-danger"
+                        : "text-dim",
                   ],
                 ].map(([label, value, tone]) => (
                   <div key={String(label)} className="flex items-center justify-between border-b border-border bg-zinc-950/35 px-4 py-3 last:border-b-0">
@@ -162,7 +162,7 @@ export default function OverviewPage() {
               {!jobsError && jobs.map((job) => (
                 <div key={job.id} className="grid gap-3 px-5 py-4 text-sm md:grid-cols-[180px_120px_1fr_auto] md:items-center">
                   <span className="font-medium text-zinc-300">{job.kind}</span>
-                  <span className={job.status === "succeeded" ? "text-emerald-400" : job.status === "failed" ? "text-rose-400" : "text-amber-300"}>{job.status}</span>
+                  <span className={job.status === "succeeded" ? "text-success" : job.status === "failed" ? "text-danger" : "text-warning"}>{job.status}</span>
                   <span className="truncate text-xs text-zinc-600">{job.error_message || `${job.target_type} ${job.target_id}`}</span>
                   {job.status === "failed" && <Button variant="outline" onClick={() => retryJob(job.id)}>Повторить</Button>}
                 </div>

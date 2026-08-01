@@ -202,9 +202,9 @@ export function SourceCreateDrawer({
               key={label}
               className={`rounded-lg border px-3 py-2 text-center text-xs ${
                 value === step
-                  ? "border-cyan-400/40 bg-cyan-400/10 text-cyan-200"
+                  ? "border-accent/40 bg-accent/10 text-accent"
                   : value < step
-                    ? "border-emerald-400/20 text-emerald-300"
+                    ? "border-success/20 text-success"
                     : "border-border text-zinc-600"
               }`}
             >
@@ -241,7 +241,7 @@ export function SourceCreateDrawer({
                 type="checkbox"
                 checked={passHWID}
                 onChange={(event) => setPassHWID(event.target.checked)}
-                className="h-4 w-4 accent-cyan-500"
+                className="h-4 w-4 accent-accent"
               />
               Передавать HWID при запросе источника
             </label>
@@ -319,7 +319,7 @@ export function SourceCreateDrawer({
                   onClick={() => setKeyInsertMode(value)}
                   className={`rounded-lg border px-3 py-2 text-sm ${
                     keyInsertMode === value
-                      ? "border-cyan-400/35 bg-cyan-400/10 text-cyan-200"
+                      ? "border-accent/35 bg-accent/10 text-accent"
                       : "border-border text-zinc-500"
                   }`}
                 >
@@ -329,7 +329,7 @@ export function SourceCreateDrawer({
             </div>
           </div>
           <label className="flex items-center gap-3 rounded-xl border border-border bg-surface-1 p-4 text-sm text-zinc-300">
-            <input type="checkbox" checked={enabled} onChange={(event) => setEnabled(event.target.checked)} className="h-4 w-4 accent-cyan-500" />
+            <input type="checkbox" checked={enabled} onChange={(event) => setEnabled(event.target.checked)} className="h-4 w-4 accent-accent" />
             Источник активен
           </label>
         </div>

@@ -188,11 +188,11 @@ export function SourceDetailDrawer({
               </div>
               <div className="ui-joined-grid grid sm:grid-cols-2">
                 <label className="flex items-center gap-3 rounded-lg border border-border bg-surface-2 px-3 py-2 text-sm text-zinc-300">
-                  <input type="checkbox" checked={detail.enabled} onChange={(event) => update("enabled", event.target.checked)} className="accent-cyan-500" />
+                  <input type="checkbox" checked={detail.enabled} onChange={(event) => update("enabled", event.target.checked)} className="accent-accent" />
                   Источник активен
                 </label>
                 <label className="flex items-center gap-3 rounded-lg border border-border bg-surface-2 px-3 py-2 text-sm text-zinc-300">
-                  <input type="checkbox" checked={detail.pass_hwid} onChange={(event) => update("pass_hwid", event.target.checked)} className="accent-cyan-500" />
+                  <input type="checkbox" checked={detail.pass_hwid} onChange={(event) => update("pass_hwid", event.target.checked)} className="accent-accent" />
                   Передавать HWID
                 </label>
               </div>
@@ -211,7 +211,7 @@ export function SourceDetailDrawer({
                   />
                   {detail.has_hwid_value && (
                     <label className="flex items-center gap-2 text-xs text-zinc-500">
-                      <input type="checkbox" checked={clearHWID} onChange={(event) => setClearHWID(event.target.checked)} className="accent-rose-500" />
+                      <input type="checkbox" checked={clearHWID} onChange={(event) => setClearHWID(event.target.checked)} className="accent-danger" />
                       Удалить сохранённый HWID
                     </label>
                   )}
@@ -242,7 +242,7 @@ export function SourceDetailDrawer({
                 {runs.map((run) => (
                   <div key={run.id} className="px-4 py-3 text-sm">
                     <div className="flex items-center justify-between gap-3">
-                      <span className={run.status === "succeeded" ? "text-emerald-300" : run.status === "failed" ? "text-rose-300" : "text-amber-300"}>
+                      <span className={run.status === "succeeded" ? "text-success" : run.status === "failed" ? "text-danger" : "text-warning"}>
                         {run.status}
                       </span>
                       <time className="text-xs text-zinc-600">{new Date(run.started_at).toLocaleString("ru-RU")}</time>

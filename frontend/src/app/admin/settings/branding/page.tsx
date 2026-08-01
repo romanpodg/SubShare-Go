@@ -16,13 +16,13 @@ export default function BrandingPage() {
       <PageHeader title="Брендинг" description="Название панели, логотип, favicon и публичная страница активации." icon={<Paintbrush className="h-5 w-5" />} />
       <div className="ui-joined-grid technical-frame grid lg:grid-cols-2">
         <section className="technical-frame border border-border bg-surface-1 p-5">
-          <div className="flex h-11 w-11 items-center justify-center rounded-xl border border-cyan-400/20 bg-cyan-400/10 text-cyan-300"><PanelsTopLeft className="h-5 w-5" /></div>
+          <div className="ui-settings-section-icon flex h-11 w-11 items-center justify-center rounded-xl border"><PanelsTopLeft className="h-5 w-5" /></div>
           <h2 className="mt-4 font-semibold text-zinc-200">Панель управления</h2>
           <p className="mt-2 text-sm leading-6 text-zinc-600">Измените название, логотип, favicon и заголовки вкладок.</p>
           <Button className="mt-5" onClick={() => setPanelOpen(true)}>Настроить панель</Button>
         </section>
         <section className="technical-frame border border-border bg-surface-1 p-5">
-          <div className="flex h-11 w-11 items-center justify-center rounded-xl border border-cyan-400/20 bg-cyan-400/10 text-cyan-300"><Paintbrush className="h-5 w-5" /></div>
+          <div className="ui-settings-section-icon flex h-11 w-11 items-center justify-center rounded-xl border"><Paintbrush className="h-5 w-5" /></div>
           <h2 className="mt-4 font-semibold text-zinc-200">Публичная страница</h2>
           <p className="mt-2 text-sm leading-6 text-zinc-600">Редактируйте блоки, тексты, ссылки на клиенты и цветовую тему.</p>
           <div className="mt-5 flex flex-wrap gap-2">

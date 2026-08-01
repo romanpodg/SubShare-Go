@@ -1,3 +1,8 @@
+import {
+  formatXrayJSON,
+  modifyXrayJSONPath,
+} from "@/lib/xray-json-document";
+
 export type ConfigurationProtocol = "vless" | "trojan" | "vmess";
 export type RealConfigurationMode = "link" | "xray-json";
 export type XrayJSONNetwork = "tcp" | "ws" | "grpc" | "httpupgrade" | "xhttp" | "h2" | "quic";
@@ -467,10 +472,6 @@ export function parseXrayJSONConfiguration(raw: string): ParsedXrayJSONConfigura
   };
 }
 
-function cloneConfig(config: Record<string, unknown>) {
-  return JSON.parse(JSON.stringify(config)) as Record<string, unknown>;
-}
-
 function buildALPNValues(raw: string) {
   return raw
     .split(",")
@@ -671,16 +672,11 @@ function buildDefaultXrayJSONConfig(draft: XrayJSONDraft) {
 }
 
 export function buildXrayJSONConfiguration(
-  draft: XrayJSONDraft,
-  baseConfig?: Record<string, unknown>,
-  outboundIndex?: number
+  draft: XrayJSONDraft
 ) {
   const protocol = normalizeProtocol(draft.protocol);
   const server = draft.server.trim();
   const identifier = draft.identifier.trim();
-  const port = toPortNumber(draft.port || DEFAULT_PORT);
-  const network = normalizeNetwork(draft.network);
-  const security = normalizeSecurity(draft.security);
 
   if (!server) {
     throw new Error("Укажите сервер");
@@ -689,203 +685,470 @@ export function buildXrayJSONConfiguration(
     throw new Error(protocol === "trojan" ? "Укажите пароль" : "Укажите UUID / ID");
   }
 
-  const config = baseConfig ? cloneConfig(baseConfig) : buildDefaultXrayJSONConfig({ ...draft, protocol });
-  const outboundsRaw = asArray(config.outbounds);
-  const outbounds = [...outboundsRaw];
+  return JSON.stringify(buildDefaultXrayJSONConfig({ ...draft, protocol }), null, 2);
+}
 
-  let targetIndex = typeof outboundIndex === "number" && outboundIndex >= 0 && outboundIndex < outbounds.length
-    ? outboundIndex
-    : -1;
+export type XrayJSONPatch = Partial<XrayJSONDraft>;
 
-  if (targetIndex === -1) {
-    const found = findSupportedOutbound(config);
-    if (found) {
-      targetIndex = found.outboundIndex;
+type MutableJSONPath = Array<string | number>;
+
+function hasPatchField<Key extends keyof XrayJSONDraft>(
+  patch: XrayJSONPatch,
+  key: Key
+) {
+  return Object.prototype.hasOwnProperty.call(patch, key);
+}
+
+function patchJSONPath(
+  raw: string,
+  path: MutableJSONPath,
+  value: unknown
+) {
+  return modifyXrayJSONPath(raw, path, value);
+}
+
+function ensureJSONObject(
+  raw: string,
+  path: MutableJSONPath,
+  currentValue: unknown
+) {
+  return asRecord(currentValue) ? raw : patchJSONPath(raw, path, {});
+}
+
+function ensureFirstJSONObject(
+  raw: string,
+  path: MutableJSONPath,
+  currentValue: unknown
+) {
+  const entries = asArray(currentValue);
+  if (entries.length === 0) {
+    return patchJSONPath(raw, path, [{}]);
+  }
+  return asRecord(entries[0]) ? raw : patchJSONPath(raw, [...path, 0], {});
+}
+
+function optionalText(value: unknown) {
+  const normalized = typeof value === "string" ? value.trim() : "";
+  return normalized || undefined;
+}
+
+function alterIDValue(value: unknown) {
+  const normalized = optionalText(value);
+  if (!normalized) return undefined;
+  const parsed = Number.parseInt(normalized, 10);
+  return Number.isFinite(parsed) && parsed >= 0 ? parsed : normalized;
+}
+
+export function patchXrayJSONConfiguration(raw: string, patch: XrayJSONPatch) {
+  let nextRaw = formatXrayJSON(raw);
+  const parsed = parseXrayJSONConfiguration(nextRaw);
+  if (!parsed) {
+    throw new Error("Сначала заполните XRAY-JSON конфигурацию");
+  }
+
+  const nextDraft = { ...parsed.draft, ...patch };
+  const protocol = normalizeProtocol(nextDraft.protocol);
+  const server = nextDraft.server.trim();
+  const identifier = nextDraft.identifier.trim();
+  const port = toPortNumber(nextDraft.port || DEFAULT_PORT);
+  const network = normalizeNetwork(nextDraft.network);
+  const security = normalizeSecurity(nextDraft.security);
+
+  if (!server) {
+    throw new Error("Укажите сервер");
+  }
+  if (!identifier) {
+    throw new Error(protocol === "trojan" ? "Укажите пароль" : "Укажите UUID / ID");
+  }
+
+  const outboundPath: MutableJSONPath = ["outbounds", parsed.outboundIndex];
+  const outbound = asRecord(asArray(parsed.config.outbounds)[parsed.outboundIndex]) ?? {};
+  const settings = asRecord(outbound.settings);
+  const streamSettings = asRecord(outbound.streamSettings);
+  const originalVnext = asArray(settings?.vnext);
+  const originalVnextNode = asRecord(originalVnext[0]);
+  const originalUsers = asArray(originalVnextNode?.users);
+  const originalUser = asRecord(originalUsers[0]);
+
+  let settingsReady = false;
+  let connectionReady = false;
+  const ensureSettings = () => {
+    if (!settingsReady) {
+      nextRaw = ensureJSONObject(nextRaw, [...outboundPath, "settings"], outbound.settings);
+      settingsReady = true;
+    }
+  };
+  const ensureConnection = () => {
+    if (connectionReady) return;
+    ensureSettings();
+    if (protocol === "trojan") {
+      nextRaw = ensureFirstJSONObject(
+        nextRaw,
+        [...outboundPath, "settings", "servers"],
+        settings?.servers
+      );
+    } else {
+      nextRaw = ensureFirstJSONObject(
+        nextRaw,
+        [...outboundPath, "settings", "vnext"],
+        settings?.vnext
+      );
+      nextRaw = ensureFirstJSONObject(
+        nextRaw,
+        [...outboundPath, "settings", "vnext", 0, "users"],
+        originalVnextNode?.users
+      );
+    }
+    connectionReady = true;
+  };
+
+  const connectionBasePath = () =>
+    protocol === "trojan"
+      ? [...outboundPath, "settings", "servers", 0]
+      : [...outboundPath, "settings", "vnext", 0];
+  const userBasePath = () => [...outboundPath, "settings", "vnext", 0, "users", 0];
+
+  if (hasPatchField(patch, "protocol")) {
+    nextRaw = patchJSONPath(nextRaw, [...outboundPath, "protocol"], protocol);
+    ensureConnection();
+    const basePath = connectionBasePath();
+    nextRaw = patchJSONPath(nextRaw, [...basePath, "address"], server);
+    nextRaw = patchJSONPath(nextRaw, [...basePath, "port"], port);
+    nextRaw = patchJSONPath(
+      nextRaw,
+      [...(protocol === "trojan" ? basePath : userBasePath()), protocol === "trojan" ? "password" : "id"],
+      identifier
+    );
+    if (protocol === "vless" && !originalUser) {
+      nextRaw = patchJSONPath(
+        nextRaw,
+        [...userBasePath(), "encryption"],
+        nextDraft.encryption?.trim() || "none"
+      );
+    } else if (protocol === "vmess" && !originalUser) {
+      nextRaw = patchJSONPath(
+        nextRaw,
+        [...userBasePath(), "security"],
+        nextDraft.vmessSecurity?.trim() || "auto"
+      );
     }
   }
-  if (targetIndex === -1) {
-    targetIndex = 0;
+
+  if (hasPatchField(patch, "server")) {
+    ensureConnection();
+    nextRaw = patchJSONPath(nextRaw, [...connectionBasePath(), "address"], server);
+  }
+  if (hasPatchField(patch, "port")) {
+    ensureConnection();
+    nextRaw = patchJSONPath(nextRaw, [...connectionBasePath(), "port"], port);
+  }
+  if (hasPatchField(patch, "identifier")) {
+    ensureConnection();
+    const path = protocol === "trojan"
+      ? [...connectionBasePath(), "password"]
+      : [...userBasePath(), "id"];
+    nextRaw = patchJSONPath(nextRaw, path, identifier);
+  }
+  if (hasPatchField(patch, "remark")) {
+    nextRaw = patchJSONPath(
+      nextRaw,
+      [...outboundPath, "tag"],
+      optionalText(patch.remark)
+    );
   }
 
-  const outbound = asRecord(outbounds[targetIndex]) ?? {};
-  outbound.protocol = protocol;
-  if (draft.remark.trim()) {
-    outbound.tag = draft.remark.trim();
+  if (protocol !== "trojan" && (hasPatchField(patch, "flow") || hasPatchField(patch, "encryption") || hasPatchField(patch, "vmessSecurity") || hasPatchField(patch, "vmessAlterId"))) {
+    ensureConnection();
+  }
+  if (protocol === "vless" && hasPatchField(patch, "flow")) {
+    nextRaw = patchJSONPath(nextRaw, [...userBasePath(), "flow"], optionalText(patch.flow));
+  }
+  if (protocol === "vless" && hasPatchField(patch, "encryption")) {
+    nextRaw = patchJSONPath(
+      nextRaw,
+      [...userBasePath(), "encryption"],
+      optionalText(patch.encryption)
+    );
+  }
+  if (protocol === "vmess" && hasPatchField(patch, "vmessSecurity")) {
+    nextRaw = patchJSONPath(
+      nextRaw,
+      [...userBasePath(), "security"],
+      optionalText(patch.vmessSecurity)
+    );
+  }
+  if (protocol === "vmess" && hasPatchField(patch, "vmessAlterId")) {
+    nextRaw = patchJSONPath(
+      nextRaw,
+      [...userBasePath(), "alterId"],
+      alterIDValue(patch.vmessAlterId)
+    );
   }
 
-  const settings = asRecord(outbound.settings) ?? {};
-  if (protocol === "trojan") {
-    const existingServer = asRecord(asArray(settings.servers)[0]) ?? {};
-    const nextServer = {
-      ...existingServer,
-      address: server,
-      port,
-      password: identifier,
-    };
-    settings.servers = [nextServer];
-    delete settings.vnext;
-  } else {
-    const existingVnext = asRecord(asArray(settings.vnext)[0]) ?? {};
-    const existingUser = asRecord(asArray(existingVnext.users)[0]) ?? {};
-    const nextUser: Record<string, unknown> = {
-      ...existingUser,
-      id: identifier,
-    };
-    if (protocol === "vless") {
-      nextUser.encryption = draft.encryption?.trim() || textValue(nextUser.encryption) || "none";
-      if (draft.flow?.trim()) {
-        nextUser.flow = draft.flow.trim();
-      } else if (!textValue(nextUser.flow)) {
-        delete nextUser.flow;
+  let streamSettingsReady = false;
+  const ensureStreamSettings = () => {
+    if (!streamSettingsReady) {
+      nextRaw = ensureJSONObject(
+        nextRaw,
+        [...outboundPath, "streamSettings"],
+        outbound.streamSettings
+      );
+      streamSettingsReady = true;
+    }
+  };
+
+  if (hasPatchField(patch, "network")) {
+    ensureStreamSettings();
+    nextRaw = patchJSONPath(nextRaw, [...outboundPath, "streamSettings", "network"], network);
+  }
+  if (hasPatchField(patch, "security")) {
+    ensureStreamSettings();
+    nextRaw = patchJSONPath(nextRaw, [...outboundPath, "streamSettings", "security"], security);
+  }
+
+  const transportFieldsChanged =
+    hasPatchField(patch, "path") ||
+    hasPatchField(patch, "host") ||
+    hasPatchField(patch, "grpcAuthority") ||
+    hasPatchField(patch, "headerType");
+
+  if (transportFieldsChanged) {
+    ensureStreamSettings();
+  }
+
+  if (network === "ws" && (hasPatchField(patch, "path") || hasPatchField(patch, "host"))) {
+    const wsSettings = asRecord(streamSettings?.wsSettings);
+    nextRaw = ensureJSONObject(
+      nextRaw,
+      [...outboundPath, "streamSettings", "wsSettings"],
+      streamSettings?.wsSettings
+    );
+    if (hasPatchField(patch, "path")) {
+      nextRaw = patchJSONPath(
+        nextRaw,
+        [...outboundPath, "streamSettings", "wsSettings", "path"],
+        optionalText(patch.path)
+      );
+    }
+    if (hasPatchField(patch, "host")) {
+      const headers = asRecord(wsSettings?.headers);
+      nextRaw = ensureJSONObject(
+        nextRaw,
+        [...outboundPath, "streamSettings", "wsSettings", "headers"],
+        wsSettings?.headers
+      );
+      const host = optionalText(patch.host);
+      if (host) {
+        const key = Object.prototype.hasOwnProperty.call(headers ?? {}, "Host")
+          ? "Host"
+          : Object.prototype.hasOwnProperty.call(headers ?? {}, "host")
+            ? "host"
+            : "Host";
+        nextRaw = patchJSONPath(
+          nextRaw,
+          [...outboundPath, "streamSettings", "wsSettings", "headers", key],
+          host
+        );
+      } else {
+        nextRaw = patchJSONPath(
+          nextRaw,
+          [...outboundPath, "streamSettings", "wsSettings", "headers", "Host"],
+          undefined
+        );
+        nextRaw = patchJSONPath(
+          nextRaw,
+          [...outboundPath, "streamSettings", "wsSettings", "headers", "host"],
+          undefined
+        );
       }
     }
-    if (protocol === "vmess") {
-      nextUser.security = draft.vmessSecurity?.trim() || textValue(nextUser.security) || "auto";
-      if (draft.vmessAlterId?.trim()) {
-        const parsedAlterID = Number.parseInt(draft.vmessAlterId.trim(), 10);
-        if (Number.isFinite(parsedAlterID) && parsedAlterID >= 0) {
-          nextUser.alterId = parsedAlterID;
-        } else {
-          nextUser.alterId = draft.vmessAlterId.trim();
-        }
-      } else if (!textValue(nextUser.alterId)) {
-        delete nextUser.alterId;
+  } else if (network === "grpc" && (hasPatchField(patch, "path") || hasPatchField(patch, "grpcAuthority"))) {
+    nextRaw = ensureJSONObject(
+      nextRaw,
+      [...outboundPath, "streamSettings", "grpcSettings"],
+      streamSettings?.grpcSettings
+    );
+    if (hasPatchField(patch, "path")) {
+      nextRaw = patchJSONPath(
+        nextRaw,
+        [...outboundPath, "streamSettings", "grpcSettings", "serviceName"],
+        optionalText(patch.path)
+      );
+    }
+    if (hasPatchField(patch, "grpcAuthority")) {
+      nextRaw = patchJSONPath(
+        nextRaw,
+        [...outboundPath, "streamSettings", "grpcSettings", "authority"],
+        optionalText(patch.grpcAuthority)
+      );
+    }
+  } else if ((network === "httpupgrade" || network === "xhttp") && (hasPatchField(patch, "path") || hasPatchField(patch, "host"))) {
+    const branch = network === "httpupgrade" ? "httpupgradeSettings" : "xhttpSettings";
+    nextRaw = ensureJSONObject(
+      nextRaw,
+      [...outboundPath, "streamSettings", branch],
+      streamSettings?.[branch]
+    );
+    if (hasPatchField(patch, "path")) {
+      nextRaw = patchJSONPath(
+        nextRaw,
+        [...outboundPath, "streamSettings", branch, "path"],
+        optionalText(patch.path)
+      );
+    }
+    if (hasPatchField(patch, "host")) {
+      nextRaw = patchJSONPath(
+        nextRaw,
+        [...outboundPath, "streamSettings", branch, "host"],
+        optionalText(patch.host)
+      );
+    }
+  } else if (network === "tcp" && (hasPatchField(patch, "path") || hasPatchField(patch, "host") || hasPatchField(patch, "headerType"))) {
+    const rawSettings = asRecord(streamSettings?.rawSettings);
+    const tcpSettings = asRecord(streamSettings?.tcpSettings);
+    const useRawSettings = Boolean(asRecord(rawSettings?.header));
+    const branch = useRawSettings ? "rawSettings" : "tcpSettings";
+    const branchSettings = useRawSettings ? rawSettings : tcpSettings;
+    const header = asRecord(branchSettings?.header);
+    const request = asRecord(header?.request);
+    nextRaw = ensureJSONObject(
+      nextRaw,
+      [...outboundPath, "streamSettings", branch],
+      branchSettings
+    );
+    nextRaw = ensureJSONObject(
+      nextRaw,
+      [...outboundPath, "streamSettings", branch, "header"],
+      branchSettings?.header
+    );
+    if (hasPatchField(patch, "headerType")) {
+      nextRaw = patchJSONPath(
+        nextRaw,
+        [...outboundPath, "streamSettings", branch, "header", "type"],
+        optionalText(parseHeaderType(patch.headerType))
+      );
+    }
+    if (hasPatchField(patch, "path") || hasPatchField(patch, "host")) {
+      nextRaw = ensureJSONObject(
+        nextRaw,
+        [...outboundPath, "streamSettings", branch, "header", "request"],
+        header?.request
+      );
+    }
+    if (hasPatchField(patch, "path")) {
+      const paths = splitCommaValues(patch.path ?? "");
+      nextRaw = patchJSONPath(
+        nextRaw,
+        [...outboundPath, "streamSettings", branch, "header", "request", "path"],
+        paths.length > 0 ? paths : undefined
+      );
+    }
+    if (hasPatchField(patch, "host")) {
+      const headers = asRecord(request?.headers);
+      nextRaw = ensureJSONObject(
+        nextRaw,
+        [...outboundPath, "streamSettings", branch, "header", "request", "headers"],
+        request?.headers
+      );
+      const hosts = splitCommaValues(patch.host ?? "");
+      if (hosts.length > 0) {
+        const key = Object.prototype.hasOwnProperty.call(headers ?? {}, "Host")
+          ? "Host"
+          : Object.prototype.hasOwnProperty.call(headers ?? {}, "host")
+            ? "host"
+            : "Host";
+        nextRaw = patchJSONPath(
+          nextRaw,
+          [...outboundPath, "streamSettings", branch, "header", "request", "headers", key],
+          hosts
+        );
+      } else {
+        nextRaw = patchJSONPath(
+          nextRaw,
+          [...outboundPath, "streamSettings", branch, "header", "request", "headers", "Host"],
+          undefined
+        );
+        nextRaw = patchJSONPath(
+          nextRaw,
+          [...outboundPath, "streamSettings", branch, "header", "request", "headers", "host"],
+          undefined
+        );
       }
     }
-    const nextVnext = {
-      ...existingVnext,
-      address: server,
-      port,
-      users: [nextUser],
-    };
-    settings.vnext = [nextVnext];
-    delete settings.servers;
   }
-  outbound.settings = settings;
 
-  const streamSettings = asRecord(outbound.streamSettings) ?? {};
-  streamSettings.network = network;
-  streamSettings.security = security;
+  const securityFieldsChanged =
+    hasPatchField(patch, "sni") ||
+    hasPatchField(patch, "alpn") ||
+    hasPatchField(patch, "allowInsecure") ||
+    hasPatchField(patch, "fingerprint") ||
+    hasPatchField(patch, "publicKey") ||
+    hasPatchField(patch, "shortId") ||
+    hasPatchField(patch, "spiderX");
 
-  if (network === "ws") {
-    const wsSettings = asRecord(streamSettings.wsSettings) ?? {};
-    wsSettings.path = draft.path.trim();
-    const headers = asRecord(wsSettings.headers) ?? {};
-    if (draft.host.trim()) {
-      headers.Host = draft.host.trim();
-    } else {
-      delete headers.Host;
-      delete headers.host;
+  if (securityFieldsChanged) {
+    ensureStreamSettings();
+  }
+
+  if (security === "tls" && securityFieldsChanged) {
+    nextRaw = ensureJSONObject(
+      nextRaw,
+      [...outboundPath, "streamSettings", "tlsSettings"],
+      streamSettings?.tlsSettings
+    );
+    const tlsPath = [...outboundPath, "streamSettings", "tlsSettings"];
+    if (hasPatchField(patch, "sni")) {
+      nextRaw = patchJSONPath(nextRaw, [...tlsPath, "serverName"], optionalText(patch.sni));
     }
-    wsSettings.headers = headers;
-    streamSettings.wsSettings = wsSettings;
-  } else if (network === "grpc") {
-    const grpcSettings = asRecord(streamSettings.grpcSettings) ?? {};
-    grpcSettings.serviceName = draft.path.trim();
-    if (draft.grpcAuthority?.trim()) {
-      grpcSettings.authority = draft.grpcAuthority.trim();
-    } else {
-      delete grpcSettings.authority;
+    if (hasPatchField(patch, "alpn")) {
+      const values = buildALPNValues(patch.alpn ?? "");
+      nextRaw = patchJSONPath(nextRaw, [...tlsPath, "alpn"], values.length > 0 ? values : undefined);
     }
-    streamSettings.grpcSettings = grpcSettings;
-  } else if (network === "httpupgrade") {
-    const httpUpgradeSettings = asRecord(streamSettings.httpupgradeSettings) ?? {};
-    httpUpgradeSettings.path = draft.path.trim();
-    httpUpgradeSettings.host = draft.host.trim();
-    streamSettings.httpupgradeSettings = httpUpgradeSettings;
-  } else if (network === "xhttp") {
-    const xhttpSettings = asRecord(streamSettings.xhttpSettings) ?? {};
-    xhttpSettings.path = draft.path.trim();
-    xhttpSettings.host = draft.host.trim();
-    streamSettings.xhttpSettings = xhttpSettings;
-  } else if (network === "tcp") {
-    const normalizedHeaderType = parseHeaderType(draft.headerType);
-    if (normalizedHeaderType) {
-      const header: Record<string, unknown> = { type: normalizedHeaderType };
-      if (normalizedHeaderType === "http") {
-        const request: Record<string, unknown> = {};
-        const paths = splitCommaValues(draft.path);
-        if (paths.length > 0) {
-          request.path = paths;
+    if (hasPatchField(patch, "allowInsecure")) {
+      nextRaw = patchJSONPath(nextRaw, [...tlsPath, "allowInsecure"], patch.allowInsecure ? true : undefined);
+    }
+    if (hasPatchField(patch, "fingerprint")) {
+      nextRaw = patchJSONPath(nextRaw, [...tlsPath, "fingerprint"], optionalText(patch.fingerprint));
+    }
+  } else if (security === "reality" && securityFieldsChanged) {
+    const realitySettings = asRecord(streamSettings?.realitySettings);
+    nextRaw = ensureJSONObject(
+      nextRaw,
+      [...outboundPath, "streamSettings", "realitySettings"],
+      streamSettings?.realitySettings
+    );
+    const realityPath = [...outboundPath, "streamSettings", "realitySettings"];
+    if (hasPatchField(patch, "sni")) {
+      nextRaw = patchJSONPath(nextRaw, [...realityPath, "serverName"], optionalText(patch.sni));
+    }
+    if (hasPatchField(patch, "fingerprint")) {
+      nextRaw = patchJSONPath(nextRaw, [...realityPath, "fingerprint"], optionalText(patch.fingerprint));
+    }
+    if (hasPatchField(patch, "publicKey")) {
+      const value = optionalText(patch.publicKey);
+      if (value) {
+        const hasPublicKey = Object.prototype.hasOwnProperty.call(realitySettings ?? {}, "publicKey");
+        const hasPassword = Object.prototype.hasOwnProperty.call(realitySettings ?? {}, "password");
+        if (hasPublicKey || !hasPassword) {
+          nextRaw = patchJSONPath(nextRaw, [...realityPath, "publicKey"], value);
         }
-        const hosts = splitCommaValues(draft.host);
-        if (hosts.length > 0) {
-          request.headers = { Host: hosts };
+        if (hasPassword) {
+          nextRaw = patchJSONPath(nextRaw, [...realityPath, "password"], value);
         }
-        if (Object.keys(request).length > 0) {
-          header.request = request;
-        }
+      } else {
+        nextRaw = patchJSONPath(nextRaw, [...realityPath, "publicKey"], undefined);
+        nextRaw = patchJSONPath(nextRaw, [...realityPath, "password"], undefined);
       }
-      streamSettings.tcpSettings = { header };
-      streamSettings.rawSettings = { header };
-    } else {
-      streamSettings.tcpSettings = {};
-      delete streamSettings.rawSettings;
+    }
+    if (hasPatchField(patch, "shortId")) {
+      nextRaw = patchJSONPath(nextRaw, [...realityPath, "shortId"], optionalText(patch.shortId));
+    }
+    if (hasPatchField(patch, "spiderX")) {
+      nextRaw = patchJSONPath(nextRaw, [...realityPath, "spiderX"], optionalText(patch.spiderX));
     }
   }
 
-  if (security === "tls") {
-    const tlsSettings = asRecord(streamSettings.tlsSettings) ?? {};
-    if (draft.sni.trim()) {
-      tlsSettings.serverName = draft.sni.trim();
-    } else {
-      delete tlsSettings.serverName;
-    }
-    const alpnValues = buildALPNValues(draft.alpn);
-    if (alpnValues.length > 0) {
-      tlsSettings.alpn = alpnValues;
-    } else {
-      delete tlsSettings.alpn;
-    }
-    if (draft.allowInsecure) {
-      tlsSettings.allowInsecure = true;
-    } else {
-      delete tlsSettings.allowInsecure;
-    }
-    if (draft.fingerprint?.trim()) {
-      tlsSettings.fingerprint = draft.fingerprint.trim();
-    } else {
-      delete tlsSettings.fingerprint;
-    }
-    streamSettings.tlsSettings = tlsSettings;
-  } else if (security === "reality") {
-    const realitySettings = asRecord(streamSettings.realitySettings) ?? {};
-    realitySettings.show = false;
-    if (draft.sni.trim()) {
-      realitySettings.serverName = draft.sni.trim();
-    } else {
-      delete realitySettings.serverName;
-    }
-    if (draft.fingerprint?.trim()) {
-      realitySettings.fingerprint = draft.fingerprint.trim();
-    } else {
-      delete realitySettings.fingerprint;
-    }
-    if (draft.publicKey?.trim()) {
-      realitySettings.publicKey = draft.publicKey.trim();
-      realitySettings.password = draft.publicKey.trim();
-    } else {
-      delete realitySettings.publicKey;
-      delete realitySettings.password;
-    }
-    if (draft.shortId?.trim()) {
-      realitySettings.shortId = draft.shortId.trim();
-    } else {
-      delete realitySettings.shortId;
-    }
-    if (draft.spiderX?.trim()) {
-      realitySettings.spiderX = draft.spiderX.trim();
-    } else {
-      delete realitySettings.spiderX;
-    }
-    streamSettings.realitySettings = realitySettings;
-  }
-
-  outbound.streamSettings = streamSettings;
-  outbounds[targetIndex] = outbound;
-  config.outbounds = outbounds;
-
-  return JSON.stringify(config, null, 2);
+  return formatXrayJSON(nextRaw);
 }
 
 export function createXrayJSONFromConfiguration(raw: string) {
@@ -983,7 +1246,7 @@ export function createXrayJSONFromConfiguration(raw: string) {
 }
 
 export function createConfigurationFromXrayJSON(raw: string) {
-  const parsed = parseXrayJSONConfiguration(raw);
+  const parsed = parseXrayJSONConfiguration(formatXrayJSON(raw));
   if (!parsed) {
     throw new Error("Сначала заполните XRAY-JSON конфигурацию");
   }

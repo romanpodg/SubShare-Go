@@ -23,7 +23,7 @@ export function PasswordInput({ label, error, className = "", id, ...props }: Pa
         <input
           id={inputId}
           type={showPassword ? "text" : "password"}
-          className={`ui-text-input min-h-11 w-full rounded-sm border border-border bg-surface-2 px-3 py-2 pr-12 text-sm text-zinc-100 placeholder:text-zinc-600 transition-colors hover:border-[var(--border-strong)] focus-visible:border-accent focus-visible:outline-none ${error ? "border-danger" : ""} ${className}`}
+          className={`ui-text-input min-h-11 w-full rounded-sm border border-border bg-surface-2 px-3 py-2 pr-12 text-sm text-zinc-100 placeholder:text-zinc-600 transition-colors hover:border-[var(--border-strong)] focus:border-accent focus-visible:border-accent ${error ? "border-danger" : ""} ${className}`}
           {...props}
         />
         <button

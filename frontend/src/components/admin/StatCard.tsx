@@ -14,11 +14,11 @@ export function StatCard({
   hint?: string;
 }) {
   const tones = {
-    cyan: "border-cyan-400/20 bg-cyan-400/10 text-cyan-300",
-    emerald: "border-emerald-400/20 bg-emerald-400/10 text-emerald-300",
-    amber: "border-amber-400/20 bg-amber-400/10 text-amber-300",
-    rose: "border-rose-400/20 bg-rose-400/10 text-rose-300",
-    zinc: "border-zinc-700 bg-zinc-800/50 text-zinc-400",
+    cyan: "border-info/20 bg-info/10 text-info",
+    emerald: "border-success/20 bg-success/10 text-success",
+    amber: "border-warning/20 bg-warning/10 text-warning",
+    rose: "border-danger/20 bg-danger/10 text-danger",
+    zinc: "border-border bg-surface-2 text-muted",
   };
   return (
     <div className="technical-frame min-h-36 border border-border bg-surface-1 p-4">

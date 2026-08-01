@@ -36,7 +36,17 @@ async function expectTechnicalScrollbar(locator: Locator) {
 }
 
 async function expectUniformAccentBorder(control: Locator, frame = control) {
-  await control.focus();
+  const readBorderColors = () => frame.evaluate((element) => {
+    const computed = getComputedStyle(element);
+    return [
+      computed.borderTopColor,
+      computed.borderRightColor,
+      computed.borderBottomColor,
+      computed.borderLeftColor,
+    ];
+  });
+
+  await control.click();
   await expect.poll(() => frame.evaluate((element) => {
     const computed = getComputedStyle(element);
     return [
@@ -46,9 +56,16 @@ async function expectUniformAccentBorder(control: Locator, frame = control) {
       computed.borderLeftColor,
     ];
   })).toEqual(Array(4).fill("rgb(183, 255, 42)"));
+  await control.hover();
+  await expect.poll(readBorderColors).toEqual(Array(4).fill("rgb(183, 255, 42)"));
+
+  await control.page().keyboard.press("Tab");
+  await control.page().keyboard.press("Shift+Tab");
+  await expect(control).toBeFocused();
+  await expect.poll(readBorderColors).toEqual(Array(4).fill("rgb(183, 255, 42)"));
   await expect.poll(() =>
     frame.evaluate((element) => getComputedStyle(element).outlineStyle)
-  ).toBe("none");
+  ).toBe("solid");
 }
 
 async function expectSingleDividerStructure(locator: Locator) {
@@ -292,7 +309,7 @@ test("user HWID list handles an empty device response", async ({ page }) => {
   await addUserDialog.getByRole("button", { name: "Закрыть" }).click();
 
   await page.getByRole("button", { name: "Открыть", exact: true }).click();
-  await page.getByRole("button", { name: "Устройства" }).click();
+  await page.getByRole("tab", { name: "Устройства" }).click();
 
   await expect(page.getByText("Устройства ещё не подключались")).toBeVisible();
   await expect(page.getByRole("button", { name: "Управление HWID" })).toBeVisible();

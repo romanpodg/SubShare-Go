@@ -105,16 +105,16 @@ export default function SecurityPage() {
       {Boolean(tokensError) && <div className="mb-4"><ResourceError error={tokensError} compact onRetry={() => void loadTokens()} title="Не удалось загрузить API-токены" /></div>}
       <div className="ui-joined-grid technical-frame grid lg:grid-cols-2">
         <section className="technical-frame border border-border bg-surface-1 p-5">
-          <div className="flex items-center gap-3"><LockKeyhole className="h-5 w-5 text-cyan-300" /><h2 className="font-semibold text-zinc-200">Защитные механизмы</h2></div>
+          <div className="flex items-center gap-3"><LockKeyhole className="h-5 w-5 text-info" /><h2 className="font-semibold text-zinc-200">Защитные механизмы</h2></div>
           <div className="ui-joined-list mt-5">
-            {checks.map((check) => <div key={check} className="flex items-center gap-3 rounded-xl border border-border bg-zinc-950/30 px-4 py-3 text-sm text-zinc-400"><CheckCircle2 className="h-4 w-4 shrink-0 text-emerald-400" />{check}</div>)}
+            {checks.map((check) => <div key={check} className="flex items-center gap-3 rounded-xl border border-border bg-zinc-950/30 px-4 py-3 text-sm text-zinc-400"><CheckCircle2 className="h-4 w-4 shrink-0 text-success" />{check}</div>)}
           </div>
         </section>
         <section className="technical-frame border border-border bg-surface-1 p-5">
           <h2 className="font-semibold text-zinc-200">Build info</h2>
           <dl className="ui-joined-list mt-5">
             {[["Версия", build?.version], ["Commit", build?.commit], ["Время сборки", build?.build_time], ["Версия схемы", build?.schema_version]].map(([label, value]) => (
-              <div key={String(label)} className="flex items-center justify-between gap-4 rounded-xl border border-border bg-zinc-950/30 px-4 py-3"><dt className="text-sm text-zinc-600">{label}</dt><dd className="font-mono text-sm text-cyan-300">{value ?? "—"}</dd></div>
+              <div key={String(label)} className="flex items-center justify-between gap-4 rounded-xl border border-border bg-zinc-950/30 px-4 py-3"><dt className="text-sm text-zinc-600">{label}</dt><dd className="font-mono text-sm text-muted">{value ?? "—"}</dd></div>
             ))}
           </dl>
         </section>
@@ -122,7 +122,7 @@ export default function SecurityPage() {
 
       <section className="technical-frame border border-border bg-surface-1">
         <div className="flex flex-col justify-between gap-4 border-b border-border px-5 py-4 lg:flex-row lg:items-center">
-          <div className="flex items-center gap-3"><KeyRound className="h-5 w-5 text-cyan-300" /><div><h2 className="font-semibold text-zinc-200">API-токены</h2><p className="mt-1 text-xs text-zinc-600">Секрет показывается только один раз. В базе хранится SHA-256 hash.</p></div></div>
+          <div className="flex items-center gap-3"><KeyRound className="h-5 w-5 text-info" /><div><h2 className="font-semibold text-zinc-200">API-токены</h2><p className="mt-1 text-xs text-zinc-600">Секрет показывается только один раз. В базе хранится SHA-256 hash.</p></div></div>
           <div className="flex flex-col gap-2 sm:flex-row sm:items-end">
             <Input label="Название токена" value={tokenName} onChange={(event) => setTokenName(event.target.value)} placeholder="Automation" />
             <Input label="Истекает (необязательно)" type="datetime-local" value={tokenExpiresAt} onChange={(event) => setTokenExpiresAt(event.target.value)} />
@@ -132,8 +132,8 @@ export default function SecurityPage() {
         <div className="border-b border-border px-5 py-4">
           <div className="flex flex-wrap gap-2">
             {["read", "users:write", "keys:write", "settings:write"].map((scope) => (
-              <label key={scope} className={`flex cursor-pointer items-center gap-2 rounded-lg border px-3 py-2 text-xs ${scopes.includes(scope) ? "border-cyan-400/30 bg-cyan-400/10 text-cyan-200" : "border-border text-zinc-500"}`}>
-                <input type="checkbox" checked={scopes.includes(scope)} onChange={() => toggleScope(scope)} className="accent-cyan-500" />
+              <label key={scope} data-selected={scopes.includes(scope)} className="ui-scope-control flex cursor-pointer items-center gap-2 px-3 py-2 text-xs">
+                <input type="checkbox" checked={scopes.includes(scope)} onChange={() => toggleScope(scope)} className="accent-accent" />
                 {scope}
               </label>
             ))}
@@ -159,7 +159,7 @@ export default function SecurityPage() {
                   {token.last_used_at ? ` · использован: ${new Date(token.last_used_at).toLocaleString("ru-RU")}` : ""}
                 </div>
               </div>
-              <div className="flex items-center gap-3"><span className={`text-xs ${token.revoked_at ? "text-rose-400" : "text-emerald-400"}`}>{token.revoked_at ? "Отозван" : "Активен"}</span>{!token.revoked_at && <Button variant="danger" onClick={() => revoke(token.id)}><Trash2 className="h-4 w-4" />Отозвать</Button>}</div>
+              <div className="flex items-center gap-3"><span className={`text-xs ${token.revoked_at ? "text-danger" : "text-success"}`}>{token.revoked_at ? "Отозван" : "Активен"}</span>{!token.revoked_at && <Button variant="danger" onClick={() => revoke(token.id)}><Trash2 className="h-4 w-4" />Отозвать</Button>}</div>
             </div>
           ))}
           {tokens.length === 0 && <div className="px-5 py-12 text-center text-sm text-zinc-600">API-токенов пока нет</div>}
