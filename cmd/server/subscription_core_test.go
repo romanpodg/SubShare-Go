@@ -11,7 +11,7 @@ import (
 	"testing"
 	"time"
 
-	"subshare/internal/model"
+	"github.com/romanpodg/SubShare-Go/internal/model"
 )
 
 func seedSubscriptionUser(t *testing.T, app *App, status string) int64 {

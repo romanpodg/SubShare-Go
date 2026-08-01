@@ -5,16 +5,22 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"strings"
 	"testing"
+	"unicode/utf8"
 )
 
 const sourceTestLink = "vless://11111111-1111-4111-8111-111111111111@example.com:443?security=tls&type=tcp#Test"
 
 func sourceRequestBody(t *testing.T, sourceURL, rawBody, hwid string) []byte {
+	return sourceRequestBodyWithName(t, "Provider", sourceURL, rawBody, hwid)
+}
+
+func sourceRequestBodyWithName(t *testing.T, name, sourceURL, rawBody, hwid string) []byte {
 	t.Helper()
 	payload := map[string]any{
-		"name":                  "Provider",
+		"name":                  name,
 		"category":              "External",
 		"key_category":          "Imported",
 		"key_insert_mode":       "bottom",
@@ -34,6 +40,191 @@ func sourceRequestBody(t *testing.T, sourceURL, rawBody, hwid string) []byte {
 		t.Fatalf("marshal source request: %v", err)
 	}
 	return body
+}
+
+func sourceUpdateRequestBody(t *testing.T, name, sourceURL string) []byte {
+	t.Helper()
+	payload := map[string]any{
+		"name":                  name,
+		"category":              "External",
+		"key_category":          "Imported",
+		"key_insert_mode":       "bottom",
+		"source_url":            sourceURL,
+		"enabled":               true,
+		"apply_remote_metadata": false,
+		"pass_hwid":             false,
+		"hwid_version":          "",
+		"hwid_model_name":       "",
+	}
+	body, err := json.Marshal(payload)
+	if err != nil {
+		t.Fatalf("marshal source update request: %v", err)
+	}
+	return body
+}
+
+func TestExternalSourceNameValidationUsesUnicodeCodePoints(t *testing.T) {
+	t.Parallel()
+
+	validNames := []string{
+		strings.Repeat("a", 64),
+		strings.Repeat("Я", 64),
+		strings.Repeat("😀", 64),
+		strings.Repeat("𐐷", 64),
+	}
+	for _, name := range validNames {
+		name := name
+		t.Run("accept_"+strconv.Itoa(utf8.RuneCountInString(name)), func(t *testing.T) {
+			got, err := validateExternalSourceName(name)
+			if err != nil || got != name {
+				t.Fatalf("validateExternalSourceName(%q) = %q, %v", name, got, err)
+			}
+		})
+	}
+
+	for _, name := range []string{
+		strings.Repeat("a", 65),
+		strings.Repeat("Я", 65),
+		strings.Repeat("😀", 65),
+		strings.Repeat("𐐷", 65),
+		"",
+		" \t\n ",
+	} {
+		name := name
+		t.Run("reject", func(t *testing.T) {
+			if _, err := validateExternalSourceName(name); err == nil {
+				t.Fatalf("validateExternalSourceName(%q) unexpectedly succeeded", name)
+			}
+		})
+	}
+
+	got, err := validateExternalSourceName("  Provider  ")
+	if err != nil || got != "Provider" {
+		t.Fatalf("whitespace normalization = %q, %v", got, err)
+	}
+}
+
+func TestRemoteProfileTitleShorteningIsUnicodeSafeAndWarned(t *testing.T) {
+	t.Parallel()
+
+	title, warnings := normalizeRemoteProfileTitle(strings.Repeat("😀", 65))
+	if !utf8.ValidString(title) || utf8.RuneCountInString(title) != 64 || !strings.HasSuffix(title, "…") {
+		t.Fatalf("unsafe shortened title %q", title)
+	}
+	if len(warnings) != 1 || !strings.Contains(warnings[0], "64 characters") {
+		t.Fatalf("unexpected warnings: %#v", warnings)
+	}
+}
+
+func TestSourceNameValidationParityAndNoSilentTruncation(t *testing.T) {
+	app := newIntegrationApp(t)
+	validName := strings.Repeat("😀", 64)
+	v1URL := "https://provider.example/v1-name"
+	compatURL := "https://provider.example/compat-name"
+
+	v1Request := httptest.NewRequest(http.MethodPost, "/api/v1/sources", bytes.NewReader(sourceRequestBodyWithName(t, validName, v1URL, sourceTestLink, "")))
+	v1Recorder := httptest.NewRecorder()
+	app.apiV1CreateSource(v1Recorder, v1Request)
+	if v1Recorder.Code != http.StatusCreated {
+		t.Fatalf("v1 create status=%d body=%s", v1Recorder.Code, v1Recorder.Body.String())
+	}
+
+	compatRequest := httptest.NewRequest(http.MethodPost, "/api/admin/external-sources/import", bytes.NewReader(sourceRequestBodyWithName(t, validName, compatURL, sourceTestLink, "")))
+	compatRecorder := httptest.NewRecorder()
+	app.apiImportExternalSource(compatRecorder, compatRequest)
+	if compatRecorder.Code != http.StatusOK {
+		t.Fatalf("compat create status=%d body=%s", compatRecorder.Code, compatRecorder.Body.String())
+	}
+
+	for _, sourceURL := range []string{v1URL, compatURL} {
+		var storedName string
+		if err := app.db.QueryRow(`SELECT name FROM external_subscription_sources WHERE source_url = ?`, sourceURL).Scan(&storedName); err != nil {
+			t.Fatalf("load %s: %v", sourceURL, err)
+		}
+		if storedName != validName {
+			t.Fatalf("stored name was changed: got %q", storedName)
+		}
+	}
+
+	overlongName := strings.Repeat("Я", 65)
+	for _, handler := range []struct {
+		name string
+		call func(*httptest.ResponseRecorder)
+	}{
+		{
+			name: "v1_create",
+			call: func(recorder *httptest.ResponseRecorder) {
+				request := httptest.NewRequest(http.MethodPost, "/api/v1/sources", bytes.NewReader(sourceRequestBodyWithName(t, overlongName, "https://provider.example/v1-too-long", sourceTestLink, "")))
+				app.apiV1CreateSource(recorder, request)
+			},
+		},
+		{
+			name: "compat_create",
+			call: func(recorder *httptest.ResponseRecorder) {
+				request := httptest.NewRequest(http.MethodPost, "/api/admin/external-sources/import", bytes.NewReader(sourceRequestBodyWithName(t, overlongName, "https://provider.example/compat-too-long", sourceTestLink, "")))
+				app.apiImportExternalSource(recorder, request)
+			},
+		},
+	} {
+		t.Run(handler.name, func(t *testing.T) {
+			recorder := httptest.NewRecorder()
+			handler.call(recorder)
+			if recorder.Code != http.StatusBadRequest || !strings.Contains(recorder.Body.String(), "max 64 characters") {
+				t.Fatalf("status=%d body=%s", recorder.Code, recorder.Body.String())
+			}
+		})
+	}
+
+	var rejectedWrites int
+	if err := app.db.QueryRow(`SELECT COUNT(*) FROM external_subscription_sources WHERE source_url LIKE '%too-long'`).Scan(&rejectedWrites); err != nil {
+		t.Fatalf("count rejected writes: %v", err)
+	}
+	if rejectedWrites != 0 {
+		t.Fatalf("overlong API input was written %d times", rejectedWrites)
+	}
+
+	for _, handler := range []struct {
+		name, sourceURL string
+		call            func(*httptest.ResponseRecorder, int64)
+	}{
+		{
+			name:      "v1_update",
+			sourceURL: v1URL,
+			call: func(recorder *httptest.ResponseRecorder, sourceID int64) {
+				request := httptest.NewRequest(http.MethodPut, "/api/v1/sources/1", bytes.NewReader(sourceUpdateRequestBody(t, overlongName, v1URL)))
+				request.SetPathValue("id", strconv.FormatInt(sourceID, 10))
+				app.apiV1UpdateSource(recorder, request)
+			},
+		},
+		{
+			name:      "compat_update",
+			sourceURL: compatURL,
+			call: func(recorder *httptest.ResponseRecorder, sourceID int64) {
+				request := httptest.NewRequest(http.MethodPut, "/api/admin/external-sources/1", bytes.NewReader(sourceUpdateRequestBody(t, overlongName, compatURL)))
+				request.SetPathValue("id", strconv.FormatInt(sourceID, 10))
+				app.apiUpdateExternalSource(recorder, request)
+			},
+		},
+	} {
+		t.Run(handler.name, func(t *testing.T) {
+			var sourceID int64
+			if err := app.db.QueryRow(`SELECT id FROM external_subscription_sources WHERE source_url = ?`, handler.sourceURL).Scan(&sourceID); err != nil {
+				t.Fatalf("load source id: %v", err)
+			}
+			recorder := httptest.NewRecorder()
+			handler.call(recorder, sourceID)
+			if recorder.Code != http.StatusBadRequest || !strings.Contains(recorder.Body.String(), "max 64 characters") {
+				t.Fatalf("status=%d body=%s", recorder.Code, recorder.Body.String())
+			}
+			var storedName string
+			if err := app.db.QueryRow(`SELECT name FROM external_subscription_sources WHERE id = ?`, sourceID).Scan(&storedName); err != nil {
+				t.Fatalf("load stored name: %v", err)
+			}
+			if storedName != validName {
+				t.Fatalf("overlong update changed stored name to %q", storedName)
+			}
+		})
+	}
 }
 
 func createSourceForTest(t *testing.T, app *App, sourceURL, hwid string) int64 {

@@ -9,8 +9,8 @@ import (
 	"strings"
 	"time"
 
-	"subshare/internal/middleware"
-	"subshare/internal/model"
+	"github.com/romanpodg/SubShare-Go/internal/middleware"
+	"github.com/romanpodg/SubShare-Go/internal/model"
 )
 
 type deviceMeta struct {

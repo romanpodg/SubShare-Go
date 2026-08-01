@@ -13,7 +13,7 @@ import (
 	"testing"
 	"time"
 
-	"subshare/internal/middleware"
+	"github.com/romanpodg/SubShare-Go/internal/middleware"
 )
 
 func newIntegrationApp(t *testing.T) *App {

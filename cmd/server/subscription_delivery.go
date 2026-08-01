@@ -7,7 +7,7 @@ import (
 	"net/http"
 	"strings"
 
-	"subshare/internal/model"
+	"github.com/romanpodg/SubShare-Go/internal/model"
 )
 
 type subscriptionDeliveryContext struct {

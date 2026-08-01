@@ -20,8 +20,8 @@ import (
 	"strings"
 	"time"
 
-	"subshare/internal/model"
-	"subshare/internal/vless"
+	"github.com/romanpodg/SubShare-Go/internal/model"
+	"github.com/romanpodg/SubShare-Go/internal/vless"
 )
 
 const (
@@ -605,8 +605,9 @@ func fetchExternalSubscription(sourceURL string, hwidProfile externalHWIDProfile
 		return externalSubscriptionParseResult{}, fmt.Errorf("too many keys in source response (max %d)", maxExternalImportItems)
 	}
 
+	remoteTitle, titleWarnings := normalizeRemoteProfileTitle(decodeSubscriptionHeaderValue(resp.Header.Get("profile-title")))
 	parsed.Metadata = externalSubscriptionMetadata{
-		Title:           decodeSubscriptionHeaderValue(resp.Header.Get("profile-title")),
+		Title:           remoteTitle,
 		RefreshHours:    parsePositiveInt(resp.Header.Get("profile-update-interval")),
 		SupportURL:      strings.TrimSpace(resp.Header.Get("support-url")),
 		WebPageURL:      strings.TrimSpace(resp.Header.Get("profile-web-page-url")),
@@ -617,6 +618,7 @@ func fetchExternalSubscription(sourceURL string, hwidProfile externalHWIDProfile
 		HTTPStatusCode:  resp.StatusCode,
 		HTTPStatusLabel: strings.TrimSpace(resp.Status),
 	}
+	parsed.Warnings = append(parsed.Warnings, titleWarnings...)
 	return parsed, nil
 }
 
@@ -1355,16 +1357,10 @@ func (a *App) apiImportExternalSource(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	name := strings.TrimSpace(req.Name)
-	if name == "" {
-		name = "Сторонняя подписка"
-	}
-	if len(name) > 255 {
-		writeError(w, http.StatusBadRequest, "name is too long (max 24 characters)")
+	name, err := validateExternalSourceName(req.Name)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
 		return
-	}
-	if len(name) > 24 {
-		name = name[:24]
 	}
 	category := normalizeExternalSourceCategory(req.Category)
 	keyCategory := normalizeKeyCategory(req.KeyCategory)
@@ -1425,14 +1421,6 @@ func (a *App) apiImportExternalSource(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	if strings.TrimSpace(req.Name) == "" && strings.TrimSpace(parsed.Metadata.Title) != "" {
-		name = strings.TrimSpace(parsed.Metadata.Title)
-		if len(name) > 24 {
-			name = name[:24]
-		}
-		_, _ = a.db.Exec(`UPDATE external_subscription_sources SET name = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`, name, sourceID)
-	}
-
 	importedCount, skippedCount, syncErr := a.syncExternalSource(sourceID, parsed)
 	if syncErr != nil {
 		a.markExternalSourceStatus(sourceID, "error", syncErr.Error())
@@ -1473,17 +1461,10 @@ func (a *App) apiUpdateExternalSource(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	name := strings.TrimSpace(req.Name)
-	if name == "" {
-		writeError(w, http.StatusBadRequest, "name is required")
+	name, err := validateExternalSourceName(req.Name)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
 		return
-	}
-	if len(name) > 255 {
-		writeError(w, http.StatusBadRequest, "name is too long (max 24 characters)")
-		return
-	}
-	if len(name) > 24 {
-		name = name[:24]
 	}
 	category := normalizeExternalSourceCategory(req.Category)
 	keyCategory := normalizeKeyCategory(req.KeyCategory)

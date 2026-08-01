@@ -18,9 +18,9 @@ import (
 
 	"golang.org/x/crypto/bcrypt"
 
-	"subshare/internal/middleware"
-	"subshare/internal/model"
-	"subshare/internal/vless"
+	"github.com/romanpodg/SubShare-Go/internal/middleware"
+	"github.com/romanpodg/SubShare-Go/internal/model"
+	"github.com/romanpodg/SubShare-Go/internal/vless"
 )
 
 var providerIDPattern = regexp.MustCompile(`^[A-Za-z0-9]{8}$`)

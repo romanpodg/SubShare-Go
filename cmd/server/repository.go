@@ -10,8 +10,8 @@ import (
 	"strings"
 	"time"
 
-	"subshare/internal/model"
-	"subshare/internal/vless"
+	"github.com/romanpodg/SubShare-Go/internal/model"
+	"github.com/romanpodg/SubShare-Go/internal/vless"
 )
 
 var validSQLIdentifier = regexp.MustCompile(`^[a-zA-Z_][a-zA-Z0-9_]*$`)

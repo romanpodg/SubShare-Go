@@ -11,7 +11,7 @@ import (
 	"sync"
 	"time"
 
-	"subshare/internal/model"
+	"github.com/romanpodg/SubShare-Go/internal/model"
 )
 
 type backgroundJob struct {

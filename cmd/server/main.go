@@ -18,8 +18,8 @@ import (
 	"golang.org/x/crypto/bcrypt"
 	_ "modernc.org/sqlite"
 
-	"subshare/internal/middleware"
-	"subshare/internal/model"
+	"github.com/romanpodg/SubShare-Go/internal/middleware"
+	"github.com/romanpodg/SubShare-Go/internal/model"
 )
 
 func main() {

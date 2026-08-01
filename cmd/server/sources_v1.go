@@ -3,15 +3,14 @@ package main
 import (
 	"database/sql"
 	"errors"
-	"fmt"
 	"net/http"
 	"net/url"
 	"strconv"
 	"strings"
 
-	"subshare/internal/middleware"
-	"subshare/internal/model"
-	"subshare/internal/vless"
+	"github.com/romanpodg/SubShare-Go/internal/middleware"
+	"github.com/romanpodg/SubShare-Go/internal/model"
+	"github.com/romanpodg/SubShare-Go/internal/vless"
 )
 
 type sourceV1Summary struct {
@@ -66,18 +65,6 @@ func maskExternalSourceURL(raw string) string {
 		return "URL hidden"
 	}
 	return parsed.Scheme + "://" + parsed.Host + "/•••"
-}
-
-func normalizeExternalSourceName(raw string) (string, error) {
-	name := strings.TrimSpace(raw)
-	if name == "" {
-		name = "Сторонняя подписка"
-	}
-	runes := []rune(name)
-	if len(runes) > 24 {
-		return "", fmt.Errorf("name is too long (max 24 characters)")
-	}
-	return name, nil
 }
 
 func sourceSummaryFromRow(row externalSourceRow, importedKeys int) sourceV1Summary {
@@ -312,7 +299,7 @@ func (a *App) apiV1CreateSource(w http.ResponseWriter, r *http.Request) {
 		writeV1FieldError(w, r, http.StatusConflict, "source_url_conflict", "source URL already exists", "source_url")
 		return
 	}
-	name, err := normalizeExternalSourceName(req.Name)
+	name, err := validateExternalSourceName(req.Name)
 	if err != nil {
 		writeV1FieldError(w, r, http.StatusBadRequest, "source_name_invalid", err.Error(), "name")
 		return
@@ -450,7 +437,7 @@ func (a *App) apiV1UpdateSource(w http.ResponseWriter, r *http.Request) {
 		writeV1FieldError(w, r, http.StatusBadRequest, "validation_failed", "invalid request body", "")
 		return
 	}
-	name, err := normalizeExternalSourceName(req.Name)
+	name, err := validateExternalSourceName(req.Name)
 	if err != nil {
 		writeV1FieldError(w, r, http.StatusBadRequest, "source_name_invalid", err.Error(), "name")
 		return

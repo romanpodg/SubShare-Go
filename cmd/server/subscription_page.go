@@ -10,7 +10,7 @@ import (
 	"regexp"
 	"strings"
 
-	"subshare/internal/model"
+	"github.com/romanpodg/SubShare-Go/internal/model"
 )
 
 const defaultSubscriptionPageConfigJSON = `{

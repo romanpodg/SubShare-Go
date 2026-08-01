@@ -11,7 +11,7 @@ import (
 	"strings"
 	"time"
 
-	"subshare/internal/middleware"
+	"github.com/romanpodg/SubShare-Go/internal/middleware"
 )
 
 var (

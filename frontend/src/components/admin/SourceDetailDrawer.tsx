@@ -2,7 +2,11 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { History, RefreshCw, Save, Trash2 } from "lucide-react";
-import { apiV1 } from "@/lib/api";
+import { ApiError, apiV1 } from "@/lib/api";
+import {
+  EXTERNAL_SOURCE_NAME_INPUT_MAX_LENGTH,
+  validateExternalSourceName,
+} from "@/lib/externalSourceName";
 import type { SourceDetail, SourceSummary, SourceSyncRun } from "@/lib/types";
 import { Button } from "@/components/ui/Button";
 import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
@@ -71,6 +75,11 @@ export function SourceDetailDrawer({
 
   const save = async () => {
     if (!detail) return;
+    const nameValidationError = validateExternalSourceName(detail.name);
+    if (nameValidationError) {
+      setError(new ApiError(400, "source_name_invalid", nameValidationError, { name: [nameValidationError] }));
+      return;
+    }
     setSaving(true);
     setError(null);
     try {
@@ -180,7 +189,13 @@ export function SourceDetailDrawer({
           <div className="space-y-6">
             {Boolean(error) && <ResourceError error={error} compact onRetry={() => void load()} title="Операция не выполнена" />}
             <section className="space-y-4 rounded-xl border border-border bg-surface-1 p-4">
-              <Input label="Название" value={detail.name} maxLength={24} onChange={(event) => update("name", event.target.value)} />
+              <Input
+                label="Название"
+                value={detail.name}
+                maxLength={EXTERNAL_SOURCE_NAME_INPUT_MAX_LENGTH}
+                error={validateExternalSourceName(detail.name) || undefined}
+                onChange={(event) => update("name", event.target.value)}
+              />
               <Input label="URL источника" value={detail.source_url} onChange={(event) => update("source_url", event.target.value)} />
               <div className="grid gap-4 sm:grid-cols-2">
                 <Input label="Категория источника" value={detail.category} onChange={(event) => update("category", event.target.value)} />

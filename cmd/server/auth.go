@@ -13,7 +13,7 @@ import (
 	"strings"
 	"time"
 
-	"subshare/internal/model"
+	"github.com/romanpodg/SubShare-Go/internal/model"
 )
 
 func (a *App) requireAdmin(next http.Handler) http.Handler {

@@ -14,6 +14,10 @@ import { Drawer } from "@/components/ui/Drawer";
 import { Input } from "@/components/ui/Input";
 import { ResourceError } from "@/components/ui/ResourceState";
 import { Select } from "@/components/ui/Select";
+import {
+  EXTERNAL_SOURCE_NAME_INPUT_MAX_LENGTH,
+  validateExternalSourceName,
+} from "@/lib/externalSourceName";
 
 interface Props {
   open: boolean;
@@ -106,7 +110,7 @@ export function SourceCreateDrawer({
         raw_final_url: manualBody.trim() ? sourceURL.trim() : undefined,
       });
       setPreview(response);
-      if (!name.trim()) setName((response.suggested_name || "").slice(0, 24));
+      if (!name.trim()) setName(response.suggested_name || "");
       setStep(2);
     } catch (requestError) {
       setError(requestError);
@@ -117,6 +121,11 @@ export function SourceCreateDrawer({
 
   const createSource = async () => {
     if (!preview) return;
+    const nameValidationError = validateExternalSourceName(name);
+    if (nameValidationError) {
+      setError(new ApiError(400, "source_name_invalid", nameValidationError, { name: [nameValidationError] }));
+      return;
+    }
     setBusy(true);
     setError(null);
     try {
@@ -146,6 +155,7 @@ export function SourceCreateDrawer({
   };
 
   const fieldErrors = error instanceof ApiError ? error.fieldErrors : {};
+  const nameValidationError = validateExternalSourceName(name);
   const sourceCategoryNames = useMemo(
     () => Array.from(new Set(sourceCategories.map((item) => item.name))),
     [sourceCategories]
@@ -170,7 +180,7 @@ export function SourceCreateDrawer({
         {step === 2 && (
           <Button
             onClick={() => setStep(3)}
-            disabled={!name.trim() || name.trim().length > 24}
+            disabled={Boolean(nameValidationError)}
           >
             Проверить параметры
             <ChevronRight className="h-4 w-4" />
@@ -286,8 +296,8 @@ export function SourceCreateDrawer({
             label="Название"
             value={name}
             onChange={(event) => setName(event.target.value)}
-            maxLength={24}
-            error={fieldErrors.name?.[0]}
+            maxLength={EXTERNAL_SOURCE_NAME_INPUT_MAX_LENGTH}
+            error={fieldErrors.name?.[0] || nameValidationError || undefined}
           />
           <div>
             <Input

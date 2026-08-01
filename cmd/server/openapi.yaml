@@ -662,7 +662,11 @@ components:
       type: object
       required: [name, category, key_category, key_insert_mode, source_url, enabled, pass_hwid]
       properties:
-        name: { type: string, maxLength: 24 }
+        name:
+          type: string
+          minLength: 1
+          maxLength: 64
+          description: Trimmed source name, limited to 64 Unicode code points.
         category: { type: string }
         key_category: { type: string }
         key_insert_mode: { type: string, enum: [top, bottom] }
