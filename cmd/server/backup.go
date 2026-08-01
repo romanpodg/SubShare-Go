@@ -121,14 +121,10 @@ func (a *App) validateBackupPath(backupPath string) error {
 	return nil
 }
 
-func (a *App) startBackup() {
-	backupPath := strings.TrimSpace(os.Getenv("BACKUP_PATH"))
+func (a *App) startBackup(backupPath string, interval time.Duration) {
+	backupPath = strings.TrimSpace(backupPath)
 	if backupPath == "" {
 		return
-	}
-	interval, err := time.ParseDuration(strings.TrimSpace(os.Getenv("BACKUP_INTERVAL")))
-	if err != nil || interval <= 0 {
-		interval = time.Hour
 	}
 	go func() {
 		run := func() {

@@ -36,13 +36,13 @@ func (a *App) encryptSubscriptionURL(rawURL string) (string, error) {
 	client := &http.Client{Timeout: 10 * time.Second}
 	req, err := http.NewRequest(http.MethodPost, endpoint, bytes.NewReader(payload))
 	if err != nil {
-		return "", err
+		return "", fmt.Errorf("prepare Happ crypto API request")
 	}
 	req.Header.Set("Content-Type", "application/json")
 
 	resp, err := client.Do(req)
 	if err != nil {
-		return "", err
+		return "", fmt.Errorf("call Happ crypto API")
 	}
 	defer resp.Body.Close()
 

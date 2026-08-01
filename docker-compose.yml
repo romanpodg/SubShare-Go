@@ -22,6 +22,8 @@ services:
     env_file:
       - .env
     environment:
+      # The backend validates all environment values before opening SQLite or
+      # accepting requests. See .env.example for accepted values and defaults.
       APP_ENV: production
       ADMIN_PASSWORD: ${ADMIN_PASSWORD:?Set ADMIN_PASSWORD in .env}
       BASE_URL: ${BASE_URL:?Set BASE_URL in .env}

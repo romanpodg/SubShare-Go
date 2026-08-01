@@ -88,20 +88,27 @@ npm. Запустите backend с `ADMIN_PASSWORD`, затем `npm ci && npm r
 
 | Переменная | Назначение |
 |---|---|
-| `ADMIN_USER` | Логин первого owner, по умолчанию `admin` |
-| `ADMIN_PASSWORD` | Обязательный пароль первого owner |
-| `PORT` | Порт Go API, по умолчанию `8080` |
-| `DB_PATH` | Файл SQLite; в Compose используется `/app/data/app.db` в named volume |
-| `DB_JOURNAL_MODE` | `WAL` по умолчанию; также поддерживаются режимы SQLite из `.env.example` |
-| `BASE_URL` | Публичный origin без завершающего `/`; `http://` оставляет HTTP, `https://` включает automatic HTTPS |
-| `APP_ENV` | При `production` приложение не запускается без корректного `BASE_URL` |
-| `CORS_ORIGINS` | Разрешённые origins через запятую; пусто — CORS выключен |
-| `TRUSTED_PROXIES` | IP/CIDR доверенных reverse proxy; без явного разрешения forwarded-заголовки игнорируются |
-| `DEVICE_LIMIT_MESSAGE` | Сообщение при превышении HWID-лимита |
-| `SUBSCRIPTION_BODY_ENCODING` | Legacy fallback: `base64` или `plain`; response rules имеют приоритет |
-| `HAPP_CRYPTO_API_URL` | Опциональный доверенный endpoint шифрования Happ; выключен по умолчанию, так как получает полную subscription URL |
-| `BACKUP_PATH` | Путь консистентной резервной копии; Compose хранит её в persistent volume |
-| `BACKUP_INTERVAL` | Go duration, например `1h` |
+| `ADMIN_USER` | Логин первого owner; по умолчанию `admin` |
+| `ADMIN_PASSWORD` | Обязательный пароль первого owner; значение не выводится в startup-ошибках |
+| `APP_ENV` | `development` (по умолчанию) или `production`; production требует корректный `BASE_URL` |
+| `PORT` | `8080` по умолчанию; номер `1–65535` или валидный `host:port` |
+| `DB_PATH` | Файл SQLite; по умолчанию `data/app.db`; в Compose — `/app/data/app.db` |
+| `DB_JOURNAL_MODE` | `WAL` по умолчанию; только `WAL`, `DELETE`, `TRUNCATE`, `PERSIST`, `MEMORY`, `OFF` |
+| `BASE_URL` | Необязательный публичный HTTP(S) origin без пути/query/fragment; обязателен в production |
+| `CORS_ORIGINS` | HTTP(S) origins через запятую, без пути; пусто — CORS выключен |
+| `TRUSTED_PROXIES` | IP/CIDR доверенных reverse proxy через запятую; пусто — forwarded-заголовки игнорируются |
+| `DEVICE_LIMIT_MESSAGE` | Сообщение при превышении HWID-лимита; пусто — встроенное значение |
+| `SUBSCRIPTION_BODY_ENCODING` | Legacy fallback: только `base64` (по умолчанию) или `plain`; response rules имеют приоритет |
+| `HAPP_CRYPTO_API_URL` | Необязательный абсолютный HTTP(S) endpoint шифрования Happ без credentials; получает полную subscription URL |
+| `BACKUP_PATH` | Необязательный путь консистентной резервной копии; пусто — backup-job выключен |
+| `BACKUP_INTERVAL` | Положительная Go duration, например `1h`; по умолчанию `1h` |
+
+Значения окружения нормализуются по пробелам и регистру только там, где это
+документировано для enum. Любое непустое неподдерживаемое enum-значение,
+некорректный порт, URL, IP/CIDR или duration останавливает запуск до открытия
+SQLite, запуска фоновых задач и HTTP listener. Startup-ошибки называют
+переменную, но не выводят пароли, URL с credentials, query-параметры или другие
+секреты.
 
 Build metadata передаётся линкером:
 

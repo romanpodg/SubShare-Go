@@ -7,7 +7,6 @@ import (
 	"log"
 	"log/slog"
 	"net/http"
-	"net/url"
 	"os"
 	"os/signal"
 	"path/filepath"
@@ -20,6 +19,7 @@ import (
 
 	"github.com/romanpodg/SubShare-Go/internal/middleware"
 	"github.com/romanpodg/SubShare-Go/internal/model"
+	"github.com/romanpodg/SubShare-Go/internal/platform/configuration"
 )
 
 func main() {
@@ -33,16 +33,27 @@ func main() {
 }
 
 func run() error {
-	dbPath := strings.TrimSpace(os.Getenv("DB_PATH"))
-	if dbPath == "" {
-		dbPath = "data/app.db"
+	return bootstrapRuntime(func() (configuration.Config, error) {
+		return configuration.Load(os.Environ())
+	}, runConfigured)
+}
+
+func bootstrapRuntime(load func() (configuration.Config, error), start func(configuration.Config) error) error {
+	config, err := load()
+	if err != nil {
+		return err
 	}
+	return start(config)
+}
+
+func runConfigured(config configuration.Config) error {
+	dbPath := config.DBPath
 
 	if err := os.MkdirAll(filepath.Dir(dbPath), 0o700); err != nil {
-		return fmt.Errorf("create data dir: %w", err)
+		return fmt.Errorf("create DB_PATH directory")
 	}
 
-	db, err := initializeSQLite(dbPath)
+	db, err := initializeSQLiteWithJournalMode(dbPath, config.SQLiteJournalMode)
 	if err != nil {
 		if !isRecoverableSQLiteIO(err) {
 			return err
@@ -53,24 +64,14 @@ func run() error {
 			return fmt.Errorf("recover sqlite sidecars: %w", cleanupErr)
 		}
 
-		db, err = initializeSQLite(dbPath)
+		db, err = initializeSQLiteWithJournalMode(dbPath, config.SQLiteJournalMode)
 		if err != nil {
 			return fmt.Errorf("initialize sqlite after sidecar cleanup: %w", err)
 		}
 	}
 	defer db.Close()
 
-	adminUser := strings.TrimSpace(os.Getenv("ADMIN_USER"))
-	if adminUser == "" {
-		adminUser = "admin"
-	}
-	adminPass := strings.TrimSpace(os.Getenv("ADMIN_PASSWORD"))
-	if adminPass == "" {
-		slog.Error("ADMIN_PASSWORD environment variable is required but not set")
-		os.Exit(1)
-	}
-
-	adminPassHash, err := bcrypt.GenerateFromPassword([]byte(adminPass), bcrypt.DefaultCost)
+	adminPassHash, err := bcrypt.GenerateFromPassword([]byte(config.AdminPassword), bcrypt.DefaultCost)
 	if err != nil {
 		return fmt.Errorf("hash admin password: %w", err)
 	}
@@ -81,63 +82,32 @@ func run() error {
 		return fmt.Errorf("count admins: %w", err)
 	}
 	if adminCount == 0 {
-		if _, err := db.Exec(`INSERT INTO admins (username, password_hash, role) VALUES (?, ?, 'owner')`, adminUser, string(adminPassHash)); err != nil {
+		if _, err := db.Exec(`INSERT INTO admins (username, password_hash, role) VALUES (?, ?, 'owner')`, config.AdminUser, string(adminPassHash)); err != nil {
 			return fmt.Errorf("seed root admin: %w", err)
 		}
-		log.Printf("Seeded root admin account: %s (role: owner)", adminUser)
+		log.Printf("Seeded root admin account: %s (role: owner)", config.AdminUser)
 	}
 
-	deviceLimitMessage := strings.TrimSpace(os.Getenv("DEVICE_LIMIT_MESSAGE"))
+	deviceLimitMessage := config.DeviceLimitMessage
 	if deviceLimitMessage == "" {
 		deviceLimitMessage = model.DefaultDeviceLimitMessage
 	}
 
-	baseURL := strings.TrimSpace(os.Getenv("BASE_URL"))
-	if baseURL != "" {
-		normalizedBaseURL, normalizeErr := normalizeAbsoluteHTTPURL(baseURL, "BASE_URL")
-		if normalizeErr != nil {
-			return fmt.Errorf("invalid BASE_URL: %w", normalizeErr)
-		}
-		parsedBaseURL, parseErr := url.Parse(normalizedBaseURL)
-		if parseErr != nil || (parsedBaseURL.Path != "" && parsedBaseURL.Path != "/") || parsedBaseURL.RawQuery != "" || parsedBaseURL.Fragment != "" {
-			return fmt.Errorf("BASE_URL must contain only scheme and host")
-		}
-		baseURL = strings.TrimRight(normalizedBaseURL, "/")
-	} else if strings.EqualFold(strings.TrimSpace(os.Getenv("APP_ENV")), "production") {
-		return fmt.Errorf("BASE_URL is required when APP_ENV=production")
-	}
-	happCryptoAPIURL := strings.TrimSpace(os.Getenv("HAPP_CRYPTO_API_URL"))
-
-	subscriptionBodyEncoding := strings.ToLower(strings.TrimSpace(os.Getenv("SUBSCRIPTION_BODY_ENCODING")))
-	if subscriptionBodyEncoding == "" {
-		subscriptionBodyEncoding = "base64"
-	}
-	if subscriptionBodyEncoding != "base64" {
-		subscriptionBodyEncoding = "plain"
-	}
-
-	var corsOrigins []string
-	if raw := strings.TrimSpace(os.Getenv("CORS_ORIGINS")); raw != "" {
-		for _, o := range strings.Split(raw, ",") {
-			o = strings.TrimSpace(o)
-			if o != "" {
-				corsOrigins = append(corsOrigins, o)
-			}
-		}
-	}
+	middleware.ConfigureTrustedProxyNetworks(config.TrustedProxyNetworks)
 
 	app := &App{
 		db:                       db,
 		dbPath:                   dbPath,
+		backupPath:               config.BackupPath,
 		deviceLimitMessage:       deviceLimitMessage,
-		baseURL:                  baseURL,
-		happCryptoAPIURL:         happCryptoAPIURL,
-		subscriptionBodyEncoding: subscriptionBodyEncoding,
+		baseURL:                  config.BaseURL,
+		happCryptoAPIURL:         config.HappCryptoAPIURL,
+		subscriptionBodyEncoding: config.SubscriptionBodyEncoding,
 	}
 	app.recoverInterruptedJobs()
 
 	go app.cleanupExpiredSessions(5 * time.Minute)
-	app.startBackup()
+	app.startBackup(config.BackupPath, config.BackupInterval)
 
 	loginLimiter := middleware.NewRateLimiter(5, 1*time.Minute)
 	activationLimiter := middleware.NewRateLimiter(10, 1*time.Minute)
@@ -312,16 +282,11 @@ func run() error {
 		mux.Handle("/", middleware.SPAFileServer(os.DirFS(frontendDir)))
 	}
 
-	addr := os.Getenv("PORT")
-	if addr == "" {
-		addr = ":8080"
-	} else if !strings.Contains(addr, ":") {
-		addr = ":" + addr
-	}
+	addr := config.ListenAddress
 
 	var handler http.Handler = middleware.SecurityHeaders(middleware.RequestID(middleware.LogRequest(middleware.DeprecateLegacyAdminAPI(mux))))
-	if len(corsOrigins) > 0 {
-		handler = middleware.CorsMiddleware(corsOrigins, handler)
+	if len(config.CORSOrigins) > 0 {
+		handler = middleware.CorsMiddleware(config.CORSOrigins, handler)
 	}
 
 	srv := &http.Server{
@@ -356,6 +321,10 @@ func run() error {
 }
 
 func initializeSQLite(dbPath string) (*sql.DB, error) {
+	return initializeSQLiteWithJournalMode(dbPath, configuration.DefaultSQLiteJournalMode)
+}
+
+func initializeSQLiteWithJournalMode(dbPath, journalMode string) (*sql.DB, error) {
 	db, err := sql.Open("sqlite", filepath.ToSlash(dbPath))
 	if err != nil {
 		return nil, fmt.Errorf("open db: %w", err)
@@ -365,7 +334,7 @@ func initializeSQLite(dbPath string) (*sql.DB, error) {
 	db.SetMaxIdleConns(4)
 	db.SetConnMaxLifetime(0)
 
-	if err := configureSQLitePragmas(db); err != nil {
+	if err := configureSQLitePragmas(db, journalMode); err != nil {
 		_ = db.Close()
 		return nil, err
 	}
@@ -378,8 +347,7 @@ func initializeSQLite(dbPath string) (*sql.DB, error) {
 	return db, nil
 }
 
-func configureSQLitePragmas(db *sql.DB) error {
-	journalMode := normalizeSQLiteJournalMode(os.Getenv("DB_JOURNAL_MODE"))
+func configureSQLitePragmas(db *sql.DB, journalMode string) error {
 
 	// Some Docker bind mounts (especially non-native Linux filesystems) do not
 	// support SQLite WAL shared-memory file resizing and fail with IOERR_SHMSIZE.
@@ -409,18 +377,6 @@ func configureSQLitePragmas(db *sql.DB) error {
 	}
 
 	return nil
-}
-
-func normalizeSQLiteJournalMode(raw string) string {
-	mode := strings.ToUpper(strings.TrimSpace(raw))
-	switch mode {
-	case "", "WAL":
-		return "WAL"
-	case "DELETE", "TRUNCATE", "PERSIST", "MEMORY", "OFF":
-		return mode
-	default:
-		return "WAL"
-	}
 }
 
 func cleanupSQLiteSidecars(dbPath string) error {

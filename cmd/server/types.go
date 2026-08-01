@@ -8,6 +8,7 @@ import (
 type App struct {
 	db                       *sql.DB
 	dbPath                   string
+	backupPath               string
 	deviceLimitMessage       string
 	baseURL                  string
 	happCryptoAPIURL         string

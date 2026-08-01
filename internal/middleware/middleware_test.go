@@ -3,6 +3,7 @@ package middleware
 import (
 	"net/http"
 	"net/http/httptest"
+	"net/netip"
 	"testing"
 	"time"
 )
@@ -150,7 +151,8 @@ func TestRateLimiter_Wrap(t *testing.T) {
 // ---------- ClientIP ----------
 
 func TestClientIP(t *testing.T) {
-	t.Setenv("TRUSTED_PROXIES", "127.0.0.1/32")
+	ConfigureTrustedProxyNetworks([]netip.Prefix{netip.MustParsePrefix("127.0.0.1/32")})
+	t.Cleanup(func() { ConfigureTrustedProxyNetworks(nil) })
 	tests := []struct {
 		name       string
 		xff        string

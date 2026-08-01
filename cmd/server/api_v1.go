@@ -143,7 +143,7 @@ func (a *App) apiV1Dashboard(w http.ResponseWriter, r *http.Request) {
 		degradedSections = append(degradedSections, "audit")
 	}
 	backup := map[string]any{"enabled": false, "status": "disabled", "file": "", "last_modified": "", "size_bytes": int64(0)}
-	if backupPath := strings.TrimSpace(os.Getenv("BACKUP_PATH")); backupPath != "" {
+	if backupPath := strings.TrimSpace(a.backupPath); backupPath != "" {
 		backup["enabled"] = true
 		backup["file"] = filepath.Base(backupPath)
 		backup["status"] = "pending"
