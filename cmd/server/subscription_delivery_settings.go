@@ -14,6 +14,14 @@ type subscriptionDeliverySettings struct {
 	Remarks         map[string][]string `json:"remarks"`
 }
 
+type subscriptionDeliverySettingsResponse struct {
+	subscriptionDeliverySettings
+	// Capabilities and GenerationExclusionReasonCodes are runtime response
+	// metadata. They are absent from the update DTO and cannot be persisted.
+	Capabilities                   []protocolCapability `json:"capabilities"`
+	GenerationExclusionReasonCodes []string             `json:"generation_exclusion_reason_codes,omitempty"`
+}
+
 var deliveryRemarkStatuses = []string{"expired", "paused", "blocked", "limited", "empty"}
 
 func defaultSubscriptionDeliverySettings() subscriptionDeliverySettings {
@@ -92,7 +100,11 @@ func (a *App) apiV1GetSubscriptionDeliverySettings(w http.ResponseWriter, r *htt
 		writeV1Error(w, r, http.StatusInternalServerError, "delivery_settings_load_failed", "failed to load subscription delivery settings")
 		return
 	}
-	writeJSON(w, http.StatusOK, settings)
+	writeJSON(w, http.StatusOK, subscriptionDeliverySettingsResponse{
+		subscriptionDeliverySettings:   settings,
+		Capabilities:                   subscriptionCapabilityMatrix(),
+		GenerationExclusionReasonCodes: generationExclusionReasonCodes(),
+	})
 }
 
 func (a *App) apiV1UpdateSubscriptionDeliverySettings(w http.ResponseWriter, r *http.Request) {

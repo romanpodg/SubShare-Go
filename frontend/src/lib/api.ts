@@ -18,6 +18,7 @@ import type {
   APIToken,
   SourceSyncRun,
   SubscriptionDeliverySettings,
+  SubscriptionDeliverySettingsUpdate,
   BackgroundJob,
   SourceDetail,
   SourceSummary,
@@ -451,7 +452,7 @@ export const apiV1 = {
         "GET",
         "/api/v1/subscription-delivery-settings"
       ),
-    update: (data: SubscriptionDeliverySettings) =>
+    update: (data: SubscriptionDeliverySettingsUpdate) =>
       request<{ message: string }>(
         "PUT",
         "/api/v1/subscription-delivery-settings",

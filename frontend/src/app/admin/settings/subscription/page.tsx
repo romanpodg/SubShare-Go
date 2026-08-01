@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Globe2, Plus, Route, Save, Settings, Trash2 } from "lucide-react";
 import { apiV1, subscriptionSettings } from "@/lib/api";
-import type { SubscriptionDeliverySettings, SubscriptionSettings } from "@/lib/types";
+import type { SubscriptionDeliverySettingsUpdate, SubscriptionSettings } from "@/lib/types";
 import { PageHeader } from "@/components/admin/PageHeader";
 import { GlobalSubscriptionSettingsModal } from "@/components/admin/GlobalSubscriptionSettingsModal";
 import { RoutingSettingsModal } from "@/components/admin/RoutingSettingsModal";
@@ -13,13 +13,13 @@ import { useToast } from "@/components/ui/Toast";
 import { InitialLoading, ResourceError } from "@/components/ui/ResourceState";
 import { useAuth } from "@/hooks/useAuth";
 
-const emptyDeliverySettings = (): SubscriptionDeliverySettings => ({
+const emptyDeliverySettings = (): SubscriptionDeliverySettingsUpdate => ({
   response_headers: [],
   announcement: "",
   remarks: { expired: [], paused: [], blocked: [], limited: [], empty: [] },
 });
 
-const remarkLabels: Record<keyof SubscriptionDeliverySettings["remarks"], string> = {
+const remarkLabels: Record<keyof SubscriptionDeliverySettingsUpdate["remarks"], string> = {
   expired: "Подписка истекла",
   paused: "Подписка приостановлена",
   blocked: "Подписка заблокирована",
@@ -31,7 +31,7 @@ export default function SubscriptionSettingsPage() {
   const [settings, setSettings] = useState<SubscriptionSettings | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [routingOpen, setRoutingOpen] = useState(false);
-  const [delivery, setDelivery] = useState<SubscriptionDeliverySettings>(emptyDeliverySettings);
+  const [delivery, setDelivery] = useState<SubscriptionDeliverySettingsUpdate>(emptyDeliverySettings);
   const [initialDelivery, setInitialDelivery] = useState("");
   const [deliveryTab, setDeliveryTab] = useState<"announcement" | "headers" | "remarks">("announcement");
   const [savingDelivery, setSavingDelivery] = useState(false);
@@ -55,8 +55,13 @@ export default function SubscriptionSettingsPage() {
     setDeliveryError(null);
     try {
       const data = await apiV1.deliverySettings.get();
-      setDelivery(data);
-      setInitialDelivery(JSON.stringify(data));
+      const mutable: SubscriptionDeliverySettingsUpdate = {
+        response_headers: data.response_headers,
+        announcement: data.announcement,
+        remarks: data.remarks,
+      };
+      setDelivery(mutable);
+      setInitialDelivery(JSON.stringify(mutable));
     } catch (requestError) {
       setDeliveryError(requestError);
     }
@@ -235,7 +240,7 @@ export default function SubscriptionSettingsPage() {
 
           {deliveryTab === "remarks" && (
             <div className="ui-joined-grid grid lg:grid-cols-2">
-              {(Object.keys(remarkLabels) as Array<keyof SubscriptionDeliverySettings["remarks"]>).map((status) => (
+              {(Object.keys(remarkLabels) as Array<keyof SubscriptionDeliverySettingsUpdate["remarks"]>).map((status) => (
                 <label key={status} className="flex flex-col gap-2 rounded-xl border border-border bg-zinc-950/30 p-4 text-sm text-zinc-400">
                   <span className="font-medium text-zinc-300">{remarkLabels[status]}</span>
                   <textarea

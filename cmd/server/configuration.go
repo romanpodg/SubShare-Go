@@ -55,8 +55,14 @@ func supportedConfigScheme(raw string) string {
 	if strings.HasPrefix(trimmed, "{") {
 		return "xray-json"
 	}
-	if strings.HasPrefix(strings.ToLower(trimmed), "vmess://") {
-		return "vmess"
+	lower := strings.ToLower(trimmed)
+	// Recognize supported share schemes before net/url validation. Hysteria 2
+	// port-hopping authorities intentionally contain commas and ranges that
+	// net/url rejects as an ordinary numeric URL port.
+	for _, scheme := range []string{"vless", "vmess", "trojan", "ss", "hysteria2", "hy2", "tuic"} {
+		if strings.HasPrefix(lower, scheme+"://") {
+			return scheme
+		}
 	}
 
 	parsed, err := url.Parse(trimmed)

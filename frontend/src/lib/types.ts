@@ -420,10 +420,44 @@ export interface SourceSyncRun {
   finished_at: string | null;
 }
 
-export interface SubscriptionDeliverySettings {
+export interface SubscriptionDeliverySettingsUpdate {
   response_headers: Array<{ key: string; value: string }>;
   announcement: string;
   remarks: Record<"expired" | "paused" | "blocked" | "limited" | "empty", string[]>;
+}
+
+export interface SubscriptionDeliverySettings extends SubscriptionDeliverySettingsUpdate {
+  readonly capabilities: ProtocolCapability[];
+  readonly generation_exclusion_reason_codes: string[];
+}
+
+export type CapabilitySupport =
+  | "supported"
+  | "unsupported"
+  | "conditionally_supported"
+  | "compatibility_only";
+
+export interface OutputCapability {
+  status: CapabilitySupport;
+  reason_code?: string;
+  target_version?: string;
+  minimum_version?: string;
+  syntax_validation?: "structurally_generated" | "official_binary" | "address_probe_only";
+  runtime_interoperability?: "not_tested";
+}
+
+export interface ProtocolCapability {
+  protocol: "vless" | "vmess" | "trojan" | "shadowsocks" | "hysteria2" | "tuic";
+  generation: string;
+  outputs: Record<string, OutputCapability>;
+}
+
+export interface SubscriptionGenerationFailure {
+  error_code: "all_profiles_excluded";
+  output_format: "mihomo" | "sing-box" | "xray-json";
+  eligible_count: number;
+  excluded_count: number;
+  exclusion_counts: Record<string, number>;
 }
 
 export interface BackgroundJob {

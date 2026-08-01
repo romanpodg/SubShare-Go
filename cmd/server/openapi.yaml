@@ -438,7 +438,7 @@ paths:
         required: true
         content:
           application/json:
-            schema: { $ref: "#/components/schemas/SubscriptionDeliverySettings" }
+            schema: { $ref: "#/components/schemas/SubscriptionDeliverySettingsUpdate" }
       responses:
         "200": { description: Updated }
         default: { $ref: "#/components/responses/Error" }
@@ -869,8 +869,9 @@ components:
             is_system: { type: boolean }
             created_at: { type: string, format: date-time }
             updated_at: { type: string, format: date-time }
-    SubscriptionDeliverySettings:
+    SubscriptionDeliverySettingsUpdate:
       type: object
+      additionalProperties: false
       required: [response_headers, announcement, remarks]
       properties:
         response_headers:
@@ -880,6 +881,7 @@ components:
         announcement: { type: string, maxLength: 200 }
         remarks:
           type: object
+          additionalProperties: false
           required: [expired, paused, blocked, limited, empty]
           properties:
             expired: { $ref: "#/components/schemas/RemarkList" }
@@ -887,6 +889,53 @@ components:
             blocked: { $ref: "#/components/schemas/RemarkList" }
             limited: { $ref: "#/components/schemas/RemarkList" }
             empty: { $ref: "#/components/schemas/RemarkList" }
+    SubscriptionDeliverySettings:
+      allOf:
+        - { $ref: "#/components/schemas/SubscriptionDeliverySettingsUpdate" }
+        - type: object
+          required: [capabilities, generation_exclusion_reason_codes]
+          properties:
+            capabilities:
+              type: array
+              readOnly: true
+              description: Backend-owned protocol/output capability matrix. Official syntax validation never implies runtime interoperability.
+              items: { $ref: "#/components/schemas/ProtocolCapability" }
+            generation_exclusion_reason_codes:
+              type: array
+              readOnly: true
+              description: Stable non-sensitive codes used by delivery exclusion headers and all-excluded errors.
+              items: { type: string }
+    ProtocolCapability:
+      type: object
+      required: [protocol, generation, outputs]
+      properties:
+        protocol: { type: string, enum: [vless, vmess, trojan, shadowsocks, hysteria2, tuic], readOnly: true }
+        generation: { type: string, readOnly: true }
+        outputs:
+          type: object
+          readOnly: true
+          additionalProperties: { $ref: "#/components/schemas/OutputCapability" }
+    OutputCapability:
+      type: object
+      required: [status]
+      properties:
+        status: { type: string, enum: [supported, unsupported, conditionally_supported, compatibility_only], readOnly: true }
+        reason_code: { type: string, readOnly: true }
+        target_version: { type: string, readOnly: true }
+        minimum_version: { type: string, readOnly: true }
+        syntax_validation: { type: string, enum: [structurally_generated, official_binary, address_probe_only], readOnly: true }
+        runtime_interoperability: { type: string, enum: [not_tested], readOnly: true }
+    SubscriptionGenerationFailure:
+      type: object
+      required: [error_code, output_format, eligible_count, excluded_count, exclusion_counts]
+      properties:
+        error_code: { type: string, enum: [all_profiles_excluded] }
+        output_format: { type: string, enum: [mihomo, sing-box, xray-json] }
+        eligible_count: { type: integer, minimum: 1 }
+        excluded_count: { type: integer, minimum: 1 }
+        exclusion_counts:
+          type: object
+          additionalProperties: { type: integer, minimum: 1 }
     RemarkList:
       type: array
       maxItems: 10

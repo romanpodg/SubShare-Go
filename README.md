@@ -162,6 +162,88 @@ decoded body принимается только если явно распоз�
 body или JSON. Base64-looking malformed input возвращает стабильный
 `invalid_base64_subscription`, не попадая в unknown-URI диагностику.
 
+### Генерация подписок и границы совместимости
+
+Выдача выбирает только назначенные пользователю активные записи; real-ключи с
+тремя последовательными health failures исключаются, informational-ключи
+сохраняют прежнее template-поведение. Порядок остаётся детерминированным:
+uncategorized, category sort order, key sort order, source id, row id. Генерация
+выполняется синхронно и не сохраняет готовые credential-bearing bodies.
+
+Перед генерацией backend повторно разбирает authoritative `vless_keys.url` и
+вычисляет semantic identity текущим `PROFILE_FINGERPRINT_KEY`. Это позволяет
+дедуплицировать одинаковое подключение, даже если source-owned строки имеют
+fingerprints разных поколений. Побеждает первая запись в delivery order, поэтому
+её tag/name используется в результате; label не участвует в identity. Строки БД,
+assignments, `external_key_ref` и source lifecycle при этом не объединяются и не
+изменяются. Для legacy Xray JSON, который registry не разбирает, применяется
+только keyed exact-raw identity — семантическая эквивалентность не угадывается.
+
+Plain output выдаёт byte-exact original URI после проверки CR/LF/NUL/control
+characters. Base64 output применяет standard Base64 с padding ко всему уже
+отфильтрованному plain body. TUIC v4 разрешён только в этих raw-delivery форматах.
+Если после eligibility и raw validation не осталось ни одной записи, backend
+возвращает `503` вместо двусмысленного пустого или Base64-представления пустой
+строки. Если все eligible записи исключены только structured generator-ом,
+backend возвращает `422 Unprocessable Content` с кодом `all_profiles_excluded`,
+форматом, общими eligible/excluded counts и агрегированным отображением безопасных
+reason codes. Имена, hosts, row ids и URI в этот response не включаются.
+Unsupported structured entries исключаются частично; безопасные reason codes и
+их количество возвращаются в `SubShare-Exclusion-Codes` и
+`SubShare-Excluded-Count`, а агрегированные количества — в
+`SubShare-Exclusion-Counts`, без URI или credentials.
+
+Структурированные generators закреплены за следующими schema targets:
+
+- Mihomo `1.19.28` — точный target: VLESS, VMess, Trojan; supported Shadowsocks methods/plugins;
+  Hysteria 2 salamander/gecko, port hopping, TLS pin; TUIC v5 common и
+  Mihomo-native fields. ECH/unknown extensions, contradictory duplicates и
+  TUIC v4 исключаются.
+- sing-box `1.13.12` — точный target: VLESS, VMess, Trojan; Shadowsocks; Hysteria 2 salamander и
+  ordered server ports; TUIC v5 common и sing-box-native fields. URI certificate
+  SHA-256 pin не подменяется несовместимым SPKI pin. Gecko относится к 1.14 и не
+  генерируется для выбранного stable target.
+- Xray-core `26.3.27` — минимальный target; `26.7.28` — текущий target. Одинаковая
+  representation прошла syntax validation обоими targets для прежних
+  VLESS/VMess/Trojan, plugin-free Shadowsocks и
+  representable Hysteria 2 (auth, TLS, certificate pin, port hopping,
+  Salamander FinalMask). Gecko без packet-size, TUIC и Shadowsocks с SIP003
+  plugin не конвертируются в другой protocol и возвращают exclusion reason.
+  Hysteria `insecure=1` не преобразуется в удалённый Xray `allowInsecure` и
+  исключается как `field_not_representable`. При port hopping генератор не
+  записывает отсутствующий в URI interval: оба target сами применяют свой
+  официальный default 30 секунд.
+
+`official_binary` в capability matrix означает только, что полный synthetic
+config принят официальной командой проверки синтаксиса. Это не означает сетевой
+handshake, authentication или runtime interoperability; последнее явно
+публикуется как `not_tested`.
+
+Read-only capability matrix доступна в `GET /api/v1/subscription-delivery-settings`.
+Она является backend source of truth; присланное клиентом поле `capabilities`
+не входит в update DTO и отклоняется как неизвестное при update. Тот же response публикует read-only catalog
+`generation_exclusion_reason_codes`; конкретная выдача возвращает только
+безопасные count/codes headers. Подробный frontend profile editor остаётся
+отдельной задачей.
+
+Опциональные проверки официальными binaries не входят в обычный test suite и
+ничего не скачивают. Maintainer сначала вручную скачивает exact tagged official
+release assets, проверяет опубликованные upstream SHA-256 и затем задаёт пути:
+
+```powershell
+$env:MIHOMO_BIN = 'C:\validators\mihomo-v1.19.28.exe'
+$env:SING_BOX_BIN = 'C:\validators\sing-box-1.13.12.exe'
+$env:XRAY_26327_BIN = 'C:\validators\xray-v26.3.27.exe'
+$env:XRAY_CURRENT_BIN = 'C:\validators\xray-v26.7.28.exe'
+go test -count=1 ./cmd/server -run '^TestOfficial(Mihomo|SingBox|Xray)' -v
+```
+
+Harness использует соответственно `mihomo -t -d <tmp> -f <config>`,
+`sing-box check --disable-color -D <tmp> -c <config>` и
+`xray run -test -c <config>`, подавляет credential-bearing client output и
+удаляет временные configs. При отсутствии переменной соответствующая проверка
+явно пропускается.
+
 ### Пароли администраторов
 
 Новый или изменённый пароль должен содержать от 15 до 256 Unicode code points

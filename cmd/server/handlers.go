@@ -2209,12 +2209,18 @@ func (a *App) handleSubscription(w http.ResponseWriter, r *http.Request) {
 	if rule != nil {
 		responseType = rule.ResponseType
 	}
-	bodyPlain, settings, denyCode, denyReason, err := a.buildSubscriptionBodyPlainForFormat(r, subscriptionID, responseType)
+	generated, settings, denyCode, denyReason, err := a.generateSelectedSubscription(subscriptionID, responseType)
 	if err != nil {
 		http.Error(w, "failed to load subscription", http.StatusInternalServerError)
 		return
 	}
+	applyGenerationExclusionHeaders(w.Header(), generated.Exclusions)
 	if denyCode != 0 {
+		if denyCode == http.StatusUnprocessableEntity && denyReason == generationReasonAllExcluded {
+			writeJSON(w, denyCode, generationFailurePayload(generated))
+			a.incrementSubscriptionMetric(generated.OutputFormat, "all_excluded")
+			return
+		}
 		status := remarkStatusFromReason(denyReason)
 		writeSubscriptionDenial(w, denyCode, status, a.subscriptionRemark(denyReason))
 		a.incrementSubscriptionMetric(status, "denied")
@@ -2223,27 +2229,21 @@ func (a *App) handleSubscription(w http.ResponseWriter, r *http.Request) {
 
 	a.applySubscriptionResponseHeaders(w, r, settings, subscriptionID)
 	a.applyGlobalDeliveryHeaders(w)
-	body := bodyPlain
-	switch responseType {
-	case "mihomo":
-		body, err = renderMihomoSubscription(bodyPlain)
-	case "sing-box":
-		body, err = renderSingBoxSubscription(bodyPlain)
-	}
-	if err != nil {
-		http.Error(w, "failed to render subscription format", http.StatusUnprocessableEntity)
-		a.incrementSubscriptionMetric(responseType, "render_failed")
-		return
-	}
+	body := generated.Body
 	if rule != nil {
 		if template, loadErr := a.loadTemplate(rule.TemplateID); loadErr == nil && template != nil && template.Enabled {
 			body = applyTemplateContent(template.Content, body, settings.Title)
 		}
 		applyRuleHeaders(w, rule.Headers)
 	}
+	if err := validateGeneratedStructuredBody(responseType, body); err != nil {
+		http.Error(w, "failed to render subscription format", http.StatusUnprocessableEntity)
+		a.incrementSubscriptionMetric(responseType, "render_failed")
+		return
+	}
 	switch responseType {
 	case "base64":
-		body = base64.StdEncoding.EncodeToString([]byte(body))
+		body = encodeBase64Subscription(body)
 		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 	case "plain":
 		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
@@ -2360,11 +2360,12 @@ func (a *App) handleSubscriptionSubBody(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	bodyPlain, settings, denyCode, denyReason, err := a.buildSubscriptionBodyPlain(r, subscriptionID)
+	generated, settings, denyCode, denyReason, err := a.generateSelectedSubscription(subscriptionID, "plain")
 	if err != nil {
 		http.Error(w, "failed to load subscription", http.StatusInternalServerError)
 		return
 	}
+	applyGenerationExclusionHeaders(w.Header(), generated.Exclusions)
 	if denyCode != 0 {
 		status = remarkStatusFromReason(denyReason)
 		writeSubscriptionDenial(w, denyCode, status, a.subscriptionRemark(denyReason))
@@ -2375,7 +2376,7 @@ func (a *App) handleSubscriptionSubBody(w http.ResponseWriter, r *http.Request) 
 	a.applySubscriptionResponseHeaders(w, r, settings, subscriptionID)
 	a.applyGlobalDeliveryHeaders(w)
 	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
-	_, _ = w.Write([]byte(base64.StdEncoding.EncodeToString([]byte(bodyPlain))))
+	_, _ = w.Write([]byte(encodeBase64Subscription(generated.Body)))
 	a.incrementSubscriptionMetric("subbody-base64", "success")
 }
 
@@ -2397,11 +2398,12 @@ func (a *App) handleSubscriptionSubBodyPlain(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
-	bodyPlain, settings, denyCode, denyReason, err := a.buildSubscriptionBodyPlain(r, subscriptionID)
+	generated, settings, denyCode, denyReason, err := a.generateSelectedSubscription(subscriptionID, "plain")
 	if err != nil {
 		http.Error(w, "failed to load subscription", http.StatusInternalServerError)
 		return
 	}
+	applyGenerationExclusionHeaders(w.Header(), generated.Exclusions)
 	if denyCode != 0 {
 		status = remarkStatusFromReason(denyReason)
 		writeSubscriptionDenial(w, denyCode, status, a.subscriptionRemark(denyReason))
@@ -2416,7 +2418,7 @@ func (a *App) handleSubscriptionSubBodyPlain(w http.ResponseWriter, r *http.Requ
 	} else {
 		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 	}
-	_, _ = w.Write([]byte(bodyPlain))
+	_, _ = w.Write([]byte(generated.Body))
 	a.incrementSubscriptionMetric("subbody-plain", "success")
 }
 
@@ -2432,130 +2434,8 @@ func (a *App) buildSubscriptionBodyPlainForFormat(
 	subscriptionID string,
 	responseType string,
 ) (string, model.SubscriptionSettings, int, string, error) {
-	settings, _, _, err := a.effectiveSubscriptionSettings(subscriptionID)
-	if err != nil {
-		return "", model.SubscriptionSettings{}, 0, "", err
-	}
-	switch responseType {
-	case "xray-json":
-		settings.SubscriptionFormat = model.SubscriptionFormatXrayJSON
-	case "base64", "plain", "mihomo", "sing-box":
-		settings.SubscriptionFormat = model.SubscriptionFormatLinks
-	}
-
-	dbRows, err := a.db.Query(`
-		SELECT k.url, k.key_kind, k.template_text, k.label
-		FROM users u
-		JOIN user_keys uk ON uk.user_id = u.id
-		JOIN vless_keys k ON k.id = uk.key_id
-		LEFT JOIN key_categories kc ON kc.id = k.category_id
-		WHERE u.subscription_id = ?
-		  AND k.status = 'active'
-		  AND (k.key_kind = 'informational' OR COALESCE(k.health_failure_count, 0) < 3)
-		ORDER BY
-		  CASE WHEN k.category_id IS NULL THEN 0 ELSE 1 END,
-		  COALESCE(kc.sort_order, 2147483647),
-		  k.sort_order,
-		  k.id
-	`, subscriptionID)
-	if err != nil {
-		return "", model.SubscriptionSettings{}, 0, "", err
-	}
-	defer dbRows.Close()
-
-	templateData, err := a.buildSubscriptionTemplateData(subscriptionID, settings.SubscriptionFormat)
-	if err != nil {
-		return "", model.SubscriptionSettings{}, 0, "", err
-	}
-
-	var lines []string
-	for dbRows.Next() {
-		var keyURL string
-		var keyKind string
-		var templateText sql.NullString
-		var keyLabel sql.NullString
-		if err := dbRows.Scan(&keyURL, &keyKind, &templateText, &keyLabel); err != nil {
-			return "", model.SubscriptionSettings{}, 0, "", err
-		}
-		normalizedKind, _ := model.NormalizeKeyKind(keyKind)
-		if normalizedKind == model.KeyKindInformational {
-			textTemplate := strings.TrimSpace(templateText.String)
-			if textTemplate == "" {
-				textTemplate = strings.TrimSpace(keyLabel.String)
-			}
-			rendered := renderInfoTemplate(textTemplate, templateData)
-			if strings.TrimSpace(rendered) == "" {
-				continue
-			}
-			if settings.SubscriptionFormat == model.SubscriptionFormatXrayJSON {
-				infoJSON := buildInformationalXrayJSON(rendered)
-				if strings.TrimSpace(infoJSON) != "" {
-					lines = append(lines, infoJSON)
-				}
-				continue
-			}
-			lines = append(lines, buildInformationalVLESSURL(rendered))
-			continue
-		}
-		if settings.SubscriptionFormat == model.SubscriptionFormatLinks &&
-			supportedConfigScheme(keyURL) == model.SubscriptionFormatXrayJSON &&
-			responseType != "mihomo" && responseType != "sing-box" {
-			drafts, parseErr := parseXrayJSONDrafts(keyURL)
-			if parseErr != nil {
-				return "", model.SubscriptionSettings{}, 0, "", fmt.Errorf("parse XRAY-JSON key %q: %w", keyLabel.String, parseErr)
-			}
-			for _, draft := range drafts {
-				if draft.Remark == "" {
-					draft.Remark = keyLabel.String
-				}
-				link, buildErr := buildShareLinkFromDraft(draft)
-				if buildErr != nil {
-					return "", model.SubscriptionSettings{}, 0, "", fmt.Errorf("render XRAY-JSON key %q: %w", keyLabel.String, buildErr)
-				}
-				lines = append(lines, link)
-			}
-			continue
-		}
-		if settings.SubscriptionFormat == model.SubscriptionFormatXrayJSON {
-			converted, convErr := normalizeConfigurationForSubscriptionOutput(keyURL, settings.SubscriptionFormat, keyLabel.String)
-			if convErr != nil {
-				return "", model.SubscriptionSettings{}, 0, "", fmt.Errorf("convert key %q to XRAY-JSON: %w", keyLabel.String, convErr)
-			}
-			lines = append(lines, converted)
-			continue
-		}
-		lines = append(lines, strings.TrimSpace(keyURL))
-	}
-	if err := dbRows.Err(); err != nil {
-		return "", model.SubscriptionSettings{}, 0, "", err
-	}
-	if len(lines) == 0 {
-		return "", model.SubscriptionSettings{}, http.StatusServiceUnavailable, "subscription has no available keys", nil
-	}
-
-	if settings.SubscriptionFormat == model.SubscriptionFormatXrayJSON {
-		jsonItems := make([]json.RawMessage, 0, len(lines))
-		for _, line := range lines {
-			trimmed := strings.TrimSpace(line)
-			if trimmed == "" {
-				continue
-			}
-			if !json.Valid([]byte(trimmed)) {
-				return "", model.SubscriptionSettings{}, 0, "", fmt.Errorf("generated invalid XRAY-JSON item")
-			}
-			jsonItems = append(jsonItems, json.RawMessage(trimmed))
-		}
-		if len(jsonItems) == 0 {
-			return "", model.SubscriptionSettings{}, http.StatusServiceUnavailable, "subscription has no available keys", nil
-		}
-		payload, err := json.Marshal(jsonItems)
-		if err != nil {
-			return "", model.SubscriptionSettings{}, 0, "", err
-		}
-		return string(payload), settings, 0, "", nil
-	}
-
-	return strings.Join(lines, "\n"), settings, 0, "", nil
+	generated, settings, denyCode, denyReason, err := a.generateSelectedSubscription(subscriptionID, responseType)
+	return generated.Body, settings, denyCode, denyReason, err
 }
 
 func isBrowserSubscriptionRequest(r *http.Request) bool {
