@@ -10,7 +10,6 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
-	"strings"
 	"syscall"
 	"time"
 
@@ -21,6 +20,7 @@ import (
 	"github.com/romanpodg/SubShare-Go/internal/platform/configuration"
 	adminpassword "github.com/romanpodg/SubShare-Go/internal/security/password"
 	"github.com/romanpodg/SubShare-Go/internal/security/profilestorage"
+	"github.com/romanpodg/SubShare-Go/internal/storage"
 )
 
 func main() {
@@ -346,128 +346,23 @@ func initializeSQLite(dbPath string) (*sql.DB, error) {
 }
 
 func initializeSQLiteWithJournalMode(dbPath, journalMode string, keyring *profilestorage.Keyring) (*sql.DB, error) {
-	db, err := sql.Open("sqlite", filepath.ToSlash(dbPath))
-	if err != nil {
-		return nil, fmt.Errorf("open db: %w", err)
-	}
-
-	db.SetMaxOpenConns(4)
-	db.SetMaxIdleConns(4)
-	db.SetConnMaxLifetime(0)
-
-	if err := configureSQLitePragmas(db, journalMode); err != nil {
-		_ = db.Close()
-		return nil, err
-	}
-
-	if err := migrateWithKeyring(db, keyring); err != nil {
-		_ = db.Close()
-		return nil, fmt.Errorf("migrate db: %w", err)
-	}
-
-	return db, nil
+	return storage.InitializeSQLiteWithJournalMode(dbPath, journalMode, keyring, migrateWithKeyring)
 }
 
 func configureSQLitePragmas(db *sql.DB, journalMode string) error {
-
-	// Some Docker bind mounts (especially non-native Linux filesystems) do not
-	// support SQLite WAL shared-memory file resizing and fail with IOERR_SHMSIZE.
-	// In that case we transparently fall back to DELETE mode.
-	if _, err := db.Exec(fmt.Sprintf("PRAGMA journal_mode = %s", journalMode)); err != nil {
-		if journalMode != "WAL" {
-			return fmt.Errorf("set journal mode %s: %w", journalMode, err)
-		}
-		log.Printf("WAL mode unavailable (%v), falling back to DELETE", err)
-		if _, fallbackErr := db.Exec("PRAGMA journal_mode = DELETE"); fallbackErr != nil {
-			return fmt.Errorf("set journal mode fallback DELETE: %w", fallbackErr)
-		}
-	}
-
-	pragmas := []string{
-		"PRAGMA foreign_keys = ON",
-		"PRAGMA busy_timeout = 5000",
-		"PRAGMA synchronous = NORMAL",
-		"PRAGMA cache_size = -4000",
-		"PRAGMA mmap_size = 268435456",
-		"PRAGMA temp_store = MEMORY",
-	}
-	for _, pragma := range pragmas {
-		if _, err := db.Exec(pragma); err != nil {
-			return fmt.Errorf("exec %s: %w", pragma, err)
-		}
-	}
-
-	return nil
+	return storage.ConfigureSQLitePragmas(db, journalMode)
 }
 
 func cleanupSQLiteSidecars(dbPath string) error {
-	for _, suffix := range []string{"-shm", "-wal"} {
-		if err := os.Remove(filepath.ToSlash(dbPath) + suffix); err != nil && !os.IsNotExist(err) {
-			return err
-		}
-	}
-	return nil
+	return storage.CleanupSQLiteSidecars(dbPath)
 }
 
 func isRecoverableSQLiteIO(err error) bool {
-	msg := strings.ToLower(err.Error())
-	return strings.Contains(msg, "disk i/o error") || strings.Contains(msg, "(4874)")
+	return storage.IsRecoverableSQLiteIO(err)
 }
 
 func verifyStartupEnvelopesAndInvariants(ctx context.Context, db *sql.DB, keyring *profilestorage.Keyring) error {
-	var maxVersion int
-	if err := db.QueryRowContext(ctx, `SELECT COALESCE(MAX(version), 0) FROM schema_migrations`).Scan(&maxVersion); err != nil {
-		return err
-	}
-	if maxVersion < 11 {
-		return nil
-	}
-
-	if keyring == nil {
-		return profilestorage.ErrMissingKeyring
-	}
-
-	lastID := int64(0)
-	for {
-		rows, err := db.QueryContext(ctx, `SELECT vless_key_id, encrypted_url FROM vless_key_secrets WHERE vless_key_id > ? ORDER BY vless_key_id ASC LIMIT 1000`, lastID)
-		if err != nil {
-			return fmt.Errorf("scan secrets: %w", err)
-		}
-		var count int
-		for rows.Next() {
-			count++
-			var id int64
-			var env string
-			if err := rows.Scan(&id, &env); err != nil {
-				rows.Close()
-				return fmt.Errorf("scan secret row: %w", err)
-			}
-			lastID = id
-			keyID, _, _, err := profilestorage.InspectEnvelope(env)
-			if err != nil {
-				rows.Close()
-				return fmt.Errorf("row %d: %w", id, err)
-			}
-			if _, ok := keyring.GetEncryptionKey(keyID); !ok {
-				rows.Close()
-				return fmt.Errorf("row %d: %w: key %q", id, profilestorage.ErrUnknownKeyID, keyID)
-			}
-		}
-		rows.Close()
-		if count == 0 {
-			break
-		}
-	}
-
-	var missingSecrets int
-	if err := db.QueryRowContext(ctx, `SELECT COUNT(*) FROM vless_keys k LEFT JOIN vless_key_secrets s ON k.id = s.vless_key_id WHERE s.vless_key_id IS NULL`).Scan(&missingSecrets); err != nil {
-		return err
-	}
-	if missingSecrets > 0 {
-		return fmt.Errorf("%w: %d parents without secrets", profilestorage.ErrMigrationVerificationFailed, missingSecrets)
-	}
-
-	return nil
+	return storage.VerifyStartupEnvelopesAndInvariants(ctx, db, keyring)
 }
 
 func handleCLI(args []string) (bool, error) {
