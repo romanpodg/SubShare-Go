@@ -243,6 +243,7 @@ type keySummary struct {
 	CategoryID           int64     `json:"category_id"`
 	Category             string    `json:"category"`
 	Kind                 string    `json:"kind"`
+	TemplateText         string    `json:"template_text"`
 	Status               string    `json:"status"`
 	CheckStatus          string    `json:"check_status"`
 	CheckError           string    `json:"check_error"`
@@ -275,6 +276,7 @@ func (a *App) apiV1ListKeys(w http.ResponseWriter, r *http.Request) {
 		}
 		items = append(items, keySummary{
 			ID: key.ID, Label: key.Label, CategoryID: key.CategoryID, Category: key.Category, Kind: key.Kind,
+			TemplateText: key.TemplateText,
 			Status: key.Status, CheckStatus: key.CheckStatus, CheckError: key.CheckError,
 			LastLatencyMS: key.LastLatencyMS, LastCheckedAt: key.LastCheckedAtText,
 			ExternalSourceID: key.ExternalSourceID, ExternalSourceName: key.ExternalSourceName,

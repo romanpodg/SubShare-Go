@@ -1,6 +1,5 @@
 import type {
   User,
-  VLESSKey,
   KeyCategory,
   KeyCheckResult,
   SubscriptionSettings,
@@ -25,6 +24,12 @@ import type {
   SourceWriteInput,
   ExternalImportResultCounts,
   ExternalSourcePreviewKey,
+  KeyProfileDetailResponse,
+  KeyRawSecretResponse,
+  KeyStructuredSecretsResponse,
+  CreateKeyProfileInput,
+  UpdateKeyProfileInput,
+  KeyEditorSchemaResponse,
 } from "./types";
 
 let csrfToken: string | null = null;
@@ -199,7 +204,29 @@ export const users = {
 
 // Keys
 export const keys = {
-  list: () => request<{ keys: VLESSKey[] }>("GET", "/api/v1/keys/full"),
+  listSummaries: (params?: { query?: string; status?: string; page?: number; page_size?: number }) => {
+    const q = new URLSearchParams();
+    if (params?.query) q.set("query", params.query);
+    if (params?.status) q.set("status", params.status);
+    if (params?.page) q.set("page", params.page.toString());
+    if (params?.page_size) q.set("page_size", params.page_size.toString());
+    const qs = q.toString();
+    return request<{ data: KeySummary[]; meta: PageMeta }>("GET", `/api/v1/keys${qs ? `?${qs}` : ""}`);
+  },
+  get: (id: number) => request<{ data: KeyProfileDetailResponse }>("GET", `/api/v1/keys/${id}`),
+  reveal: (
+    id: number,
+    data: { profile_revision: number; target: "raw" | "structured-secrets" }
+  ) =>
+    request<{
+      data: KeyRawSecretResponse | KeyStructuredSecretsResponse;
+    }>("POST", `/api/v1/keys/${id}/reveal`, data),
+  clone: (
+    id: number,
+    data: { expected_profile_revision: number; new_label?: string }
+  ) => request<{ data: KeyProfileDetailResponse }>("POST", `/api/v1/keys/${id}/clone`, data),
+  editorSchema: () =>
+    request<{ data: KeyEditorSchemaResponse }>("GET", "/api/v1/key-editor-schema"),
   listCategories: () =>
     request<{ data: KeyCategory[] }>("GET", "/api/v1/key-categories")
       .then(({ data }) => ({ categories: data })),
@@ -215,6 +242,8 @@ export const keys = {
     request<{ message: string }>("POST", "/api/v1/key-categories/delete", { name, mode }),
   create: (data: { label: string; url?: string; status: string; kind: string; category?: string; template_text?: string }) =>
     request<{ message: string }>("POST", "/api/v1/keys", data),
+  createProfile: (data: CreateKeyProfileInput) =>
+    request<{ data: KeyProfileDetailResponse }>("POST", "/api/v1/keys", data),
   bulkUpdateStatus: (ids: number[], status: string, category?: string) =>
     request<{ message: string; updated: number }>("POST", "/api/v1/keys/bulk/status", { ids, status, category }),
   bulkDelete: (ids: number[]) =>
@@ -235,6 +264,8 @@ export const keys = {
       template_text?: string;
     }
   ) => request<{ message: string }>("PUT", `/api/v1/keys/${id}`, data),
+  updateProfile: (id: number, data: UpdateKeyProfileInput) =>
+    request<{ data: KeyProfileDetailResponse }>("PUT", `/api/v1/keys/${id}`, data),
   delete: (id: number) => request<{ message: string }>("DELETE", `/api/v1/keys/${id}`),
   check: (id: number) => request<KeyCheckResult>("POST", `/api/v1/keys/${id}/check`),
   checkAll: () =>

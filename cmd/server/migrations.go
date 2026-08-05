@@ -447,6 +447,15 @@ var schemaMigrations = []schemaMigration{
 		name:    "remove_plaintext_url_column",
 		runGo:   applyMigration13Rebuild,
 	},
+	{
+		version: 14,
+		name:    "add_profile_revision_and_updated_at_to_vless_keys",
+		statements: []string{
+			`ALTER TABLE vless_keys ADD COLUMN profile_revision INTEGER NOT NULL DEFAULT 1`,
+			`ALTER TABLE vless_keys ADD COLUMN updated_at DATETIME`,
+			`UPDATE vless_keys SET updated_at = COALESCE(created_at, CURRENT_TIMESTAMP) WHERE updated_at IS NULL`,
+		},
+	},
 }
 
 func runVersionedMigrations(db *sql.DB) error {

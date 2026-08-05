@@ -1209,6 +1209,8 @@ func (a *App) apiDeleteUserHWID(w http.ResponseWriter, r *http.Request) {
 // --- Keys API ---
 
 func (a *App) apiListKeys(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Cache-Control", "no-store, private")
+	w.Header().Set("Pragma", "no-cache")
 	keys, err := a.listKeys()
 	if err != nil {
 		log.Printf("apiListKeys: %v", err)

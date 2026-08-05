@@ -2,7 +2,7 @@
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
-import type { KeyCategory, VLESSKey } from "@/lib/types";
+import type { KeyCategory, KeySummary } from "@/lib/types";
 import { keys as keysApi } from "@/lib/api";
 import { useToast } from "@/components/ui/Toast";
 import { Button } from "@/components/ui/Button";
@@ -77,6 +77,7 @@ function categoryDisplayName(value: string) {
   return value || UNCATEGORIZED_LABEL;
 }
 
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 function detectConfigScheme(raw: string) {
   const trimmed = raw.trim();
   if (!trimmed) return "";
@@ -239,23 +240,23 @@ function InsertGapActions({
 }
 
 interface Props {
-  keys: VLESSKey[];
+  keys: KeySummary[];
   subscriptionFormat: "links" | "xray-json";
   onRefresh: () => Promise<void>;
 }
 
 interface CategoryGroup {
   category: string;
-  keys: VLESSKey[];
+  keys: KeySummary[];
 }
 
 export interface AlignedKeyRow {
-  key: VLESSKey;
-  informational: VLESSKey | null;
-  real: VLESSKey | null;
+  key: KeySummary;
+  informational: KeySummary | null;
+  real: KeySummary | null;
 }
 
-export function alignKeysBySubscriptionOrder(keys: VLESSKey[]): AlignedKeyRow[] {
+export function alignKeysBySubscriptionOrder(keys: KeySummary[]): AlignedKeyRow[] {
   return keys.map((key) => ({
     key,
     informational: key.kind === "informational" ? key : null,
@@ -270,7 +271,7 @@ export function KeysSection({ keys, subscriptionFormat, onRefresh }: Props) {
   const [hiddenPane, setHiddenPane] = useState<"informational" | "real" | null>(null);
   const [hiddenCategories, setHiddenCategories] = useState<Record<string, boolean>>({});
 
-  const [orderedKeys, setOrderedKeys] = useState<VLESSKey[]>(keys);
+  const [orderedKeys, setOrderedKeys] = useState<KeySummary[]>(keys);
   const [keyCategories, setKeyCategories] = useState<KeyCategory[]>([]);
 
   // Search and status filter states
@@ -279,7 +280,7 @@ export function KeysSection({ keys, subscriptionFormat, onRefresh }: Props) {
 
   const [showAddKey, setShowAddKey] = useState(false);
   const [showBulkEdit, setShowBulkEdit] = useState(false);
-  const [editKey, setEditKey] = useState<VLESSKey | null>(null);
+  const [editKey, setEditKey] = useState<KeySummary | null>(null);
   const [showCreateCategory, setShowCreateCategory] = useState(false);
   const [showCategoryEditor, setShowCategoryEditor] = useState(false);
   const [activeCategoryName, setActiveCategoryName] = useState("");
@@ -362,11 +363,11 @@ export function KeysSection({ keys, subscriptionFormat, onRefresh }: Props) {
       const query = searchQuery.toLowerCase().trim();
       if (query) {
         const labelMatch = key.label?.toLowerCase().includes(query);
-        const clientNameMatch = key.client_display_name?.toLowerCase().includes(query);
-        const urlMatch = key.url?.toLowerCase().includes(query);
         const categoryMatch = key.category?.toLowerCase().includes(query);
+        const sourceMatch = key.external_source_name?.toLowerCase().includes(query);
+        const protocolMatch = key.protocol?.toLowerCase().includes(query);
         const idMatch = String(key.id).includes(query);
-        if (!labelMatch && !clientNameMatch && !urlMatch && !categoryMatch && !idMatch) {
+        if (!labelMatch && !categoryMatch && !sourceMatch && !protocolMatch && !idMatch) {
           return false;
         }
       }
@@ -747,13 +748,12 @@ export function KeysSection({ keys, subscriptionFormat, onRefresh }: Props) {
     setShowAddKey(true);
   };
 
-  const moveKeyToCategory = async (key: VLESSKey, nextCategory: string) => {
+  const moveKeyToCategory = async (key: KeySummary, nextCategory: string) => {
     await keysApi.update(key.id, {
       label: key.label,
       status: key.status,
       kind: key.kind,
       category: nextCategory,
-      raw_url: key.kind === "real" ? key.url : undefined,
       uuid: "",
       host: "",
       port: "",
@@ -763,6 +763,17 @@ export function KeysSection({ keys, subscriptionFormat, onRefresh }: Props) {
     });
     await refreshKeysData();
   };
+
+  function checkStatusLabel(status: string): string {
+    switch (status) {
+      case "up":
+        return "Доступен";
+      case "down":
+        return "Недоступен";
+      default:
+        return "Не проверен";
+    }
+  }
 
   const healthDot = (status: string, label: string) => {
     const colors: Record<string, string> = {
@@ -779,14 +790,14 @@ export function KeysSection({ keys, subscriptionFormat, onRefresh }: Props) {
     );
   };
 
-  const renderKeyCard = (key: VLESSKey) => {
+  const renderKeyCard = (key: KeySummary) => {
     const isReal = key.kind !== "informational";
     const isInactiveJSON =
-      isReal && subscriptionFormat === "links" && detectConfigScheme(key.url) === "xray-json";
+      isReal && subscriptionFormat === "links" && (key.protocol === "vless" || key.protocol === "vmess" || key.protocol === "trojan" || key.protocol === "legacy");
     const isDragging = dragging?.id === key.id;
     const isSelected = selectedKeyIDs.includes(key.id);
     const lastChecked = formatDateTime(key.last_checked_at);
-    const statusParts = [key.check_status_label];
+    const statusParts = [checkStatusLabel(key.check_status)];
     const isExternalKey = key.external_source_id > 0;
     const globalIndex = keyIndexByID.get(key.id) ?? 0;
 
@@ -908,13 +919,13 @@ export function KeysSection({ keys, subscriptionFormat, onRefresh }: Props) {
             <div className={`mb-2 flex min-w-0 items-baseline gap-1 text-sm leading-5 ${isInactiveJSON ? "text-zinc-500" : "text-zinc-400"}`}>
               <span className="shrink-0">Название в клиенте:</span>
               <EmojiText
-                text={key.client_display_name || key.label}
+                text={key.label}
                 truncate
                 className="ui-key-card-client-name min-w-0 flex-1 text-zinc-300"
               />
             </div>
             <div className="mb-2 flex items-center gap-2">
-              {healthDot(key.check_status, key.check_status_label)}
+              {healthDot(key.check_status, checkStatusLabel(key.check_status))}
               <span className={`text-[13px] leading-5 ${isInactiveJSON ? "text-zinc-500" : "text-zinc-400"}`}>
                 {isInactiveJSON
                   ? "JSON-конфиг отключен для ссылочного формата подписки"
@@ -955,7 +966,7 @@ export function KeysSection({ keys, subscriptionFormat, onRefresh }: Props) {
     );
   };
 
-  const renderKeyRows = (sectionKeys: VLESSKey[], categoryHint?: string) => {
+  const renderKeyRows = (sectionKeys: KeySummary[], categoryHint?: string) => {
     const alignedRows = alignKeysBySubscriptionOrder(sectionKeys);
     const infoKeys = alignedRows.map((row) => row.informational);
     const realKeys = alignedRows.map((row) => row.real);
@@ -1109,7 +1120,7 @@ export function KeysSection({ keys, subscriptionFormat, onRefresh }: Props) {
     );
   };
 
-  const renderCategoryBlock = (categoryName: string, categoryKeys: VLESSKey[], empty?: boolean) => {
+  const renderCategoryBlock = (categoryName: string, categoryKeys: KeySummary[], empty?: boolean) => {
     const hidden = Boolean(hiddenCategories[categoryName]);
     const count = categoryCounts.get(categoryName) || 0;
     const categoryColor = getCategoryColor(categoryName);
@@ -1600,15 +1611,15 @@ export function KeysSection({ keys, subscriptionFormat, onRefresh }: Props) {
           if (insertAtIndex !== null) {
             setTimeout(async () => {
               try {
-                const { keys: freshKeys } = await keysApi.list();
-                if (freshKeys.length === 0) {
+                const { data: freshKeys } = await keysApi.listSummaries({ page_size: 200 });
+                if (!freshKeys || freshKeys.length === 0) {
                   return;
                 }
                 const newKey = freshKeys[freshKeys.length - 1];
-                const withoutNew = freshKeys.filter((item: VLESSKey) => item.id !== newKey.id);
+                const withoutNew = freshKeys.filter((item: KeySummary) => item.id !== newKey.id);
                 const targetIndex = Math.min(insertAtIndex, withoutNew.length);
                 withoutNew.splice(targetIndex, 0, newKey);
-                await keysApi.reorder(withoutNew.map((item: VLESSKey) => item.id));
+                await keysApi.reorder(withoutNew.map((item: KeySummary) => item.id));
                 await refreshKeysData();
               } catch {
                 // The key is still created even if reorder fails.

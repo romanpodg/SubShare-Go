@@ -185,6 +185,8 @@ type VLESSKey struct {
 	ProfileSchemaVersion int       `json:"profile_schema_version"`
 	ProfileCompatibility string    `json:"profile_compatibility"`
 	ProfileWarnings      []string  `json:"profile_warnings"`
+	ProfileRevision      int64     `json:"profile_revision"`
+	UpdatedAt            time.Time `json:"updated_at"`
 	CreatedAt            time.Time `json:"created_at"`
 }
 
@@ -690,4 +692,254 @@ func CheckStatusLabel(status string) string {
 	default:
 		return "Не проверен"
 	}
+}
+
+// --- Stage 8 DTOs for Protocol-Aware Profile Editing ---
+
+type KeyOwnership string
+
+const (
+	OwnershipLocal          KeyOwnership = "local"
+	OwnershipExternalSource KeyOwnership = "external_source"
+)
+
+type TriStateOp string
+
+const (
+	TriStateSet   TriStateOp = "set"
+	TriStateClear TriStateOp = "clear"
+)
+
+type TriStatePatch[T any] struct {
+	Set       bool       `json:"-"`
+	Operation TriStateOp `json:"operation"`
+	Value     T          `json:"value,omitempty"`
+}
+
+func (t *TriStatePatch[T]) UnmarshalJSON(b []byte) error {
+	t.Set = true
+	type rawPatch TriStatePatch[T]
+	return json.Unmarshal(b, (*rawPatch)(t))
+}
+
+type SafeShadowsocksDetail struct {
+	Method               string `json:"method"`
+	PasswordPresent      bool   `json:"password_present"`
+	PluginName           string `json:"plugin_name,omitempty"`
+	PluginOptionsPresent bool   `json:"plugin_options_present"`
+	UserInfoStyle        string `json:"user_info_style"`
+}
+
+type SafeHysteria2Detail struct {
+	AuthenticationPresent      bool   `json:"authentication_present"`
+	SNI                        string `json:"sni"`
+	Insecure                   bool   `json:"insecure"`
+	CertificateSHA256          string `json:"certificate_sha256"`
+	ObfuscationType            string `json:"obfuscation_type"`
+	ObfuscationPasswordPresent bool   `json:"obfuscation_password_present"`
+}
+
+type TUICFieldObservationDTO struct {
+	Field      string `json:"field"`
+	FieldClass string `json:"field_class"`
+	Provenance string `json:"provenance"`
+}
+
+type SafeTUICDetail struct {
+	Generation                  int                       `json:"generation"`
+	UUIDPresent                 bool                      `json:"uuid_present"`
+	PasswordPresent             bool                      `json:"password_present"`
+	TokenPresent                bool                      `json:"token_present"`
+	SNI                         string                    `json:"sni"`
+	ALPN                        []string                  `json:"alpn"`
+	SkipCertificateVerification bool                      `json:"skip_cert_verify"`
+	DisableSNI                  bool                      `json:"disable_sni"`
+	CongestionController        string                    `json:"congestion_controller"`
+	UDPRelayMode                string                    `json:"udp_relay_mode"`
+	UDPOverStream               bool                      `json:"udp_over_stream"`
+	ZeroRTT                     bool                      `json:"zero_rtt"`
+	Heartbeat                   string                    `json:"heartbeat"`
+	FieldObservations           []TUICFieldObservationDTO `json:"field_observations"`
+}
+
+type SafeXrayJSONDetail struct {
+	HasRawJSON bool   `json:"has_raw_json"`
+	Network    string `json:"network"`
+	Security   string `json:"security"`
+}
+
+type SafeStructuredProfile struct {
+	Server      string                 `json:"server"`
+	Port        string                 `json:"port"`
+	PortKind    string                 `json:"port_kind"`
+	DisplayName string                 `json:"display_name"`
+	Shadowsocks *SafeShadowsocksDetail `json:"shadowsocks,omitempty"`
+	Hysteria2   *SafeHysteria2Detail   `json:"hysteria2,omitempty"`
+	TUIC        *SafeTUICDetail        `json:"tuic,omitempty"`
+	XrayJSON    *SafeXrayJSONDetail    `json:"xray_json,omitempty"`
+}
+
+type UnknownQueryParamDTO struct {
+	Key      string `json:"key"`
+	HasValue bool   `json:"has_value"`
+}
+
+type SanitizedCheckError struct {
+	Code    string `json:"code"`
+	Message string `json:"message"`
+}
+
+type KeyProfileDetailResponse struct {
+	ID                     int64                      `json:"id"`
+	Label                  string                     `json:"label"`
+	CategoryID             *int64                     `json:"category_id"`
+	Category               string                     `json:"category"`
+	Kind                   string                     `json:"kind"`
+	Status                 string                     `json:"status"`
+	CheckStatus            string                     `json:"check_status"`
+	CheckError             SanitizedCheckError        `json:"check_error"`
+	LastLatencyMS          int64                      `json:"last_latency_ms"`
+	LastCheckedAt          string                     `json:"last_checked_at"`
+	TemplateText           string                     `json:"template_text"`
+	Ownership              KeyOwnership               `json:"ownership"`
+	ExternalSourceID       *int64                     `json:"external_source_id"`
+	ExternalSourceName     string                     `json:"external_source_name"`
+	Protocol               string                     `json:"protocol"`
+	ProfileSchemaVersion   int                        `json:"profile_schema_version"`
+	ProfileCompatibility   string                     `json:"profile_compatibility"`
+	ProfileWarnings        []string                   `json:"profile_warnings"`
+	ProfileRevision        int64                      `json:"profile_revision"`
+	CreatedAt              time.Time                  `json:"created_at"`
+	UpdatedAt              time.Time                  `json:"updated_at"`
+	SafeStructured         *SafeStructuredProfile     `json:"safe_structured,omitempty"`
+	UnknownQueryParameters []UnknownQueryParamDTO     `json:"unknown_query_parameters"`
+	Capabilities           map[string]map[string]any  `json:"capabilities"`
+}
+
+type KeySecretRevealRequest struct {
+	ProfileRevision int64  `json:"profile_revision"`
+	Target          string `json:"target"` // "raw" | "structured-secrets"
+}
+
+type KeyRawSecretResponse struct {
+	KeyID                    int64  `json:"key_id"`
+	ConfirmedProfileRevision int64  `json:"confirmed_profile_revision"`
+	Target                   string `json:"target"`
+	RawURI                   string `json:"raw_uri"`
+}
+
+type StructuredSecretsMap struct {
+	Password            string `json:"password,omitempty"`
+	Authentication      string `json:"authentication,omitempty"`
+	UUID                string `json:"uuid,omitempty"`
+	Token               string `json:"token,omitempty"`
+	ObfuscationPassword string `json:"obfuscation_password,omitempty"`
+	PluginOptions       string `json:"plugin_options,omitempty"`
+	RawJSON             string `json:"raw_json,omitempty"`
+}
+
+type KeyStructuredSecretsResponse struct {
+	KeyID                    int64                `json:"key_id"`
+	ConfirmedProfileRevision int64                `json:"confirmed_profile_revision"`
+	Target                   string               `json:"target"`
+	Secrets                  StructuredSecretsMap `json:"secrets"`
+}
+
+type ShadowsocksStructuredPatch struct {
+	Method        *TriStatePatch[string] `json:"method,omitempty"`
+	Password      *TriStatePatch[string] `json:"password,omitempty"`
+	PluginName    *TriStatePatch[string] `json:"plugin_name,omitempty"`
+	PluginOptions *TriStatePatch[string] `json:"plugin_options,omitempty"`
+}
+
+type Hysteria2StructuredPatch struct {
+	Authentication      *TriStatePatch[string] `json:"authentication,omitempty"`
+	SNI                 *TriStatePatch[string] `json:"sni,omitempty"`
+	Insecure            *TriStatePatch[bool]   `json:"insecure,omitempty"`
+	CertificateSHA256   *TriStatePatch[string] `json:"certificate_sha256,omitempty"`
+	ObfuscationType     *TriStatePatch[string] `json:"obfuscation_type,omitempty"`
+	ObfuscationPassword *TriStatePatch[string] `json:"obfuscation_password,omitempty"`
+}
+
+type TUICStructuredPatch struct {
+	UUID                 *TriStatePatch[string]   `json:"uuid,omitempty"`
+	Password             *TriStatePatch[string]   `json:"password,omitempty"`
+	SNI                  *TriStatePatch[string]   `json:"sni,omitempty"`
+	ALPN                 *TriStatePatch[[]string] `json:"alpn,omitempty"`
+	SkipCertVerify       *TriStatePatch[bool]     `json:"skip_cert_verify,omitempty"`
+	CongestionController *TriStatePatch[string]   `json:"congestion_controller,omitempty"`
+	UDPRelayMode         *TriStatePatch[string]   `json:"udp_relay_mode,omitempty"`
+	UDPOverStream        *TriStatePatch[bool]     `json:"udp_over_stream,omitempty"`
+	ZeroRTT              *TriStatePatch[bool]     `json:"zero_rtt,omitempty"`
+	Heartbeat            *TriStatePatch[string]   `json:"heartbeat,omitempty"`
+}
+
+type StructuredProfilePatch struct {
+	Server      *TriStatePatch[string]      `json:"server,omitempty"`
+	Port        *TriStatePatch[string]      `json:"port,omitempty"`
+	DisplayName *TriStatePatch[string]      `json:"display_name,omitempty"`
+	Shadowsocks *ShadowsocksStructuredPatch `json:"shadowsocks,omitempty"`
+	Hysteria2   *Hysteria2StructuredPatch   `json:"hysteria2,omitempty"`
+	TUIC        *TUICStructuredPatch        `json:"tuic,omitempty"`
+}
+
+type UpdateKeyProfileRequest struct {
+	Label           string                  `json:"label"`
+	CategoryID      *int64                  `json:"category_id"`
+	Category        string                  `json:"category"`
+	Status          string                  `json:"status"`
+	Kind            string                  `json:"kind"`
+	TemplateText    string                  `json:"template_text"`
+	ProfileRevision int64                   `json:"profile_revision"`
+	PatchMode       string                  `json:"patch_mode"` // "raw" | "structured"
+	RawURI          string                  `json:"raw_uri,omitempty"`
+	StructuredPatch *StructuredProfilePatch `json:"structured_patch,omitempty"`
+}
+
+type CreateKeyProfileRequest struct {
+	Label        string                  `json:"label"`
+	CategoryID   *int64                  `json:"category_id"`
+	Category     string                  `json:"category"`
+	Status       string                  `json:"status"`
+	Kind         string                  `json:"kind"`
+	TemplateText string                  `json:"template_text"`
+	CreationMode string                  `json:"creation_mode"` // "raw" | "structured"
+	RawURI       string                  `json:"raw_uri,omitempty"`
+	Protocol     string                  `json:"protocol,omitempty"`
+	Structured   *StructuredProfilePatch `json:"structured,omitempty"`
+}
+
+type KeyCloneRequest struct {
+	ExpectedProfileRevision int64  `json:"expected_profile_revision"`
+	NewLabel                string `json:"new_label,omitempty"`
+}
+
+type DeclarativeWarningRule struct {
+	Field          string `json:"field"`
+	Operator       string `json:"operator"` // "equals" | "not_equals" | "is_true" | "is_false" | "in"
+	Value          any    `json:"value,omitempty"`
+	WarningCode    string `json:"warning_code"`
+	WarningMessage string `json:"warning_message"`
+}
+
+type ProtocolEditorFieldSchema struct {
+	FieldType    string                   `json:"field_type"`
+	Required     bool                     `json:"required"`
+	CanClear     bool                     `json:"can_clear"`
+	Options      []map[string]string      `json:"options,omitempty"`
+	DefaultValue any                      `json:"default_value,omitempty"`
+	Provenance   string                   `json:"provenance,omitempty"`
+	WarningRules []DeclarativeWarningRule `json:"warning_rules,omitempty"`
+}
+
+type ProtocolSchemaDTO struct {
+	Protocol           string                               `json:"protocol"`
+	Label              string                               `json:"label"`
+	SupportedCreations []string                             `json:"supported_creations"`
+	Fields             map[string]ProtocolEditorFieldSchema `json:"fields"`
+}
+
+type KeyEditorSchemaResponse struct {
+	Protocols            []ProtocolSchemaDTO `json:"protocols"`
+	ExclusionReasonCodes map[string]string   `json:"exclusion_reason_codes"`
 }

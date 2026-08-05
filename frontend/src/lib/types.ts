@@ -291,8 +291,10 @@ export interface UserSummary {
 export interface KeySummary {
   id: number;
   label: string;
+  category_id?: number;
   category: string;
   kind: "real" | "informational";
+  template_text?: string;
   status: "active" | "non-active";
   check_status: "up" | "down" | "unknown";
   check_error: string;
@@ -471,4 +473,223 @@ export interface BackgroundJob {
   started_at: string | null;
   finished_at: string | null;
   created_at: string;
+}
+
+// Stage 8 Types
+export type KeyOwnership = "local" | "external_source";
+
+export type TriStatePatch<T> =
+  | { operation: "set"; value: T }
+  | { operation: "clear" };
+
+export interface SafeShadowsocksDetail {
+  method: string;
+  password_present: boolean;
+  plugin_name?: string;
+  plugin_options_present: boolean;
+  user_info_style: string;
+}
+
+export interface SafeHysteria2Detail {
+  authentication_present: boolean;
+  sni: string;
+  insecure: boolean;
+  certificate_sha256: string;
+  obfuscation_type: string;
+  obfuscation_password_present: boolean;
+}
+
+export interface TUICFieldObservationDTO {
+  field: string;
+  field_class: string;
+  provenance: string;
+}
+
+export interface SafeTUICDetail {
+  generation: 4 | 5;
+  uuid_present: boolean;
+  password_present: boolean;
+  token_present: boolean;
+  sni: string;
+  alpn: string[];
+  skip_cert_verify: boolean;
+  disable_sni: boolean;
+  congestion_controller: string;
+  udp_relay_mode: string;
+  udp_over_stream: boolean;
+  zero_rtt: boolean;
+  heartbeat: string;
+  field_observations: TUICFieldObservationDTO[];
+}
+
+export interface SafeXrayJSONDetail {
+  has_raw_json: boolean;
+  network: string;
+  security: string;
+}
+
+export interface SafeStructuredProfile {
+  server: string;
+  port: string;
+  port_kind: "single" | "expression";
+  display_name: string;
+  shadowsocks?: SafeShadowsocksDetail;
+  hysteria2?: SafeHysteria2Detail;
+  tuic?: SafeTUICDetail;
+  xray_json?: SafeXrayJSONDetail;
+}
+
+export interface UnknownQueryParamDTO {
+  key: string;
+  has_value: boolean;
+}
+
+export interface SanitizedCheckError {
+  code: string;
+  message: string;
+}
+
+export interface KeyProfileDetailResponse {
+  id: number;
+  label: string;
+  category_id: number | null;
+  category: string;
+  kind: "real" | "informational";
+  status: "active" | "non-active";
+  check_status: "up" | "down" | "unknown";
+  check_error: SanitizedCheckError;
+  last_latency_ms: number;
+  last_checked_at: string;
+  template_text: string;
+  ownership: KeyOwnership;
+  external_source_id: number | null;
+  external_source_name: string;
+  protocol: ExternalProfileProtocol;
+  profile_schema_version: number;
+  profile_compatibility: ExternalProfileCompatibility;
+  profile_warnings: string[];
+  profile_revision: number;
+  created_at: string;
+  updated_at: string;
+  safe_structured?: SafeStructuredProfile;
+  unknown_query_parameters: UnknownQueryParamDTO[];
+  capabilities: Record<string, OutputCapability>;
+}
+
+export interface KeyRawSecretResponse {
+  key_id: number;
+  confirmed_profile_revision: number;
+  target: "raw";
+  raw_uri: string;
+}
+
+export interface StructuredSecretsMap {
+  password?: string;
+  authentication?: string;
+  uuid?: string;
+  token?: string;
+  obfuscation_password?: string;
+  plugin_options?: string;
+  raw_json?: string;
+}
+
+export interface KeyStructuredSecretsResponse {
+  key_id: number;
+  confirmed_profile_revision: number;
+  target: "structured-secrets";
+  secrets: StructuredSecretsMap;
+}
+
+export interface ShadowsocksStructuredPatch {
+  method?: TriStatePatch<string>;
+  password?: TriStatePatch<string>;
+  plugin_name?: TriStatePatch<string>;
+  plugin_options?: TriStatePatch<string>;
+}
+
+export interface Hysteria2StructuredPatch {
+  authentication?: TriStatePatch<string>;
+  sni?: TriStatePatch<string>;
+  insecure?: TriStatePatch<boolean>;
+  certificate_sha256?: TriStatePatch<string>;
+  obfuscation_type?: TriStatePatch<string>;
+  obfuscation_password?: TriStatePatch<string>;
+}
+
+export interface TUICStructuredPatch {
+  uuid?: TriStatePatch<string>;
+  password?: TriStatePatch<string>;
+  sni?: TriStatePatch<string>;
+  alpn?: TriStatePatch<string[]>;
+  skip_cert_verify?: TriStatePatch<boolean>;
+  congestion_controller?: TriStatePatch<string>;
+  udp_relay_mode?: TriStatePatch<string>;
+  udp_over_stream?: TriStatePatch<boolean>;
+  zero_rtt?: TriStatePatch<boolean>;
+  heartbeat?: TriStatePatch<string>;
+}
+
+export interface StructuredProfilePatch {
+  server?: TriStatePatch<string>;
+  port?: TriStatePatch<string>;
+  display_name?: TriStatePatch<string>;
+  shadowsocks?: ShadowsocksStructuredPatch;
+  hysteria2?: Hysteria2StructuredPatch;
+  tuic?: TUICStructuredPatch;
+}
+
+export interface UpdateKeyProfileInput {
+  label: string;
+  category_id?: number | null;
+  category?: string;
+  status: "active" | "non-active";
+  kind: "real" | "informational";
+  template_text?: string;
+  profile_revision: number;
+  patch_mode: "raw" | "structured";
+  raw_uri?: string;
+  structured_patch?: StructuredProfilePatch;
+}
+
+export interface CreateKeyProfileInput {
+  label: string;
+  category_id?: number | null;
+  category?: string;
+  status: "active" | "non-active";
+  kind: "real" | "informational";
+  template_text?: string;
+  creation_mode: "raw" | "structured";
+  raw_uri?: string;
+  protocol?: ExternalProfileProtocol;
+  structured?: StructuredProfilePatch;
+}
+
+export interface DeclarativeWarningRule {
+  field: string;
+  operator: "equals" | "not_equals" | "is_true" | "is_false" | "in";
+  value?: unknown;
+  warning_code: string;
+  warning_message: string;
+}
+
+export interface ProtocolEditorFieldSchema {
+  field_type: "text" | "password" | "select" | "boolean" | "string_list" | "port_expression";
+  required: boolean;
+  can_clear: boolean;
+  options?: Array<{ value: string; label: string }>;
+  default_value?: unknown;
+  provenance?: string;
+  warning_rules?: DeclarativeWarningRule[];
+}
+
+export interface ProtocolSchemaDTO {
+  protocol: ExternalProfileProtocol;
+  label: string;
+  supported_creations: ("raw" | "structured")[];
+  fields: Record<string, ProtocolEditorFieldSchema>;
+}
+
+export interface KeyEditorSchemaResponse {
+  protocols: ProtocolSchemaDTO[];
+  exclusion_reason_codes: Record<string, string>;
 }

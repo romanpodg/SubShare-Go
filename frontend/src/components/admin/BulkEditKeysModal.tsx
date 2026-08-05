@@ -5,12 +5,12 @@ import { Modal } from "@/components/ui/Modal";
 import { Button } from "@/components/ui/Button";
 import { useToast } from "@/components/ui/Toast";
 import { keys as keysApi } from "@/lib/api";
-import type { KeyCategory, VLESSKey } from "@/lib/types";
+import type { KeyCategory, KeySummary } from "@/lib/types";
 import { Select } from "@/components/ui/Select";
 import { CreateKeyCategoryModal } from "./CreateKeyCategoryModal";
 
 interface Props {
-  keys: VLESSKey[];
+  keys: KeySummary[];
   onClose: () => void;
   onRefresh: () => Promise<void>;
 }

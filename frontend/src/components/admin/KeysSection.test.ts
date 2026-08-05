@@ -1,31 +1,21 @@
 import { describe, expect, it } from "vitest";
-import type { VLESSKey } from "@/lib/types";
+import type { KeySummary } from "@/lib/types";
 import { alignKeysBySubscriptionOrder, dragAutoScrollVelocity } from "./KeysSection";
 
-function key(id: number, kind: VLESSKey["kind"]): VLESSKey {
+function key(id: number, kind: KeySummary["kind"]): KeySummary {
   return {
     id,
     kind,
     label: `key-${id}`,
-    url: "",
     category: "",
     template_text: "",
-    url_short: "",
     status: "active",
-    status_label: "Активен",
     check_status: "unknown",
-    check_status_label: "Не проверен",
     check_error: "",
     last_latency_ms: 0,
     last_checked_at: "",
-    edit_uuid: "",
-    edit_host: "",
-    edit_port: "",
-    edit_query: "",
-    edit_fragment: "",
     external_source_id: 0,
     external_source_name: "",
-    client_display_name: "",
     created_at: "",
   };
 }

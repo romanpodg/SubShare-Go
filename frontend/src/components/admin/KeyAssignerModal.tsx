@@ -1,16 +1,18 @@
 "use client";
 
+"use client";
+
 import { useState } from "react";
 import { Modal } from "@/components/ui/Modal";
 import { Button } from "@/components/ui/Button";
 import { useToast } from "@/components/ui/Toast";
 import { EmojiText } from "@/components/ui/EmojiText";
 import { users as usersApi } from "@/lib/api";
-import type { User, VLESSKey } from "@/lib/types";
+import type { KeySummary, User } from "@/lib/types";
 
 interface Props {
   user: User;
-  assignableKeys: VLESSKey[];
+  assignableKeys: KeySummary[];
   onClose: () => void;
   onRefresh: () => Promise<void>;
 }

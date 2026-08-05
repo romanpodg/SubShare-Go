@@ -298,6 +298,12 @@ func migrateWithKeyring(db *sql.DB, keyring *profilestorage.Keyring) error {
 	if err := ensureColumn(db, "vless_keys", "category", "TEXT NOT NULL DEFAULT ''"); err != nil {
 		return err
 	}
+	if err := ensureColumn(db, "vless_keys", "profile_revision", "INTEGER NOT NULL DEFAULT 1"); err != nil {
+		return err
+	}
+	if err := ensureColumn(db, "vless_keys", "updated_at", "DATETIME"); err != nil {
+		return err
+	}
 	if err := ensureColumn(db, "key_categories", "color", "TEXT NOT NULL DEFAULT '#d8b33d'"); err != nil {
 		return err
 	}
@@ -795,7 +801,7 @@ func (a *App) listUsers() ([]model.User, error) {
 
 func (a *App) listKeys() ([]model.VLESSKey, error) {
 	rows, err := a.db.Query(`
-		SELECT k.id, k.label, s.encrypted_url, k.category_id, COALESCE(kc.name, k.category), k.key_kind, k.template_text, k.status, k.check_status, k.check_error, k.last_checked_at, k.last_latency_ms, k.created_at, k.external_source_id, COALESCE(es.name, ''), k.protocol, k.profile_schema_version, k.profile_compatibility, k.profile_warnings_json
+		SELECT k.id, k.label, s.encrypted_url, k.category_id, COALESCE(kc.name, k.category), k.key_kind, k.template_text, k.status, k.check_status, k.check_error, k.last_checked_at, k.last_latency_ms, k.created_at, k.external_source_id, COALESCE(es.name, ''), k.protocol, k.profile_schema_version, k.profile_compatibility, k.profile_warnings_json, COALESCE(k.profile_revision, 1), COALESCE(k.updated_at, k.created_at)
 		FROM vless_keys k
 		LEFT JOIN vless_key_secrets s ON k.id = s.vless_key_id
 		LEFT JOIN key_categories kc ON kc.id = k.category_id
@@ -823,8 +829,20 @@ func (a *App) listKeys() ([]model.VLESSKey, error) {
 		var externalSourceID sql.NullInt64
 		var externalSourceName sql.NullString
 		var warningsJSON string
-		if err := rows.Scan(&key.ID, &key.Label, &encURL, &categoryID, &category, &kind, &templateText, &status, &checkStatus, &checkError, &lastCheckedAt, &latency, &key.CreatedAt, &externalSourceID, &externalSourceName, &key.Protocol, &key.ProfileSchemaVersion, &key.ProfileCompatibility, &warningsJSON); err != nil {
+		var updatedAt sql.NullString
+		if err := rows.Scan(&key.ID, &key.Label, &encURL, &categoryID, &category, &kind, &templateText, &status, &checkStatus, &checkError, &lastCheckedAt, &latency, &key.CreatedAt, &externalSourceID, &externalSourceName, &key.Protocol, &key.ProfileSchemaVersion, &key.ProfileCompatibility, &warningsJSON, &key.ProfileRevision, &updatedAt); err != nil {
 			return nil, err
+		}
+		if updatedAt.Valid && updatedAt.String != "" {
+			if t, err := time.Parse("2006-01-02 15:04:05", updatedAt.String); err == nil {
+				key.UpdatedAt = t
+			} else if t, err := time.Parse(time.RFC3339, updatedAt.String); err == nil {
+				key.UpdatedAt = t
+			} else {
+				key.UpdatedAt = key.CreatedAt
+			}
+		} else {
+			key.UpdatedAt = key.CreatedAt
 		}
 		if encURL.Valid && encURL.String != "" {
 			if dec, err := profilestorage.Decrypt(encURL.String, a.profileKeyring, key.ID); err == nil {

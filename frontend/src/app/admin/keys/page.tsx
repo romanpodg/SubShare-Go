@@ -3,13 +3,13 @@
 import { useCallback, useEffect, useState } from "react";
 import { KeyRound } from "lucide-react";
 import { keys as keysApi, subscriptionSettings } from "@/lib/api";
-import type { VLESSKey } from "@/lib/types";
+import type { KeySummary } from "@/lib/types";
 import { KeysSection } from "@/components/admin/KeysSection";
 import { PageHeader } from "@/components/admin/PageHeader";
 import { InitialLoading, ResourceError } from "@/components/ui/ResourceState";
 
 export default function KeysPage() {
-  const [keys, setKeys] = useState<VLESSKey[]>([]);
+  const [keys, setKeys] = useState<KeySummary[]>([]);
   const [format, setFormat] = useState<"links" | "xray-json">("links");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<unknown>(null);
@@ -19,10 +19,10 @@ export default function KeysPage() {
     setError(null);
     setSettingsError(null);
     const [keysResult, settingsResult] = await Promise.allSettled([
-      keysApi.list(),
+      keysApi.listSummaries({ page_size: 200 }),
       subscriptionSettings.get(),
     ]);
-    if (keysResult.status === "fulfilled") setKeys(keysResult.value.keys || []);
+    if (keysResult.status === "fulfilled") setKeys(keysResult.value.data || []);
     else setError(keysResult.reason);
     if (settingsResult.status === "fulfilled") {
       setFormat(settingsResult.value.subscription_format);

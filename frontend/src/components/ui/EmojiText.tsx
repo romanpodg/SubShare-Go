@@ -8,6 +8,7 @@ interface EmojiTextProps {
   text: string;
   className?: string;
   truncate?: boolean;
+  title?: string;
 }
 
 export function EmojiGlyph({ emoji, assetURL = getEmojiAssetURL(emoji) }: { emoji: string; assetURL?: string | null }) {
@@ -19,12 +20,13 @@ export function EmojiGlyph({ emoji, assetURL = getEmojiAssetURL(emoji) }: { emoj
   );
 }
 
-export function EmojiText({ text, className = "", truncate = false }: EmojiTextProps) {
+export function EmojiText({ text, className = "", truncate = false, title }: EmojiTextProps) {
   const regex = emojiRegex();
   const nodes: ReactNode[] = [];
   let lastIndex = 0;
   let keyIndex = 0;
   const rootClassName = `emoji-text ${truncate ? "emoji-text--truncate" : ""} ${className}`.trim();
+  const computedTitle = title ?? (truncate ? text : undefined);
 
   for (const match of text.matchAll(regex)) {
     const matchIndex = typeof match.index === "number" ? match.index : -1;
@@ -36,6 +38,6 @@ export function EmojiText({ text, className = "", truncate = false }: EmojiTextP
   }
 
   if (lastIndex < text.length) nodes.push(<span key={`text-${keyIndex++}`}>{text.slice(lastIndex)}</span>);
-  if (nodes.length === 0) return <span className={rootClassName} title={truncate ? text : undefined}>{text}</span>;
-  return <span className={rootClassName} title={truncate ? text : undefined}>{nodes}</span>;
+  if (nodes.length === 0) return <span className={rootClassName} title={computedTitle}>{text}</span>;
+  return <span className={rootClassName} title={computedTitle}>{nodes}</span>;
 }

@@ -15,7 +15,7 @@ import {
   X,
 } from "lucide-react";
 import { apiV1, keys as keysApi, users as usersApi } from "@/lib/api";
-import type { PageMeta, User, UserSummary, VLESSKey } from "@/lib/types";
+import type { KeySummary, PageMeta, User, UserSummary } from "@/lib/types";
 import { AddUserModal } from "@/components/admin/AddUserModal";
 import { EditSubscriptionModal } from "@/components/admin/EditSubscriptionModal";
 import { HwidManager } from "@/components/admin/HwidManager";
@@ -45,7 +45,7 @@ export default function UsersPage() {
   const [detail, setDetail] = useState<User | null>(null);
   const [detailLoading, setDetailLoading] = useState(false);
   const [drawerTab, setDrawerTab] = useState<DrawerTab>("subscription");
-  const [keys, setKeys] = useState<VLESSKey[]>([]);
+  const [keys, setKeys] = useState<KeySummary[]>([]);
   const [editSubscription, setEditSubscription] = useState(false);
   const [editKeys, setEditKeys] = useState(false);
   const [editHWID, setEditHWID] = useState(false);
@@ -72,7 +72,7 @@ export default function UsersPage() {
   useEffect(() => {
     const frame = window.requestAnimationFrame(() => {
       load(1).catch(() => setLoading(false));
-      keysApi.list().then((response) => setKeys(response.keys || [])).catch(() => undefined);
+      keysApi.listSummaries({ page_size: 200 }).then((response) => setKeys(response.data || [])).catch(() => undefined);
     });
     return () => window.cancelAnimationFrame(frame);
   }, [load]);

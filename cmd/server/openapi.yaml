@@ -202,6 +202,56 @@ paths:
                         type: array
                         items: { $ref: "#/components/schemas/KeySummary" }
         default: { $ref: "#/components/responses/Error" }
+  /keys/full:
+    get:
+      tags: [Keys]
+      summary: Transitional full keys list
+      deprecated: true
+      responses:
+        "200":
+          description: Transitional keys list
+        default: { $ref: "#/components/responses/Error" }
+  /keys/{id}:
+    get:
+      tags: [Keys]
+      summary: Fetch safe key profile detail
+      parameters: [{ $ref: "#/components/parameters/ID" }]
+      responses:
+        "200": { description: Safe profile detail }
+        default: { $ref: "#/components/responses/Error" }
+    put:
+      tags: [Keys]
+      summary: Update key profile with optimistic concurrency
+      parameters: [{ $ref: "#/components/parameters/ID" }]
+      responses:
+        "200": { description: Key updated }
+        "409": { description: Profile revision conflict }
+        default: { $ref: "#/components/responses/Error" }
+  /keys/{id}/reveal:
+    post:
+      tags: [Keys]
+      summary: Reveal secret materials for profile
+      parameters: [{ $ref: "#/components/parameters/ID" }]
+      responses:
+        "200": { description: Decrypted secrets returned }
+        "409": { description: Profile revision conflict }
+        default: { $ref: "#/components/responses/Error" }
+  /keys/{id}/clone:
+    post:
+      tags: [Keys]
+      summary: Clone key as unlinked local profile
+      parameters: [{ $ref: "#/components/parameters/ID" }]
+      responses:
+        "201": { description: Local copy created }
+        "409": { description: Profile revision conflict }
+        default: { $ref: "#/components/responses/Error" }
+  /key-editor-schema:
+    get:
+      tags: [Keys]
+      summary: Fetch backend-owned key editor schemas and options
+      responses:
+        "200": { description: Editor schema options }
+        default: { $ref: "#/components/responses/Error" }
   /sources:
     get:
       tags: [Operations]
