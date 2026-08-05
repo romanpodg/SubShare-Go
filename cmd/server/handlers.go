@@ -19,6 +19,7 @@ import (
 	"github.com/romanpodg/SubShare-Go/internal/middleware"
 	"github.com/romanpodg/SubShare-Go/internal/model"
 	adminpassword "github.com/romanpodg/SubShare-Go/internal/security/password"
+	"github.com/romanpodg/SubShare-Go/internal/security/profilestorage"
 	"github.com/romanpodg/SubShare-Go/internal/vless"
 )
 
@@ -1610,6 +1611,18 @@ func (a *App) apiCreateKey(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	activeID, activeKey, err := a.profileKeyring.GetActiveEncryptionKey()
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "encryption key unavailable")
+		return
+	}
+	_, bikKey, err := a.profileKeyring.GetActiveBlindIndexKey()
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "blind index key unavailable")
+		return
+	}
+	blindIndex := profilestorage.ComputeBlindIndex(bikKey, keyURL)
+
 	tx, err := a.db.Begin()
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to add key")
@@ -1618,8 +1631,8 @@ func (a *App) apiCreateKey(w http.ResponseWriter, r *http.Request) {
 	defer tx.Rollback()
 
 	result, err := tx.Exec(
-		`INSERT INTO vless_keys(label, url, category_id, category, status, check_status, key_kind, template_text, sort_order) VALUES(?, ?, ?, ?, ?, 'unknown', ?, ?, ?)`,
-		label, keyURL, categoryID, category, status, kind, nullStringValue(templateText), nextSortOrder,
+		`INSERT INTO vless_keys(label, url_blind_index, category_id, category, status, check_status, key_kind, template_text, sort_order) VALUES(?, ?, ?, ?, ?, 'unknown', ?, ?, ?)`,
+		label, blindIndex, categoryID, category, status, kind, nullStringValue(templateText), nextSortOrder,
 	)
 	if err != nil {
 		log.Printf("apiCreateKey: %v", err)
@@ -1631,6 +1644,19 @@ func (a *App) apiCreateKey(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		log.Printf("apiCreateKey: failed to get key ID: %v", err)
 		writeError(w, http.StatusInternalServerError, "failed to get key ID")
+		return
+	}
+
+	env, err := profilestorage.Encrypt([]byte(keyURL), activeID, activeKey, keyID)
+	if err != nil {
+		log.Printf("apiCreateKey: encrypt failed: %v", err)
+		writeError(w, http.StatusInternalServerError, "failed to encrypt key")
+		return
+	}
+
+	if _, err := tx.Exec(`INSERT INTO vless_key_secrets(vless_key_id, encrypted_url) VALUES(?, ?)`, keyID, env); err != nil {
+		log.Printf("apiCreateKey: failed to insert secret: %v", err)
+		writeError(w, http.StatusInternalServerError, "failed to save key secret")
 		return
 	}
 
@@ -1687,10 +1713,10 @@ func (a *App) apiUpdateKey(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var existingURL sql.NullString
+	var existingEncURL sql.NullString
 	var existingKind sql.NullString
 	var existingSort sql.NullInt64
-	if err := a.db.QueryRow(`SELECT url, key_kind, sort_order FROM vless_keys WHERE id = ?`, id).Scan(&existingURL, &existingKind, &existingSort); err != nil {
+	if err := a.db.QueryRow(`SELECT s.encrypted_url, k.key_kind, k.sort_order FROM vless_keys k LEFT JOIN vless_key_secrets s ON k.id = s.vless_key_id WHERE k.id = ?`, id).Scan(&existingEncURL, &existingKind, &existingSort); err != nil {
 		writeError(w, http.StatusNotFound, "key not found")
 		return
 	}
@@ -1719,7 +1745,11 @@ func (a *App) apiUpdateKey(w http.ResponseWriter, r *http.Request) {
 		if templateText == "" {
 			templateText = label
 		}
-		builtURL = strings.TrimSpace(existingURL.String)
+		if existingEncURL.Valid && existingEncURL.String != "" {
+			if dec, err := profilestorage.Decrypt(existingEncURL.String, a.profileKeyring, id); err == nil {
+				builtURL = strings.TrimSpace(dec.Reveal())
+			}
+		}
 		if builtURL == "" {
 			token, err := generateToken(12)
 			if err != nil {
@@ -1757,14 +1787,50 @@ func (a *App) apiUpdateKey(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if _, err := a.db.Exec(
-		`UPDATE vless_keys SET label = ?, url = ?, category_id = ?, category = ?, status = ?, key_kind = ?, template_text = ?, sort_order = ? WHERE id = ?`,
-		label, builtURL, categoryID, category, status, kind, nullStringValue(templateText), sortOrder, id,
+	activeID, activeKey, err := a.profileKeyring.GetActiveEncryptionKey()
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "encryption key unavailable")
+		return
+	}
+	_, bikKey, err := a.profileKeyring.GetActiveBlindIndexKey()
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "blind index key unavailable")
+		return
+	}
+	blindIndex := profilestorage.ComputeBlindIndex(bikKey, builtURL)
+	env, err := profilestorage.Encrypt([]byte(builtURL), activeID, activeKey, id)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to encrypt key")
+		return
+	}
+
+	tx, err := a.db.Begin()
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to update key")
+		return
+	}
+	defer tx.Rollback()
+
+	if _, err := tx.Exec(
+		`UPDATE vless_keys SET label = ?, url_blind_index = ?, category_id = ?, category = ?, status = ?, key_kind = ?, template_text = ?, sort_order = ? WHERE id = ?`,
+		label, blindIndex, categoryID, category, status, kind, nullStringValue(templateText), sortOrder, id,
 	); err != nil {
 		log.Printf("apiUpdateKey: %v", err)
 		writeError(w, http.StatusInternalServerError, "failed to update key")
 		return
 	}
+
+	if _, err := tx.Exec(`INSERT INTO vless_key_secrets(vless_key_id, encrypted_url) VALUES(?, ?) ON CONFLICT(vless_key_id) DO UPDATE SET encrypted_url = excluded.encrypted_url`, id, env); err != nil {
+		log.Printf("apiUpdateKey secret: %v", err)
+		writeError(w, http.StatusInternalServerError, "failed to update key secret")
+		return
+	}
+
+	if err := tx.Commit(); err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to commit key update")
+		return
+	}
+
 	a.recordAuditEvent(r, "key.update", "key", strconv.FormatInt(id, 10), map[string]any{"label": label})
 	writeMessage(w, "key updated")
 }
@@ -2019,9 +2085,9 @@ func (a *App) apiCheckKey(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var rawURL string
+	var encURL sql.NullString
 	var kind string
-	if err := a.db.QueryRow(`SELECT url, key_kind FROM vless_keys WHERE id = ?`, id).Scan(&rawURL, &kind); err != nil {
+	if err := a.db.QueryRow(`SELECT s.encrypted_url, k.key_kind FROM vless_keys k LEFT JOIN vless_key_secrets s ON k.id = s.vless_key_id WHERE k.id = ?`, id).Scan(&encURL, &kind); err != nil {
 		writeError(w, http.StatusNotFound, "key not found")
 		return
 	}
@@ -2029,8 +2095,17 @@ func (a *App) apiCheckKey(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "informational keys do not require checks")
 		return
 	}
+	if !encURL.Valid || encURL.String == "" {
+		writeError(w, http.StatusInternalServerError, "missing profile key secret")
+		return
+	}
+	sec, err := profilestorage.Decrypt(encURL.String, a.profileKeyring, id)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to decrypt key")
+		return
+	}
 
-	if err := a.checkAndPersistKey(id, rawURL); err != nil {
+	if err := a.checkAndPersistKey(id, sec.Reveal()); err != nil {
 		log.Printf("apiCheckKey: %v", err)
 		writeError(w, http.StatusInternalServerError, "failed to check key")
 		return
@@ -2039,7 +2114,7 @@ func (a *App) apiCheckKey(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *App) apiCheckAllKeys(w http.ResponseWriter, r *http.Request) {
-	rows, err := a.db.Query(`SELECT id, url, key_kind FROM vless_keys ORDER BY CASE WHEN key_kind = 'real' THEN 0 ELSE 1 END, sort_order, id`)
+	rows, err := a.db.Query(`SELECT k.id, s.encrypted_url, k.key_kind FROM vless_keys k LEFT JOIN vless_key_secrets s ON k.id = s.vless_key_id ORDER BY CASE WHEN k.key_kind = 'real' THEN 0 ELSE 1 END, k.sort_order, k.id`)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to load keys")
 		return
@@ -2053,12 +2128,25 @@ func (a *App) apiCheckAllKeys(w http.ResponseWriter, r *http.Request) {
 	}
 	keys := make([]keyRow, 0)
 	for rows.Next() {
-		var row keyRow
-		if err := rows.Scan(&row.id, &row.url, &row.kind); err != nil {
+		var id int64
+		var encURL sql.NullString
+		var kind string
+		if err := rows.Scan(&id, &encURL, &kind); err != nil {
 			writeError(w, http.StatusInternalServerError, "failed to read keys")
 			return
 		}
-		keys = append(keys, row)
+		normalizedKind, _ := model.NormalizeKeyKind(kind)
+		if normalizedKind == model.KeyKindInformational {
+			continue
+		}
+		if !encURL.Valid || encURL.String == "" {
+			continue
+		}
+		sec, err := profilestorage.Decrypt(encURL.String, a.profileKeyring, id)
+		if err != nil {
+			continue
+		}
+		keys = append(keys, keyRow{id: id, url: sec.Reveal(), kind: kind})
 	}
 	if err := rows.Err(); err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to read keys")
@@ -2067,13 +2155,9 @@ func (a *App) apiCheckAllKeys(w http.ResponseWriter, r *http.Request) {
 
 	jobID := a.startTrackedJob("keys_health_check", "key", "all")
 	var wg sync.WaitGroup
-	sem := make(chan struct{}, 10) // max 10 concurrent checks
+	sem := make(chan struct{}, 10)
 	checked := 0
 	for _, key := range keys {
-		normalizedKind, _ := model.NormalizeKeyKind(key.kind)
-		if normalizedKind == model.KeyKindInformational {
-			continue
-		}
 		checked++
 		wg.Add(1)
 		sem <- struct{}{}

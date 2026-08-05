@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/romanpodg/SubShare-Go/internal/model"
+	"github.com/romanpodg/SubShare-Go/internal/security/profilestorage"
 	"github.com/romanpodg/SubShare-Go/internal/vless"
 )
 
@@ -62,6 +63,10 @@ func clientDisplayNameFromKeyURL(rawURL, fallback string) string {
 }
 
 func migrate(db *sql.DB) error {
+	return migrateWithKeyring(db, nil)
+}
+
+func migrateWithKeyring(db *sql.DB, keyring *profilestorage.Keyring) error {
 	// Legacy bootstrap remains only for databases created before versioned
 	// migrations existed. Once schema_migrations is present, startup must be a
 	// pure versioned migration runner and must not repeat data-fix UPDATEs.
@@ -74,7 +79,7 @@ func migrate(db *sql.DB) error {
 		return err
 	}
 	if migrationTableCount > 0 {
-		return runVersionedMigrations(db)
+		return runVersionedMigrationsWithKeyring(db, keyring)
 	}
 
 	queries := []string{
@@ -520,7 +525,7 @@ func migrate(db *sql.DB) error {
 	if _, err := db.Exec(`UPDATE subscription_settings SET subscription_format = 'links' WHERE LOWER(TRIM(subscription_format)) NOT IN ('links','xray-json')`); err != nil {
 		return err
 	}
-	return runVersionedMigrations(db)
+	return runVersionedMigrationsWithKeyring(db, keyring)
 }
 
 func ensureColumn(db *sql.DB, tableName, columnName, definition string) error {
@@ -790,8 +795,9 @@ func (a *App) listUsers() ([]model.User, error) {
 
 func (a *App) listKeys() ([]model.VLESSKey, error) {
 	rows, err := a.db.Query(`
-		SELECT k.id, k.label, k.url, k.category_id, COALESCE(kc.name, k.category), k.key_kind, k.template_text, k.status, k.check_status, k.check_error, k.last_checked_at, k.last_latency_ms, k.created_at, k.external_source_id, COALESCE(es.name, ''), k.protocol, k.profile_schema_version, k.profile_compatibility, k.profile_warnings_json
+		SELECT k.id, k.label, s.encrypted_url, k.category_id, COALESCE(kc.name, k.category), k.key_kind, k.template_text, k.status, k.check_status, k.check_error, k.last_checked_at, k.last_latency_ms, k.created_at, k.external_source_id, COALESCE(es.name, ''), k.protocol, k.profile_schema_version, k.profile_compatibility, k.profile_warnings_json
 		FROM vless_keys k
+		LEFT JOIN vless_key_secrets s ON k.id = s.vless_key_id
 		LEFT JOIN key_categories kc ON kc.id = k.category_id
 		LEFT JOIN external_subscription_sources es ON es.id = k.external_source_id
 		ORDER BY k.sort_order, k.id
@@ -804,6 +810,7 @@ func (a *App) listKeys() ([]model.VLESSKey, error) {
 	var out []model.VLESSKey
 	for rows.Next() {
 		var key model.VLESSKey
+		var encURL sql.NullString
 		var category sql.NullString
 		var kind sql.NullString
 		var templateText sql.NullString
@@ -816,8 +823,13 @@ func (a *App) listKeys() ([]model.VLESSKey, error) {
 		var externalSourceID sql.NullInt64
 		var externalSourceName sql.NullString
 		var warningsJSON string
-		if err := rows.Scan(&key.ID, &key.Label, &key.URL, &categoryID, &category, &kind, &templateText, &status, &checkStatus, &checkError, &lastCheckedAt, &latency, &key.CreatedAt, &externalSourceID, &externalSourceName, &key.Protocol, &key.ProfileSchemaVersion, &key.ProfileCompatibility, &warningsJSON); err != nil {
+		if err := rows.Scan(&key.ID, &key.Label, &encURL, &categoryID, &category, &kind, &templateText, &status, &checkStatus, &checkError, &lastCheckedAt, &latency, &key.CreatedAt, &externalSourceID, &externalSourceName, &key.Protocol, &key.ProfileSchemaVersion, &key.ProfileCompatibility, &warningsJSON); err != nil {
 			return nil, err
+		}
+		if encURL.Valid && encURL.String != "" {
+			if dec, err := profilestorage.Decrypt(encURL.String, a.profileKeyring, key.ID); err == nil {
+				key.URL = dec.Reveal()
+			}
 		}
 		if err := json.Unmarshal([]byte(warningsJSON), &key.ProfileWarnings); err != nil || key.ProfileWarnings == nil {
 			key.ProfileWarnings = []string{}

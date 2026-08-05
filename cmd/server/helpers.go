@@ -11,6 +11,7 @@ import (
 
 	"github.com/romanpodg/SubShare-Go/internal/middleware"
 	"github.com/romanpodg/SubShare-Go/internal/model"
+	"github.com/romanpodg/SubShare-Go/internal/security/profilestorage"
 )
 
 type deviceMeta struct {
@@ -285,10 +286,11 @@ func (a *App) buildSubscriptionTemplateData(subscriptionID string, subscriptionF
 	}
 
 	rows, err := a.db.Query(
-		`SELECT k.url
+		`SELECT k.id, s.encrypted_url
 		 FROM users u
 		 JOIN user_keys uk ON uk.user_id = u.id
 		 JOIN vless_keys k ON k.id = uk.key_id
+		 LEFT JOIN vless_key_secrets s ON k.id = s.vless_key_id
 		 WHERE u.subscription_id = ?
 		   AND k.status = 'active'
 		   AND k.key_kind = 'real'
@@ -302,10 +304,19 @@ func (a *App) buildSubscriptionTemplateData(subscriptionID string, subscriptionF
 
 	realCount := 0
 	for rows.Next() {
-		var rawURL string
-		if err := rows.Scan(&rawURL); err != nil {
+		var id int64
+		var encURL sql.NullString
+		if err := rows.Scan(&id, &encURL); err != nil {
 			return out, err
 		}
+		if !encURL.Valid || encURL.String == "" {
+			continue
+		}
+		sec, err := profilestorage.Decrypt(encURL.String, a.profileKeyring, id)
+		if err != nil {
+			continue
+		}
+		rawURL := sec.Reveal()
 		if format == model.SubscriptionFormatLinks && supportedConfigScheme(rawURL) == model.SubscriptionFormatXrayJSON {
 			continue
 		}

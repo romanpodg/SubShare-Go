@@ -31,6 +31,8 @@ services:
       # explicit start scripts persist one to .env when bootstrapping/upgrading.
       PROFILE_FINGERPRINT_KEY: ${PROFILE_FINGERPRINT_KEY:?Set PROFILE_FINGERPRINT_KEY in .env}
       PROFILE_FINGERPRINT_PREVIOUS_KEYS: ${PROFILE_FINGERPRINT_PREVIOUS_KEYS:-}
+      PROFILE_ENCRYPTION_KEYRING_FILE: ${PROFILE_ENCRYPTION_KEYRING_FILE:-/app/data/keyring.json}
+      PROFILE_ENCRYPTION_KEYRING_JSON: ${PROFILE_ENCRYPTION_KEYRING_JSON:-}
       BASE_URL: ${BASE_URL:?Set BASE_URL in .env}
       DB_PATH: /app/data/app.db
       BACKUP_PATH: ${BACKUP_PATH:-/app/data/backups/app.db}

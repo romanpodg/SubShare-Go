@@ -20,11 +20,20 @@ import (
 	"github.com/romanpodg/SubShare-Go/internal/model"
 	"github.com/romanpodg/SubShare-Go/internal/platform/configuration"
 	adminpassword "github.com/romanpodg/SubShare-Go/internal/security/password"
+	"github.com/romanpodg/SubShare-Go/internal/security/profilestorage"
 )
 
 func main() {
 	logger := slog.New(slog.NewJSONHandler(os.Stdout, nil))
 	slog.SetDefault(logger)
+
+	if handled, err := handleCLI(os.Args); handled {
+		if err != nil {
+			slog.Error("cli command failed", "error", err)
+			os.Exit(1)
+		}
+		os.Exit(0)
+	}
 
 	if err := run(); err != nil {
 		slog.Error("fatal error", "error", err)
@@ -53,7 +62,7 @@ func runConfigured(config configuration.Config) error {
 		return fmt.Errorf("create DB_PATH directory")
 	}
 
-	db, err := initializeSQLiteWithJournalMode(dbPath, config.SQLiteJournalMode)
+	db, err := initializeSQLiteWithJournalMode(dbPath, config.SQLiteJournalMode, config.ProfileKeyring)
 	if err != nil {
 		if !isRecoverableSQLiteIO(err) {
 			return err
@@ -64,12 +73,16 @@ func runConfigured(config configuration.Config) error {
 			return fmt.Errorf("recover sqlite sidecars: %w", cleanupErr)
 		}
 
-		db, err = initializeSQLiteWithJournalMode(dbPath, config.SQLiteJournalMode)
+		db, err = initializeSQLiteWithJournalMode(dbPath, config.SQLiteJournalMode, config.ProfileKeyring)
 		if err != nil {
 			return fmt.Errorf("initialize sqlite after sidecar cleanup: %w", err)
 		}
 	}
 	defer db.Close()
+
+	if err := verifyStartupEnvelopesAndInvariants(context.Background(), db, config.ProfileKeyring); err != nil {
+		return fmt.Errorf("startup verification: %w", err)
+	}
 
 	passwordHasher := adminpassword.NewDefault()
 	createdOwner, err := ensureBootstrapOwner(context.Background(), db, config.AdminUser, config.AdminPassword, passwordHasher)
@@ -98,6 +111,7 @@ func runConfigured(config configuration.Config) error {
 		adminPasswordHasher:       passwordHasher,
 		profileFingerprintKey:     append([]byte(nil), config.ProfileFingerprintKey...),
 		profileFingerprintOldKeys: cloneByteSlices(config.ProfileFingerprintOldKeys),
+		profileKeyring:            config.ProfileKeyring,
 	}
 	app.recoverInterruptedJobs()
 
@@ -316,10 +330,18 @@ func runConfigured(config configuration.Config) error {
 }
 
 func initializeSQLite(dbPath string) (*sql.DB, error) {
-	return initializeSQLiteWithJournalMode(dbPath, configuration.DefaultSQLiteJournalMode)
+	data, err := profilestorage.GenerateKeyringJSON("key-1", "bik-1")
+	if err != nil {
+		return nil, err
+	}
+	kr, err := profilestorage.LoadKeyringJSON(data)
+	if err != nil {
+		return nil, err
+	}
+	return initializeSQLiteWithJournalMode(dbPath, configuration.DefaultSQLiteJournalMode, kr)
 }
 
-func initializeSQLiteWithJournalMode(dbPath, journalMode string) (*sql.DB, error) {
+func initializeSQLiteWithJournalMode(dbPath, journalMode string, keyring *profilestorage.Keyring) (*sql.DB, error) {
 	db, err := sql.Open("sqlite", filepath.ToSlash(dbPath))
 	if err != nil {
 		return nil, fmt.Errorf("open db: %w", err)
@@ -334,7 +356,7 @@ func initializeSQLiteWithJournalMode(dbPath, journalMode string) (*sql.DB, error
 		return nil, err
 	}
 
-	if err := migrate(db); err != nil {
+	if err := migrateWithKeyring(db, keyring); err != nil {
 		_ = db.Close()
 		return nil, fmt.Errorf("migrate db: %w", err)
 	}
@@ -386,4 +408,129 @@ func cleanupSQLiteSidecars(dbPath string) error {
 func isRecoverableSQLiteIO(err error) bool {
 	msg := strings.ToLower(err.Error())
 	return strings.Contains(msg, "disk i/o error") || strings.Contains(msg, "(4874)")
+}
+
+func verifyStartupEnvelopesAndInvariants(ctx context.Context, db *sql.DB, keyring *profilestorage.Keyring) error {
+	var maxVersion int
+	if err := db.QueryRowContext(ctx, `SELECT COALESCE(MAX(version), 0) FROM schema_migrations`).Scan(&maxVersion); err != nil {
+		return err
+	}
+	if maxVersion < 11 {
+		return nil
+	}
+
+	if keyring == nil {
+		return profilestorage.ErrMissingKeyring
+	}
+
+	lastID := int64(0)
+	for {
+		rows, err := db.QueryContext(ctx, `SELECT vless_key_id, encrypted_url FROM vless_key_secrets WHERE vless_key_id > ? ORDER BY vless_key_id ASC LIMIT 1000`, lastID)
+		if err != nil {
+			return fmt.Errorf("scan secrets: %w", err)
+		}
+		var count int
+		for rows.Next() {
+			count++
+			var id int64
+			var env string
+			if err := rows.Scan(&id, &env); err != nil {
+				rows.Close()
+				return fmt.Errorf("scan secret row: %w", err)
+			}
+			lastID = id
+			keyID, _, _, err := profilestorage.InspectEnvelope(env)
+			if err != nil {
+				rows.Close()
+				return fmt.Errorf("row %d: %w", id, err)
+			}
+			if _, ok := keyring.GetEncryptionKey(keyID); !ok {
+				rows.Close()
+				return fmt.Errorf("row %d: %w: key %q", id, profilestorage.ErrUnknownKeyID, keyID)
+			}
+		}
+		rows.Close()
+		if count == 0 {
+			break
+		}
+	}
+
+	var missingSecrets int
+	if err := db.QueryRowContext(ctx, `SELECT COUNT(*) FROM vless_keys k LEFT JOIN vless_key_secrets s ON k.id = s.vless_key_id WHERE s.vless_key_id IS NULL`).Scan(&missingSecrets); err != nil {
+		return err
+	}
+	if missingSecrets > 0 {
+		return fmt.Errorf("%w: %d parents without secrets", profilestorage.ErrMigrationVerificationFailed, missingSecrets)
+	}
+
+	return nil
+}
+
+func handleCLI(args []string) (bool, error) {
+	if len(args) < 2 {
+		return false, nil
+	}
+	cmd := args[1]
+	switch cmd {
+	case "bootstrap":
+		if len(args) >= 3 && args[2] == "keyring" {
+			targetPath := "data/keyring.json"
+			if len(args) >= 4 {
+				targetPath = args[3]
+			}
+			if _, err := os.Stat(targetPath); !os.IsNotExist(err) {
+				if err == nil {
+					return true, fmt.Errorf("keyring already exists at %s", targetPath)
+				}
+				return true, fmt.Errorf("stat keyring file: %w", err)
+			}
+			data, err := profilestorage.GenerateKeyringJSON("key-1", "bik-1")
+			if err != nil {
+				return true, err
+			}
+			if err := os.MkdirAll(filepath.Dir(targetPath), 0700); err != nil {
+				return true, err
+			}
+			if err := os.WriteFile(targetPath, data, 0600); err != nil {
+				return true, err
+			}
+			fmt.Printf("Generated keyring at %s\n", targetPath)
+			return true, nil
+		}
+	case "maintenance":
+		if len(args) >= 3 && args[2] == "vacuum" {
+			cfg, err := configuration.Load(os.Environ())
+			if err != nil {
+				return true, err
+			}
+			db, err := sql.Open("sqlite", filepath.ToSlash(cfg.DBPath))
+			if err != nil {
+				return true, err
+			}
+			defer db.Close()
+			log.Println("Executing PRAGMA vacuum...")
+			if _, err := db.Exec("PRAGMA vacuum"); err != nil {
+				return true, fmt.Errorf("vacuum failed: %w", err)
+			}
+			if _, err := db.Exec("PRAGMA wal_checkpoint(TRUNCATE)"); err != nil {
+				return true, fmt.Errorf("checkpoint failed: %w", err)
+			}
+			log.Println("Maintenance vacuum completed successfully.")
+			return true, nil
+		}
+	case "validate-backup":
+		if len(args) < 3 {
+			return true, fmt.Errorf("usage: validate-backup <backup.db>")
+		}
+		backupPath := args[2]
+		cfg, err := configuration.Load(os.Environ())
+		if err != nil {
+			return true, err
+		}
+		if cfg.ProfileKeyring == nil {
+			return true, profilestorage.ErrMissingKeyring
+		}
+		return true, runValidateBackup(backupPath, cfg.ProfileKeyring)
+	}
+	return false, nil
 }

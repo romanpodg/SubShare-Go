@@ -176,3 +176,30 @@ func TestRedactURLRemovesCredentialsAndSensitiveParts(t *testing.T) {
 		t.Fatalf("unsafe redaction: %q", redacted)
 	}
 }
+
+func TestLoadProfileKeyring(t *testing.T) {
+	keyringData := `{
+		"active_key_id": "key-1",
+		"keys": {"key-1": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"},
+		"active_blind_index_key_id": "bik-1",
+		"blind_index_keys": {"bik-1": "BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB"}
+	}`
+
+	cfg, err := LoadFromMap(testEnvironment(map[string]string{
+		"PROFILE_ENCRYPTION_KEYRING_JSON": keyringData,
+	}))
+	if err != nil {
+		t.Fatalf("LoadFromMap with keyring JSON failed: %v", err)
+	}
+	if cfg.ProfileKeyring == nil {
+		t.Fatalf("expected ProfileKeyring to be populated")
+	}
+
+	_, err = LoadFromMap(testEnvironment(map[string]string{
+		"PROFILE_ENCRYPTION_KEYRING_FILE": "some/file",
+		"PROFILE_ENCRYPTION_KEYRING_JSON": keyringData,
+	}))
+	if err == nil || !strings.Contains(err.Error(), "mutually exclusive") {
+		t.Fatalf("expected mutually exclusive error, got %v", err)
+	}
+}

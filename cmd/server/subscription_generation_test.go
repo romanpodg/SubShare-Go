@@ -15,6 +15,7 @@ import (
 
 	"github.com/romanpodg/SubShare-Go/internal/model"
 	"github.com/romanpodg/SubShare-Go/internal/profiles"
+	"github.com/romanpodg/SubShare-Go/internal/security/profilestorage"
 	"gopkg.in/yaml.v3"
 )
 
@@ -29,16 +30,24 @@ const (
 
 func insertAssignedDeliveryKey(t *testing.T, app *App, userID int64, sourceID any, label, raw, protocol, compatibility string, sortOrder int) int64 {
 	t.Helper()
+	activeID, activeKey, _ := app.profileKeyring.GetActiveEncryptionKey()
+	_, bikKey, _ := app.profileKeyring.GetActiveBlindIndexKey()
+	blindIndex := profilestorage.ComputeBlindIndex(bikKey, raw)
+
 	result, err := app.db.Exec(`
 		INSERT INTO vless_keys(
-			label, url, status, key_kind, health_failure_count, external_source_id,
+			label, url_blind_index, status, key_kind, health_failure_count, external_source_id,
 			protocol, profile_compatibility, sort_order
 		) VALUES(?, ?, 'active', 'real', 0, ?, ?, ?, ?)
-	`, label, raw, sourceID, protocol, compatibility, sortOrder)
+	`, label, blindIndex, sourceID, protocol, compatibility, sortOrder)
 	if err != nil {
 		t.Fatalf("insert delivery key: %v", err)
 	}
 	keyID, _ := result.LastInsertId()
+	env, _ := profilestorage.Encrypt([]byte(raw), activeID, activeKey, keyID)
+	if _, err := app.db.Exec(`INSERT INTO vless_key_secrets(vless_key_id, encrypted_url) VALUES(?, ?)`, keyID, env); err != nil {
+		t.Fatalf("insert delivery key secret: %v", err)
+	}
 	if _, err := app.db.Exec(`INSERT INTO user_keys(user_id, key_id) VALUES(?, ?)`, userID, keyID); err != nil {
 		t.Fatalf("assign delivery key: %v", err)
 	}
@@ -256,8 +265,8 @@ func TestDeliveryDedupIsSemanticCurrentKeyAndPersistenceReadOnly(t *testing.T) {
 	loadState := func() []persistedDeliveryState {
 		t.Helper()
 		rows, queryErr := app.db.Query(`
-			SELECT id, external_source_id, url, label, status, COALESCE(profile_fingerprint, ''), CAST(created_at AS TEXT)
-			FROM vless_keys WHERE id IN (?, ?) ORDER BY id
+			SELECT k.id, k.external_source_id, s.encrypted_url, k.label, k.status, COALESCE(k.profile_fingerprint, ''), CAST(k.created_at AS TEXT)
+			FROM vless_keys k LEFT JOIN vless_key_secrets s ON k.id = s.vless_key_id WHERE k.id IN (?, ?) ORDER BY k.id
 		`, firstID, secondID)
 		if queryErr != nil {
 			t.Fatal(queryErr)

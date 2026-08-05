@@ -13,6 +13,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/romanpodg/SubShare-Go/internal/security/profilestorage"
 )
 
 const (
@@ -44,6 +46,7 @@ type Config struct {
 	BackupInterval            time.Duration
 	ProfileFingerprintKey     []byte
 	ProfileFingerprintOldKeys [][]byte
+	ProfileKeyring            *profilestorage.Keyring
 }
 
 // Format prevents configuration secrets from being emitted by fmt/log calls.
@@ -145,6 +148,27 @@ func LoadFromMap(values map[string]string) (Config, error) {
 	}
 	if config.ProfileFingerprintOldKeys, err = parseFingerprintOldKeys(strings.TrimSpace(previousFingerprintKeys), config.ProfileFingerprintKey); err != nil {
 		return Config{}, err
+	}
+
+	keyringFile := trimmed(values, "PROFILE_ENCRYPTION_KEYRING_FILE")
+	keyringJSON := values["PROFILE_ENCRYPTION_KEYRING_JSON"]
+
+	if keyringFile != "" && keyringJSON != "" {
+		return Config{}, fmt.Errorf("PROFILE_ENCRYPTION_KEYRING_FILE and PROFILE_ENCRYPTION_KEYRING_JSON are mutually exclusive")
+	}
+
+	if keyringFile != "" {
+		kr, err := profilestorage.LoadKeyringFile(keyringFile)
+		if err != nil {
+			return Config{}, fmt.Errorf("load keyring file: %w", err)
+		}
+		config.ProfileKeyring = kr
+	} else if keyringJSON != "" {
+		kr, err := profilestorage.LoadKeyringJSON([]byte(keyringJSON))
+		if err != nil {
+			return Config{}, fmt.Errorf("load keyring JSON: %w", err)
+		}
+		config.ProfileKeyring = kr
 	}
 
 	return config, nil

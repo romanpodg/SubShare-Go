@@ -12,6 +12,7 @@ import (
 	"testing"
 
 	"github.com/romanpodg/SubShare-Go/internal/profiles"
+	"github.com/romanpodg/SubShare-Go/internal/security/profilestorage"
 )
 
 var externalTestFingerprintKey = []byte("0123456789abcdef0123456789abcdef")
@@ -396,11 +397,16 @@ func TestExternalProfilePersistenceAndSynchronization(t *testing.T) {
 		t.Fatalf("initial sync result=%#v err=%v", result, err)
 	}
 	var id int64
-	var raw, protocol, fingerprint, compatibility, warningsJSON, stableRef string
+	var encURL, protocol, fingerprint, compatibility, warningsJSON, stableRef string
 	var schemaVersion int
-	if err := app.db.QueryRow(`SELECT id, url, protocol, profile_fingerprint, profile_schema_version, profile_compatibility, profile_warnings_json, external_key_ref FROM vless_keys WHERE external_source_id = ? AND protocol = 'shadowsocks'`, sourceID).Scan(&id, &raw, &protocol, &fingerprint, &schemaVersion, &compatibility, &warningsJSON, &stableRef); err != nil {
+	if err := app.db.QueryRow(`SELECT k.id, s.encrypted_url, k.protocol, k.profile_fingerprint, k.profile_schema_version, k.profile_compatibility, k.profile_warnings_json, k.external_key_ref FROM vless_keys k LEFT JOIN vless_key_secrets s ON k.id = s.vless_key_id WHERE k.external_source_id = ? AND k.protocol = 'shadowsocks'`, sourceID).Scan(&id, &encURL, &protocol, &fingerprint, &schemaVersion, &compatibility, &warningsJSON, &stableRef); err != nil {
 		t.Fatalf("read profile row: %v", err)
 	}
+	sec, err := profilestorage.Decrypt(encURL, app.profileKeyring, id)
+	if err != nil {
+		t.Fatalf("decrypt profile secret: %v", err)
+	}
+	raw := sec.Reveal()
 	if raw != externalTestSS || protocol != "shadowsocks" || !strings.HasPrefix(fingerprint, "pf1_") || schemaVersion != externalProfileSchemaVersion || compatibility != "full" || warningsJSON != "[]" {
 		t.Fatalf("unexpected persisted profile: raw_equal=%v protocol=%q fingerprint=%q version=%d compatibility=%q warnings=%q", raw == externalTestSS, protocol, fingerprint, schemaVersion, compatibility, warningsJSON)
 	}
@@ -411,10 +417,12 @@ func TestExternalProfilePersistenceAndSynchronization(t *testing.T) {
 		t.Fatalf("tag refresh result=%#v err=%v", updated, err)
 	}
 	var updatedID int64
-	var updatedRaw, updatedRef string
-	if err := app.db.QueryRow(`SELECT id, url, external_key_ref FROM vless_keys WHERE external_source_id = ? AND protocol = 'shadowsocks'`, sourceID).Scan(&updatedID, &updatedRaw, &updatedRef); err != nil {
+	var updatedEncURL, updatedRef string
+	if err := app.db.QueryRow(`SELECT k.id, s.encrypted_url, k.external_key_ref FROM vless_keys k LEFT JOIN vless_key_secrets s ON k.id = s.vless_key_id WHERE k.external_source_id = ? AND k.protocol = 'shadowsocks'`, sourceID).Scan(&updatedID, &updatedEncURL, &updatedRef); err != nil {
 		t.Fatalf("read updated profile: %v", err)
 	}
+	secUpdated, _ := profilestorage.Decrypt(updatedEncURL, app.profileKeyring, updatedID)
+	updatedRaw := secUpdated.Reveal()
 	if updatedID != id || updatedRaw != tagChanged || updatedRef != stableRef {
 		t.Fatalf("semantic update changed identity or raw output: id=%d/%d raw_equal=%v ref=%q/%q", id, updatedID, updatedRaw == tagChanged, stableRef, updatedRef)
 	}
@@ -490,10 +498,13 @@ func TestExternalProfileCrossSourceAndTUICV4Compatibility(t *testing.T) {
 	if err != nil || first.Counts.CompatibilityOnly != 1 {
 		t.Fatalf("TUIC v4 first sync result=%#v err=%v", first, err)
 	}
-	var raw, fingerprint, compatibility string
-	if err := app.db.QueryRow(`SELECT url, COALESCE(profile_fingerprint, ''), profile_compatibility FROM vless_keys WHERE external_source_id = ?`, firstSource).Scan(&raw, &fingerprint, &compatibility); err != nil {
+	var tuicID int64
+	var encURL, fingerprint, compatibility string
+	if err := app.db.QueryRow(`SELECT k.id, s.encrypted_url, COALESCE(k.profile_fingerprint, ''), k.profile_compatibility FROM vless_keys k LEFT JOIN vless_key_secrets s ON k.id = s.vless_key_id WHERE k.external_source_id = ?`, firstSource).Scan(&tuicID, &encURL, &fingerprint, &compatibility); err != nil {
 		t.Fatalf("read TUIC v4: %v", err)
 	}
+	secTUIC, _ := profilestorage.Decrypt(encURL, app.profileKeyring, tuicID)
+	raw := secTUIC.Reveal()
 	if raw != externalTestTUICV4 || !strings.HasPrefix(fingerprint, "pf1_") || compatibility != "read_only" {
 		t.Fatalf("TUIC v4 persistence raw_equal=%v fingerprint=%q compatibility=%q", raw == externalTestTUICV4, fingerprint, compatibility)
 	}
@@ -501,9 +512,22 @@ func TestExternalProfileCrossSourceAndTUICV4Compatibility(t *testing.T) {
 	if err != nil || second.Counts.CompatibilityOnly != 1 || second.Imported != 1 {
 		t.Fatalf("second source did not retain its own exact profile: result=%#v err=%v", second, err)
 	}
-	var rows int
-	if err := app.db.QueryRow(`SELECT COUNT(*) FROM vless_keys WHERE url = ?`, externalTestTUICV4).Scan(&rows); err != nil || rows != 2 {
-		t.Fatalf("source-owned exact profiles were merged: rows=%d err=%v", rows, err)
+	rowsQ, err := app.db.Query(`SELECT k.id, s.encrypted_url FROM vless_keys k JOIN vless_key_secrets s ON k.id = s.vless_key_id`)
+	if err != nil {
+		t.Fatalf("query vless_keys: %v", err)
+	}
+	defer rowsQ.Close()
+	rows := 0
+	for rowsQ.Next() {
+		var rowID int64
+		var rowEnc string
+		_ = rowsQ.Scan(&rowID, &rowEnc)
+		if dec, err := profilestorage.Decrypt(rowEnc, app.profileKeyring, rowID); err == nil && dec.Reveal() == externalTestTUICV4 {
+			rows++
+		}
+	}
+	if rows != 2 {
+		t.Fatalf("source-owned exact profiles were merged: rows=%d", rows)
 	}
 	var firstID, secondID int64
 	var firstRef, secondRef string
@@ -611,15 +635,17 @@ func TestExternalProfileSourceSpecificWarningsAndLifecycle(t *testing.T) {
 	if _, err := app.syncExternalSource(firstSource, parseExternalTestBody(t, canonicalRaw)); err != nil {
 		t.Fatalf("canonicalize source A: %v", err)
 	}
-	var secondRawAfter, secondWarningsAfter, secondCreatedAfter, secondFingerprintAfter string
-	if err := app.db.QueryRow(`SELECT url, profile_warnings_json, created_at, profile_fingerprint FROM vless_keys WHERE id = ? AND external_source_id = ?`, secondID, secondSource).Scan(&secondRawAfter, &secondWarningsAfter, &secondCreatedAfter, &secondFingerprintAfter); err != nil {
+	var encURL, secondWarningsAfter, secondCreatedAfter, secondFingerprintAfter string
+	if err := app.db.QueryRow(`SELECT s.encrypted_url, k.profile_warnings_json, k.created_at, k.profile_fingerprint FROM vless_keys k LEFT JOIN vless_key_secrets s ON k.id = s.vless_key_id WHERE k.id = ? AND k.external_source_id = ?`, secondID, secondSource).Scan(&encURL, &secondWarningsAfter, &secondCreatedAfter, &secondFingerprintAfter); err != nil {
 		t.Fatalf("read unaffected source B: %v", err)
 	}
+	secB, _ := profilestorage.Decrypt(encURL, app.profileKeyring, secondID)
+	secondRawAfter := secB.Reveal()
 	if secondRawAfter != canonicalRaw || secondWarningsAfter != secondWarnings || secondCreatedAfter != secondCreated || secondFingerprintAfter != secondFingerprint {
 		t.Fatalf("Source A refresh mutated Source B: raw=%q warnings=%q created=%q fingerprint=%q", secondRawAfter, secondWarningsAfter, secondCreatedAfter, secondFingerprintAfter)
 	}
 	var identicalRows int
-	if err := app.db.QueryRow(`SELECT COUNT(*) FROM vless_keys WHERE url = ? AND profile_fingerprint = ?`, canonicalRaw, secondFingerprint).Scan(&identicalRows); err != nil || identicalRows != 2 {
+	if err := app.db.QueryRow(`SELECT COUNT(*) FROM vless_keys WHERE profile_fingerprint = ?`, secondFingerprint).Scan(&identicalRows); err != nil || identicalRows != 2 {
 		t.Fatalf("byte-identical cross-source rows=%d err=%v", identicalRows, err)
 	}
 }
@@ -749,10 +775,12 @@ func TestExternalProfileSynchronizationRollsBackOnPersistenceFailure(t *testing.
 		t.Fatal("refresh persistence failure was ignored")
 	}
 	var currentID int64
-	var currentRaw string
-	if err := app.db.QueryRow(`SELECT id, url FROM vless_keys WHERE external_source_id = ?`, sourceID).Scan(&currentID, &currentRaw); err != nil {
+	var encURL string
+	if err := app.db.QueryRow(`SELECT k.id, s.encrypted_url FROM vless_keys k LEFT JOIN vless_key_secrets s ON k.id = s.vless_key_id WHERE k.external_source_id = ?`, sourceID).Scan(&currentID, &encURL); err != nil {
 		t.Fatalf("read retained row: %v", err)
 	}
+	secRetained, _ := profilestorage.Decrypt(encURL, app.profileKeyring, currentID)
+	currentRaw := secRetained.Reveal()
 	if currentID != originalID || currentRaw != externalTestSS {
 		t.Fatalf("failed refresh partially mutated source: id=%d/%d raw_equal=%v", originalID, currentID, currentRaw == externalTestSS)
 	}
@@ -773,11 +801,17 @@ func TestExternalProfileProbePolicyDoesNotClaimQUICAuthentication(t *testing.T) 
 func TestExternalProfileUnsupportedProbeDoesNotAccumulateHealthFailures(t *testing.T) {
 	app := newIntegrationApp(t)
 	raw := "hy2://auth@192.0.2.10:443"
-	result, err := app.db.Exec(`INSERT INTO vless_keys(label, url, protocol, health_failure_count) VALUES('hy2', ?, 'hysteria2', 2)`, raw)
+	activeID, activeKey, _ := app.profileKeyring.GetActiveEncryptionKey()
+	_, bikKey, _ := app.profileKeyring.GetActiveBlindIndexKey()
+	result, err := app.db.Exec(`INSERT INTO vless_keys(label, url_blind_index, protocol, health_failure_count) VALUES('hy2', ?, 'hysteria2', 2)`, profilestorage.ComputeBlindIndex(bikKey, raw))
 	if err != nil {
 		t.Fatalf("insert Hysteria profile: %v", err)
 	}
 	id, _ := result.LastInsertId()
+	env, _ := profilestorage.Encrypt([]byte(raw), activeID, activeKey, id)
+	if _, err := app.db.Exec(`INSERT INTO vless_key_secrets(vless_key_id, encrypted_url) VALUES(?, ?)`, id, env); err != nil {
+		t.Fatalf("insert Hysteria secret: %v", err)
+	}
 	if err := app.checkAndPersistKey(id, raw); err != nil {
 		t.Fatalf("persist unsupported probe: %v", err)
 	}

@@ -5,6 +5,7 @@ import (
 	"sync"
 
 	adminpassword "github.com/romanpodg/SubShare-Go/internal/security/password"
+	"github.com/romanpodg/SubShare-Go/internal/security/profilestorage"
 )
 
 type App struct {
@@ -18,6 +19,7 @@ type App struct {
 	adminPasswordHasher       *adminpassword.Hasher
 	profileFingerprintKey     []byte
 	profileFingerprintOldKeys [][]byte
+	profileKeyring            *profilestorage.Keyring
 	mu                        sync.RWMutex
 }
 

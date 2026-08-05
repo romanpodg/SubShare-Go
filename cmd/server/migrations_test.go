@@ -8,7 +8,22 @@ import (
 	"time"
 
 	_ "modernc.org/sqlite"
+
+	"github.com/romanpodg/SubShare-Go/internal/security/profilestorage"
 )
+
+func testKeyring(t *testing.T) *profilestorage.Keyring {
+	t.Helper()
+	data, err := profilestorage.GenerateKeyringJSON("key-1", "bik-1")
+	if err != nil {
+		t.Fatalf("generate keyring: %v", err)
+	}
+	kr, err := profilestorage.LoadKeyringJSON(data)
+	if err != nil {
+		t.Fatalf("parse keyring: %v", err)
+	}
+	return kr
+}
 
 func TestMigrateAppliesVersionedMigrationsIdempotently(t *testing.T) {
 	t.Parallel()
@@ -22,13 +37,14 @@ func TestMigrateAppliesVersionedMigrationsIdempotently(t *testing.T) {
 		t.Fatalf("enable foreign keys: %v", err)
 	}
 
-	if err := migrate(db); err != nil {
+	kr := testKeyring(t)
+	if err := migrateWithKeyring(db, kr); err != nil {
 		t.Fatalf("first migrate: %v", err)
 	}
 	if _, err := db.Exec(`UPDATE subscription_settings SET refresh_hours = 0 WHERE id = 1`); err != nil {
 		t.Fatalf("prepare no-startup-data-fix assertion: %v", err)
 	}
-	if err := migrate(db); err != nil {
+	if err := migrateWithKeyring(db, kr); err != nil {
 		t.Fatalf("second migrate: %v", err)
 	}
 	var refreshHours int
@@ -69,8 +85,16 @@ func TestMigrateAppliesVersionedMigrationsIdempotently(t *testing.T) {
 	if _, err := db.Exec(`INSERT INTO key_categories(name) VALUES('edge')`); err != nil {
 		t.Fatalf("insert category: %v", err)
 	}
-	if _, err := db.Exec(`INSERT INTO vless_keys(label, url, category) VALUES('edge-key', 'vless://migration-test', 'edge')`); err != nil {
+	activeID, activeKey, _ := kr.GetActiveEncryptionKey()
+	_, bikKey, _ := kr.GetActiveBlindIndexKey()
+	insRes, err := db.Exec(`INSERT INTO vless_keys(label, url_blind_index, category) VALUES('edge-key', ?, 'edge')`, profilestorage.ComputeBlindIndex(bikKey, "vless://migration-test"))
+	if err != nil {
 		t.Fatalf("insert categorized key: %v", err)
+	}
+	edgeID, _ := insRes.LastInsertId()
+	secEnv, _ := profilestorage.Encrypt([]byte("vless://migration-test"), activeID, activeKey, edgeID)
+	if _, err := db.Exec(`INSERT INTO vless_key_secrets(vless_key_id, encrypted_url) VALUES(?, ?)`, edgeID, secEnv); err != nil {
+		t.Fatalf("insert categorized key secret: %v", err)
 	}
 	var categoryID sql.NullInt64
 	if err := db.QueryRow(`SELECT category_id FROM vless_keys WHERE label = 'edge-key'`).Scan(&categoryID); err != nil {
@@ -99,16 +123,22 @@ func TestProfilePersistenceMigrationUpgradesPopulatedVersionEightDatabase(t *tes
 	}
 	defer db.Close()
 	createPopulatedPreStage5Schema(t, db, 8)
-	if err := runVersionedMigrations(db); err != nil {
+	kr := testKeyring(t)
+	if err := runVersionedMigrationsWithKeyring(db, kr); err != nil {
 		t.Fatalf("upgrade version-eight database: %v", err)
 	}
-	var label, raw, ref, protocol, compatibility, warnings, createdAt string
+	var label, encURL, ref, protocol, compatibility, warnings, createdAt string
 	var schemaVersion int
-	if err := db.QueryRow(`SELECT label, url, external_key_ref, protocol, profile_schema_version, profile_compatibility, profile_warnings_json, created_at FROM vless_keys WHERE id = 101`).Scan(
-		&label, &raw, &ref, &protocol, &schemaVersion, &compatibility, &warnings, &createdAt,
+	if err := db.QueryRow(`SELECT k.label, s.encrypted_url, k.external_key_ref, k.protocol, k.profile_schema_version, k.profile_compatibility, k.profile_warnings_json, k.created_at FROM vless_keys k LEFT JOIN vless_key_secrets s ON k.id = s.vless_key_id WHERE k.id = 101`).Scan(
+		&label, &encURL, &ref, &protocol, &schemaVersion, &compatibility, &warnings, &createdAt,
 	); err != nil {
 		t.Fatalf("read upgraded row: %v", err)
 	}
+	sec, err := profilestorage.Decrypt(encURL, kr, 101)
+	if err != nil {
+		t.Fatalf("decrypt upgraded row secret: %v", err)
+	}
+	raw := sec.Reveal()
 	if label != "vless-existing" || raw != "vless://legacy-secret@vless.example:443" || ref != "stable-vless-ref" || protocol != "legacy" || schemaVersion != 0 || compatibility != "legacy" || warnings != "[]" || !strings.HasPrefix(createdAt, "2025-01-02") {
 		t.Fatalf("existing row changed during upgrade: label=%q raw=%q ref=%q protocol=%q version=%d compatibility=%q warnings=%q created=%q", label, raw, ref, protocol, schemaVersion, compatibility, warnings, createdAt)
 	}
@@ -122,8 +152,10 @@ func TestProfilePersistenceMigrationUpgradesPopulatedVersionEightDatabase(t *tes
 	if err := db.QueryRow(`SELECT COUNT(*) FROM user_keys WHERE user_id = 501 AND key_id IN (101, 102)`).Scan(&assignmentCount); err != nil || assignmentCount != 2 {
 		t.Fatalf("assignments did not survive migration: count=%d err=%v", assignmentCount, err)
 	}
-	inserted, err := db.Exec(`INSERT INTO vless_keys(label, url, external_source_id, external_key_ref, protocol, profile_fingerprint, profile_schema_version, profile_compatibility)
-		VALUES('same raw, second source', 'vless://legacy-secret@vless.example:443', 20, 'stable-vless-ref', 'vless', 'pf1_same', 1, 'full')`)
+	activeID, activeKey, _ := kr.GetActiveEncryptionKey()
+	_, bikKey, _ := kr.GetActiveBlindIndexKey()
+	inserted, err := db.Exec(`INSERT INTO vless_keys(label, url_blind_index, external_source_id, external_key_ref, protocol, profile_fingerprint, profile_schema_version, profile_compatibility)
+		VALUES('same raw, second source', ?, 20, 'stable-vless-ref', 'vless', 'pf1_same', 1, 'full')`, profilestorage.ComputeBlindIndex(bikKey, "vless://legacy-secret@vless.example:443"))
 	if err != nil {
 		t.Fatalf("insert identical raw URI for second source after migration: %v", err)
 	}
@@ -131,15 +163,14 @@ func TestProfilePersistenceMigrationUpgradesPopulatedVersionEightDatabase(t *tes
 	if err != nil || insertedID <= 103 {
 		t.Fatalf("AUTOINCREMENT sequence was not preserved: id=%d err=%v", insertedID, err)
 	}
-	var sameRawRows int
-	if err := db.QueryRow(`SELECT COUNT(*) FROM vless_keys WHERE url = 'vless://legacy-secret@vless.example:443'`).Scan(&sameRawRows); err != nil || sameRawRows != 2 {
-		t.Fatalf("source-owned identical raw rows=%d err=%v", sameRawRows, err)
-	}
-	if _, err := db.Exec(`INSERT INTO vless_keys(label, url, external_source_id, external_key_ref, protocol, profile_fingerprint)
-		VALUES('same semantic, same source', 'vless://byte-different@example.com:443', 20, 'different-ref', 'vless', 'pf1_same')`); err == nil {
+	secEnv, _ := profilestorage.Encrypt([]byte("vless://legacy-secret@vless.example:443"), activeID, activeKey, insertedID)
+	_, _ = db.Exec(`INSERT INTO vless_key_secrets(vless_key_id, encrypted_url) VALUES(?, ?)`, insertedID, secEnv)
+
+	if _, err := db.Exec(`INSERT INTO vless_keys(label, url_blind_index, external_source_id, external_key_ref, protocol, profile_fingerprint)
+		VALUES('same semantic, same source', ?, 20, 'different-ref', 'vless', 'pf1_same')`, profilestorage.ComputeBlindIndex(bikKey, "vless://byte-different@example.com:443")); err == nil {
 		t.Fatal("source-scoped semantic fingerprint uniqueness was not enforced")
 	}
-	if _, err := db.Exec(`INSERT INTO vless_keys(label, url) VALUES('duplicate local', 'trojan://legacy-secret@trojan.example:443')`); err == nil {
+	if _, err := db.Exec(`INSERT INTO vless_keys(label, url_blind_index) VALUES('duplicate local', ?)`, profilestorage.ComputeBlindIndex(bikKey, "trojan://legacy-secret@trojan.example:443")); err == nil {
 		t.Fatal("local-key URL uniqueness was not preserved")
 	}
 }
@@ -164,7 +195,8 @@ func TestSourceOwnedURLMigrationRollsBackWithoutMergingRows(t *testing.T) {
 		t.Fatalf("assign conflicting row: %v", err)
 	}
 
-	if err := runVersionedMigrations(db); err == nil || !strings.Contains(err.Error(), "source_owned_profile_urls") {
+	kr := testKeyring(t)
+	if err := runVersionedMigrationsWithKeyring(db, kr); err == nil || !strings.Contains(err.Error(), "source_owned_profile_urls") {
 		t.Fatalf("expected safe unique-index migration failure, got %v", err)
 	}
 	var rowCount, assignments, applied int
@@ -326,7 +358,7 @@ func assertSourceOwnedSchemaMetadata(t *testing.T, db *sql.DB) {
 	}{
 		"idx_vless_keys_external_source_ref":         {1, 0},
 		"idx_vless_keys_external_source_fingerprint": {1, 1},
-		"idx_vless_keys_local_url":                   {1, 1},
+		"idx_vless_keys_local_blind_index":          {1, 1},
 		"idx_vless_keys_delivery_health":             {0, 0},
 		"idx_vless_keys_category_id":                 {0, 0},
 	} {

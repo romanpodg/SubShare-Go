@@ -392,7 +392,7 @@ func (a *App) apiV1CreateSource(w http.ResponseWriter, r *http.Request) {
 		HWIDValue:           hwidProfile.HWID,
 		ImportStatus:        "syncing",
 	}
-	syncResult, err := syncExternalSourceTx(tx, source, parsed)
+	syncResult, err := a.syncExternalSourceTx(tx, source, parsed)
 	if err != nil {
 		writeV1Error(w, r, http.StatusInternalServerError, "source_create_failed", "failed to save imported source")
 		return

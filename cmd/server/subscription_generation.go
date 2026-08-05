@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log"
 	"net/http"
 	"strconv"
 	"strings"
@@ -17,6 +18,7 @@ import (
 
 	"github.com/romanpodg/SubShare-Go/internal/model"
 	"github.com/romanpodg/SubShare-Go/internal/profiles"
+	"github.com/romanpodg/SubShare-Go/internal/security/profilestorage"
 	"gopkg.in/yaml.v3"
 )
 
@@ -248,11 +250,12 @@ func (a *App) selectSubscriptionEntries(subscriptionID, responseType string) (de
 	}
 
 	rows, err := a.db.Query(`
-		SELECT k.id, k.external_source_id, k.url, k.key_kind, COALESCE(k.template_text, ''),
+		SELECT k.id, k.external_source_id, s.encrypted_url, k.key_kind, COALESCE(k.template_text, ''),
 		       COALESCE(k.label, ''), COALESCE(k.protocol, 'legacy'), COALESCE(k.profile_compatibility, 'legacy')
 		FROM users u
 		JOIN user_keys uk ON uk.user_id = u.id
 		JOIN vless_keys k ON k.id = uk.key_id
+		LEFT JOIN vless_key_secrets s ON k.id = s.vless_key_id
 		LEFT JOIN key_categories kc ON kc.id = k.category_id
 		WHERE u.subscription_id = ?
 		  AND k.status = 'active'
@@ -273,7 +276,8 @@ func (a *App) selectSubscriptionEntries(subscriptionID, responseType string) (de
 	seen := make(map[string]struct{})
 	for rows.Next() {
 		var entry deliveryEntry
-		if err := rows.Scan(&entry.ID, &entry.SourceID, &entry.Raw, &entry.Kind, &entry.TemplateText, &entry.Label, &entry.StoredProtocol, &entry.Compatibility); err != nil {
+		var encURL sql.NullString
+		if err := rows.Scan(&entry.ID, &entry.SourceID, &encURL, &entry.Kind, &entry.TemplateText, &entry.Label, &entry.StoredProtocol, &entry.Compatibility); err != nil {
 			return deliverySelection{}, 0, "", err
 		}
 		kind, _ := model.NormalizeKeyKind(entry.Kind)
@@ -283,6 +287,18 @@ func (a *App) selectSubscriptionEntries(subscriptionID, responseType string) (de
 			selection.Entries = append(selection.Entries, entry)
 			continue
 		}
+		if !encURL.Valid || encURL.String == "" {
+			log.Printf("operator_event: row_id=%d source_id=%v reason=profile_storage_integrity_error error=missing_secret", entry.ID, entry.SourceID)
+			selection.Exclusions = append(selection.Exclusions, generationExclusion{entry.safeRef(), "unknown", responseType, "profile_storage_integrity_error"})
+			continue
+		}
+		sec, err := profilestorage.Decrypt(encURL.String, a.profileKeyring, entry.ID)
+		if err != nil {
+			log.Printf("operator_event: row_id=%d source_id=%v reason=profile_storage_integrity_error error=decryption_failed", entry.ID, entry.SourceID)
+			selection.Exclusions = append(selection.Exclusions, generationExclusion{entry.safeRef(), "unknown", responseType, "profile_storage_integrity_error"})
+			continue
+		}
+		entry.Raw = sec.Reveal()
 		protocol := safeProtocolName(entry.Raw, entry.StoredProtocol)
 		if hasUnsafeSubscriptionControl(entry.Raw) {
 			selection.Exclusions = append(selection.Exclusions, generationExclusion{entry.safeRef(), protocol, responseType, generationReasonUnsafeControl})
@@ -307,6 +323,18 @@ func (a *App) selectSubscriptionEntries(subscriptionID, responseType string) (de
 	}
 	if selection.EligibleCount == 0 {
 		return selection, 503, "subscription has no available keys", nil
+	}
+	if len(selection.Entries) == 0 {
+		allCorrupt := len(selection.Exclusions) > 0
+		for _, ex := range selection.Exclusions {
+			if ex.Reason != "profile_storage_integrity_error" {
+				allCorrupt = false
+				break
+			}
+		}
+		if allCorrupt {
+			return selection, 503, "subscription has no available keys", nil
+		}
 	}
 	return selection, 0, "", nil
 }

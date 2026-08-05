@@ -312,10 +312,12 @@ func (a *App) listResponseRules() ([]responseRule, error) {
 			item.TemplateID = &value
 		}
 		if err := json.Unmarshal([]byte(conditionsJSON), &item.Conditions); err != nil {
+			_ = rows.Close()
 			a.disableInvalidResponseRule(item.ID, "conditions_json", err)
 			return nil, fmt.Errorf("response rule %d has invalid conditions JSON: %w", item.ID, err)
 		}
 		if err := json.Unmarshal([]byte(headersJSON), &item.Headers); err != nil {
+			_ = rows.Close()
 			a.disableInvalidResponseRule(item.ID, "headers_json", err)
 			return nil, fmt.Errorf("response rule %d has invalid headers JSON: %w", item.ID, err)
 		}

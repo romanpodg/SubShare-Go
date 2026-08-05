@@ -9,6 +9,8 @@ import (
 	"runtime"
 	"strings"
 	"time"
+
+	"github.com/romanpodg/SubShare-Go/internal/security/profilestorage"
 )
 
 func verifySQLiteBackup(path string) error {
@@ -141,4 +143,69 @@ func (a *App) startBackup(backupPath string, interval time.Duration) {
 			run()
 		}
 	}()
+}
+
+func runValidateBackup(backupPath string, keyring *profilestorage.Keyring) error {
+	if keyring == nil {
+		return profilestorage.ErrMissingKeyring
+	}
+	db, err := sql.Open("sqlite", "file:"+filepath.ToSlash(backupPath)+"?mode=ro")
+	if err != nil {
+		return fmt.Errorf("open backup read-only: %w", err)
+	}
+	defer db.Close()
+
+	var integrity string
+	if err := db.QueryRow(`PRAGMA integrity_check`).Scan(&integrity); err != nil {
+		return fmt.Errorf("integrity check: %w", err)
+	}
+	if integrity != "ok" {
+		return fmt.Errorf("integrity check returned %q", integrity)
+	}
+
+	var maxVersion int
+	if err := db.QueryRow(`SELECT COALESCE(MAX(version), 0) FROM schema_migrations`).Scan(&maxVersion); err != nil {
+		return fmt.Errorf("read schema_migrations: %w", err)
+	}
+	if maxVersion < 11 {
+		log.Printf("Backup schema version is %d (pre-encryption). Schema check passed.", maxVersion)
+		return nil
+	}
+
+	lastID := int64(0)
+	totalScanned := 0
+	for {
+		rows, err := db.Query(`SELECT vless_key_id, encrypted_url FROM vless_key_secrets WHERE vless_key_id > ? ORDER BY vless_key_id ASC LIMIT 1000`, lastID)
+		if err != nil {
+			return fmt.Errorf("query backup secrets: %w", err)
+		}
+		count := 0
+		for rows.Next() {
+			count++
+			totalScanned++
+			var id int64
+			var env string
+			if err := rows.Scan(&id, &env); err != nil {
+				rows.Close()
+				return fmt.Errorf("scan backup secret: %w", err)
+			}
+			lastID = id
+			sec, err := profilestorage.Decrypt(env, keyring, id)
+			if err != nil {
+				rows.Close()
+				return fmt.Errorf("backup row %d decryption failure: %w", id, err)
+			}
+			if sec.IsZero() {
+				rows.Close()
+				return fmt.Errorf("backup row %d decrypted to zero bytes", id)
+			}
+		}
+		rows.Close()
+		if count == 0 {
+			break
+		}
+	}
+
+	log.Printf("Backup validation succeeded: scanned %d encrypted profile secret(s).", totalScanned)
+	return nil
 }

@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/romanpodg/SubShare-Go/internal/model"
+	"github.com/romanpodg/SubShare-Go/internal/security/profilestorage"
 )
 
 type backgroundJob struct {
@@ -276,9 +277,10 @@ func (a *App) apiV1QueueKeyHealthCheck(w http.ResponseWriter, r *http.Request) {
 func (a *App) runQueuedKeyHealthCheck(jobID, actorAdminID int64, requestID string) {
 	a.markTrackedJobRunning(jobID)
 	rows, err := a.db.Query(`
-		SELECT id, url, key_kind
-		FROM vless_keys
-		ORDER BY CASE WHEN key_kind = 'real' THEN 0 ELSE 1 END, sort_order, id
+		SELECT k.id, s.encrypted_url, k.key_kind
+		FROM vless_keys k
+		LEFT JOIN vless_key_secrets s ON k.id = s.vless_key_id
+		ORDER BY CASE WHEN k.key_kind = 'real' THEN 0 ELSE 1 END, k.sort_order, k.id
 	`)
 	if err != nil {
 		a.finishTrackedJob(jobID, err)
@@ -291,15 +293,25 @@ func (a *App) runQueuedKeyHealthCheck(jobID, actorAdminID int64, requestID strin
 	}
 	targets := []keyTarget{}
 	for rows.Next() {
-		var target keyTarget
-		if scanErr := rows.Scan(&target.id, &target.url, &target.kind); scanErr != nil {
+		var id int64
+		var encURL sql.NullString
+		var kind string
+		if scanErr := rows.Scan(&id, &encURL, &kind); scanErr != nil {
 			_ = rows.Close()
 			a.finishTrackedJob(jobID, scanErr)
 			return
 		}
-		if normalized, _ := model.NormalizeKeyKind(target.kind); normalized != model.KeyKindInformational {
-			targets = append(targets, target)
+		if normalized, _ := model.NormalizeKeyKind(kind); normalized == model.KeyKindInformational {
+			continue
 		}
+		if !encURL.Valid || encURL.String == "" {
+			continue
+		}
+		sec, err := profilestorage.Decrypt(encURL.String, a.profileKeyring, id)
+		if err != nil {
+			continue
+		}
+		targets = append(targets, keyTarget{id: id, url: sec.Reveal(), kind: kind})
 	}
 	if err = rows.Err(); err != nil {
 		_ = rows.Close()

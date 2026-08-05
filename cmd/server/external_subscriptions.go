@@ -24,6 +24,7 @@ import (
 
 	"github.com/romanpodg/SubShare-Go/internal/model"
 	"github.com/romanpodg/SubShare-Go/internal/profiles"
+	"github.com/romanpodg/SubShare-Go/internal/security/profilestorage"
 )
 
 const (
@@ -1445,7 +1446,7 @@ func (a *App) syncExternalSource(sourceID int64, parsed externalSubscriptionPars
 	}
 	defer tx.Rollback()
 
-	result, err := syncExternalSourceTx(tx, source, parsed)
+	result, err := a.syncExternalSourceTx(tx, source, parsed)
 	if err != nil {
 		return result, err
 	}
@@ -1455,7 +1456,7 @@ func (a *App) syncExternalSource(sourceID int64, parsed externalSubscriptionPars
 	return result, nil
 }
 
-func syncExternalSourceTx(tx *sql.Tx, source externalSourceRow, parsed externalSubscriptionParseResult) (externalSyncResult, error) {
+func (a *App) syncExternalSourceTx(tx *sql.Tx, source externalSourceRow, parsed externalSubscriptionParseResult) (externalSyncResult, error) {
 	result := externalSyncResult{Items: append([]externalSafeImportItem(nil), parsed.Items...)}
 	result.Skipped = parsed.Counts.Rejected + parsed.Counts.Unsupported + parsed.Counts.Duplicate
 	if len(parsed.Keys) == 0 {
@@ -1509,11 +1510,17 @@ func syncExternalSourceTx(tx *sql.Tx, source externalSourceRow, parsed externalS
 		Compatibility        string
 		WarningsJSON         string
 	}
+	activeID, activeKey, err := a.profileKeyring.GetActiveEncryptionKey()
+	if err != nil {
+		return result, err
+	}
+
 	existingRows, err := tx.Query(`
-		SELECT id, external_key_ref, COALESCE(profile_fingerprint, ''), label, url,
-		       protocol, profile_schema_version, profile_compatibility, profile_warnings_json
-		FROM vless_keys
-		WHERE external_source_id = ?
+		SELECT k.id, k.external_key_ref, COALESCE(k.profile_fingerprint, ''), k.label, s.encrypted_url,
+		       k.protocol, k.profile_schema_version, k.profile_compatibility, k.profile_warnings_json
+		FROM vless_keys k
+		LEFT JOIN vless_key_secrets s ON k.id = s.vless_key_id
+		WHERE k.external_source_id = ?
 	`, sourceID)
 	if err != nil {
 		return result, err
@@ -1523,9 +1530,15 @@ func syncExternalSourceTx(tx *sql.Tx, source externalSourceRow, parsed externalS
 	existingIDs := make(map[int64]struct{})
 	for existingRows.Next() {
 		var key existingKey
-		if err := existingRows.Scan(&key.ID, &key.Ref, &key.Fingerprint, &key.Label, &key.URL, &key.Protocol, &key.ProfileSchemaVersion, &key.Compatibility, &key.WarningsJSON); err != nil {
+		var encURL sql.NullString
+		if err := existingRows.Scan(&key.ID, &key.Ref, &key.Fingerprint, &key.Label, &encURL, &key.Protocol, &key.ProfileSchemaVersion, &key.Compatibility, &key.WarningsJSON); err != nil {
 			_ = existingRows.Close()
 			return result, err
+		}
+		if encURL.Valid && encURL.String != "" {
+			if dec, err := profilestorage.Decrypt(encURL.String, a.profileKeyring, key.ID); err == nil {
+				key.URL = dec.Reveal()
+			}
 		}
 		key.Ref = strings.TrimSpace(key.Ref)
 		if key.Ref != "" {
@@ -1621,13 +1634,20 @@ func syncExternalSourceTx(tx *sql.Tx, source externalSourceRow, parsed externalS
 				existing.Compatibility != item.Compatibility || existing.WarningsJSON != warningsJSON
 			if _, err := tx.Exec(
 				`UPDATE vless_keys
-				 SET label = ?, url = ?, category_id = ?, category = ?, status = ?, key_kind = 'real', template_text = NULL,
+				 SET label = ?, category_id = ?, category = ?, status = ?, key_kind = 'real', template_text = NULL,
 				     external_source_id = ?, external_key_ref = ?, sort_order = ?, protocol = ?, profile_fingerprint = ?,
 				     profile_schema_version = ?, profile_compatibility = ?, profile_warnings_json = ?
 				 WHERE id = ? AND external_source_id = ?`,
-				label, urlValue, targetCategoryID, targetCategory, statusValue, sourceID, stableRef, nextSortOrder,
+				label, targetCategoryID, targetCategory, statusValue, sourceID, stableRef, nextSortOrder,
 				item.Protocol, nullStringValue(item.Fingerprint), item.ProfileSchemaVersion, item.Compatibility, warningsJSON, existing.ID, sourceID,
 			); err != nil {
+				return result, err
+			}
+			env, err := profilestorage.Encrypt([]byte(urlValue), activeID, activeKey, existing.ID)
+			if err != nil {
+				return result, err
+			}
+			if _, err := tx.Exec(`INSERT INTO vless_key_secrets(vless_key_id, encrypted_url) VALUES(?, ?) ON CONFLICT(vless_key_id) DO UPDATE SET encrypted_url = excluded.encrypted_url`, existing.ID, env); err != nil {
 				return result, err
 			}
 			delete(existingIDs, existing.ID)
@@ -1643,19 +1663,16 @@ func syncExternalSourceTx(tx *sql.Tx, source externalSourceRow, parsed externalS
 
 		insertResult, err := tx.Exec(
 			`INSERT INTO vless_keys(
-				label, url, category_id, category, status, check_status, key_kind, template_text, sort_order,
+				label, category_id, category, status, check_status, key_kind, template_text, sort_order,
 				external_source_id, external_key_ref, protocol, profile_fingerprint, profile_schema_version,
 				profile_compatibility, profile_warnings_json
-			) VALUES(?, ?, ?, ?, ?, 'unknown', 'real', NULL, ?, ?, ?, ?, ?, ?, ?, ?)`,
-			label, urlValue, targetCategoryID, targetCategory, statusValue, nextSortOrder, sourceID, ref,
+			) VALUES(?, ?, ?, ?, 'unknown', 'real', NULL, ?, ?, ?, ?, ?, ?, ?, ?)`,
+			label, targetCategoryID, targetCategory, statusValue, nextSortOrder, sourceID, ref,
 			item.Protocol, nullStringValue(item.Fingerprint), item.ProfileSchemaVersion, item.Compatibility, warningsJSON,
 		)
 		if err != nil {
-			// Source-scoped fingerprint/ref indexes are the final concurrency
-			// guard. A different source is intentionally allowed to own the same
-			// raw URL and therefore cannot reach this branch for URL equality.
 			errText := strings.ToLower(err.Error())
-			if strings.Contains(errText, "vless_keys.url") || strings.Contains(errText, "unique") {
+			if strings.Contains(errText, "unique") {
 				result.Skipped++
 				setItemStatus(item.ItemRef, externalStatusDuplicate)
 				continue
@@ -1664,6 +1681,13 @@ func syncExternalSourceTx(tx *sql.Tx, source externalSourceRow, parsed externalS
 		}
 		keyID, err := insertResult.LastInsertId()
 		if err != nil {
+			return result, err
+		}
+		env, err := profilestorage.Encrypt([]byte(urlValue), activeID, activeKey, keyID)
+		if err != nil {
+			return result, err
+		}
+		if _, err := tx.Exec(`INSERT INTO vless_key_secrets(vless_key_id, encrypted_url) VALUES(?, ?)`, keyID, env); err != nil {
 			return result, err
 		}
 		if _, err := tx.Exec(
@@ -1983,7 +2007,7 @@ func (a *App) apiImportExternalSourceTransactional(w http.ResponseWriter, r *htt
 		return
 	}
 	source := externalSourceRow{ID: sourceID, Name: name, Category: category, KeyCategory: keyCategory, KeyInsertMode: normalizeKeyInsertMode(req.KeyInsertMode), SourceURL: sourceURL, Enabled: req.Enabled, PassHWID: hwidProfile.PassHWID, HWIDVersion: hwidProfile.Version, HWIDModelName: hwidProfile.ModelName, HWIDValue: hwidProfile.HWID, ImportStatus: "syncing"}
-	syncResult, err := syncExternalSourceTx(tx, source, parsed)
+	syncResult, err := a.syncExternalSourceTx(tx, source, parsed)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return

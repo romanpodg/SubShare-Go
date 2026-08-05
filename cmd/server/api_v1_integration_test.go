@@ -14,16 +14,19 @@ import (
 	"time"
 
 	"github.com/romanpodg/SubShare-Go/internal/middleware"
+	"github.com/romanpodg/SubShare-Go/internal/security/profilestorage"
 )
 
 func newIntegrationApp(t *testing.T) *App {
 	t.Helper()
-	db, err := initializeSQLite(filepath.Join(t.TempDir(), "integration.db"))
+	data, _ := profilestorage.GenerateKeyringJSON("key-1", "bik-1")
+	kr, _ := profilestorage.LoadKeyringJSON(data)
+	db, err := initializeSQLiteWithJournalMode(filepath.Join(t.TempDir(), "integration.db"), "DELETE", kr)
 	if err != nil {
 		t.Fatalf("initialize sqlite: %v", err)
 	}
 	t.Cleanup(func() { _ = db.Close() })
-	return &App{db: db, subscriptionBodyEncoding: "base64", profileFingerprintKey: []byte("0123456789abcdef0123456789abcdef")}
+	return &App{db: db, profileKeyring: kr, subscriptionBodyEncoding: "base64", profileFingerprintKey: []byte("0123456789abcdef0123456789abcdef")}
 }
 
 func seedIntegrationSession(t *testing.T, app *App, role string) (string, string, int64) {

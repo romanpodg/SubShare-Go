@@ -98,6 +98,8 @@ if [[ ! -f "$ENV_FILE" ]]; then
     printf 'ADMIN_PASSWORD=%s\n' "$(dotenv_quote "$GENERATED_PASSWORD")"
     printf 'PROFILE_FINGERPRINT_KEY=%s\n' "$(od -An -N32 -tx1 /dev/urandom | tr -d ' \n')"
     printf 'PROFILE_FINGERPRINT_PREVIOUS_KEYS=\n'
+    printf 'PROFILE_ENCRYPTION_KEYRING_FILE=data/keyring.json\n'
+    printf 'PROFILE_ENCRYPTION_KEYRING_JSON=\n'
     printf 'BASE_URL=%s\n' "$BASE_URL_VALUE"
     printf 'CORS_ORIGINS=\n'
     printf 'TRUSTED_PROXIES=172.16.0.0/12\n'
@@ -108,6 +110,26 @@ if [[ ! -f "$ENV_FILE" ]]; then
   } > "$ENV_FILE"
   chmod 600 "$ENV_FILE"
   echo "Created $ENV_FILE"
+fi
+
+if [[ ! -f "data/keyring.json" ]]; then
+  mkdir -p data
+  KEY1="$(head -c 32 /dev/urandom | base64 | tr -d '=\n' | tr '+/' '-_')"
+  BIK1="$(head -c 32 /dev/urandom | base64 | tr -d '=\n' | tr '+/' '-_')"
+  cat <<EOF > data/keyring.json
+{
+  "active_key_id": "key-1",
+  "keys": {
+    "key-1": "$KEY1"
+  },
+  "active_blind_index_key_id": "bik-1",
+  "blind_index_keys": {
+    "bik-1": "$BIK1"
+  }
+}
+EOF
+  chmod 600 data/keyring.json
+  echo "Created data/keyring.json"
 fi
 
 BASE_URL_VALUE="$(dotenv_value BASE_URL)"

@@ -135,6 +135,8 @@ if (-not (Test-Path -LiteralPath $envFile)) {
         "ADMIN_PASSWORD=$(ConvertTo-DotEnvQuotedValue $AdminPassword)"
         "PROFILE_FINGERPRINT_KEY=$(New-RandomHexSecret)"
         "PROFILE_FINGERPRINT_PREVIOUS_KEYS="
+        "PROFILE_ENCRYPTION_KEYRING_FILE=data/keyring.json"
+        "PROFILE_ENCRYPTION_KEYRING_JSON="
         "BASE_URL=$BaseUrl"
         "CORS_ORIGINS="
         "TRUSTED_PROXIES=172.16.0.0/12"
@@ -146,6 +148,39 @@ if (-not (Test-Path -LiteralPath $envFile)) {
     ) -join "`n"
     [System.IO.File]::WriteAllText($envFile, $contents, [System.Text.UTF8Encoding]::new($false))
     Write-Host "Created $envFile"
+}
+
+$keyringPath = Join-Path $rootDir "data\keyring.json"
+if (-not (Test-Path -LiteralPath $keyringPath)) {
+    $dataDir = Join-Path $rootDir "data"
+    if (-not (Test-Path -LiteralPath $dataDir)) {
+        New-Item -ItemType Directory -Path $dataDir | Out-Null
+    }
+    $encBytes = New-Object byte[] 32
+    $bikBytes = New-Object byte[] 32
+    $rng = [System.Security.Cryptography.RandomNumberGenerator]::Create()
+    try {
+        $rng.GetBytes($encBytes)
+        $rng.GetBytes($bikBytes)
+    } finally {
+        $rng.Dispose()
+    }
+    $encB64 = [Convert]::ToBase64String($encBytes).TrimEnd('=').Replace('+', '-').Replace('/', '_')
+    $bikB64 = [Convert]::ToBase64String($bikBytes).TrimEnd('=').Replace('+', '-').Replace('/', '_')
+    $jsonContent = @"
+{
+  "active_key_id": "key-1",
+  "keys": {
+    "key-1": "$encB64"
+  },
+  "active_blind_index_key_id": "bik-1",
+  "blind_index_keys": {
+    "bik-1": "$bikB64"
+  }
+}
+"@
+    Set-Content -LiteralPath $keyringPath -Value $jsonContent -Encoding UTF8
+    Write-Host "Created data/keyring.json"
 }
 
 $resolvedBaseUrl = Get-DotEnvValue "BASE_URL"
