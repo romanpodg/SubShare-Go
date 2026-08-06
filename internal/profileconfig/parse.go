@@ -19,6 +19,37 @@ func firstNonEmpty(values ...string) string {
 	return ""
 }
 
+func ClientDisplayNameFromKeyURL(rawURL, fallback string) string {
+	rawURL = strings.TrimSpace(rawURL)
+	fallback = strings.TrimSpace(fallback)
+	if rawURL == "" {
+		return fallback
+	}
+
+	switch SupportedConfigScheme(rawURL) {
+	case "vless", "vmess", "trojan":
+		draft, err := ParseLinkConfiguration(rawURL)
+		if err != nil {
+			return fallback
+		}
+		name := strings.TrimSpace(firstNonEmpty(draft.Remark, draft.ServerDescription, fallback))
+		if name != "" {
+			return name
+		}
+	case "xray-json":
+		drafts, err := ParseXrayJSONDrafts(rawURL)
+		if err != nil || len(drafts) == 0 {
+			return fallback
+		}
+		name := strings.TrimSpace(firstNonEmpty(drafts[0].Remark, drafts[0].ServerDescription, fallback))
+		if name != "" {
+			return name
+		}
+	}
+
+	return fallback
+}
+
 // SupportedConfigScheme returns the scheme identifier or "xray-json" for supported configurations.
 func SupportedConfigScheme(raw string) string {
 	trimmed := strings.TrimSpace(raw)

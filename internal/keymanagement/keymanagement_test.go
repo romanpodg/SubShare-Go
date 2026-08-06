@@ -92,6 +92,52 @@ func (f *fakeRepo) CloneLocal(ctx context.Context, params profilepersistence.Clo
 	return cloned, f.uris[newID], nil
 }
 
+func (f *fakeRepo) ListLegacy(ctx context.Context) ([]model.VLESSKey, error) {
+	out := make([]model.VLESSKey, 0, len(f.keys))
+	for _, key := range f.keys {
+		out = append(out, *key)
+	}
+	return out, nil
+}
+
+func (f *fakeRepo) CreateLegacy(ctx context.Context, params profilepersistence.CreateLegacyKeyParams) (int64, error) {
+	id := int64(len(f.keys) + 1)
+	key := &model.VLESSKey{
+		ID:       id,
+		Label:    params.Label,
+		Status:   params.Status,
+		Kind:     params.Kind,
+		Category: params.Category,
+		URL:      params.KeyURL,
+	}
+	f.keys[id] = key
+	f.uris[id] = params.KeyURL
+	return id, nil
+}
+
+func (f *fakeRepo) UpdateLegacy(ctx context.Context, params profilepersistence.UpdateLegacyKeyParams) error {
+	key, ok := f.keys[params.ID]
+	if !ok {
+		return profilepersistence.ErrProfileNotFound
+	}
+	key.Label = params.Label
+	key.Status = params.Status
+	key.Kind = params.Kind
+	key.Category = params.Category
+	key.URL = params.BuiltURL
+	f.uris[params.ID] = params.BuiltURL
+	return nil
+}
+
+func (f *fakeRepo) DeleteLegacy(ctx context.Context, id int64) error {
+	if _, ok := f.keys[id]; !ok {
+		return profilepersistence.ErrProfileNotFound
+	}
+	delete(f.keys, id)
+	delete(f.uris, id)
+	return nil
+}
+
 func TestKeyManagementService_Create_Reveal_Update_Clone(t *testing.T) {
 	ctx := context.Background()
 	repo := newFakeRepo()

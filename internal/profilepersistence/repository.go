@@ -11,4 +11,8 @@ type ProfileRepository interface {
 	CreateLocal(ctx context.Context, params CreateProfileParams) (*model.VLESSKey, string, error)
 	UpdateLocal(ctx context.Context, params UpdateProfileParams) (*model.VLESSKey, string, error)
 	CloneLocal(ctx context.Context, params CloneProfileParams) (*model.VLESSKey, string, error)
+	ListLegacy(ctx context.Context) ([]model.VLESSKey, error)
+	CreateLegacy(ctx context.Context, params CreateLegacyKeyParams) (int64, error)
+	UpdateLegacy(ctx context.Context, params UpdateLegacyKeyParams) error
+	DeleteLegacy(ctx context.Context, id int64) error
 }

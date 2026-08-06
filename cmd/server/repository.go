@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/romanpodg/SubShare-Go/internal/model"
+	"github.com/romanpodg/SubShare-Go/internal/profileconfig"
 	"github.com/romanpodg/SubShare-Go/internal/security/profilestorage"
 	"github.com/romanpodg/SubShare-Go/internal/vless"
 )
@@ -18,48 +19,7 @@ import (
 var validSQLIdentifier = regexp.MustCompile(`^[a-zA-Z_][a-zA-Z0-9_]*$`)
 
 func clientDisplayNameFromKeyURL(rawURL, fallback string) string {
-	rawURL = strings.TrimSpace(rawURL)
-	fallback = strings.TrimSpace(fallback)
-	if rawURL == "" {
-		return fallback
-	}
-
-	switch supportedConfigScheme(rawURL) {
-	case "vless", "vmess", "trojan":
-		draft, err := parseLinkConfiguration(rawURL)
-		if err != nil {
-			return fallback
-		}
-		name := strings.TrimSpace(firstNonEmpty(draft.Remark, draft.ServerDescription, fallback))
-		if name != "" {
-			return name
-		}
-	case "xray-json":
-		var parsed any
-		if err := json.Unmarshal([]byte(rawURL), &parsed); err != nil {
-			return fallback
-		}
-		switch typed := parsed.(type) {
-		case map[string]any:
-			name := strings.TrimSpace(extractJSONSubscriptionLabel(typed, fallback))
-			if name != "" {
-				return name
-			}
-		case []any:
-			for _, item := range typed {
-				obj, ok := item.(map[string]any)
-				if !ok {
-					continue
-				}
-				name := strings.TrimSpace(extractJSONSubscriptionLabel(obj, fallback))
-				if name != "" {
-					return name
-				}
-			}
-		}
-	}
-
-	return fallback
+	return profileconfig.ClientDisplayNameFromKeyURL(rawURL, fallback)
 }
 
 func migrate(db *sql.DB) error {

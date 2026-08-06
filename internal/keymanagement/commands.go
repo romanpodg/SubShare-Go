@@ -48,3 +48,26 @@ type CloneParams struct {
 	ExpectedProfileRevision int64
 	NewLabel                string
 }
+
+type CreateLegacyParams struct {
+	Label        string
+	URL          string
+	Category     string
+	TemplateText string
+	Kind         string
+	Status       string
+}
+
+type UpdateLegacyParams struct {
+	Label        string
+	Category     string
+	TemplateText string
+	Kind         string
+	Status       string
+	RawURL       string
+	UUID         string
+	Host         string
+	Port         string
+	Query        string
+	Fragment     string
+}

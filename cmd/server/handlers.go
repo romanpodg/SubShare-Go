@@ -16,11 +16,12 @@ import (
 	"sync"
 	"time"
 
+	"github.com/romanpodg/SubShare-Go/internal/httpapi"
+	"github.com/romanpodg/SubShare-Go/internal/keymanagement"
 	"github.com/romanpodg/SubShare-Go/internal/middleware"
 	"github.com/romanpodg/SubShare-Go/internal/model"
 	adminpassword "github.com/romanpodg/SubShare-Go/internal/security/password"
 	"github.com/romanpodg/SubShare-Go/internal/security/profilestorage"
-	"github.com/romanpodg/SubShare-Go/internal/vless"
 )
 
 var providerIDPattern = regexp.MustCompile(`^[A-Za-z0-9]{8}$`)
@@ -95,11 +96,7 @@ func normalizeBulkKeyIDs(ids []int64) ([]int64, error) {
 }
 
 func normalizeKeyCategory(raw string) string {
-	value := strings.TrimSpace(raw)
-	if len(value) > 24 {
-		value = value[:24]
-	}
-	return value
+	return keymanagement.NormalizeKeyCategory(raw)
 }
 
 func normalizeKeyCategoryColor(raw string) string {
@@ -1208,19 +1205,12 @@ func (a *App) apiDeleteUserHWID(w http.ResponseWriter, r *http.Request) {
 
 // --- Keys API ---
 
+func (a *App) legacyKeyHandler() *httpapi.LegacyKeyHandler {
+	return httpapi.NewLegacyKeyHandler(a.keyService(), a.recordAuditEvent)
+}
+
 func (a *App) apiListKeys(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Cache-Control", "no-store, private")
-	w.Header().Set("Pragma", "no-cache")
-	keys, err := a.listKeys()
-	if err != nil {
-		log.Printf("apiListKeys: %v", err)
-		writeError(w, http.StatusInternalServerError, "failed to list keys")
-		return
-	}
-	if keys == nil {
-		keys = []model.VLESSKey{}
-	}
-	writeJSON(w, http.StatusOK, map[string]any{"keys": keys})
+	a.legacyKeyHandler().ListKeys(w, r)
 }
 
 func (a *App) apiListKeyCategories(w http.ResponseWriter, r *http.Request) {
@@ -1540,301 +1530,11 @@ func (a *App) apiReorderKeyCategories(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *App) apiCreateKey(w http.ResponseWriter, r *http.Request) {
-	var req model.CreateKeyRequest
-	if err := readJSON(r, &req); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid request body")
-		return
-	}
-
-	label := strings.TrimSpace(req.Label)
-	keyURL := strings.TrimSpace(req.URL)
-	category := normalizeKeyCategory(req.Category)
-	templateText := strings.TrimSpace(req.TemplateText)
-	kind, kindOK := model.NormalizeKeyKind(req.Kind)
-	if !kindOK {
-		writeError(w, http.StatusBadRequest, "invalid key kind")
-		return
-	}
-	status, ok := model.NormalizeKeyStatus(req.Status)
-	if !ok {
-		writeError(w, http.StatusBadRequest, "invalid key status")
-		return
-	}
-	if label == "" {
-		writeError(w, http.StatusBadRequest, "label is required")
-		return
-	}
-	if kind == model.KeyKindReal {
-		if keyURL == "" {
-			writeError(w, http.StatusBadRequest, "url is required for real keys")
-			return
-		}
-		if err := validateRealConfigURL(keyURL); err != nil {
-			writeError(w, http.StatusBadRequest, err.Error())
-			return
-		}
-	} else {
-		if templateText == "" {
-			templateText = label
-		}
-		token, err := generateToken(12)
-		if err != nil {
-			writeError(w, http.StatusInternalServerError, "failed to generate key")
-			return
-		}
-		keyURL = "info://" + token
-	}
-	if len(label) > 255 {
-		writeError(w, http.StatusBadRequest, "label is too long (max 255 characters)")
-		return
-	}
-	if len(keyURL) > 65535 {
-		writeError(w, http.StatusBadRequest, "configuration is too long (max 65535 characters)")
-		return
-	}
-	if len(templateText) > 8192 {
-		writeError(w, http.StatusBadRequest, "template_text is too long (max 8192 characters)")
-		return
-	}
-	if err := a.upsertKeyCategory(category); err != nil {
-		log.Printf("apiCreateKey upsert category: %v", err)
-		writeError(w, http.StatusInternalServerError, "failed to save key category")
-		return
-	}
-	categoryID, err := a.keyCategoryID(category)
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to resolve key category")
-		return
-	}
-
-	var nextSortOrder int64
-	if err := a.db.QueryRow(`SELECT COALESCE(MAX(sort_order), 0) + 1 FROM vless_keys`).Scan(&nextSortOrder); err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to prepare key order")
-		return
-	}
-
-	activeID, activeKey, err := a.profileKeyring.GetActiveEncryptionKey()
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, "encryption key unavailable")
-		return
-	}
-	_, bikKey, err := a.profileKeyring.GetActiveBlindIndexKey()
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, "blind index key unavailable")
-		return
-	}
-	blindIndex := profilestorage.ComputeBlindIndex(bikKey, keyURL)
-
-	tx, err := a.db.Begin()
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to add key")
-		return
-	}
-	defer tx.Rollback()
-
-	result, err := tx.Exec(
-		`INSERT INTO vless_keys(label, url_blind_index, category_id, category, status, check_status, key_kind, template_text, sort_order) VALUES(?, ?, ?, ?, ?, 'unknown', ?, ?, ?)`,
-		label, blindIndex, categoryID, category, status, kind, nullStringValue(templateText), nextSortOrder,
-	)
-	if err != nil {
-		log.Printf("apiCreateKey: %v", err)
-		writeError(w, http.StatusConflict, "failed to add key (maybe duplicate)")
-		return
-	}
-
-	keyID, err := result.LastInsertId()
-	if err != nil {
-		log.Printf("apiCreateKey: failed to get key ID: %v", err)
-		writeError(w, http.StatusInternalServerError, "failed to get key ID")
-		return
-	}
-
-	env, err := profilestorage.Encrypt([]byte(keyURL), activeID, activeKey, keyID)
-	if err != nil {
-		log.Printf("apiCreateKey: encrypt failed: %v", err)
-		writeError(w, http.StatusInternalServerError, "failed to encrypt key")
-		return
-	}
-
-	if _, err := tx.Exec(`INSERT INTO vless_key_secrets(vless_key_id, encrypted_url) VALUES(?, ?)`, keyID, env); err != nil {
-		log.Printf("apiCreateKey: failed to insert secret: %v", err)
-		writeError(w, http.StatusInternalServerError, "failed to save key secret")
-		return
-	}
-
-	_, err = tx.Exec(
-		`INSERT INTO user_keys(user_id, key_id)
-		 SELECT id, ? FROM users WHERE key_assignment_mode = 'all'`,
-		keyID,
-	)
-	if err != nil {
-		log.Printf("apiCreateKey: failed to add key to users: %v", err)
-		writeError(w, http.StatusInternalServerError, "failed to add key")
-		return
-	}
-	if err := tx.Commit(); err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to add key")
-		return
-	}
-	a.recordAuditEvent(r, "key.create", "key", strconv.FormatInt(keyID, 10), map[string]any{"label": label})
-
-	writeMessage(w, "key added")
+	a.legacyKeyHandler().CreateKey(w, r)
 }
 
 func (a *App) apiUpdateKey(w http.ResponseWriter, r *http.Request) {
-	id, ok := pathID(w, r, "id")
-	if !ok {
-		return
-	}
-
-	var req model.UpdateKeyRequest
-	if err := readJSON(r, &req); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid request body")
-		return
-	}
-
-	label := strings.TrimSpace(req.Label)
-	category := normalizeKeyCategory(req.Category)
-	templateText := strings.TrimSpace(req.TemplateText)
-	kind, kindOK := model.NormalizeKeyKind(req.Kind)
-	if !kindOK {
-		writeError(w, http.StatusBadRequest, "invalid key kind")
-		return
-	}
-	status, ok := model.NormalizeKeyStatus(req.Status)
-	if !ok {
-		writeError(w, http.StatusBadRequest, "invalid key status")
-		return
-	}
-	if label == "" {
-		writeError(w, http.StatusBadRequest, "label is required")
-		return
-	}
-	if len(label) > 255 {
-		writeError(w, http.StatusBadRequest, "label is too long (max 255 characters)")
-		return
-	}
-
-	var existingEncURL sql.NullString
-	var existingKind sql.NullString
-	var existingSort sql.NullInt64
-	if err := a.db.QueryRow(`SELECT s.encrypted_url, k.key_kind, k.sort_order FROM vless_keys k LEFT JOIN vless_key_secrets s ON k.id = s.vless_key_id WHERE k.id = ?`, id).Scan(&existingEncURL, &existingKind, &existingSort); err != nil {
-		writeError(w, http.StatusNotFound, "key not found")
-		return
-	}
-	existingKindNormalized, _ := model.NormalizeKeyKind(existingKind.String)
-	if existingKindNormalized == "" {
-		existingKindNormalized = model.KeyKindReal
-	}
-
-	builtURL := ""
-	if kind == model.KeyKindReal {
-		if rawURL := strings.TrimSpace(req.RawURL); rawURL != "" {
-			if err := validateRealConfigURL(rawURL); err != nil {
-				writeError(w, http.StatusBadRequest, err.Error())
-				return
-			}
-			builtURL = rawURL
-		} else {
-			var err error
-			builtURL, err = vless.BuildVLESSURL(req.UUID, req.Host, req.Port, req.Query, req.Fragment)
-			if err != nil {
-				writeError(w, http.StatusBadRequest, err.Error())
-				return
-			}
-		}
-	} else {
-		if templateText == "" {
-			templateText = label
-		}
-		if existingEncURL.Valid && existingEncURL.String != "" {
-			if dec, err := profilestorage.Decrypt(existingEncURL.String, a.profileKeyring, id); err == nil {
-				builtURL = strings.TrimSpace(dec.Reveal())
-			}
-		}
-		if builtURL == "" {
-			token, err := generateToken(12)
-			if err != nil {
-				writeError(w, http.StatusInternalServerError, "failed to generate key")
-				return
-			}
-			builtURL = "info://" + token
-		}
-	}
-
-	sortOrder := existingSort.Int64
-	if !existingSort.Valid || sortOrder <= 0 || existingKindNormalized != kind {
-		if err := a.db.QueryRow(`SELECT COALESCE(MAX(sort_order), 0) + 1 FROM vless_keys`).Scan(&sortOrder); err != nil {
-			writeError(w, http.StatusInternalServerError, "failed to prepare key order")
-			return
-		}
-	}
-
-	if len(builtURL) > 65535 {
-		writeError(w, http.StatusBadRequest, "configuration is too long (max 65535 characters)")
-		return
-	}
-	if len(templateText) > 8192 {
-		writeError(w, http.StatusBadRequest, "template_text is too long (max 8192 characters)")
-		return
-	}
-	if err := a.upsertKeyCategory(category); err != nil {
-		log.Printf("apiUpdateKey upsert category: %v", err)
-		writeError(w, http.StatusInternalServerError, "failed to save key category")
-		return
-	}
-	categoryID, err := a.keyCategoryID(category)
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to resolve key category")
-		return
-	}
-
-	activeID, activeKey, err := a.profileKeyring.GetActiveEncryptionKey()
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, "encryption key unavailable")
-		return
-	}
-	_, bikKey, err := a.profileKeyring.GetActiveBlindIndexKey()
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, "blind index key unavailable")
-		return
-	}
-	blindIndex := profilestorage.ComputeBlindIndex(bikKey, builtURL)
-	env, err := profilestorage.Encrypt([]byte(builtURL), activeID, activeKey, id)
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to encrypt key")
-		return
-	}
-
-	tx, err := a.db.Begin()
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to update key")
-		return
-	}
-	defer tx.Rollback()
-
-	if _, err := tx.Exec(
-		`UPDATE vless_keys SET label = ?, url_blind_index = ?, category_id = ?, category = ?, status = ?, key_kind = ?, template_text = ?, sort_order = ? WHERE id = ?`,
-		label, blindIndex, categoryID, category, status, kind, nullStringValue(templateText), sortOrder, id,
-	); err != nil {
-		log.Printf("apiUpdateKey: %v", err)
-		writeError(w, http.StatusInternalServerError, "failed to update key")
-		return
-	}
-
-	if _, err := tx.Exec(`INSERT INTO vless_key_secrets(vless_key_id, encrypted_url) VALUES(?, ?) ON CONFLICT(vless_key_id) DO UPDATE SET encrypted_url = excluded.encrypted_url`, id, env); err != nil {
-		log.Printf("apiUpdateKey secret: %v", err)
-		writeError(w, http.StatusInternalServerError, "failed to update key secret")
-		return
-	}
-
-	if err := tx.Commit(); err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to commit key update")
-		return
-	}
-
-	a.recordAuditEvent(r, "key.update", "key", strconv.FormatInt(id, 10), map[string]any{"label": label})
-	writeMessage(w, "key updated")
+	a.legacyKeyHandler().UpdateKey(w, r)
 }
 
 func (a *App) apiBulkUpdateKeyStatus(w http.ResponseWriter, r *http.Request) {
@@ -2062,23 +1762,7 @@ func (a *App) apiReorderKeys(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *App) apiDeleteKey(w http.ResponseWriter, r *http.Request) {
-	id, ok := pathID(w, r, "id")
-	if !ok {
-		return
-	}
-	res, err := a.db.Exec(`DELETE FROM vless_keys WHERE id = ?`, id)
-	if err != nil {
-		log.Printf("apiDeleteKey: %v", err)
-		writeError(w, http.StatusInternalServerError, "failed to delete key")
-		return
-	}
-	n, _ := res.RowsAffected()
-	if n == 0 {
-		writeError(w, http.StatusNotFound, "key not found")
-		return
-	}
-	a.recordAuditEvent(r, "key.delete", "key", strconv.FormatInt(id, 10), nil)
-	writeMessage(w, "key deleted")
+	a.legacyKeyHandler().DeleteKey(w, r)
 }
 
 func (a *App) apiCheckKey(w http.ResponseWriter, r *http.Request) {
