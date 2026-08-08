@@ -46,7 +46,7 @@ func (s *Service) CreateLegacy(ctx context.Context, params CreateLegacyParams) (
 			return 0, "", ErrURLRequired
 		}
 		if err := profileconfig.ValidateRealConfigURL(keyURL); err != nil {
-			return 0, "", fmt.Errorf("%w: %s", ErrInvalidProfileURI, err.Error())
+			return 0, "", invalidProfileURIError(err)
 		}
 	} else {
 		if templateText == "" {
@@ -111,14 +111,14 @@ func (s *Service) UpdateLegacy(ctx context.Context, id int64, params UpdateLegac
 	if kind == model.KeyKindReal {
 		if rawURL := strings.TrimSpace(params.RawURL); rawURL != "" {
 			if err := profileconfig.ValidateRealConfigURL(rawURL); err != nil {
-				return "", fmt.Errorf("%w: %s", ErrInvalidProfileURI, err.Error())
+				return "", invalidProfileURIError(err)
 			}
 			builtURL = rawURL
 		} else {
 			var err error
 			builtURL, err = vless.BuildVLESSURL(params.UUID, params.Host, params.Port, params.Query, params.Fragment)
 			if err != nil {
-				return "", fmt.Errorf("%w: %s", ErrInvalidProfileURI, err.Error())
+				return "", invalidProfileURIError(err)
 			}
 		}
 	} else {

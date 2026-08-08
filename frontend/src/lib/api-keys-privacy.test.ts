@@ -18,8 +18,11 @@ function getAllSourceFiles(dir: string, fileList: string[] = []): string[] {
 }
 
 describe("Frontend Keys Privacy & Source Audit", () => {
-  it("ensures the legacy bulk-key endpoint is absent from frontend runtime", () => {
-    const forbiddenEndpoint = ["/api/v1/keys", "full"].join("/");
+  it("ensures legacy administration and bulk-secret key endpoints are absent from frontend runtime", () => {
+    const forbiddenEndpoints = [
+      ["/api/v1/keys", "full"].join("/"),
+      ["/api", "admin"].join("/") + "/",
+    ];
     const srcDir = path.resolve(__dirname, "..");
     const sourceFiles = getAllSourceFiles(srcDir);
 
@@ -29,12 +32,14 @@ describe("Frontend Keys Privacy & Source Audit", () => {
       const content = fs.readFileSync(filePath, "utf-8");
       const lines = content.split("\n");
       lines.forEach((line, index) => {
-        if (new RegExp(forbiddenEndpoint, "i").test(line)) {
-          violations.push({
-            file: path.relative(srcDir, filePath),
-            line: index + 1,
-            content: line.trim(),
-          });
+        for (const forbiddenEndpoint of forbiddenEndpoints) {
+          if (new RegExp(forbiddenEndpoint, "i").test(line)) {
+            violations.push({
+              file: path.relative(srcDir, filePath),
+              line: index + 1,
+              content: line.trim(),
+            });
+          }
         }
       });
     }

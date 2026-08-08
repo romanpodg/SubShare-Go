@@ -376,20 +376,3 @@ func TestKeyEditorSchemaEndpointReturnsValidProtocolsAndExclusionReasons(t *test
 		t.Fatalf("exclusion reason codes empty")
 	}
 }
-
-func TestLegacyFullKeysEndpointCacheControl(t *testing.T) {
-	app := newIntegrationApp(t)
-	sessionID, _, _ := seedIntegrationSession(t, app, "owner")
-
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/keys/full", nil)
-	req.AddCookie(&http.Cookie{Name: "subshare_admin_session", Value: sessionID})
-	rec := httptest.NewRecorder()
-	app.apiListKeys(rec, req)
-
-	if rec.Code != http.StatusOK {
-		t.Fatalf("GET /api/v1/keys/full status=%d body=%s", rec.Code, rec.Body.String())
-	}
-	if cc := rec.Header().Get("Cache-Control"); cc != "no-store, private" {
-		t.Fatalf("Cache-Control = %q, want 'no-store, private'", cc)
-	}
-}

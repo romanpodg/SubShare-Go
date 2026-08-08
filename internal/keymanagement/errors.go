@@ -12,6 +12,36 @@ type KeyNotFoundError struct {
 	ID int64
 }
 
+type InvalidProfileURIError struct {
+	Detail string
+}
+
+func (e InvalidProfileURIError) Error() string {
+	if e.Detail == "" {
+		return ErrInvalidProfileURI.Error()
+	}
+	return ErrInvalidProfileURI.Error() + ": " + e.Detail
+}
+
+func (e InvalidProfileURIError) Unwrap() error {
+	return ErrInvalidProfileURI
+}
+
+func invalidProfileURIError(err error) error {
+	if err == nil {
+		return ErrInvalidProfileURI
+	}
+	return InvalidProfileURIError{Detail: err.Error()}
+}
+
+func InvalidProfileURIMessage(err error) string {
+	var typed InvalidProfileURIError
+	if errors.As(err, &typed) && typed.Detail != "" {
+		return typed.Detail
+	}
+	return ErrInvalidProfileURI.Error()
+}
+
 func (e KeyNotFoundError) Error() string {
 	return fmt.Sprintf("key not found: %d", e.ID)
 }

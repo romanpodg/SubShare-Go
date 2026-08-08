@@ -61,3 +61,13 @@ func TestService_LegacyValidation(t *testing.T) {
 		t.Fatalf("expected ErrKeyNotFound, got %v", err)
 	}
 }
+
+func TestInvalidProfileURIErrorCarriesTypedPublicDetail(t *testing.T) {
+	err := invalidProfileURIError(errors.New("invalid endpoint"))
+	if !errors.Is(err, ErrInvalidProfileURI) {
+		t.Fatalf("error %v does not wrap ErrInvalidProfileURI", err)
+	}
+	if message := InvalidProfileURIMessage(err); message != "invalid endpoint" {
+		t.Fatalf("public message = %q, want %q", message, "invalid endpoint")
+	}
+}

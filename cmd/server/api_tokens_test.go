@@ -32,3 +32,24 @@ func TestAPITokenAllows(t *testing.T) {
 		t.Fatal("users:write should not allow settings mutation")
 	}
 }
+
+func TestAPITokenKeyScopeCoversSupportedAndCompatibilityRoutes(t *testing.T) {
+	t.Parallel()
+	keyScopes := []string{"keys:write"}
+	for _, path := range []string{
+		"/api/v1/keys/1/reveal",
+		"/api/v1/key-categories",
+		"/api/v1/sources/1/sync",
+		"/api/v1/source-categories",
+		"/api/admin/keys/1/check",
+		"/api/admin/key-categories",
+		"/api/admin/external-sources/1/sync",
+	} {
+		if !apiTokenAllows(keyScopes, http.MethodPost, path) {
+			t.Errorf("keys:write should allow key operation %s", path)
+		}
+		if apiTokenAllows([]string{"settings:write"}, http.MethodPost, path) {
+			t.Errorf("settings:write should not allow key operation %s", path)
+		}
+	}
+}

@@ -191,7 +191,7 @@ func (s *Service) CreateLocal(ctx context.Context, params CreateLocalParams) (*m
 				return nil, ErrRawURIRequired
 			}
 			if _, parseErr := profiles.Parse(builtURI); parseErr != nil {
-				return nil, fmt.Errorf("%w: %s", ErrInvalidProfileURI, parseErr.Error())
+				return nil, invalidProfileURIError(parseErr)
 			}
 		} else {
 			proto := strings.ToLower(strings.TrimSpace(params.Protocol))

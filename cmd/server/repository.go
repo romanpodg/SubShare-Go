@@ -1,7 +1,6 @@
 package main
 
 import (
-	"context"
 	"database/sql"
 	"errors"
 	"fmt"
@@ -751,10 +750,6 @@ func (a *App) listUsers() ([]model.User, error) {
 	}
 
 	return out, nil
-}
-
-func (a *App) listKeys() ([]model.VLESSKey, error) {
-	return a.keyService().ListLegacy(context.Background())
 }
 
 func (a *App) getSubscriptionSettings() (model.SubscriptionSettings, error) {

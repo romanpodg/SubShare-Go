@@ -229,7 +229,7 @@ func (s *Service) UpdateLocal(ctx context.Context, params UpdateLocalParams) (*m
 				return nil, ErrRawURIRequired
 			}
 			if _, parseErr := profiles.Parse(newURI); parseErr != nil {
-				return nil, fmt.Errorf("%w: %s", ErrInvalidProfileURI, parseErr.Error())
+				return nil, invalidProfileURIError(parseErr)
 			}
 		} else {
 			if params.StructuredPatch == nil {

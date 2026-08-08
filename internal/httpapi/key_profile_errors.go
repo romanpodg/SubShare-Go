@@ -7,7 +7,6 @@ import (
 	"io"
 	"net/http"
 	"strconv"
-	"strings"
 
 	"github.com/romanpodg/SubShare-Go/internal/keymanagement"
 	"github.com/romanpodg/SubShare-Go/internal/middleware"
@@ -127,11 +126,7 @@ func mapServiceError(w http.ResponseWriter, r *http.Request, err error, defaultC
 		return
 	}
 	if errors.Is(err, keymanagement.ErrInvalidProfileURI) {
-		msg := err.Error()
-		if idx := strings.Index(msg, ": "); idx != -1 {
-			msg = msg[idx+2:]
-		}
-		writeV1Error(w, r, http.StatusBadRequest, "invalid_profile_uri", msg)
+		writeV1Error(w, r, http.StatusBadRequest, "invalid_profile_uri", keymanagement.InvalidProfileURIMessage(err))
 		return
 	}
 	if errors.Is(err, keymanagement.ErrProfileCreateConflict) {

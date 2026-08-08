@@ -194,21 +194,6 @@ func TestCharacterization_CacheControlAndPragmaHeaders(t *testing.T) {
 		}
 	})
 
-	t.Run("deprecated full key GET /api/v1/keys/full", func(t *testing.T) {
-		req := httptest.NewRequest(http.MethodGet, "/api/v1/keys/full", nil)
-		req.AddCookie(&http.Cookie{Name: "subshare_admin_session", Value: sessionID})
-		rec := httptest.NewRecorder()
-		app.requireAdmin(http.HandlerFunc(app.apiListKeys)).ServeHTTP(rec, req)
-		if rec.Code != http.StatusOK {
-			t.Fatalf("status = %d, want 200", rec.Code)
-		}
-		if cc := rec.Header().Get("Cache-Control"); cc != "no-store, private" {
-			t.Fatalf("Cache-Control = %q, want 'no-store, private'", cc)
-		}
-		if pragma := rec.Header().Get("Pragma"); pragma != "no-cache" {
-			t.Fatalf("Pragma = %q, want 'no-cache'", pragma)
-		}
-	})
 }
 
 func TestCharacterization_StartupInvariantFailures(t *testing.T) {

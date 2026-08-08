@@ -304,7 +304,7 @@ go build -ldflags "-X main.version=1.2.0 -X main.commit=$(git rev-parse --short 
 - `GET /api/v1/jobs`, `/audit-events`, `/build-info`
 - `GET /api/v1/openapi.yaml`
 
-Старые `/api/admin/*` пока сохранены как compatibility API на переходный релиз. Новая разработка должна использовать `/api/v1`.
+Старые `/api/admin/*` пока сохранены как compatibility API на переходный релиз. Исключение — удалённые небезопасные bulk-secret GET-маршруты `GET /api/admin/keys` и `GET /api/admin/export/keys`. Новая разработка должна использовать `/api/v1`; данные ключа без секретов доступны через `GET /api/v1/keys` и `GET /api/v1/keys/{id}`, а расшифрованный материал — только через явный revision-aware `POST /api/v1/keys/{id}/reveal`. Переходный `GET /api/v1/keys/full` также удалён.
 
 ## Шаблоны и response rules
 

@@ -4,7 +4,6 @@ import (
 	"errors"
 	"net/http"
 	"strconv"
-	"strings"
 
 	"github.com/romanpodg/SubShare-Go/internal/keymanagement"
 	"github.com/romanpodg/SubShare-Go/internal/model"
@@ -28,20 +27,6 @@ func writeMessage(w http.ResponseWriter, msg string) {
 
 func readJSON(r *http.Request, dst any) error {
 	return readJSONWithLimit(nil, r, dst, 1<<20)
-}
-
-func (h *LegacyKeyHandler) ListKeys(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Cache-Control", "no-store, private")
-	w.Header().Set("Pragma", "no-cache")
-	keys, err := h.service.ListLegacy(r.Context())
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to list keys")
-		return
-	}
-	if keys == nil {
-		keys = []model.VLESSKey{}
-	}
-	writeJSON(w, http.StatusOK, map[string]any{"keys": keys})
 }
 
 func (h *LegacyKeyHandler) CreateKey(w http.ResponseWriter, r *http.Request) {
@@ -158,11 +143,7 @@ func mapLegacyCreateError(w http.ResponseWriter, err error) {
 		return
 	}
 	if errors.Is(err, keymanagement.ErrInvalidProfileURI) {
-		msg := err.Error()
-		if idx := strings.Index(msg, ": "); idx != -1 {
-			msg = msg[idx+2:]
-		}
-		writeError(w, http.StatusBadRequest, msg)
+		writeError(w, http.StatusBadRequest, keymanagement.InvalidProfileURIMessage(err))
 		return
 	}
 	if errors.Is(err, keymanagement.ErrKeyCreateConflict) {
@@ -222,11 +203,7 @@ func mapLegacyUpdateError(w http.ResponseWriter, err error) {
 		return
 	}
 	if errors.Is(err, keymanagement.ErrInvalidProfileURI) {
-		msg := err.Error()
-		if idx := strings.Index(msg, ": "); idx != -1 {
-			msg = msg[idx+2:]
-		}
-		writeError(w, http.StatusBadRequest, msg)
+		writeError(w, http.StatusBadRequest, keymanagement.InvalidProfileURIMessage(err))
 		return
 	}
 	if errors.Is(err, keymanagement.ErrCategoryPersistence) {

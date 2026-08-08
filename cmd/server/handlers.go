@@ -1081,10 +1081,6 @@ func (a *App) legacyKeyHandler() *httpapi.LegacyKeyHandler {
 	return httpapi.NewLegacyKeyHandler(a.keyService(), a.recordAuditEvent)
 }
 
-func (a *App) apiListKeys(w http.ResponseWriter, r *http.Request) {
-	a.legacyKeyHandler().ListKeys(w, r)
-}
-
 func (a *App) keyCategoryHandler() *httpapi.KeyCategoryHandler {
 	return httpapi.NewKeyCategoryHandler(a.keyService(), a.recordAuditEvent)
 }
@@ -1532,20 +1528,6 @@ func (a *App) apiExportUsers(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Content-Disposition", `attachment; filename="users.json"`)
 	writeJSON(w, http.StatusOK, users)
-}
-
-func (a *App) apiExportKeys(w http.ResponseWriter, r *http.Request) {
-	keys, err := a.listKeys()
-	if err != nil {
-		log.Printf("apiExportKeys: %v", err)
-		writeError(w, http.StatusInternalServerError, "failed to export keys")
-		return
-	}
-	if keys == nil {
-		keys = []model.VLESSKey{}
-	}
-	w.Header().Set("Content-Disposition", `attachment; filename="keys.json"`)
-	writeJSON(w, http.StatusOK, keys)
 }
 
 func (a *App) apiGetSubscriptionInfo(w http.ResponseWriter, r *http.Request) {
