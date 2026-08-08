@@ -47,7 +47,7 @@ FROM alpine:${ALPINE_VERSION} AS runtime
 LABEL org.opencontainers.image.title="SubShare" \
       org.opencontainers.image.description="Self-hosted subscription delivery and configuration operations hub" \
       org.opencontainers.image.source="https://github.com/romanpodg/SubShare-Go" \
-      org.opencontainers.image.licenses="MIT"
+      org.opencontainers.image.licenses="Unlicense"
 
 # Install minimal runtime dependencies in a single layer
 # curl is used for the HEALTHCHECK probe
