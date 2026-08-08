@@ -204,6 +204,22 @@ func ComputeBlindIndex(bik []byte, rawURL string) string {
 	return hex.EncodeToString(h.Sum(nil))
 }
 
+// GenerateCloneBlindIndex creates a keyed, domain-separated identity for an
+// intentional local clone. The random context lets explicit clones coexist
+// while ordinary create/update operations retain deterministic duplicate
+// detection through ComputeBlindIndex.
+func GenerateCloneBlindIndex(bik []byte, rawURL string) (string, error) {
+	context := make([]byte, 32)
+	if _, err := rand.Read(context); err != nil {
+		return "", fmt.Errorf("%w: failed to generate clone blind-index context: %v", ErrBlindIndexKeyMismatch, err)
+	}
+	h := hmac.New(sha256.New, bik)
+	_, _ = h.Write([]byte("subshare|vless_keys|url_blind_index|clone|v1|"))
+	_, _ = h.Write(context)
+	_, _ = h.Write([]byte(rawURL))
+	return hex.EncodeToString(h.Sum(nil)), nil
+}
+
 func splitExact(s string, sep byte) []string {
 	var n int
 	for i := 0; i < len(s); i++ {

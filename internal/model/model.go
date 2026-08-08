@@ -790,30 +790,30 @@ type SanitizedCheckError struct {
 }
 
 type KeyProfileDetailResponse struct {
-	ID                     int64                      `json:"id"`
-	Label                  string                     `json:"label"`
-	CategoryID             *int64                     `json:"category_id"`
-	Category               string                     `json:"category"`
-	Kind                   string                     `json:"kind"`
-	Status                 string                     `json:"status"`
-	CheckStatus            string                     `json:"check_status"`
-	CheckError             SanitizedCheckError        `json:"check_error"`
-	LastLatencyMS          int64                      `json:"last_latency_ms"`
-	LastCheckedAt          string                     `json:"last_checked_at"`
-	TemplateText           string                     `json:"template_text"`
-	Ownership              KeyOwnership               `json:"ownership"`
-	ExternalSourceID       *int64                     `json:"external_source_id"`
-	ExternalSourceName     string                     `json:"external_source_name"`
-	Protocol               string                     `json:"protocol"`
-	ProfileSchemaVersion   int                        `json:"profile_schema_version"`
-	ProfileCompatibility   string                     `json:"profile_compatibility"`
-	ProfileWarnings        []string                   `json:"profile_warnings"`
-	ProfileRevision        int64                      `json:"profile_revision"`
-	CreatedAt              time.Time                  `json:"created_at"`
-	UpdatedAt              time.Time                  `json:"updated_at"`
-	SafeStructured         *SafeStructuredProfile     `json:"safe_structured,omitempty"`
-	UnknownQueryParameters []UnknownQueryParamDTO     `json:"unknown_query_parameters"`
-	Capabilities           map[string]map[string]any  `json:"capabilities"`
+	ID                     int64                     `json:"id"`
+	Label                  string                    `json:"label"`
+	CategoryID             *int64                    `json:"category_id"`
+	Category               string                    `json:"category"`
+	Kind                   string                    `json:"kind"`
+	Status                 string                    `json:"status"`
+	CheckStatus            string                    `json:"check_status"`
+	CheckError             SanitizedCheckError       `json:"check_error"`
+	LastLatencyMS          int64                     `json:"last_latency_ms"`
+	LastCheckedAt          string                    `json:"last_checked_at"`
+	TemplateText           string                    `json:"template_text"`
+	Ownership              KeyOwnership              `json:"ownership"`
+	ExternalSourceID       *int64                    `json:"external_source_id"`
+	ExternalSourceName     string                    `json:"external_source_name"`
+	Protocol               string                    `json:"protocol"`
+	ProfileSchemaVersion   int                       `json:"profile_schema_version"`
+	ProfileCompatibility   string                    `json:"profile_compatibility"`
+	ProfileWarnings        []string                  `json:"profile_warnings"`
+	ProfileRevision        int64                     `json:"profile_revision"`
+	CreatedAt              time.Time                 `json:"created_at"`
+	UpdatedAt              time.Time                 `json:"updated_at"`
+	SafeStructured         *SafeStructuredProfile    `json:"safe_structured,omitempty"`
+	UnknownQueryParameters []UnknownQueryParamDTO    `json:"unknown_query_parameters"`
+	Capabilities           map[string]map[string]any `json:"capabilities"`
 }
 
 type KeySecretRevealRequest struct {

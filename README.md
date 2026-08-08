@@ -59,8 +59,10 @@ powershell -ExecutionPolicy Bypass -File .\scripts\start.ps1
 
 При первом запуске скрипт создаёт закрытый `.env`, генерирует стойкий пароль
 owner (значение сохраняется в `.env`, но не выводится), собирает образы,
-выполняет миграции и ждёт готовности сервисов. По умолчанию панель открывается
-на `http://localhost/admin/login`.
+создаёт случайный encryption keyring в persistent `app-data`, выполняет
+миграции и ждёт готовности сервисов. Повторный запуск сохраняет существующий
+keyring без изменений. По умолчанию панель открывается на
+`http://localhost/admin/login`.
 
 Для публичного HTTPS укажите при первом запросе адрес вида
 `https://vpn.example.com`. DNS домена должен указывать на сервер, а порты 80 и
@@ -99,6 +101,8 @@ npm. Для пустой БД запустите backend с `ADMIN_PASSWORD`, с
 | `ADMIN_PASSWORD` | Пароль первого owner: обязателен только при пустой таблице администраторов; 15–256 Unicode code points и не более 1024 UTF-8 bytes; пробелы сохраняются |
 | `PROFILE_FINGERPRINT_KEY` | Обязательный отдельный секрет: минимум 32 случайных байта в hexadecimal; используется только для HMAC semantic fingerprint профилей и должен сохраняться между перезапусками |
 | `PROFILE_FINGERPRINT_PREVIOUS_KEYS` | Необязательный список прежних fingerprint-ключей через запятую на период ротации; удаляйте старый ключ только после синхронизации всех источников |
+| `PROFILE_ENCRYPTION_KEYRING_FILE` | Путь к JSON keyring для шифрования profile credentials; в Compose по умолчанию `/app/data/keyring.json`, создаётся один раз внутри persistent volume |
+| `PROFILE_ENCRYPTION_KEYRING_JSON` | Альтернатива файлу keyring для secret-manager deployments; с `PROFILE_ENCRYPTION_KEYRING_FILE` взаимоисключающа |
 | `APP_ENV` | `development` (по умолчанию) или `production`; production требует корректный `BASE_URL` |
 | `PORT` | `8080` по умолчанию; номер `1–65535` или валидный `host:port` |
 | `DB_PATH` | Файл SQLite; по умолчанию `data/app.db`; в Compose — `/app/data/app.db` |
@@ -140,17 +144,18 @@ listener, пока администратор не задаст `PROFILE_FINGERP
 безопасно для deduplication; удаление раньше может создать новые строки вместо
 сопоставления со старыми fingerprint.
 
-Raw URI внешних профилей содержат credentials и сейчас хранятся в plaintext
-SQLite column `vless_keys.url`. Файловые permissions не являются
-application-level encryption. До первого публичного stable release требуется
-отдельная ограниченная задача по шифрованию raw profile storage и миграции
-существующих строк без изменения delivery. Audit, preview, warnings и profile
-metadata не должны копировать raw URI.
+Raw URI локальных и внешних профилей содержат credentials и хранятся только в
+`vless_key_secrets.encrypted_url` как authenticated encryption envelope.
+Encryption key ID входит в envelope, а row ID привязан как AAD; keyed blind
+index отделён от encryption keys. Таблица `vless_keys` содержит metadata без
+plaintext URI. Audit, preview, warnings и generic profile metadata не копируют
+raw URI; административная расшифровка доступна только через явный
+revision-aware reveal endpoint.
 
 Importer использует пять разных идентификаторов, которые нельзя подменять друг
 другом: SQLite `vless_keys.id` адресует конкретную source-owned строку и её
 assignments; `external_key_ref` остаётся стабильным legacy/public reference
-внутри источника; `url` хранит точный raw input для reparse/delivery;
+внутри источника; encrypted secret хранит точный raw input для reparse/delivery;
 `profile_fingerprint` — keyed semantic identity, уникальный только внутри
 `external_source_id`; preview `ir1_` — краткоживущий HMAC raw bytes вместе с
 one-based item index и не является database/public identity.
@@ -170,8 +175,9 @@ body или JSON. Base64-looking malformed input возвращает стаби
 uncategorized, category sort order, key sort order, source id, row id. Генерация
 выполняется синхронно и не сохраняет готовые credential-bearing bodies.
 
-Перед генерацией backend повторно разбирает authoritative `vless_keys.url` и
-вычисляет semantic identity текущим `PROFILE_FINGERPRINT_KEY`. Это позволяет
+Перед генерацией backend расшифровывает authoritative secret с проверкой AAD,
+повторно разбирает URI и вычисляет semantic identity текущим
+`PROFILE_FINGERPRINT_KEY`. Это позволяет
 дедуплицировать одинаковое подключение, даже если source-owned строки имеют
 fingerprints разных поколений. Побеждает первая запись в delivery order, поэтому
 её tag/name используется в результате; label не участвует в identity. Строки БД,
@@ -345,18 +351,29 @@ bash scripts/backup.sh
 .\scripts\backup.ps1
 ```
 
-Копии создаются в `backups/` и игнорируются Git. Перед восстановлением
-остановите stack и сохраните текущую БД отдельно. Не копируйте активный
-`app.db` напрямую: используйте только экспортированный backup. После
-восстановления проверьте `/health`, вход и существующую subscription URL.
-Backup содержит ту же plaintext колонку `vless_keys.url`, включая пароли,
-UUID, auth values и другие profile credentials. Храните и передавайте backup
-как credential-bearing secret; ограничьте доступ, не публикуйте его и удаляйте
-ненужные копии безопасным способом.
+Скрипт экспортирует пару `app_<timestamp>.db` и
+`keyring_<timestamp>.json` в `backups/`; каталог игнорируется Git. Перед каждым
+upgrade сделайте такой export и отдельно сохраните закрытый `.env`, содержащий
+стабильный `PROFILE_FINGERPRINT_KEY`. Перед восстановлением остановите stack и
+сохраните текущую БД отдельно. Не копируйте активный `app.db` напрямую:
+используйте только экспортированный backup. Восстанавливайте БД только вместе
+с соответствующим keyring, затем проверьте `/health`, вход и существующую
+subscription URL.
+
+SQLite backup не содержит plaintext profile URI: credentials остаются в
+authenticated encrypted envelopes. При этом БД содержит чувствительные user
+access identifiers и становится расшифровываемой вместе с keyring, поэтому оба
+файла храните как secrets с ограниченным доступом. Потеря keyring делает
+существующие profile credentials невосстановимыми; создание нового keyring не
+восстанавливает старые данные. При использовании
+`PROFILE_ENCRYPTION_KEYRING_JSON` сохраните это secret-manager значение вместо
+файла keyring.
 
 При первом переходе со старой bind-mount конфигурации start-скрипт обнаруживает
-`data/app.db` и копирует его вместе с WAL sidecars в новый named volume, только
-если volume ещё не содержит БД. Исходные файлы не изменяются и не удаляются.
+`data/app.db` и копирует его вместе с WAL sidecars и существующим
+`data/keyring.json` в новый named volume, не перезаписывая уже имеющиеся данные.
+Исходные файлы не изменяются и не удаляются. Версионные миграции запускаются
+backend автоматически до открытия HTTP listener.
 
 ## Модель угроз
 

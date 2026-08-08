@@ -33,6 +33,12 @@ func writeJSON(w http.ResponseWriter, status int, payload any) {
 	_ = json.NewEncoder(w).Encode(payload)
 }
 
+func applySensitiveResponseHeaders(w http.ResponseWriter) {
+	w.Header().Set("Cache-Control", "no-store, no-cache, must-revalidate, private")
+	w.Header().Set("Pragma", "no-cache")
+	w.Header().Set("Expires", "0")
+}
+
 func readJSON(r *http.Request, dst any) error {
 	return readJSONWithLimit(nil, r, dst, 1<<20)
 }
@@ -428,6 +434,7 @@ func (a *App) apiDeleteAdmin(w http.ResponseWriter, r *http.Request) {
 // --- Users API ---
 
 func (a *App) apiListUsers(w http.ResponseWriter, r *http.Request) {
+	applySensitiveResponseHeaders(w)
 	users, err := a.listUsers()
 	if err != nil {
 		log.Printf("apiListUsers: %v", err)
@@ -436,6 +443,12 @@ func (a *App) apiListUsers(w http.ResponseWriter, r *http.Request) {
 	}
 	if users == nil {
 		users = []model.User{}
+	}
+	// The legacy token column is retained for database compatibility, but it is
+	// not used by current subscription delivery or the administration frontend.
+	// Do not return that access material from bulk user projections.
+	for i := range users {
+		users[i].Token = ""
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"users": users})
 }
@@ -721,6 +734,7 @@ func (a *App) apiUpdateUserSubscription(w http.ResponseWriter, r *http.Request) 
 }
 
 func (a *App) apiGetUserSubscriptionURLs(w http.ResponseWriter, r *http.Request) {
+	applySensitiveResponseHeaders(w)
 	id, ok := pathID(w, r, "id")
 	if !ok {
 		return
@@ -1517,6 +1531,7 @@ func (a *App) renderSubscriptionBrowserPage(w http.ResponseWriter, r *http.Reque
 // --- Data export API ---
 
 func (a *App) apiExportUsers(w http.ResponseWriter, r *http.Request) {
+	applySensitiveResponseHeaders(w)
 	users, err := a.listUsers()
 	if err != nil {
 		log.Printf("apiExportUsers: %v", err)

@@ -150,39 +150,6 @@ if (-not (Test-Path -LiteralPath $envFile)) {
     Write-Host "Created $envFile"
 }
 
-$keyringPath = Join-Path $rootDir "data\keyring.json"
-if (-not (Test-Path -LiteralPath $keyringPath)) {
-    $dataDir = Join-Path $rootDir "data"
-    if (-not (Test-Path -LiteralPath $dataDir)) {
-        New-Item -ItemType Directory -Path $dataDir | Out-Null
-    }
-    $encBytes = New-Object byte[] 32
-    $bikBytes = New-Object byte[] 32
-    $rng = [System.Security.Cryptography.RandomNumberGenerator]::Create()
-    try {
-        $rng.GetBytes($encBytes)
-        $rng.GetBytes($bikBytes)
-    } finally {
-        $rng.Dispose()
-    }
-    $encB64 = [Convert]::ToBase64String($encBytes).TrimEnd('=').Replace('+', '-').Replace('/', '_')
-    $bikB64 = [Convert]::ToBase64String($bikBytes).TrimEnd('=').Replace('+', '-').Replace('/', '_')
-    $jsonContent = @"
-{
-  "active_key_id": "key-1",
-  "keys": {
-    "key-1": "$encB64"
-  },
-  "active_blind_index_key_id": "bik-1",
-  "blind_index_keys": {
-    "bik-1": "$bikB64"
-  }
-}
-"@
-    Set-Content -LiteralPath $keyringPath -Value $jsonContent -Encoding UTF8
-    Write-Host "Created data/keyring.json"
-}
-
 $resolvedBaseUrl = Get-DotEnvValue "BASE_URL"
 $resolvedAdminPassword = Get-DotEnvExactValue "ADMIN_PASSWORD"
 $resolvedProfileFingerprintKey = Get-DotEnvValue "PROFILE_FINGERPRINT_KEY"

@@ -340,10 +340,10 @@ func handleCLI(args []string) (bool, error) {
 			if len(args) >= 4 {
 				targetPath = args[3]
 			}
-			if _, err := os.Stat(targetPath); !os.IsNotExist(err) {
-				if err == nil {
-					return true, fmt.Errorf("keyring already exists at %s", targetPath)
-				}
+			if _, err := os.Stat(targetPath); err == nil {
+				fmt.Printf("Keyring already exists at %s; keeping it unchanged.\n", targetPath)
+				return true, nil
+			} else if !os.IsNotExist(err) {
 				return true, fmt.Errorf("stat keyring file: %w", err)
 			}
 			data, err := profilestorage.GenerateKeyringJSON("key-1", "bik-1")
@@ -353,7 +353,19 @@ func handleCLI(args []string) (bool, error) {
 			if err := os.MkdirAll(filepath.Dir(targetPath), 0700); err != nil {
 				return true, err
 			}
-			if err := os.WriteFile(targetPath, data, 0600); err != nil {
+			file, err := os.OpenFile(targetPath, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0600)
+			if os.IsExist(err) {
+				fmt.Printf("Keyring already exists at %s; keeping it unchanged.\n", targetPath)
+				return true, nil
+			}
+			if err != nil {
+				return true, err
+			}
+			if _, err := file.Write(data); err != nil {
+				_ = file.Close()
+				return true, err
+			}
+			if err := file.Close(); err != nil {
 				return true, err
 			}
 			fmt.Printf("Generated keyring at %s\n", targetPath)

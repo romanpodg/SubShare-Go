@@ -112,26 +112,6 @@ if [[ ! -f "$ENV_FILE" ]]; then
   echo "Created $ENV_FILE"
 fi
 
-if [[ ! -f "data/keyring.json" ]]; then
-  mkdir -p data
-  KEY1="$(head -c 32 /dev/urandom | base64 | tr -d '=\n' | tr '+/' '-_')"
-  BIK1="$(head -c 32 /dev/urandom | base64 | tr -d '=\n' | tr '+/' '-_')"
-  cat <<EOF > data/keyring.json
-{
-  "active_key_id": "key-1",
-  "keys": {
-    "key-1": "$KEY1"
-  },
-  "active_blind_index_key_id": "bik-1",
-  "blind_index_keys": {
-    "bik-1": "$BIK1"
-  }
-}
-EOF
-  chmod 600 data/keyring.json
-  echo "Created data/keyring.json"
-fi
-
 BASE_URL_VALUE="$(dotenv_value BASE_URL)"
 ADMIN_PASSWORD_VALUE="$(dotenv_value ADMIN_PASSWORD)"
 PROFILE_FINGERPRINT_KEY_VALUE="$(dotenv_value PROFILE_FINGERPRINT_KEY)"

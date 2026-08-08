@@ -196,3 +196,34 @@ func TestV1GetUserReturnsEmptyDeviceArrays(t *testing.T) {
 		t.Fatalf("connected_hwids = %#v, want []", data["connected_hwids"])
 	}
 }
+
+func TestFullUserProjectionIsNotCacheable(t *testing.T) {
+	app := newIntegrationApp(t)
+	seedSubscriptionUser(t, app, "active")
+	request := httptest.NewRequest(http.MethodGet, "/api/v1/users/full", nil)
+	recorder := httptest.NewRecorder()
+
+	app.apiListUsers(recorder, request)
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("status = %d, body = %s", recorder.Code, recorder.Body.String())
+	}
+	if got := recorder.Header().Get("Cache-Control"); got != "no-store, no-cache, must-revalidate, private" {
+		t.Fatalf("Cache-Control = %q", got)
+	}
+	if got := recorder.Header().Get("Pragma"); got != "no-cache" {
+		t.Fatalf("Pragma = %q", got)
+	}
+	payload := decodeJSONMap(t, recorder)
+	users, ok := payload["users"].([]any)
+	if !ok || len(users) != 1 {
+		t.Fatalf("users = %#v, want one user", payload["users"])
+	}
+	user, ok := users[0].(map[string]any)
+	if !ok {
+		t.Fatalf("user = %#v, want object", users[0])
+	}
+	if got, _ := user["token"].(string); got != "" {
+		t.Fatalf("legacy token was disclosed: %q", got)
+	}
+}

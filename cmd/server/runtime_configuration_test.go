@@ -1,6 +1,9 @@
 package main
 
 import (
+	"bytes"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -27,6 +30,32 @@ func TestBootstrapRuntimeDoesNotStartAfterConfigurationFailure(t *testing.T) {
 	}
 	if started {
 		t.Fatal("runtime startup proceeded after configuration validation failed")
+	}
+}
+
+func TestBootstrapKeyringIsIdempotentAndDoesNotReplaceExistingMaterial(t *testing.T) {
+	target := filepath.Join(t.TempDir(), "keyring.json")
+	args := []string{"server", "bootstrap", "keyring", target}
+
+	handled, err := handleCLI(args)
+	if !handled || err != nil {
+		t.Fatalf("initial keyring bootstrap: handled=%v err=%v", handled, err)
+	}
+	initial, err := os.ReadFile(target)
+	if err != nil {
+		t.Fatalf("read generated keyring: %v", err)
+	}
+
+	handled, err = handleCLI(args)
+	if !handled || err != nil {
+		t.Fatalf("repeated keyring bootstrap: handled=%v err=%v", handled, err)
+	}
+	repeated, err := os.ReadFile(target)
+	if err != nil {
+		t.Fatalf("read retained keyring: %v", err)
+	}
+	if !bytes.Equal(initial, repeated) {
+		t.Fatal("repeated bootstrap replaced existing key material")
 	}
 }
 

@@ -236,7 +236,14 @@ func (r *ProfileRepository) UpdateLocal(ctx context.Context, params profilepersi
 
 	var extSourceID sql.NullInt64
 	var storedRev sql.NullInt64
-	err = tx.QueryRowContext(ctx, `SELECT external_source_id, COALESCE(profile_revision, 1) FROM vless_keys WHERE id = ?`, params.ID).Scan(&extSourceID, &storedRev)
+	var storedBlindIndex string
+	var storedEncryptedURL sql.NullString
+	err = tx.QueryRowContext(ctx, `
+		SELECT k.external_source_id, COALESCE(k.profile_revision, 1), k.url_blind_index, s.encrypted_url
+		FROM vless_keys k
+		LEFT JOIN vless_key_secrets s ON s.vless_key_id = k.id
+		WHERE k.id = ?
+	`, params.ID).Scan(&extSourceID, &storedRev, &storedBlindIndex, &storedEncryptedURL)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, "", profilepersistence.ErrProfileNotFound
 	}
@@ -248,6 +255,19 @@ func (r *ProfileRepository) UpdateLocal(ctx context.Context, params profilepersi
 	}
 	if storedRev.Int64 != params.ExpectedRevision {
 		return nil, "", profilepersistence.ErrProfileRevisionConflict
+	}
+	if !storedEncryptedURL.Valid || storedEncryptedURL.String == "" {
+		return nil, "", profilepersistence.ErrStorageIntegrity
+	}
+	storedURI, decryptErr := r.credentials.decrypt(storedEncryptedURL.String, params.ID)
+	if decryptErr != nil {
+		if credentialKeyUnavailable(decryptErr) {
+			return nil, "", fmt.Errorf("%w: %v", profilepersistence.ErrEncryptionUnavailable, decryptErr)
+		}
+		return nil, "", fmt.Errorf("%w: %v", profilepersistence.ErrStorageIntegrity, decryptErr)
+	}
+	if storedURI == params.NewURI {
+		blindIndex = storedBlindIndex
 	}
 
 	res, err := tx.ExecContext(ctx, `
@@ -342,7 +362,7 @@ func (r *ProfileRepository) CloneLocal(ctx context.Context, params profilepersis
 		return nil, "", fmt.Errorf("failed to prepare key order: %w", err)
 	}
 
-	blindIndex, err := r.credentials.blindIndex(decryptedURI)
+	blindIndex, err := r.credentials.cloneBlindIndex(decryptedURI)
 	if err != nil {
 		return nil, "", fmt.Errorf("%w: %v", profilepersistence.ErrBlindIndexUnavailable, err)
 	}

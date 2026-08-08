@@ -173,6 +173,18 @@ func TestCrypto_BlindIndex(t *testing.T) {
 	if idx1 == idx3 {
 		t.Errorf("Blind index collision for distinct inputs")
 	}
+
+	clone1, err := GenerateCloneBlindIndex(bik, uri1)
+	if err != nil {
+		t.Fatalf("GenerateCloneBlindIndex: %v", err)
+	}
+	clone2, err := GenerateCloneBlindIndex(bik, uri1)
+	if err != nil {
+		t.Fatalf("GenerateCloneBlindIndex: %v", err)
+	}
+	if clone1 == idx1 || clone2 == idx1 || clone1 == clone2 {
+		t.Fatal("clone blind indexes must be distinct from deterministic and prior clone indexes")
+	}
 }
 
 func TestKeyringFile_Permissions(t *testing.T) {

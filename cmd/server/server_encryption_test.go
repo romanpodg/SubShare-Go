@@ -21,7 +21,7 @@ func createTestAppWithKeyring(t *testing.T) (*App, *profilestorage.Keyring) {
 		dbPath:                   dbPath,
 		profileKeyring:           kr,
 		subscriptionBodyEncoding: "base64",
-		profileFingerprintKey:   []byte("0123456789abcdef0123456789abcdef"),
+		profileFingerprintKey:    []byte("0123456789abcdef0123456789abcdef"),
 	}
 	return app, kr
 }

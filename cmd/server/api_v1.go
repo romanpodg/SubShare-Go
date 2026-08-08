@@ -218,6 +218,7 @@ func (a *App) apiV1ListUsers(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *App) apiV1GetUser(w http.ResponseWriter, r *http.Request) {
+	applySensitiveResponseHeaders(w)
 	id, ok := pathID(w, r, "id")
 	if !ok {
 		return

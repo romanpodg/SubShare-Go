@@ -76,6 +76,19 @@ paths:
                         type: array
                         items: { $ref: "#/components/schemas/UserSummary" }
         default: { $ref: "#/components/responses/Error" }
+    post:
+      tags: [Users]
+      summary: Create a user
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/CreateUser" }
+      responses:
+        "200": { description: User created }
+        "400": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+        default: { $ref: "#/components/responses/Error" }
   /users/{id}:
     get:
       tags: [Users]
@@ -92,6 +105,14 @@ paths:
                 properties:
                   data: { type: object, additionalProperties: true }
         "404": { $ref: "#/components/responses/Error" }
+    delete:
+      tags: [Users]
+      summary: Delete a user
+      parameters: [{ $ref: "#/components/parameters/ID" }]
+      responses:
+        "200": { description: User deleted }
+        "404": { $ref: "#/components/responses/Error" }
+        default: { $ref: "#/components/responses/Error" }
   /users/{id}/subscription:
     patch:
       tags: [Users, Subscription]
@@ -131,6 +152,103 @@ paths:
       responses:
         "200": { description: Key assignment updated atomically }
         "404": { $ref: "#/components/responses/Error" }
+        default: { $ref: "#/components/responses/Error" }
+  /users/{id}/keys:
+    put:
+      deprecated: true
+      tags: [Users, Keys]
+      summary: Replace selected key assignments (compatibility adapter)
+      parameters: [{ $ref: "#/components/parameters/ID" }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/KeyIDsRequest" }
+      responses:
+        "200": { description: Key assignments updated }
+        default: { $ref: "#/components/responses/Error" }
+  /users/{id}/settings:
+    put:
+      tags: [Users]
+      summary: Update user locale settings
+      parameters: [{ $ref: "#/components/parameters/ID" }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [time_zone, language]
+              properties:
+                time_zone: { type: string, maxLength: 64 }
+                language: { type: string, maxLength: 16 }
+      responses:
+        "200": { description: User settings updated }
+        default: { $ref: "#/components/responses/Error" }
+  /users/{id}/hwid:
+    put:
+      tags: [Users]
+      summary: Update a user's device limit
+      parameters: [{ $ref: "#/components/parameters/ID" }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [max_devices]
+              properties:
+                max_devices: { type: integer, minimum: 0 }
+      responses:
+        "200": { description: Device limit updated }
+        default: { $ref: "#/components/responses/Error" }
+  /users/{id}/hwid/{hwid}:
+    delete:
+      tags: [Users]
+      summary: Remove a connected device
+      parameters:
+        - { $ref: "#/components/parameters/ID" }
+        - { name: hwid, in: path, required: true, schema: { type: string } }
+      responses:
+        "200": { description: Device removed }
+        "404": { $ref: "#/components/responses/Error" }
+        default: { $ref: "#/components/responses/Error" }
+  /users/{id}/subscription-urls:
+    get:
+      tags: [Users, Subscription]
+      summary: Return a user's subscription URLs
+      description: Sensitive response containing a subscription access identifier; served with no-store headers.
+      parameters: [{ $ref: "#/components/parameters/ID" }]
+      responses:
+        "200":
+          description: Plain and optionally encrypted subscription URLs
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  plain_url: { type: string, format: uri }
+                  encrypted_url: { type: string }
+        default: { $ref: "#/components/responses/Error" }
+  /users/full:
+    get:
+      deprecated: true
+      tags: [Users]
+      summary: Rich user projection used by the current administration UI
+      description: Sensitive projection containing activation/subscription identifiers and device details; served with no-store headers.
+      responses:
+        "200":
+          description: Rich user list
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  users:
+                    type: array
+                    items: { type: object, additionalProperties: true }
         default: { $ref: "#/components/responses/Error" }
   /admins:
     get:
@@ -551,6 +669,111 @@ paths:
                   job_id: { type: integer, format: int64 }
                   status: { type: string, const: queued }
         default: { $ref: "#/components/responses/Error" }
+  /source-categories:
+    get:
+      tags: [Operations]
+      summary: List source category options
+      responses:
+        "200": { description: Source categories }
+        default: { $ref: "#/components/responses/Error" }
+  /subscription-settings:
+    get:
+      deprecated: true
+      tags: [Subscription]
+      summary: Get compatibility subscription settings
+      responses:
+        "200": { description: Subscription settings }
+        default: { $ref: "#/components/responses/Error" }
+    put:
+      deprecated: true
+      tags: [Subscription]
+      summary: Update compatibility subscription settings
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { type: object, additionalProperties: true }
+      responses:
+        "200": { description: Subscription settings updated }
+        default: { $ref: "#/components/responses/Error" }
+  /routing-settings:
+    get:
+      deprecated: true
+      tags: [Subscription]
+      summary: Get compatibility routing settings
+      responses:
+        "200": { description: Routing settings }
+        default: { $ref: "#/components/responses/Error" }
+    put:
+      deprecated: true
+      tags: [Subscription]
+      summary: Update compatibility routing settings
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { type: object, additionalProperties: true }
+      responses:
+        "200": { description: Routing settings updated }
+        default: { $ref: "#/components/responses/Error" }
+  /panel-settings:
+    get:
+      tags: [System]
+      summary: Get public panel branding settings
+      security: []
+      responses:
+        "200": { description: Panel settings }
+        default: { $ref: "#/components/responses/Error" }
+    put:
+      tags: [System]
+      summary: Update panel branding settings
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { type: object, additionalProperties: true }
+      responses:
+        "200": { description: Panel settings updated }
+        default: { $ref: "#/components/responses/Error" }
+  /subscription-page-config:
+    get:
+      tags: [Subscription]
+      summary: Get public subscription-page configuration
+      security: []
+      responses:
+        "200": { description: Subscription page configuration }
+        default: { $ref: "#/components/responses/Error" }
+    put:
+      tags: [Subscription]
+      summary: Update subscription-page configuration
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { type: object, additionalProperties: true }
+      responses:
+        "200": { description: Subscription page configuration updated }
+        default: { $ref: "#/components/responses/Error" }
+  /subscriptions/activate:
+    post:
+      tags: [Subscription]
+      summary: Activate a public subscription code
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [activation_code]
+              properties:
+                activation_code: { type: string }
+      responses:
+        "200": { description: Subscription activated }
+        "400": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        default: { $ref: "#/components/responses/Error" }
   /templates:
     get:
       tags: [Subscription]
@@ -859,6 +1082,17 @@ components:
         commit: { type: string }
         build_time: { type: string }
         schema_version: { type: integer }
+    CreateUser:
+      type: object
+      additionalProperties: false
+      required: [name, activation_code, status, issue_days]
+      properties:
+        name: { type: string, maxLength: 200 }
+        email: { type: string, maxLength: 320 }
+        activation_code: { type: string, maxLength: 200 }
+        status: { type: string, enum: [active, paused, blocked] }
+        issue_days: { type: integer, minimum: 0 }
+        blocked_reason: { type: string, maxLength: 500 }
     PatchUserSubscription:
       type: object
       additionalProperties: false

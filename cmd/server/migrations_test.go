@@ -358,7 +358,7 @@ func assertSourceOwnedSchemaMetadata(t *testing.T, db *sql.DB) {
 	}{
 		"idx_vless_keys_external_source_ref":         {1, 0},
 		"idx_vless_keys_external_source_fingerprint": {1, 1},
-		"idx_vless_keys_local_blind_index":          {1, 1},
+		"idx_vless_keys_local_blind_index":           {1, 1},
 		"idx_vless_keys_delivery_health":             {0, 0},
 		"idx_vless_keys_category_id":                 {0, 0},
 	} {

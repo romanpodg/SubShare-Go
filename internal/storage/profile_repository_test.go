@@ -107,6 +107,8 @@ func setupTestDB(t *testing.T) *sql.DB {
 			vless_key_id INTEGER PRIMARY KEY REFERENCES vless_keys(id) ON DELETE CASCADE,
 			encrypted_url TEXT
 		);
+		CREATE UNIQUE INDEX idx_vless_keys_local_blind_index
+			ON vless_keys(url_blind_index) WHERE external_source_id IS NULL;
 		CREATE TABLE users (
 			id INTEGER PRIMARY KEY AUTOINCREMENT,
 			key_assignment_mode TEXT NOT NULL DEFAULT 'all'
@@ -235,6 +237,28 @@ func TestProfileRepository_Create_Update_Clone(t *testing.T) {
 	if clonedURI != newURI {
 		t.Fatalf("clonedURI = %q, want %q", clonedURI, newURI)
 	}
+
+	// 6. Metadata-only updates to a clone must retain its intentional
+	// non-canonical blind index instead of colliding with the source row.
+	updatedClone, updatedCloneURI, err := repo.UpdateLocal(ctx, profilepersistence.UpdateProfileParams{
+		ID:               clonedKey.ID,
+		ExpectedRevision: 1,
+		Label:            "Key One Copy Renamed",
+		Status:           "active",
+		Kind:             "real",
+		Category:         "General",
+		Protocol:         "vless",
+		NewURI:           clonedURI,
+	})
+	if err != nil {
+		t.Fatalf("UpdateLocal clone metadata: %v", err)
+	}
+	if updatedClone.ProfileRevision != 2 || updatedClone.Label != "Key One Copy Renamed" {
+		t.Fatalf("unexpected updated clone metadata: %#v", updatedClone)
+	}
+	if updatedCloneURI != clonedURI {
+		t.Fatalf("updated clone URI = %q, want %q", updatedCloneURI, clonedURI)
+	}
 }
 
 func TestProfileRepository_BlindIndexKeySeparation(t *testing.T) {
@@ -291,6 +315,13 @@ func TestProfileRepository_BlindIndexKeySeparation(t *testing.T) {
 	// Changing ONLY blind index key MUST change url_blind_index
 	if blindIndex1 == blindIndex2 {
 		t.Fatalf("expected different blind indexes when BIK changes, got equal: %q", blindIndex1)
+	}
+
+	// Production rejects duplicate deterministic blind indexes. Remove the
+	// first row after capturing its ciphertext so the next assertion can
+	// isolate encryption-key rotation from duplicate detection.
+	if _, err := db.Exec(`DELETE FROM vless_keys WHERE id = ?`, key1.ID); err != nil {
+		t.Fatalf("delete key1 before encryption-key comparison: %v", err)
 	}
 
 	// 3. Create key with diff Enc keyring (encKey: key-2, BIK: bik-1)

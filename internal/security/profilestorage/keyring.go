@@ -10,10 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
-	"runtime"
 	"sync"
-
-	"golang.org/x/sys/windows"
 )
 
 var validKeyIDRegex = regexp.MustCompile(`^[a-zA-Z0-9_-]{1,64}$`)
@@ -110,30 +107,6 @@ func LoadKeyringFile(filePath string) (*Keyring, error) {
 	}
 
 	return LoadKeyringJSON(data)
-}
-
-func checkFilePermissions(filePath string, info os.FileInfo) error {
-	if runtime.GOOS != "windows" {
-		perm := info.Mode().Perm()
-		if perm&0077 != 0 {
-			return fmt.Errorf("file mode %04o is too permissive (must be 0600 or stricter)", perm)
-		}
-		return nil
-	}
-
-	// Windows security check: ensure file DACL is restricted
-	sd, err := windows.GetNamedSecurityInfo(
-		filePath,
-		windows.SE_FILE_OBJECT,
-		windows.DACL_SECURITY_INFORMATION,
-	)
-	if err != nil {
-		return fmt.Errorf("read windows DACL: %w", err)
-	}
-	if sd == nil {
-		return fmt.Errorf("null security descriptor")
-	}
-	return nil
 }
 
 // LoadKeyringJSON parses strict JSON containing active_key_id, keys, active_blind_index_key_id, blind_index_keys.

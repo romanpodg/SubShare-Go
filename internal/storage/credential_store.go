@@ -36,6 +36,17 @@ func (s *credentialStore) blindIndex(raw string) (string, error) {
 	return profilestorage.ComputeBlindIndex(key, raw), nil
 }
 
+func (s *credentialStore) cloneBlindIndex(raw string) (string, error) {
+	if s == nil || s.keyring == nil {
+		return "", profilestorage.ErrMissingKeyring
+	}
+	_, key, err := s.keyring.GetActiveBlindIndexKey()
+	if err != nil {
+		return "", err
+	}
+	return profilestorage.GenerateCloneBlindIndex(key, raw)
+}
+
 func (s *credentialStore) encrypt(raw string, rowID int64) (string, error) {
 	if s == nil || s.keyring == nil {
 		return "", profilestorage.ErrMissingKeyring
