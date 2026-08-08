@@ -10,7 +10,7 @@ import (
 	"strings"
 	"time"
 
-	"subshare/internal/model"
+	"github.com/romanpodg/SubShare-Go/internal/model"
 )
 
 var (

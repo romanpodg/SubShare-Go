@@ -2,7 +2,11 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { History, RefreshCw, Save, Trash2 } from "lucide-react";
-import { apiV1 } from "@/lib/api";
+import { ApiError, apiV1 } from "@/lib/api";
+import {
+  EXTERNAL_SOURCE_NAME_INPUT_MAX_LENGTH,
+  validateExternalSourceName,
+} from "@/lib/externalSourceName";
 import type { SourceDetail, SourceSummary, SourceSyncRun } from "@/lib/types";
 import { Button } from "@/components/ui/Button";
 import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
@@ -71,6 +75,11 @@ export function SourceDetailDrawer({
 
   const save = async () => {
     if (!detail) return;
+    const nameValidationError = validateExternalSourceName(detail.name);
+    if (nameValidationError) {
+      setError(new ApiError(400, "source_name_invalid", nameValidationError, { name: [nameValidationError] }));
+      return;
+    }
     setSaving(true);
     setError(null);
     try {
@@ -180,7 +189,13 @@ export function SourceDetailDrawer({
           <div className="space-y-6">
             {Boolean(error) && <ResourceError error={error} compact onRetry={() => void load()} title="Операция не выполнена" />}
             <section className="space-y-4 rounded-xl border border-border bg-surface-1 p-4">
-              <Input label="Название" value={detail.name} maxLength={24} onChange={(event) => update("name", event.target.value)} />
+              <Input
+                label="Название"
+                value={detail.name}
+                maxLength={EXTERNAL_SOURCE_NAME_INPUT_MAX_LENGTH}
+                error={validateExternalSourceName(detail.name) || undefined}
+                onChange={(event) => update("name", event.target.value)}
+              />
               <Input label="URL источника" value={detail.source_url} onChange={(event) => update("source_url", event.target.value)} />
               <div className="grid gap-4 sm:grid-cols-2">
                 <Input label="Категория источника" value={detail.category} onChange={(event) => update("category", event.target.value)} />
@@ -188,11 +203,11 @@ export function SourceDetailDrawer({
               </div>
               <div className="ui-joined-grid grid sm:grid-cols-2">
                 <label className="flex items-center gap-3 rounded-lg border border-border bg-surface-2 px-3 py-2 text-sm text-zinc-300">
-                  <input type="checkbox" checked={detail.enabled} onChange={(event) => update("enabled", event.target.checked)} className="accent-cyan-500" />
+                  <input type="checkbox" checked={detail.enabled} onChange={(event) => update("enabled", event.target.checked)} className="accent-accent" />
                   Источник активен
                 </label>
                 <label className="flex items-center gap-3 rounded-lg border border-border bg-surface-2 px-3 py-2 text-sm text-zinc-300">
-                  <input type="checkbox" checked={detail.pass_hwid} onChange={(event) => update("pass_hwid", event.target.checked)} className="accent-cyan-500" />
+                  <input type="checkbox" checked={detail.pass_hwid} onChange={(event) => update("pass_hwid", event.target.checked)} className="accent-accent" />
                   Передавать HWID
                 </label>
               </div>
@@ -211,7 +226,7 @@ export function SourceDetailDrawer({
                   />
                   {detail.has_hwid_value && (
                     <label className="flex items-center gap-2 text-xs text-zinc-500">
-                      <input type="checkbox" checked={clearHWID} onChange={(event) => setClearHWID(event.target.checked)} className="accent-rose-500" />
+                      <input type="checkbox" checked={clearHWID} onChange={(event) => setClearHWID(event.target.checked)} className="accent-danger" />
                       Удалить сохранённый HWID
                     </label>
                   )}
@@ -242,7 +257,7 @@ export function SourceDetailDrawer({
                 {runs.map((run) => (
                   <div key={run.id} className="px-4 py-3 text-sm">
                     <div className="flex items-center justify-between gap-3">
-                      <span className={run.status === "succeeded" ? "text-emerald-300" : run.status === "failed" ? "text-rose-300" : "text-amber-300"}>
+                      <span className={run.status === "succeeded" ? "text-success" : run.status === "failed" ? "text-danger" : "text-warning"}>
                         {run.status}
                       </span>
                       <time className="text-xs text-zinc-600">{new Date(run.started_at).toLocaleString("ru-RU")}</time>

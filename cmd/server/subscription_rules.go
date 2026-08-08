@@ -13,7 +13,7 @@ import (
 	"strings"
 	"time"
 
-	"subshare/internal/model"
+	"github.com/romanpodg/SubShare-Go/internal/model"
 )
 
 type subscriptionTemplate struct {
@@ -119,7 +119,7 @@ func validateTemplateInput(input templateInput) (templateInput, error) {
 	if len(input.Content) > 1<<20 {
 		return input, fmt.Errorf("template content is too large")
 	}
-	if (format == "mihomo" || format == "sing-box") && strings.TrimSpace(input.Content) != "" &&
+	if (format == "mihomo" || format == "sing-box" || format == "xray-json") && strings.TrimSpace(input.Content) != "" &&
 		!strings.Contains(input.Content, "{{subscription}}") {
 		return input, fmt.Errorf("custom template must contain {{subscription}}")
 	}
@@ -312,10 +312,12 @@ func (a *App) listResponseRules() ([]responseRule, error) {
 			item.TemplateID = &value
 		}
 		if err := json.Unmarshal([]byte(conditionsJSON), &item.Conditions); err != nil {
+			_ = rows.Close()
 			a.disableInvalidResponseRule(item.ID, "conditions_json", err)
 			return nil, fmt.Errorf("response rule %d has invalid conditions JSON: %w", item.ID, err)
 		}
 		if err := json.Unmarshal([]byte(headersJSON), &item.Headers); err != nil {
+			_ = rows.Close()
 			a.disableInvalidResponseRule(item.ID, "headers_json", err)
 			return nil, fmt.Errorf("response rule %d has invalid headers JSON: %w", item.ID, err)
 		}
@@ -365,7 +367,7 @@ func renderTemplatePreview(input templateInput) (string, string, error) {
 	var err error
 	switch input.Format {
 	case "xray-json":
-		body = `{"outbounds":[{"protocol":"vless","tag":"Example"}]}`
+		body = `[{"outbounds":[{"protocol":"vless","tag":"Example"}]}]`
 		contentType = "application/json; charset=utf-8"
 	case "mihomo":
 		body, err = renderMihomoSubscription(sampleVLESS)
@@ -381,8 +383,8 @@ func renderTemplatePreview(input templateInput) (string, string, error) {
 	if input.Format == "base64" {
 		body = base64.StdEncoding.EncodeToString([]byte(body))
 	}
-	if (input.Format == "xray-json" || input.Format == "sing-box") && !json.Valid([]byte(body)) {
-		return "", "", fmt.Errorf("rendered preview is not valid JSON")
+	if err := validateGeneratedStructuredBody(input.Format, body); err != nil {
+		return "", "", fmt.Errorf("rendered preview is not valid %s", input.Format)
 	}
 	return body, contentType, nil
 }
@@ -743,129 +745,19 @@ func applyMihomoTransport(proxy map[string]any, draft linkConfigurationDraft) {
 }
 
 func renderMihomoSubscription(raw string) (string, error) {
-	drafts, err := subscriptionDrafts(raw)
+	generated, err := renderMihomoEntries(syntheticDeliveryEntries(raw))
 	if err != nil {
 		return "", err
 	}
-	proxies := make([]map[string]any, 0, len(drafts))
-	for index, draft := range drafts {
-		proxy := map[string]any{
-			"name": draftDisplayName(draft, index), "type": draft.Protocol,
-			"server": draft.Server, "port": draft.Port,
-		}
-		switch draft.Protocol {
-		case "vless":
-			proxy["uuid"] = draft.Identifier
-			if draft.Flow != "" {
-				proxy["flow"] = draft.Flow
-			}
-		case "vmess":
-			proxy["uuid"] = draft.Identifier
-			alterID, _ := strconv.Atoi(firstNonEmpty(draft.VMessAlterID, "0"))
-			proxy["alterId"] = alterID
-			proxy["cipher"] = firstNonEmpty(draft.VMessSecurity, "auto")
-		case "trojan":
-			proxy["password"] = draft.Identifier
-		}
-		proxy["udp"] = true
-		security := strings.ToLower(strings.TrimSpace(draft.Security))
-		if security == "tls" || security == "reality" {
-			proxy["tls"] = true
-			if draft.SNI != "" {
-				proxy["servername"] = draft.SNI
-			}
-			if draft.Fingerprint != "" {
-				proxy["client-fingerprint"] = draft.Fingerprint
-			}
-			proxy["skip-cert-verify"] = draft.AllowInsecure
-		}
-		if security == "reality" {
-			reality := map[string]any{}
-			if draft.PublicKey != "" {
-				reality["public-key"] = draft.PublicKey
-			}
-			if draft.ShortID != "" {
-				reality["short-id"] = draft.ShortID
-			}
-			if len(reality) > 0 {
-				proxy["reality-opts"] = reality
-			}
-		}
-		applyMihomoTransport(proxy, draft)
-		proxies = append(proxies, proxy)
-	}
-	payload, err := json.MarshalIndent(map[string]any{"proxies": proxies}, "", "  ")
-	return string(payload), err
+	return generated.Body, nil
 }
 
 func renderSingBoxSubscription(raw string) (string, error) {
-	drafts, err := subscriptionDrafts(raw)
+	generated, err := renderSingBoxEntries(syntheticDeliveryEntries(raw))
 	if err != nil {
 		return "", err
 	}
-	outbounds := make([]map[string]any, 0, len(drafts))
-	for index, draft := range drafts {
-		outbound := map[string]any{
-			"type": draft.Protocol, "tag": draftDisplayName(draft, index),
-			"server": draft.Server, "server_port": draft.Port,
-		}
-		switch draft.Protocol {
-		case "vless":
-			outbound["uuid"] = draft.Identifier
-			if draft.Flow != "" {
-				outbound["flow"] = draft.Flow
-			}
-		case "vmess":
-			outbound["uuid"] = draft.Identifier
-			outbound["security"] = firstNonEmpty(draft.VMessSecurity, "auto")
-			if alterID, parseErr := strconv.Atoi(draft.VMessAlterID); parseErr == nil && alterID > 0 {
-				outbound["alter_id"] = alterID
-			}
-		case "trojan":
-			outbound["password"] = draft.Identifier
-		}
-		security := strings.ToLower(strings.TrimSpace(draft.Security))
-		if security == "tls" || security == "reality" {
-			tlsOptions := map[string]any{"enabled": true, "insecure": draft.AllowInsecure}
-			if draft.SNI != "" {
-				tlsOptions["server_name"] = draft.SNI
-			}
-			if draft.Fingerprint != "" {
-				tlsOptions["utls"] = map[string]any{"enabled": true, "fingerprint": draft.Fingerprint}
-			}
-			if security == "reality" {
-				reality := map[string]any{"enabled": true}
-				if draft.PublicKey != "" {
-					reality["public_key"] = draft.PublicKey
-				}
-				if draft.ShortID != "" {
-					reality["short_id"] = draft.ShortID
-				}
-				tlsOptions["reality"] = reality
-			}
-			outbound["tls"] = tlsOptions
-		}
-		switch strings.TrimSpace(draft.Network) {
-		case "ws":
-			transport := map[string]any{"type": "ws"}
-			if draft.Path != "" {
-				transport["path"] = draft.Path
-			}
-			if draft.Host != "" {
-				transport["headers"] = map[string]string{"Host": draft.Host}
-			}
-			outbound["transport"] = transport
-		case "grpc":
-			transport := map[string]any{"type": "grpc"}
-			if draft.GRPCServiceName != "" {
-				transport["service_name"] = draft.GRPCServiceName
-			}
-			outbound["transport"] = transport
-		}
-		outbounds = append(outbounds, outbound)
-	}
-	payload, err := json.MarshalIndent(map[string]any{"outbounds": outbounds}, "", "  ")
-	return string(payload), err
+	return generated.Body, nil
 }
 
 func applyRuleHeaders(w http.ResponseWriter, headers []responseHeader) {

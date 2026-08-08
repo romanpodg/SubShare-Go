@@ -76,6 +76,19 @@ paths:
                         type: array
                         items: { $ref: "#/components/schemas/UserSummary" }
         default: { $ref: "#/components/responses/Error" }
+    post:
+      tags: [Users]
+      summary: Create a user
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/CreateUser" }
+      responses:
+        "200": { description: User created }
+        "400": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+        default: { $ref: "#/components/responses/Error" }
   /users/{id}:
     get:
       tags: [Users]
@@ -92,6 +105,14 @@ paths:
                 properties:
                   data: { type: object, additionalProperties: true }
         "404": { $ref: "#/components/responses/Error" }
+    delete:
+      tags: [Users]
+      summary: Delete a user
+      parameters: [{ $ref: "#/components/parameters/ID" }]
+      responses:
+        "200": { description: User deleted }
+        "404": { $ref: "#/components/responses/Error" }
+        default: { $ref: "#/components/responses/Error" }
   /users/{id}/subscription:
     patch:
       tags: [Users, Subscription]
@@ -132,6 +153,103 @@ paths:
         "200": { description: Key assignment updated atomically }
         "404": { $ref: "#/components/responses/Error" }
         default: { $ref: "#/components/responses/Error" }
+  /users/{id}/keys:
+    put:
+      deprecated: true
+      tags: [Users, Keys]
+      summary: Replace selected key assignments (compatibility adapter)
+      parameters: [{ $ref: "#/components/parameters/ID" }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/KeyIDsRequest" }
+      responses:
+        "200": { description: Key assignments updated }
+        default: { $ref: "#/components/responses/Error" }
+  /users/{id}/settings:
+    put:
+      tags: [Users]
+      summary: Update user locale settings
+      parameters: [{ $ref: "#/components/parameters/ID" }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [time_zone, language]
+              properties:
+                time_zone: { type: string, maxLength: 64 }
+                language: { type: string, maxLength: 16 }
+      responses:
+        "200": { description: User settings updated }
+        default: { $ref: "#/components/responses/Error" }
+  /users/{id}/hwid:
+    put:
+      tags: [Users]
+      summary: Update a user's device limit
+      parameters: [{ $ref: "#/components/parameters/ID" }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [max_devices]
+              properties:
+                max_devices: { type: integer, minimum: 0 }
+      responses:
+        "200": { description: Device limit updated }
+        default: { $ref: "#/components/responses/Error" }
+  /users/{id}/hwid/{hwid}:
+    delete:
+      tags: [Users]
+      summary: Remove a connected device
+      parameters:
+        - { $ref: "#/components/parameters/ID" }
+        - { name: hwid, in: path, required: true, schema: { type: string } }
+      responses:
+        "200": { description: Device removed }
+        "404": { $ref: "#/components/responses/Error" }
+        default: { $ref: "#/components/responses/Error" }
+  /users/{id}/subscription-urls:
+    get:
+      tags: [Users, Subscription]
+      summary: Return a user's subscription URLs
+      description: Sensitive response containing a subscription access identifier; served with no-store headers.
+      parameters: [{ $ref: "#/components/parameters/ID" }]
+      responses:
+        "200":
+          description: Plain and optionally encrypted subscription URLs
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  plain_url: { type: string, format: uri }
+                  encrypted_url: { type: string }
+        default: { $ref: "#/components/responses/Error" }
+  /users/full:
+    get:
+      deprecated: true
+      tags: [Users]
+      summary: Rich user projection used by the current administration UI
+      description: Sensitive projection containing activation/subscription identifiers and device details; served with no-store headers.
+      responses:
+        "200":
+          description: Rich user list
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  users:
+                    type: array
+                    items: { type: object, additionalProperties: true }
+        default: { $ref: "#/components/responses/Error" }
   /admins:
     get:
       tags: [Admins]
@@ -151,6 +269,11 @@ paths:
     post:
       tags: [Admins]
       summary: Create an administrator account
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/CreateAdministrator" }
       responses:
         "200": { description: Administrator created }
         default: { $ref: "#/components/responses/Error" }
@@ -159,6 +282,11 @@ paths:
       tags: [Admins]
       summary: Update an administrator account
       parameters: [{ $ref: "#/components/parameters/ID" }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/UpdateAdministrator" }
       responses:
         "200": { description: Administrator updated }
         default: { $ref: "#/components/responses/Error" }
@@ -191,6 +319,253 @@ paths:
                       data:
                         type: array
                         items: { $ref: "#/components/schemas/KeySummary" }
+        default: { $ref: "#/components/responses/Error" }
+    post:
+      tags: [Keys]
+      summary: Create a local key profile
+      description: Accepts either a raw URI or a structured profile. Secret fields are write-only.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/CreateKeyProfile" }
+      responses:
+        "201":
+          description: Key created
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/KeyProfileEnvelope" }
+        "400": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+        default: { $ref: "#/components/responses/Error" }
+  /keys/{id}:
+    get:
+      tags: [Keys]
+      summary: Fetch safe key profile detail
+      parameters: [{ $ref: "#/components/parameters/ID" }]
+      responses:
+        "200":
+          description: Safe profile detail without decrypted credentials
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/KeyProfileEnvelope" }
+        "404": { $ref: "#/components/responses/Error" }
+        default: { $ref: "#/components/responses/Error" }
+    put:
+      tags: [Keys]
+      summary: Update key profile with optimistic concurrency
+      parameters: [{ $ref: "#/components/parameters/ID" }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/UpdateKeyProfile" }
+      responses:
+        "200":
+          description: Key updated
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/KeyProfileEnvelope" }
+        "400": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+        default: { $ref: "#/components/responses/Error" }
+    delete:
+      tags: [Keys]
+      summary: Delete a key
+      parameters: [{ $ref: "#/components/parameters/ID" }]
+      responses:
+        "200": { description: Key deleted }
+        "404": { $ref: "#/components/responses/Error" }
+        default: { $ref: "#/components/responses/Error" }
+  /keys/{id}/reveal:
+    post:
+      tags: [Keys]
+      summary: Reveal secret materials for profile
+      description: Explicit no-cache secret access. Viewer sessions are forbidden and bearer tokens require `keys:write`.
+      parameters: [{ $ref: "#/components/parameters/ID" }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/KeyRevealRequest" }
+      responses:
+        "200":
+          description: Decrypted secrets returned
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/KeyRevealEnvelope" }
+        "400": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+        default: { $ref: "#/components/responses/Error" }
+  /keys/{id}/clone:
+    post:
+      tags: [Keys]
+      summary: Clone key as unlinked local profile
+      parameters: [{ $ref: "#/components/parameters/ID" }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/KeyCloneRequest" }
+      responses:
+        "201":
+          description: Local copy created
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/KeyProfileEnvelope" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+        default: { $ref: "#/components/responses/Error" }
+  /keys/{id}/check:
+    post:
+      tags: [Keys, Operations]
+      summary: Run a health check for one key
+      parameters: [{ $ref: "#/components/parameters/ID" }]
+      responses:
+        "200": { description: Health-check result }
+        "400": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        default: { $ref: "#/components/responses/Error" }
+  /keys/check-all:
+    post:
+      tags: [Keys, Operations]
+      summary: Queue a health check for all eligible keys
+      responses:
+        "202": { description: Health-check job queued }
+        default: { $ref: "#/components/responses/Error" }
+  /keys/bulk/status:
+    post:
+      tags: [Keys]
+      summary: Update status and optional category for selected keys
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/BulkKeyStatusRequest" }
+      responses:
+        "200": { description: Keys updated }
+        "400": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        default: { $ref: "#/components/responses/Error" }
+  /keys/bulk/delete:
+    post:
+      tags: [Keys]
+      summary: Delete selected keys atomically
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/KeyIDsRequest" }
+      responses:
+        "200": { description: Keys deleted }
+        "400": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        default: { $ref: "#/components/responses/Error" }
+  /keys/order:
+    put:
+      tags: [Keys]
+      summary: Replace the complete key order
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/KeyIDsRequest" }
+      responses:
+        "200": { description: Keys reordered }
+        "400": { $ref: "#/components/responses/Error" }
+        default: { $ref: "#/components/responses/Error" }
+  /key-categories:
+    get:
+      tags: [Keys]
+      summary: List key categories
+      responses:
+        "200":
+          description: Key categories
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items: { $ref: "#/components/schemas/KeyCategory" }
+        default: { $ref: "#/components/responses/Error" }
+    post:
+      tags: [Keys]
+      summary: Create a key category
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/CreateKeyCategory" }
+      responses:
+        "200": { description: Category created }
+        "400": { $ref: "#/components/responses/Error" }
+        default: { $ref: "#/components/responses/Error" }
+    put:
+      tags: [Keys]
+      summary: Update a key category
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/UpdateKeyCategory" }
+      responses:
+        "200": { description: Category updated }
+        "400": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        default: { $ref: "#/components/responses/Error" }
+  /key-categories/order:
+    put:
+      tags: [Keys]
+      summary: Replace the complete category order
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/KeyCategoryOrder" }
+      responses:
+        "200": { description: Categories reordered }
+        "400": { $ref: "#/components/responses/Error" }
+        default: { $ref: "#/components/responses/Error" }
+  /key-categories/rename:
+    put:
+      tags: [Keys]
+      summary: Rename a key category
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/RenameKeyCategory" }
+      responses:
+        "200": { description: Category renamed }
+        "400": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        default: { $ref: "#/components/responses/Error" }
+  /key-categories/delete:
+    post:
+      tags: [Keys]
+      summary: Delete a key category
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/DeleteKeyCategory" }
+      responses:
+        "200": { description: Category deleted }
+        "400": { $ref: "#/components/responses/Error" }
+        default: { $ref: "#/components/responses/Error" }
+  /key-editor-schema:
+    get:
+      tags: [Keys]
+      summary: Fetch backend-owned key editor schemas and options
+      responses:
+        "200": { description: Editor schema options }
         default: { $ref: "#/components/responses/Error" }
   /sources:
     get:
@@ -232,8 +607,17 @@ paths:
     post:
       tags: [Operations]
       summary: Fetch, validate and preview a source without saving it
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/SourcePreviewInput" }
       responses:
-        "200": { description: Detected format, metadata, warnings and safe key samples }
+        "200":
+          description: Detected format, metadata, stable warning codes and secret-free item results
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/SourcePreview" }
         default: { $ref: "#/components/responses/Error" }
   /sources/{id}:
     get:
@@ -284,6 +668,111 @@ paths:
                 properties:
                   job_id: { type: integer, format: int64 }
                   status: { type: string, const: queued }
+        default: { $ref: "#/components/responses/Error" }
+  /source-categories:
+    get:
+      tags: [Operations]
+      summary: List source category options
+      responses:
+        "200": { description: Source categories }
+        default: { $ref: "#/components/responses/Error" }
+  /subscription-settings:
+    get:
+      deprecated: true
+      tags: [Subscription]
+      summary: Get compatibility subscription settings
+      responses:
+        "200": { description: Subscription settings }
+        default: { $ref: "#/components/responses/Error" }
+    put:
+      deprecated: true
+      tags: [Subscription]
+      summary: Update compatibility subscription settings
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { type: object, additionalProperties: true }
+      responses:
+        "200": { description: Subscription settings updated }
+        default: { $ref: "#/components/responses/Error" }
+  /routing-settings:
+    get:
+      deprecated: true
+      tags: [Subscription]
+      summary: Get compatibility routing settings
+      responses:
+        "200": { description: Routing settings }
+        default: { $ref: "#/components/responses/Error" }
+    put:
+      deprecated: true
+      tags: [Subscription]
+      summary: Update compatibility routing settings
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { type: object, additionalProperties: true }
+      responses:
+        "200": { description: Routing settings updated }
+        default: { $ref: "#/components/responses/Error" }
+  /panel-settings:
+    get:
+      tags: [System]
+      summary: Get public panel branding settings
+      security: []
+      responses:
+        "200": { description: Panel settings }
+        default: { $ref: "#/components/responses/Error" }
+    put:
+      tags: [System]
+      summary: Update panel branding settings
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { type: object, additionalProperties: true }
+      responses:
+        "200": { description: Panel settings updated }
+        default: { $ref: "#/components/responses/Error" }
+  /subscription-page-config:
+    get:
+      tags: [Subscription]
+      summary: Get public subscription-page configuration
+      security: []
+      responses:
+        "200": { description: Subscription page configuration }
+        default: { $ref: "#/components/responses/Error" }
+    put:
+      tags: [Subscription]
+      summary: Update subscription-page configuration
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { type: object, additionalProperties: true }
+      responses:
+        "200": { description: Subscription page configuration updated }
+        default: { $ref: "#/components/responses/Error" }
+  /subscriptions/activate:
+    post:
+      tags: [Subscription]
+      summary: Activate a public subscription code
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [activation_code]
+              properties:
+                activation_code: { type: string }
+      responses:
+        "200": { description: Subscription activated }
+        "400": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
         default: { $ref: "#/components/responses/Error" }
   /templates:
     get:
@@ -419,7 +908,7 @@ paths:
         required: true
         content:
           application/json:
-            schema: { $ref: "#/components/schemas/SubscriptionDeliverySettings" }
+            schema: { $ref: "#/components/schemas/SubscriptionDeliverySettingsUpdate" }
       responses:
         "200": { description: Updated }
         default: { $ref: "#/components/responses/Error" }
@@ -539,6 +1028,26 @@ components:
         application/json:
           schema: { $ref: "#/components/schemas/Error" }
   schemas:
+    AdministratorPassword:
+      type: string
+      minLength: 15
+      maxLength: 256
+      writeOnly: true
+      description: Exact, unnormalized password value; spaces are allowed and UTF-8 encoding is limited to 1024 bytes.
+    CreateAdministrator:
+      type: object
+      additionalProperties: false
+      required: [username, password, role]
+      properties:
+        username: { type: string, minLength: 1 }
+        password: { $ref: "#/components/schemas/AdministratorPassword" }
+        role: { type: string, enum: [viewer, operator, owner, support_admin, super_admin] }
+    UpdateAdministrator:
+      type: object
+      additionalProperties: false
+      properties:
+        password: { $ref: "#/components/schemas/AdministratorPassword" }
+        role: { type: string, enum: [viewer, operator, owner, support_admin, super_admin] }
     Error:
       type: object
       required: [code, message, request_id]
@@ -573,6 +1082,17 @@ components:
         commit: { type: string }
         build_time: { type: string }
         schema_version: { type: integer }
+    CreateUser:
+      type: object
+      additionalProperties: false
+      required: [name, activation_code, status, issue_days]
+      properties:
+        name: { type: string, maxLength: 200 }
+        email: { type: string, maxLength: 320 }
+        activation_code: { type: string, maxLength: 200 }
+        status: { type: string, enum: [active, paused, blocked] }
+        issue_days: { type: integer, minimum: 0 }
+        blocked_reason: { type: string, maxLength: 500 }
     PatchUserSubscription:
       type: object
       additionalProperties: false
@@ -624,7 +1144,199 @@ components:
         last_checked_at: { type: string }
         external_source_id: { type: integer, format: int64 }
         external_source_name: { type: string }
+        protocol: { $ref: "#/components/schemas/ProfileProtocol" }
+        profile_schema_version: { type: integer, minimum: 0 }
+        profile_compatibility: { $ref: "#/components/schemas/ProfileCompatibility" }
+        profile_warnings:
+          type: array
+          items: { type: string }
         created_at: { type: string, format: date-time }
+    KeyProfileEnvelope:
+      type: object
+      required: [data]
+      properties:
+        data: { $ref: "#/components/schemas/KeyProfileDetail" }
+    KeyProfileDetail:
+      type: object
+      description: Secret-safe key detail. Presence flags may be returned, but credential values are omitted.
+      required: [id, label, kind, status, protocol, profile_revision, profile_warnings]
+      properties:
+        id: { type: integer, format: int64 }
+        label: { type: string }
+        category_id: { type: [integer, "null"], format: int64 }
+        category: { type: string }
+        kind: { type: string, enum: [real, informational] }
+        status: { type: string, enum: [active, non-active] }
+        check_status: { type: string }
+        check_error: { type: object, additionalProperties: true }
+        last_latency_ms: { type: integer, format: int64 }
+        last_checked_at: { type: string }
+        template_text: { type: string }
+        ownership: { type: object, additionalProperties: true }
+        external_source_id: { type: [integer, "null"], format: int64 }
+        external_source_name: { type: string }
+        protocol: { $ref: "#/components/schemas/ProfileProtocol" }
+        profile_schema_version: { type: integer, minimum: 0 }
+        profile_compatibility: { $ref: "#/components/schemas/ProfileCompatibility" }
+        profile_warnings:
+          type: array
+          items: { type: string }
+        profile_revision: { type: integer, format: int64, minimum: 1 }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+        safe_structured: { type: object, additionalProperties: true }
+        unknown_query_parameters:
+          type: array
+          items: { type: object, additionalProperties: true }
+        capabilities: { type: object, additionalProperties: true }
+    CreateKeyProfile:
+      type: object
+      additionalProperties: false
+      required: [label, status, kind, creation_mode]
+      properties:
+        label: { type: string, minLength: 1, maxLength: 255 }
+        category_id: { type: [integer, "null"], format: int64, minimum: 1 }
+        category: { type: string }
+        status: { type: string, enum: [active, non-active] }
+        kind: { type: string, enum: [real, informational] }
+        template_text: { type: string, maxLength: 8192 }
+        creation_mode: { type: string, enum: [raw, structured] }
+        raw_uri: { type: string, writeOnly: true, maxLength: 65535 }
+        protocol: { $ref: "#/components/schemas/ProfileProtocol" }
+        structured:
+          type: object
+          writeOnly: true
+          description: Protocol-specific structured profile fields.
+          additionalProperties: true
+    UpdateKeyProfile:
+      type: object
+      additionalProperties: false
+      required: [label, status, kind, profile_revision, patch_mode]
+      properties:
+        label: { type: string, minLength: 1, maxLength: 255 }
+        category_id: { type: [integer, "null"], format: int64, minimum: 1 }
+        category: { type: string }
+        status: { type: string, enum: [active, non-active] }
+        kind: { type: string, enum: [real, informational] }
+        template_text: { type: string, maxLength: 8192 }
+        profile_revision: { type: integer, format: int64, minimum: 1 }
+        patch_mode: { type: string, enum: [raw, structured] }
+        raw_uri: { type: string, writeOnly: true, maxLength: 65535 }
+        structured_patch:
+          type: object
+          writeOnly: true
+          description: Protocol-specific tri-state structured patch fields.
+          additionalProperties: true
+    KeyRevealRequest:
+      type: object
+      additionalProperties: false
+      required: [profile_revision, target]
+      properties:
+        profile_revision: { type: integer, format: int64, minimum: 1 }
+        target: { type: string, enum: [raw, structured-secrets] }
+    KeyRevealEnvelope:
+      type: object
+      required: [data]
+      properties:
+        data:
+          oneOf:
+            - { $ref: "#/components/schemas/RawKeyReveal" }
+            - { $ref: "#/components/schemas/StructuredKeyReveal" }
+    RawKeyReveal:
+      type: object
+      required: [key_id, confirmed_profile_revision, target, raw_uri]
+      properties:
+        key_id: { type: integer, format: int64 }
+        confirmed_profile_revision: { type: integer, format: int64 }
+        target: { type: string, const: raw }
+        raw_uri: { type: string, readOnly: true }
+    StructuredKeyReveal:
+      type: object
+      required: [key_id, confirmed_profile_revision, target, secrets]
+      properties:
+        key_id: { type: integer, format: int64 }
+        confirmed_profile_revision: { type: integer, format: int64 }
+        target: { type: string, const: structured-secrets }
+        secrets:
+          type: object
+          readOnly: true
+          additionalProperties: { type: string }
+    KeyCloneRequest:
+      type: object
+      additionalProperties: false
+      required: [expected_profile_revision]
+      properties:
+        expected_profile_revision: { type: integer, format: int64, minimum: 1 }
+        new_label: { type: string, maxLength: 255 }
+    KeyIDsRequest:
+      type: object
+      additionalProperties: false
+      required: [ids]
+      properties:
+        ids:
+          type: array
+          minItems: 1
+          uniqueItems: true
+          items: { type: integer, format: int64, minimum: 1 }
+    BulkKeyStatusRequest:
+      type: object
+      additionalProperties: false
+      required: [ids, status]
+      properties:
+        ids:
+          type: array
+          minItems: 1
+          uniqueItems: true
+          items: { type: integer, format: int64, minimum: 1 }
+        status: { type: string, enum: [active, non-active] }
+        category: { type: string }
+    KeyCategory:
+      type: object
+      required: [id, name, color, keys_count]
+      properties:
+        id: { type: integer, format: int64 }
+        name: { type: string }
+        color: { type: string }
+        keys_count: { type: integer, minimum: 0 }
+    CreateKeyCategory:
+      type: object
+      additionalProperties: false
+      required: [name]
+      properties:
+        name: { type: string, minLength: 1 }
+        color: { type: string }
+    UpdateKeyCategory:
+      type: object
+      additionalProperties: false
+      required: [old_name, new_name]
+      properties:
+        old_name: { type: string, minLength: 1 }
+        new_name: { type: string, minLength: 1 }
+        color: { type: string }
+    RenameKeyCategory:
+      type: object
+      additionalProperties: false
+      required: [old_name, new_name]
+      properties:
+        old_name: { type: string, minLength: 1 }
+        new_name: { type: string, minLength: 1 }
+    DeleteKeyCategory:
+      type: object
+      additionalProperties: false
+      required: [name, mode]
+      properties:
+        name: { type: string, minLength: 1 }
+        mode: { type: string, enum: [keep_keys, delete_with_keys] }
+    KeyCategoryOrder:
+      type: object
+      additionalProperties: false
+      required: [names]
+      properties:
+        names:
+          type: array
+          minItems: 1
+          uniqueItems: true
+          items: { type: string, minLength: 1 }
     SourceSummary:
       type: object
       required: [id, name, source_url_masked, enabled, has_hwid_value, import_status, imported_keys]
@@ -662,7 +1374,11 @@ components:
       type: object
       required: [name, category, key_category, key_insert_mode, source_url, enabled, pass_hwid]
       properties:
-        name: { type: string, maxLength: 24 }
+        name:
+          type: string
+          minLength: 1
+          maxLength: 64
+          description: Trimmed source name, limited to 64 Unicode code points.
         category: { type: string }
         key_category: { type: string }
         key_insert_mode: { type: string, enum: [top, bottom] }
@@ -681,6 +1397,83 @@ components:
         raw_body: { type: string, maxLength: 1048576 }
         raw_content_type: { type: string }
         raw_final_url: { type: string, format: uri }
+        selected_item_refs:
+          type: array
+          uniqueItems: true
+          description: Optional references from preview. Apply reparses the authoritative body and rejects any reference that no longer matches.
+          items: { type: string, pattern: '^ir1_[0-9a-f]{32}$' }
+    SourcePreviewInput:
+      type: object
+      additionalProperties: false
+      required: [source_url]
+      properties:
+        source_url: { type: string, format: uri }
+        pass_hwid: { type: boolean }
+        hwid_version: { type: string }
+        hwid_model_name: { type: string }
+        hwid_value: { type: string, writeOnly: true }
+        raw_body: { type: string, maxLength: 1048576, writeOnly: true }
+        raw_content_type: { type: string }
+        raw_final_url: { type: string, format: uri }
+    ProfileProtocol:
+      type: string
+      enum: [legacy, vless, vmess, trojan, xray-json, shadowsocks, hysteria2, tuic]
+    ProfileCompatibility:
+      type: string
+      enum: [legacy, full, read_only, unsupported]
+    ExternalImportItemStatus:
+      type: string
+      enum: [accepted, rejected, duplicate, updated, unchanged, compatibility_only, ambiguous, unsupported]
+    ExternalImportResultCounts:
+      type: object
+      required: [accepted, rejected, duplicate, updated, unchanged, compatibility_only, ambiguous, unsupported]
+      properties:
+        accepted: { type: integer, minimum: 0 }
+        rejected: { type: integer, minimum: 0 }
+        duplicate: { type: integer, minimum: 0 }
+        updated: { type: integer, minimum: 0 }
+        unchanged: { type: integer, minimum: 0 }
+        compatibility_only: { type: integer, minimum: 0 }
+        ambiguous: { type: integer, minimum: 0 }
+        unsupported: { type: integer, minimum: 0 }
+    ExternalImportItem:
+      type: object
+      required: [item_ref, line_index, protocol, scheme, display_name, host, port, compatibility, status, warnings]
+      properties:
+        item_ref: { type: string, pattern: '^ir1_[0-9a-f]{32}$' }
+        line_index: { type: integer, minimum: 1 }
+        protocol: { type: string }
+        scheme: { type: string }
+        display_name: { type: string }
+        label: { type: string, deprecated: true }
+        host: { type: string }
+        port: { type: string }
+        compatibility: { $ref: "#/components/schemas/ProfileCompatibility" }
+        status: { $ref: "#/components/schemas/ExternalImportItemStatus" }
+        warnings:
+          type: array
+          items: { type: string }
+        error_code: { type: string }
+        url_short:
+          type: string
+          deprecated: true
+          description: Secret-free host/port summary retained for old clients; never a URI.
+    SourcePreview:
+      type: object
+      required: [source_url, suggested_name, detected_format, key_count, warnings, result_counts, keys]
+      properties:
+        source_url: { type: string, format: uri }
+        suggested_name: { type: string }
+        detected_format: { type: string, enum: [links, xray-json] }
+        key_count: { type: integer, minimum: 0 }
+        metadata: { type: object }
+        warnings:
+          type: array
+          items: { type: string }
+        result_counts: { $ref: "#/components/schemas/ExternalImportResultCounts" }
+        keys:
+          type: array
+          items: { $ref: "#/components/schemas/ExternalImportItem" }
     TemplateInput:
       type: object
       required: [name, format, content, enabled]
@@ -743,8 +1536,9 @@ components:
             is_system: { type: boolean }
             created_at: { type: string, format: date-time }
             updated_at: { type: string, format: date-time }
-    SubscriptionDeliverySettings:
+    SubscriptionDeliverySettingsUpdate:
       type: object
+      additionalProperties: false
       required: [response_headers, announcement, remarks]
       properties:
         response_headers:
@@ -754,6 +1548,7 @@ components:
         announcement: { type: string, maxLength: 200 }
         remarks:
           type: object
+          additionalProperties: false
           required: [expired, paused, blocked, limited, empty]
           properties:
             expired: { $ref: "#/components/schemas/RemarkList" }
@@ -761,6 +1556,53 @@ components:
             blocked: { $ref: "#/components/schemas/RemarkList" }
             limited: { $ref: "#/components/schemas/RemarkList" }
             empty: { $ref: "#/components/schemas/RemarkList" }
+    SubscriptionDeliverySettings:
+      allOf:
+        - { $ref: "#/components/schemas/SubscriptionDeliverySettingsUpdate" }
+        - type: object
+          required: [capabilities, generation_exclusion_reason_codes]
+          properties:
+            capabilities:
+              type: array
+              readOnly: true
+              description: Backend-owned protocol/output capability matrix. Official syntax validation never implies runtime interoperability.
+              items: { $ref: "#/components/schemas/ProtocolCapability" }
+            generation_exclusion_reason_codes:
+              type: array
+              readOnly: true
+              description: Stable non-sensitive codes used by delivery exclusion headers and all-excluded errors.
+              items: { type: string }
+    ProtocolCapability:
+      type: object
+      required: [protocol, generation, outputs]
+      properties:
+        protocol: { type: string, enum: [vless, vmess, trojan, shadowsocks, hysteria2, tuic], readOnly: true }
+        generation: { type: string, readOnly: true }
+        outputs:
+          type: object
+          readOnly: true
+          additionalProperties: { $ref: "#/components/schemas/OutputCapability" }
+    OutputCapability:
+      type: object
+      required: [status]
+      properties:
+        status: { type: string, enum: [supported, unsupported, conditionally_supported, compatibility_only], readOnly: true }
+        reason_code: { type: string, readOnly: true }
+        target_version: { type: string, readOnly: true }
+        minimum_version: { type: string, readOnly: true }
+        syntax_validation: { type: string, enum: [structurally_generated, official_binary, address_probe_only], readOnly: true }
+        runtime_interoperability: { type: string, enum: [not_tested], readOnly: true }
+    SubscriptionGenerationFailure:
+      type: object
+      required: [error_code, output_format, eligible_count, excluded_count, exclusion_counts]
+      properties:
+        error_code: { type: string, enum: [all_profiles_excluded] }
+        output_format: { type: string, enum: [mihomo, sing-box, xray-json] }
+        eligible_count: { type: integer, minimum: 1 }
+        excluded_count: { type: integer, minimum: 1 }
+        exclusion_counts:
+          type: object
+          additionalProperties: { type: integer, minimum: 1 }
     RemarkList:
       type: array
       maxItems: 10

@@ -2,7 +2,6 @@ package main
 
 import (
 	"database/sql"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
@@ -10,58 +9,17 @@ import (
 	"strings"
 	"time"
 
-	"subshare/internal/model"
-	"subshare/internal/vless"
+	"github.com/romanpodg/SubShare-Go/internal/model"
+	"github.com/romanpodg/SubShare-Go/internal/security/profilestorage"
 )
 
 var validSQLIdentifier = regexp.MustCompile(`^[a-zA-Z_][a-zA-Z0-9_]*$`)
 
-func clientDisplayNameFromKeyURL(rawURL, fallback string) string {
-	rawURL = strings.TrimSpace(rawURL)
-	fallback = strings.TrimSpace(fallback)
-	if rawURL == "" {
-		return fallback
-	}
-
-	switch supportedConfigScheme(rawURL) {
-	case "vless", "vmess", "trojan":
-		draft, err := parseLinkConfiguration(rawURL)
-		if err != nil {
-			return fallback
-		}
-		name := strings.TrimSpace(firstNonEmpty(draft.Remark, draft.ServerDescription, fallback))
-		if name != "" {
-			return name
-		}
-	case "xray-json":
-		var parsed any
-		if err := json.Unmarshal([]byte(rawURL), &parsed); err != nil {
-			return fallback
-		}
-		switch typed := parsed.(type) {
-		case map[string]any:
-			name := strings.TrimSpace(extractJSONSubscriptionLabel(typed, fallback))
-			if name != "" {
-				return name
-			}
-		case []any:
-			for _, item := range typed {
-				obj, ok := item.(map[string]any)
-				if !ok {
-					continue
-				}
-				name := strings.TrimSpace(extractJSONSubscriptionLabel(obj, fallback))
-				if name != "" {
-					return name
-				}
-			}
-		}
-	}
-
-	return fallback
+func migrate(db *sql.DB) error {
+	return migrateWithKeyring(db, nil)
 }
 
-func migrate(db *sql.DB) error {
+func migrateWithKeyring(db *sql.DB, keyring *profilestorage.Keyring) error {
 	// Legacy bootstrap remains only for databases created before versioned
 	// migrations existed. Once schema_migrations is present, startup must be a
 	// pure versioned migration runner and must not repeat data-fix UPDATEs.
@@ -74,7 +32,7 @@ func migrate(db *sql.DB) error {
 		return err
 	}
 	if migrationTableCount > 0 {
-		return runVersionedMigrations(db)
+		return runVersionedMigrationsWithKeyring(db, keyring)
 	}
 
 	queries := []string{
@@ -102,7 +60,7 @@ func migrate(db *sql.DB) error {
 		`CREATE TABLE IF NOT EXISTS vless_keys (
 			id INTEGER PRIMARY KEY AUTOINCREMENT,
 			label TEXT NOT NULL,
-			url TEXT NOT NULL UNIQUE,
+			url TEXT NOT NULL,
 			created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
 		);`,
 		`CREATE TABLE IF NOT EXISTS user_keys (
@@ -291,6 +249,12 @@ func migrate(db *sql.DB) error {
 		return err
 	}
 	if err := ensureColumn(db, "vless_keys", "category", "TEXT NOT NULL DEFAULT ''"); err != nil {
+		return err
+	}
+	if err := ensureColumn(db, "vless_keys", "profile_revision", "INTEGER NOT NULL DEFAULT 1"); err != nil {
+		return err
+	}
+	if err := ensureColumn(db, "vless_keys", "updated_at", "DATETIME"); err != nil {
 		return err
 	}
 	if err := ensureColumn(db, "key_categories", "color", "TEXT NOT NULL DEFAULT '#d8b33d'"); err != nil {
@@ -520,7 +484,7 @@ func migrate(db *sql.DB) error {
 	if _, err := db.Exec(`UPDATE subscription_settings SET subscription_format = 'links' WHERE LOWER(TRIM(subscription_format)) NOT IN ('links','xray-json')`); err != nil {
 		return err
 	}
-	return runVersionedMigrations(db)
+	return runVersionedMigrationsWithKeyring(db, keyring)
 }
 
 func ensureColumn(db *sql.DB, tableName, columnName, definition string) error {
@@ -786,80 +750,6 @@ func (a *App) listUsers() ([]model.User, error) {
 	}
 
 	return out, nil
-}
-
-func (a *App) listKeys() ([]model.VLESSKey, error) {
-	rows, err := a.db.Query(`
-		SELECT k.id, k.label, k.url, k.category_id, COALESCE(kc.name, k.category), k.key_kind, k.template_text, k.status, k.check_status, k.check_error, k.last_checked_at, k.last_latency_ms, k.created_at, k.external_source_id, COALESCE(es.name, '')
-		FROM vless_keys k
-		LEFT JOIN key_categories kc ON kc.id = k.category_id
-		LEFT JOIN external_subscription_sources es ON es.id = k.external_source_id
-		ORDER BY k.sort_order, k.id
-	`)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-
-	var out []model.VLESSKey
-	for rows.Next() {
-		var key model.VLESSKey
-		var category sql.NullString
-		var kind sql.NullString
-		var templateText sql.NullString
-		var status sql.NullString
-		var checkStatus sql.NullString
-		var checkError sql.NullString
-		var lastCheckedAt sql.NullTime
-		var latency sql.NullInt64
-		var categoryID sql.NullInt64
-		var externalSourceID sql.NullInt64
-		var externalSourceName sql.NullString
-		if err := rows.Scan(&key.ID, &key.Label, &key.URL, &categoryID, &category, &kind, &templateText, &status, &checkStatus, &checkError, &lastCheckedAt, &latency, &key.CreatedAt, &externalSourceID, &externalSourceName); err != nil {
-			return nil, err
-		}
-		if categoryID.Valid {
-			key.CategoryID = categoryID.Int64
-		}
-		key.Category = strings.TrimSpace(category.String)
-		key.Kind, _ = model.NormalizeKeyKind(kind.String)
-		if key.Kind == "" {
-			key.Kind = model.KeyKindReal
-		}
-		key.TemplateText = strings.TrimSpace(templateText.String)
-		key.Status, _ = model.NormalizeKeyStatus(status.String)
-		if key.Status == "" {
-			key.Status = model.KeyStatusActive
-		}
-		key.StatusLabel = model.KeyStatusLabel(key.Status)
-		if key.Kind == model.KeyKindInformational {
-			key.URLShort = "Информационный ключ"
-			if key.TemplateText != "" {
-				key.URLShort = vless.TruncateMiddle(key.TemplateText, 88)
-			}
-		} else {
-			key.URLShort = vless.TruncateMiddle(key.URL, 88)
-		}
-		key.CheckStatus = model.NormalizeCheckStatus(checkStatus.String)
-		key.CheckStatusLabel = model.CheckStatusLabel(key.CheckStatus)
-		key.CheckError = strings.TrimSpace(checkError.String)
-		if key.Kind == model.KeyKindReal {
-			key.EditUUID, key.EditHost, key.EditPort, key.EditQuery, key.EditFragment, _ = vless.ParseVLESSParts(key.URL)
-		}
-		if latency.Valid {
-			key.LastLatencyMS = latency.Int64
-		}
-		if lastCheckedAt.Valid {
-			key.LastCheckedAtText = lastCheckedAt.Time.Local().Format("2006-01-02 15:04:05")
-		}
-		if externalSourceID.Valid && externalSourceID.Int64 > 0 {
-			key.ExternalSourceID = externalSourceID.Int64
-		}
-		key.ExternalSourceName = strings.TrimSpace(externalSourceName.String)
-		key.ClientDisplayName = clientDisplayNameFromKeyURL(key.URL, key.Label)
-		out = append(out, key)
-	}
-	return out, rows.Err()
 }
 
 func (a *App) getSubscriptionSettings() (model.SubscriptionSettings, error) {

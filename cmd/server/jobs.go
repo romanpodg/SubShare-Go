@@ -1,7 +1,9 @@
 package main
 
 import (
+	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log"
@@ -11,7 +13,7 @@ import (
 	"sync"
 	"time"
 
-	"subshare/internal/model"
+	"github.com/romanpodg/SubShare-Go/internal/keymanagement"
 )
 
 type backgroundJob struct {
@@ -114,18 +116,26 @@ func (a *App) startSourceSyncRun(sourceID int64) int64 {
 	return id
 }
 
-func (a *App) finishSourceSyncRun(id int64, imported, skipped int, err error) {
+func (a *App) finishSourceSyncRun(id int64, result externalSyncResult, err error) {
 	if id == 0 {
 		return
 	}
 	if err != nil {
-		_, _ = a.db.Exec(`UPDATE source_sync_runs SET status = 'failed', error_message = ?, finished_at = CURRENT_TIMESTAMP WHERE id = ?`, err.Error(), id)
+		_, _ = a.db.Exec(`UPDATE source_sync_runs SET status = 'failed', error_message = ?, result_counts_json = ?, finished_at = CURRENT_TIMESTAMP WHERE id = ?`, err.Error(), marshalExternalCounts(result.Counts), id)
 		return
 	}
 	_, _ = a.db.Exec(`
 		UPDATE source_sync_runs SET status = 'succeeded', imported_count = ?, skipped_count = ?,
-		       error_message = '', finished_at = CURRENT_TIMESTAMP WHERE id = ?
-	`, imported, skipped, id)
+		       result_counts_json = ?, error_message = '', finished_at = CURRENT_TIMESTAMP WHERE id = ?
+	`, result.Imported, result.Skipped, marshalExternalCounts(result.Counts), id)
+}
+
+func marshalExternalCounts(counts externalImportCounts) string {
+	payload, err := json.Marshal(counts)
+	if err != nil {
+		return "{}"
+	}
+	return string(payload)
 }
 
 func (a *App) apiV1ListJobs(w http.ResponseWriter, r *http.Request) {
@@ -200,7 +210,7 @@ func (a *App) apiV1ListSourceSyncRuns(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	rows, err := a.db.Query(`
-		SELECT id, status, imported_count, skipped_count, error_message, started_at, finished_at
+		SELECT id, status, imported_count, skipped_count, result_counts_json, error_message, started_at, finished_at
 		FROM source_sync_runs WHERE source_id = ? ORDER BY id DESC LIMIT 50
 	`, sourceID)
 	if err != nil {
@@ -211,17 +221,19 @@ func (a *App) apiV1ListSourceSyncRuns(w http.ResponseWriter, r *http.Request) {
 	items := []map[string]any{}
 	for rows.Next() {
 		var id int64
-		var status, errorMessage string
+		var status, resultCountsJSON, errorMessage string
 		var imported, skipped int
 		var started time.Time
 		var finished sql.NullTime
-		if err := rows.Scan(&id, &status, &imported, &skipped, &errorMessage, &started, &finished); err != nil {
+		if err := rows.Scan(&id, &status, &imported, &skipped, &resultCountsJSON, &errorMessage, &started, &finished); err != nil {
 			writeV1Error(w, r, http.StatusInternalServerError, "sync_runs_list_failed", "failed to load sync history")
 			return
 		}
+		var resultCounts externalImportCounts
+		_ = json.Unmarshal([]byte(resultCountsJSON), &resultCounts)
 		items = append(items, map[string]any{
 			"id": id, "source_id": sourceID, "status": status, "imported_count": imported,
-			"skipped_count": skipped, "error_message": errorMessage, "started_at": started,
+			"skipped_count": skipped, "result_counts": resultCounts, "error_message": errorMessage, "started_at": started,
 			"finished_at": nullTimePointer(finished),
 		})
 	}
@@ -252,50 +264,26 @@ func (a *App) apiV1QueueSourceSync(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *App) apiV1QueueKeyHealthCheck(w http.ResponseWriter, r *http.Request) {
+	a.keyAdministrationHTTPHandler().QueueHealthCheck(w, r)
+}
+
+func (a *App) queueKeyHealthCheck(r *http.Request) int64 {
 	session, _, _ := a.adminSessionFromRequest(r)
 	jobID := a.queueTrackedJob("keys_health_check", "key", "all")
 	if jobID == 0 {
-		writeV1Error(w, r, http.StatusInternalServerError, "job_queue_failed", "failed to queue key health check")
-		return
+		return 0
 	}
 	go a.runQueuedKeyHealthCheck(jobID, session.AdminID, requestIDFromRequest(r))
-	writeJSON(w, http.StatusAccepted, map[string]any{"job_id": jobID, "status": "queued"})
+	return jobID
 }
 
 func (a *App) runQueuedKeyHealthCheck(jobID, actorAdminID int64, requestID string) {
 	a.markTrackedJobRunning(jobID)
-	rows, err := a.db.Query(`
-		SELECT id, url, key_kind
-		FROM vless_keys
-		ORDER BY CASE WHEN key_kind = 'real' THEN 0 ELSE 1 END, sort_order, id
-	`)
+	targets, err := a.keyService().ListHealthCheckTargets(context.Background())
 	if err != nil {
 		a.finishTrackedJob(jobID, err)
 		return
 	}
-	type keyTarget struct {
-		id   int64
-		url  string
-		kind string
-	}
-	targets := []keyTarget{}
-	for rows.Next() {
-		var target keyTarget
-		if scanErr := rows.Scan(&target.id, &target.url, &target.kind); scanErr != nil {
-			_ = rows.Close()
-			a.finishTrackedJob(jobID, scanErr)
-			return
-		}
-		if normalized, _ := model.NormalizeKeyKind(target.kind); normalized != model.KeyKindInformational {
-			targets = append(targets, target)
-		}
-	}
-	if err = rows.Err(); err != nil {
-		_ = rows.Close()
-		a.finishTrackedJob(jobID, err)
-		return
-	}
-	_ = rows.Close()
 
 	var waitGroup sync.WaitGroup
 	semaphore := make(chan struct{}, 10)
@@ -304,11 +292,11 @@ func (a *App) runQueuedKeyHealthCheck(jobID, actorAdminID int64, requestID strin
 	for _, target := range targets {
 		waitGroup.Add(1)
 		semaphore <- struct{}{}
-		go func(item keyTarget) {
+		go func(item keymanagement.HealthCheckTarget) {
 			defer waitGroup.Done()
 			defer func() { <-semaphore }()
-			if checkErr := a.checkAndPersistKey(item.id, item.url); checkErr != nil {
-				log.Printf("background key check: key_id=%d err=%v", item.id, checkErr)
+			if checkErr := a.checkAndPersistKey(item.ID, item.URL); checkErr != nil {
+				log.Printf("background key check: key_id=%d err=%v", item.ID, checkErr)
 				errorLock.Lock()
 				errorCount++
 				errorLock.Unlock()
@@ -334,30 +322,31 @@ func (a *App) runQueuedSourceSync(jobID, sourceID, actorAdminID int64, requestID
 	source, err := a.getExternalSourceByID(sourceID)
 	if err != nil {
 		a.finishTrackedJob(jobID, err)
-		a.finishSourceSyncRun(runID, 0, 0, err)
+		a.finishSourceSyncRun(runID, externalSyncResult{}, err)
 		return
 	}
 	a.markExternalSourceStatus(sourceID, "syncing", "")
 	hwidProfile := normalizeExternalHWIDProfile(source.PassHWID, source.HWIDVersion, source.HWIDModelName, source.HWIDValue)
-	parsed, err := fetchExternalSubscription(source.SourceURL, hwidProfile)
+	parsed, err := fetchExternalSubscription(source.SourceURL, hwidProfile, a.externalProfileFingerprintKeys())
 	if err != nil {
 		a.markExternalSourceStatus(sourceID, "error", err.Error())
 		a.finishTrackedJob(jobID, err)
-		a.finishSourceSyncRun(runID, 0, 0, err)
+		a.finishSourceSyncRun(runID, externalSyncResult{}, err)
 		return
 	}
-	imported, skipped, err := a.syncExternalSource(sourceID, parsed)
+	syncResult, err := a.syncExternalSource(sourceID, parsed)
 	if err != nil {
 		a.markExternalSourceStatus(sourceID, "error", err.Error())
 		a.finishTrackedJob(jobID, err)
-		a.finishSourceSyncRun(runID, imported, skipped, err)
+		a.finishSourceSyncRun(runID, syncResult, err)
 		return
 	}
 	a.finishTrackedJob(jobID, nil)
-	a.finishSourceSyncRun(runID, imported, skipped, nil)
+	a.finishSourceSyncRun(runID, syncResult, nil)
 	a.recordAuditEventForActor(actorAdminID, requestID, "external_source.sync", "external_source", strconv.FormatInt(sourceID, 10), map[string]any{
-		"imported_count": imported,
-		"skipped_count":  skipped,
+		"imported_count": syncResult.Imported,
+		"skipped_count":  syncResult.Skipped,
+		"result_counts":  syncResult.Counts,
 		"job_id":         jobID,
 	})
 }

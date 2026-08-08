@@ -34,8 +34,8 @@ FROM caddy:${CADDY_VERSION} AS runtime
 # OCI image labels
 LABEL org.opencontainers.image.title="SubShare Frontend" \
       org.opencontainers.image.description="Technical operations interface for SubShare" \
-      org.opencontainers.image.source="https://github.com/romanpodg/vless-keys-to-sub" \
-      org.opencontainers.image.licenses="MIT"
+      org.opencontainers.image.source="https://github.com/romanpodg/SubShare-Go" \
+      org.opencontainers.image.licenses="Unlicense"
 
 COPY Caddyfile /etc/caddy/Caddyfile
 COPY --from=builder /app/out /srv

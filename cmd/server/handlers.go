@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"database/sql"
 	"encoding/base64"
 	"encoding/json"
@@ -13,14 +14,13 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
-	"sync"
 	"time"
 
-	"golang.org/x/crypto/bcrypt"
-
-	"subshare/internal/middleware"
-	"subshare/internal/model"
-	"subshare/internal/vless"
+	"github.com/romanpodg/SubShare-Go/internal/httpapi"
+	"github.com/romanpodg/SubShare-Go/internal/keymanagement"
+	"github.com/romanpodg/SubShare-Go/internal/middleware"
+	"github.com/romanpodg/SubShare-Go/internal/model"
+	adminpassword "github.com/romanpodg/SubShare-Go/internal/security/password"
 )
 
 var providerIDPattern = regexp.MustCompile(`^[A-Za-z0-9]{8}$`)
@@ -31,6 +31,12 @@ func writeJSON(w http.ResponseWriter, status int, payload any) {
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
 	w.WriteHeader(status)
 	_ = json.NewEncoder(w).Encode(payload)
+}
+
+func applySensitiveResponseHeaders(w http.ResponseWriter) {
+	w.Header().Set("Cache-Control", "no-store, no-cache, must-revalidate, private")
+	w.Header().Set("Pragma", "no-cache")
+	w.Header().Set("Expires", "0")
 }
 
 func readJSON(r *http.Request, dst any) error {
@@ -72,148 +78,17 @@ func pathID(w http.ResponseWriter, r *http.Request, name string) (int64, bool) {
 	return id, true
 }
 
-func normalizeBulkKeyIDs(ids []int64) ([]int64, error) {
-	if len(ids) == 0 {
-		return nil, fmt.Errorf("ids list is empty")
-	}
-
-	normalized := make([]int64, 0, len(ids))
-	seen := make(map[int64]struct{}, len(ids))
-
-	for _, id := range ids {
-		if id <= 0 {
-			return nil, fmt.Errorf("ids list contains invalid key id")
-		}
-		if _, exists := seen[id]; exists {
-			return nil, fmt.Errorf("ids list contains duplicates")
-		}
-		seen[id] = struct{}{}
-		normalized = append(normalized, id)
-	}
-
-	return normalized, nil
-}
-
 func normalizeKeyCategory(raw string) string {
-	value := strings.TrimSpace(raw)
-	if len(value) > 24 {
-		value = value[:24]
-	}
-	return value
-}
-
-func normalizeKeyCategoryColor(raw string) string {
-	value := strings.TrimSpace(raw)
-	if value == "" {
-		return "#d8b33d"
-	}
-	if matched, _ := regexp.MatchString(`^#[0-9A-Fa-f]{6}$`, value); matched {
-		return strings.ToUpper(value)
-	}
-	return "#d8b33d"
+	return keymanagement.NormalizeKeyCategory(raw)
 }
 
 func (a *App) upsertKeyCategory(category string) error {
-	category = normalizeKeyCategory(category)
-	if category == "" {
-		return nil
-	}
-	var nextSortOrder int64
-	if err := a.db.QueryRow(`SELECT COALESCE(MAX(sort_order), 0) + 1 FROM key_categories`).Scan(&nextSortOrder); err != nil {
-		return err
-	}
-	_, err := a.db.Exec(
-		`INSERT INTO key_categories(name, color, sort_order, updated_at)
-		 VALUES(?, '#d8b33d', ?, CURRENT_TIMESTAMP)
-		 ON CONFLICT(name) DO UPDATE SET updated_at = CURRENT_TIMESTAMP`,
-		category,
-		nextSortOrder,
-	)
+	_, err := a.keyService().EnsureCategory(context.Background(), category)
 	return err
 }
 
-func (a *App) keyCategoryID(category string) (any, error) {
-	category = normalizeKeyCategory(category)
-	if category == "" {
-		return nil, nil
-	}
-	var id int64
-	if err := a.db.QueryRow(`SELECT id FROM key_categories WHERE name = ?`, category).Scan(&id); err != nil {
-		return nil, err
-	}
-	return id, nil
-}
-
 func (a *App) listKeyCategories() ([]model.KeyCategory, error) {
-	rows, err := a.db.Query(`SELECT id, name, color FROM key_categories ORDER BY sort_order, id`)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-
-	countByName := make(map[string]int)
-	colorByName := make(map[string]string)
-	categories := make([]model.KeyCategory, 0, 16)
-	for rows.Next() {
-		var id int64
-		var name sql.NullString
-		var color sql.NullString
-		if err := rows.Scan(&id, &name, &color); err != nil {
-			return nil, err
-		}
-		normalized := normalizeKeyCategory(name.String)
-		if normalized == "" {
-			continue
-		}
-		if _, exists := countByName[normalized]; exists {
-			continue
-		}
-		countByName[normalized] = 0
-		colorByName[normalized] = normalizeKeyCategoryColor(color.String)
-		categories = append(categories, model.KeyCategory{ID: id, Name: normalized, Color: colorByName[normalized], KeysCount: 0})
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-
-	countRows, err := a.db.Query(`
-		SELECT kc.name, COUNT(*)
-		FROM vless_keys k
-		JOIN key_categories kc ON kc.id = k.category_id
-		GROUP BY k.category_id, kc.name
-	`)
-	if err != nil {
-		return nil, err
-	}
-	defer countRows.Close()
-
-	for countRows.Next() {
-		var category sql.NullString
-		var count int64
-		if err := countRows.Scan(&category, &count); err != nil {
-			return nil, err
-		}
-		normalized := normalizeKeyCategory(category.String)
-		if normalized == "" {
-			continue
-		}
-		if _, exists := countByName[normalized]; !exists {
-			colorByName[normalized] = "#d8b33d"
-			var id int64
-			_ = a.db.QueryRow(`SELECT id FROM key_categories WHERE name = ?`, normalized).Scan(&id)
-			categories = append(categories, model.KeyCategory{ID: id, Name: normalized, Color: colorByName[normalized], KeysCount: 0})
-		}
-		countByName[normalized] += int(count)
-	}
-	if err := countRows.Err(); err != nil {
-		return nil, err
-	}
-
-	for index := range categories {
-		categories[index].KeysCount = countByName[categories[index].Name]
-		categories[index].Color = normalizeKeyCategoryColor(colorByName[categories[index].Name])
-	}
-	return categories, nil
+	return a.keyService().ListCategories(context.Background())
 }
 
 // --- Auth API ---
@@ -226,21 +101,13 @@ func (a *App) apiLogin(w http.ResponseWriter, r *http.Request) {
 	}
 
 	username := strings.TrimSpace(req.Username)
-	password := strings.TrimSpace(req.Password)
-
-	var adminID int64
-	var passwordHash string
-	if err := a.db.QueryRow(`SELECT id, password_hash FROM admins WHERE username = ?`, username).Scan(&adminID, &passwordHash); err != nil {
-		if errors.Is(err, sql.ErrNoRows) {
-			writeError(w, http.StatusUnauthorized, "invalid credentials")
-			return
-		}
+	adminID, authenticated, err := a.authenticateAdministrator(r.Context(), username, req.Password)
+	if err != nil {
 		log.Printf("apiLogin: %v", err)
 		writeError(w, http.StatusInternalServerError, "internal server error")
 		return
 	}
-
-	if bcrypt.CompareHashAndPassword([]byte(passwordHash), []byte(password)) != nil {
+	if !authenticated {
 		writeError(w, http.StatusUnauthorized, "invalid credentials")
 		return
 	}
@@ -339,15 +206,10 @@ func (a *App) apiCreateAdmin(w http.ResponseWriter, r *http.Request) {
 	}
 
 	username := strings.TrimSpace(req.Username)
-	password := strings.TrimSpace(req.Password)
 	role, roleOK := normalizeAdminRole(req.Role)
 
 	if username == "" {
 		writeError(w, http.StatusBadRequest, "username is required")
-		return
-	}
-	if len(password) < 6 {
-		writeError(w, http.StatusBadRequest, "password must be at least 6 characters")
 		return
 	}
 	if !roleOK {
@@ -368,14 +230,18 @@ func (a *App) apiCreateAdmin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	passwordHash, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
+	passwordHash, err := a.passwordHasher().Hash(req.Password)
 	if err != nil {
-		log.Printf("apiCreateAdmin bcrypt error: %v", err)
+		if adminpassword.IsPolicyError(err) {
+			writeError(w, http.StatusBadRequest, err.Error())
+			return
+		}
+		log.Printf("apiCreateAdmin: password hashing failed")
 		writeError(w, http.StatusInternalServerError, "failed to hash password")
 		return
 	}
 
-	result, err := a.db.Exec(`INSERT INTO admins (username, password_hash, role) VALUES (?, ?, ?)`, username, string(passwordHash), role)
+	result, err := a.db.Exec(`INSERT INTO admins (username, password_hash, role) VALUES (?, ?, ?)`, username, passwordHash, role)
 	if err != nil {
 		log.Printf("apiCreateAdmin insert: %v", err)
 		writeError(w, http.StatusInternalServerError, "failed to create admin")
@@ -402,7 +268,7 @@ func (a *App) apiUpdateAdmin(w http.ResponseWriter, r *http.Request) {
 	}
 
 	role := strings.TrimSpace(req.Role)
-	password := strings.TrimSpace(req.Password)
+	passwordValue := req.Password
 
 	session, _, _ := a.adminSessionFromRequest(r)
 
@@ -421,18 +287,18 @@ func (a *App) apiUpdateAdmin(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Update password if provided
-	if password != "" {
-		if len(password) < 6 {
-			writeError(w, http.StatusBadRequest, "password must be at least 6 characters")
-			return
-		}
-		passwordHash, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
+	if passwordValue != "" {
+		passwordHash, err := a.passwordHasher().Hash(passwordValue)
 		if err != nil {
-			log.Printf("apiUpdateAdmin bcrypt error: %v", err)
+			if adminpassword.IsPolicyError(err) {
+				writeError(w, http.StatusBadRequest, err.Error())
+				return
+			}
+			log.Printf("apiUpdateAdmin: password hashing failed")
 			writeError(w, http.StatusInternalServerError, "failed to hash password")
 			return
 		}
-		_, err = a.db.Exec(`UPDATE admins SET password_hash = ? WHERE id = ?`, string(passwordHash), id)
+		_, err = a.db.Exec(`UPDATE admins SET password_hash = ? WHERE id = ?`, passwordHash, id)
 		if err != nil {
 			log.Printf("apiUpdateAdmin password update: %v", err)
 			writeError(w, http.StatusInternalServerError, "failed to update password")
@@ -490,7 +356,7 @@ func (a *App) apiUpdateAdmin(w http.ResponseWriter, r *http.Request) {
 
 	a.recordAuditEvent(r, "admin.update", "admin", strconv.FormatInt(id, 10), map[string]any{
 		"role":             role,
-		"password_changed": password != "",
+		"password_changed": passwordValue != "",
 	})
 	writeMessage(w, "administrator updated successfully")
 }
@@ -568,6 +434,7 @@ func (a *App) apiDeleteAdmin(w http.ResponseWriter, r *http.Request) {
 // --- Users API ---
 
 func (a *App) apiListUsers(w http.ResponseWriter, r *http.Request) {
+	applySensitiveResponseHeaders(w)
 	users, err := a.listUsers()
 	if err != nil {
 		log.Printf("apiListUsers: %v", err)
@@ -576,6 +443,12 @@ func (a *App) apiListUsers(w http.ResponseWriter, r *http.Request) {
 	}
 	if users == nil {
 		users = []model.User{}
+	}
+	// The legacy token column is retained for database compatibility, but it is
+	// not used by current subscription delivery or the administration frontend.
+	// Do not return that access material from bulk user projections.
+	for i := range users {
+		users[i].Token = ""
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"users": users})
 }
@@ -861,6 +734,7 @@ func (a *App) apiUpdateUserSubscription(w http.ResponseWriter, r *http.Request) 
 }
 
 func (a *App) apiGetUserSubscriptionURLs(w http.ResponseWriter, r *http.Request) {
+	applySensitiveResponseHeaders(w)
 	id, ok := pathID(w, r, "id")
 	if !ok {
 		return
@@ -1217,932 +1091,68 @@ func (a *App) apiDeleteUserHWID(w http.ResponseWriter, r *http.Request) {
 
 // --- Keys API ---
 
-func (a *App) apiListKeys(w http.ResponseWriter, r *http.Request) {
-	keys, err := a.listKeys()
-	if err != nil {
-		log.Printf("apiListKeys: %v", err)
-		writeError(w, http.StatusInternalServerError, "failed to list keys")
-		return
-	}
-	if keys == nil {
-		keys = []model.VLESSKey{}
-	}
-	writeJSON(w, http.StatusOK, map[string]any{"keys": keys})
+func (a *App) legacyKeyHandler() *httpapi.LegacyKeyHandler {
+	return httpapi.NewLegacyKeyHandler(a.keyService(), a.recordAuditEvent)
+}
+
+func (a *App) keyCategoryHandler() *httpapi.KeyCategoryHandler {
+	return httpapi.NewKeyCategoryHandler(a.keyService(), a.recordAuditEvent)
 }
 
 func (a *App) apiListKeyCategories(w http.ResponseWriter, r *http.Request) {
-	categories, err := a.listKeyCategories()
-	if err != nil {
-		log.Printf("apiListKeyCategories: %v", err)
-		writeError(w, http.StatusInternalServerError, "failed to list key categories")
-		return
-	}
-	if categories == nil {
-		categories = []model.KeyCategory{}
-	}
-	writeJSON(w, http.StatusOK, map[string]any{
-		"categories": categories,
-	})
+	a.keyCategoryHandler().ListCategories(w, r)
 }
 
 func (a *App) apiCreateKeyCategory(w http.ResponseWriter, r *http.Request) {
-	var req model.CreateKeyCategoryRequest
-	if err := readJSON(r, &req); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid request body")
-		return
-	}
-
-	rawName := strings.TrimSpace(req.Name)
-	color := normalizeKeyCategoryColor(req.Color)
-	if rawName == "" {
-		writeError(w, http.StatusBadRequest, "category name is required")
-		return
-	}
-
-	name := normalizeKeyCategory(rawName)
-	var nextSortOrder int64
-	if err := a.db.QueryRow(`SELECT COALESCE(MAX(sort_order), 0) + 1 FROM key_categories`).Scan(&nextSortOrder); err != nil {
-		log.Printf("apiCreateKeyCategory load nextSortOrder: %v", err)
-		writeError(w, http.StatusInternalServerError, "failed to create key category")
-		return
-	}
-	if _, err := a.db.Exec(
-		`INSERT INTO key_categories(name, color, sort_order, updated_at)
-		 VALUES(?, ?, ?, CURRENT_TIMESTAMP)
-		 ON CONFLICT(name) DO UPDATE SET color = excluded.color, updated_at = CURRENT_TIMESTAMP`,
-		name,
-		color,
-		nextSortOrder,
-	); err != nil {
-		log.Printf("apiCreateKeyCategory: %v", err)
-		writeError(w, http.StatusInternalServerError, "failed to create key category")
-		return
-	}
-
-	writeJSON(w, http.StatusOK, map[string]any{
-		"category": model.KeyCategory{Name: name, Color: color},
-		"message":  "key category saved",
-	})
+	a.keyCategoryHandler().CreateCategory(w, r)
 }
 
 func (a *App) apiUpdateKeyCategory(w http.ResponseWriter, r *http.Request) {
-	var req model.UpdateKeyCategoryRequest
-	if err := readJSON(r, &req); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid request body")
-		return
-	}
-
-	oldRaw := strings.TrimSpace(req.OldName)
-	newRaw := strings.TrimSpace(req.NewName)
-	color := normalizeKeyCategoryColor(req.Color)
-	if oldRaw == "" || newRaw == "" {
-		writeError(w, http.StatusBadRequest, "both old_name and new_name are required")
-		return
-	}
-
-	oldName := normalizeKeyCategory(oldRaw)
-	newName := normalizeKeyCategory(newRaw)
-	if oldName == "" || newName == "" {
-		writeError(w, http.StatusBadRequest, "category name cannot be empty")
-		return
-	}
-
-	var keyCount int64
-	if err := a.db.QueryRow(`
-		SELECT COUNT(*) FROM vless_keys
-		 WHERE category_id = (SELECT id FROM key_categories WHERE name = ?)
-		    OR (category_id IS NULL AND category = ?)
-	`, oldName, oldName).Scan(&keyCount); err != nil {
-		log.Printf("apiUpdateKeyCategory count keys: %v", err)
-		writeError(w, http.StatusInternalServerError, "failed to update key category")
-		return
-	}
-	var categoryCount int64
-	var existingSortOrder int64
-	if err := a.db.QueryRow(`SELECT COUNT(*) FROM key_categories WHERE name = ?`, oldName).Scan(&categoryCount); err != nil {
-		log.Printf("apiUpdateKeyCategory count categories: %v", err)
-		writeError(w, http.StatusInternalServerError, "failed to update key category")
-		return
-	}
-	_ = a.db.QueryRow(`SELECT COALESCE(sort_order, 0) FROM key_categories WHERE name = ?`, oldName).Scan(&existingSortOrder)
-	if keyCount == 0 && categoryCount == 0 {
-		writeError(w, http.StatusNotFound, "key category not found")
-		return
-	}
-
-	tx, err := a.db.Begin()
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to update key category")
-		return
-	}
-	defer tx.Rollback()
-
-	if _, err := tx.Exec(
-		`INSERT INTO key_categories(name, color, sort_order, updated_at)
-		 VALUES(?, ?, ?, CURRENT_TIMESTAMP)
-		 ON CONFLICT(name) DO UPDATE SET color = excluded.color, sort_order = COALESCE(NULLIF(key_categories.sort_order, 0), excluded.sort_order), updated_at = CURRENT_TIMESTAMP`,
-		newName,
-		color,
-		existingSortOrder,
-	); err != nil {
-		log.Printf("apiUpdateKeyCategory upsert new category: %v", err)
-		writeError(w, http.StatusInternalServerError, "failed to update key category")
-		return
-	}
-
-	if oldName != newName {
-		var newCategoryID int64
-		if err := tx.QueryRow(`SELECT id FROM key_categories WHERE name = ?`, newName).Scan(&newCategoryID); err != nil {
-			writeError(w, http.StatusInternalServerError, "failed to resolve key category")
-			return
-		}
-		if _, err := tx.Exec(
-			`UPDATE vless_keys
-			 SET category_id = ?, category = ?
-			 WHERE category_id = (SELECT id FROM key_categories WHERE name = ?)
-			    OR (category_id IS NULL AND category = ?)`,
-			newCategoryID,
-			newName,
-			oldName,
-			oldName,
-		); err != nil {
-			log.Printf("apiUpdateKeyCategory update keys: %v", err)
-			writeError(w, http.StatusInternalServerError, "failed to update key category")
-			return
-		}
-		if _, err := tx.Exec(`
-			UPDATE external_subscription_sources
-			   SET key_category_id = ?, key_category = ?
-			 WHERE key_category_id = (SELECT id FROM key_categories WHERE name = ?)
-			    OR (key_category_id IS NULL AND key_category = ?)
-		`, newCategoryID, newName, oldName, oldName); err != nil {
-			writeError(w, http.StatusInternalServerError, "failed to update source key category")
-			return
-		}
-
-		if _, err := tx.Exec(`DELETE FROM key_categories WHERE name = ?`, oldName); err != nil {
-			log.Printf("apiUpdateKeyCategory delete old category: %v", err)
-			writeError(w, http.StatusInternalServerError, "failed to update key category")
-			return
-		}
-	}
-
-	if _, err := tx.Exec(`UPDATE key_categories SET color = ?, updated_at = CURRENT_TIMESTAMP WHERE name = ?`, color, newName); err != nil {
-		log.Printf("apiUpdateKeyCategory update color: %v", err)
-		writeError(w, http.StatusInternalServerError, "failed to update key category")
-		return
-	}
-
-	if err := tx.Commit(); err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to update key category")
-		return
-	}
-
-	writeJSON(w, http.StatusOK, map[string]any{
-		"category": model.KeyCategory{Name: newName, Color: color},
-		"message":  "key category updated",
-	})
+	a.keyCategoryHandler().UpdateCategory(w, r)
 }
 
 func (a *App) apiRenameKeyCategory(w http.ResponseWriter, r *http.Request) {
-	var req model.RenameKeyCategoryRequest
-	if err := readJSON(r, &req); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid request body")
-		return
-	}
-
-	var currentColor sql.NullString
-	_ = a.db.QueryRow(`SELECT color FROM key_categories WHERE name = ?`, normalizeKeyCategory(req.OldName)).Scan(&currentColor)
-
-	a.apiUpdateKeyCategory(w, withJSONBody(r, model.UpdateKeyCategoryRequest{
-		OldName: req.OldName,
-		NewName: req.NewName,
-		Color:   currentColor.String,
-	}))
-}
-
-func withJSONBody[T any](r *http.Request, payload T) *http.Request {
-	body, _ := json.Marshal(payload)
-	clone := r.Clone(r.Context())
-	clone.Body = io.NopCloser(strings.NewReader(string(body)))
-	clone.ContentLength = int64(len(body))
-	return clone
+	a.keyCategoryHandler().RenameCategory(w, r)
 }
 
 func (a *App) apiDeleteKeyCategory(w http.ResponseWriter, r *http.Request) {
-	var req model.DeleteKeyCategoryRequest
-	if err := readJSON(r, &req); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid request body")
-		return
-	}
-
-	name := normalizeKeyCategory(req.Name)
-	mode := strings.TrimSpace(req.Mode)
-	if mode != "delete_with_keys" && mode != "keep_keys" {
-		writeError(w, http.StatusBadRequest, "invalid delete mode")
-		return
-	}
-
-	tx, err := a.db.Begin()
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to delete key category")
-		return
-	}
-	defer tx.Rollback()
-	var categoryID sql.NullInt64
-	if err := tx.QueryRow(`SELECT id FROM key_categories WHERE name = ?`, name).Scan(&categoryID); err != nil && !errors.Is(err, sql.ErrNoRows) {
-		writeError(w, http.StatusInternalServerError, "failed to resolve key category")
-		return
-	}
-
-	if mode == "delete_with_keys" {
-		if _, err := tx.Exec(`
-			DELETE FROM vless_keys
-			 WHERE category_id = ? OR (category_id IS NULL AND category = ?)
-		`, categoryID, name); err != nil {
-			log.Printf("apiDeleteKeyCategory delete keys: %v", err)
-			writeError(w, http.StatusInternalServerError, "failed to delete key category")
-			return
-		}
-	} else {
-		if _, err := tx.Exec(`
-			UPDATE vless_keys SET category_id = NULL, category = ''
-			 WHERE category_id = ? OR (category_id IS NULL AND category = ?)
-		`, categoryID, name); err != nil {
-			log.Printf("apiDeleteKeyCategory move keys: %v", err)
-			writeError(w, http.StatusInternalServerError, "failed to delete key category")
-			return
-		}
-	}
-
-	if _, err := tx.Exec(`DELETE FROM key_categories WHERE name = ?`, name); err != nil {
-		log.Printf("apiDeleteKeyCategory delete category: %v", err)
-		writeError(w, http.StatusInternalServerError, "failed to delete key category")
-		return
-	}
-
-	if err := tx.Commit(); err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to delete key category")
-		return
-	}
-
-	writeMessage(w, "key category deleted")
+	a.keyCategoryHandler().DeleteCategory(w, r)
 }
 
 func (a *App) apiReorderKeyCategories(w http.ResponseWriter, r *http.Request) {
-	var req model.ReorderKeyCategoriesRequest
-	if err := readJSON(r, &req); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid request body")
-		return
-	}
-	if len(req.Names) == 0 {
-		writeError(w, http.StatusBadRequest, "category names are required")
-		return
-	}
-
-	normalized := make([]string, 0, len(req.Names))
-	seen := make(map[string]struct{}, len(req.Names))
-	for _, name := range req.Names {
-		value := normalizeKeyCategory(name)
-		if value == "" {
-			writeError(w, http.StatusBadRequest, "category name cannot be empty")
-			return
-		}
-		if _, exists := seen[value]; exists {
-			writeError(w, http.StatusBadRequest, "duplicate category names")
-			return
-		}
-		seen[value] = struct{}{}
-		normalized = append(normalized, value)
-	}
-
-	tx, err := a.db.Begin()
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to reorder key categories")
-		return
-	}
-	defer tx.Rollback()
-
-	stmt, err := tx.Prepare(`UPDATE key_categories SET sort_order = ?, updated_at = CURRENT_TIMESTAMP WHERE name = ?`)
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to reorder key categories")
-		return
-	}
-	defer stmt.Close()
-
-	for index, name := range normalized {
-		if _, err := stmt.Exec(index+1, name); err != nil {
-			log.Printf("apiReorderKeyCategories update %s: %v", name, err)
-			writeError(w, http.StatusInternalServerError, "failed to reorder key categories")
-			return
-		}
-	}
-
-	if err := tx.Commit(); err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to reorder key categories")
-		return
-	}
-
-	writeMessage(w, "key categories reordered")
+	a.keyCategoryHandler().ReorderCategories(w, r)
 }
 
 func (a *App) apiCreateKey(w http.ResponseWriter, r *http.Request) {
-	var req model.CreateKeyRequest
-	if err := readJSON(r, &req); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid request body")
-		return
-	}
-
-	label := strings.TrimSpace(req.Label)
-	keyURL := strings.TrimSpace(req.URL)
-	category := normalizeKeyCategory(req.Category)
-	templateText := strings.TrimSpace(req.TemplateText)
-	kind, kindOK := model.NormalizeKeyKind(req.Kind)
-	if !kindOK {
-		writeError(w, http.StatusBadRequest, "invalid key kind")
-		return
-	}
-	status, ok := model.NormalizeKeyStatus(req.Status)
-	if !ok {
-		writeError(w, http.StatusBadRequest, "invalid key status")
-		return
-	}
-	if label == "" {
-		writeError(w, http.StatusBadRequest, "label is required")
-		return
-	}
-	if kind == model.KeyKindReal {
-		if keyURL == "" {
-			writeError(w, http.StatusBadRequest, "url is required for real keys")
-			return
-		}
-		if err := validateRealConfigURL(keyURL); err != nil {
-			writeError(w, http.StatusBadRequest, err.Error())
-			return
-		}
-	} else {
-		if templateText == "" {
-			templateText = label
-		}
-		token, err := generateToken(12)
-		if err != nil {
-			writeError(w, http.StatusInternalServerError, "failed to generate key")
-			return
-		}
-		keyURL = "info://" + token
-	}
-	if len(label) > 255 {
-		writeError(w, http.StatusBadRequest, "label is too long (max 255 characters)")
-		return
-	}
-	if len(keyURL) > 65535 {
-		writeError(w, http.StatusBadRequest, "configuration is too long (max 65535 characters)")
-		return
-	}
-	if len(templateText) > 8192 {
-		writeError(w, http.StatusBadRequest, "template_text is too long (max 8192 characters)")
-		return
-	}
-	if err := a.upsertKeyCategory(category); err != nil {
-		log.Printf("apiCreateKey upsert category: %v", err)
-		writeError(w, http.StatusInternalServerError, "failed to save key category")
-		return
-	}
-	categoryID, err := a.keyCategoryID(category)
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to resolve key category")
-		return
-	}
-
-	var nextSortOrder int64
-	if err := a.db.QueryRow(`SELECT COALESCE(MAX(sort_order), 0) + 1 FROM vless_keys`).Scan(&nextSortOrder); err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to prepare key order")
-		return
-	}
-
-	tx, err := a.db.Begin()
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to add key")
-		return
-	}
-	defer tx.Rollback()
-
-	result, err := tx.Exec(
-		`INSERT INTO vless_keys(label, url, category_id, category, status, check_status, key_kind, template_text, sort_order) VALUES(?, ?, ?, ?, ?, 'unknown', ?, ?, ?)`,
-		label, keyURL, categoryID, category, status, kind, nullStringValue(templateText), nextSortOrder,
-	)
-	if err != nil {
-		log.Printf("apiCreateKey: %v", err)
-		writeError(w, http.StatusConflict, "failed to add key (maybe duplicate)")
-		return
-	}
-
-	keyID, err := result.LastInsertId()
-	if err != nil {
-		log.Printf("apiCreateKey: failed to get key ID: %v", err)
-		writeError(w, http.StatusInternalServerError, "failed to get key ID")
-		return
-	}
-
-	_, err = tx.Exec(
-		`INSERT INTO user_keys(user_id, key_id)
-		 SELECT id, ? FROM users WHERE key_assignment_mode = 'all'`,
-		keyID,
-	)
-	if err != nil {
-		log.Printf("apiCreateKey: failed to add key to users: %v", err)
-		writeError(w, http.StatusInternalServerError, "failed to add key")
-		return
-	}
-	if err := tx.Commit(); err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to add key")
-		return
-	}
-	a.recordAuditEvent(r, "key.create", "key", strconv.FormatInt(keyID, 10), map[string]any{"label": label})
-
-	writeMessage(w, "key added")
+	a.legacyKeyHandler().CreateKey(w, r)
 }
 
 func (a *App) apiUpdateKey(w http.ResponseWriter, r *http.Request) {
-	id, ok := pathID(w, r, "id")
-	if !ok {
-		return
-	}
-
-	var req model.UpdateKeyRequest
-	if err := readJSON(r, &req); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid request body")
-		return
-	}
-
-	label := strings.TrimSpace(req.Label)
-	category := normalizeKeyCategory(req.Category)
-	templateText := strings.TrimSpace(req.TemplateText)
-	kind, kindOK := model.NormalizeKeyKind(req.Kind)
-	if !kindOK {
-		writeError(w, http.StatusBadRequest, "invalid key kind")
-		return
-	}
-	status, ok := model.NormalizeKeyStatus(req.Status)
-	if !ok {
-		writeError(w, http.StatusBadRequest, "invalid key status")
-		return
-	}
-	if label == "" {
-		writeError(w, http.StatusBadRequest, "label is required")
-		return
-	}
-	if len(label) > 255 {
-		writeError(w, http.StatusBadRequest, "label is too long (max 255 characters)")
-		return
-	}
-
-	var existingURL sql.NullString
-	var existingKind sql.NullString
-	var existingSort sql.NullInt64
-	if err := a.db.QueryRow(`SELECT url, key_kind, sort_order FROM vless_keys WHERE id = ?`, id).Scan(&existingURL, &existingKind, &existingSort); err != nil {
-		writeError(w, http.StatusNotFound, "key not found")
-		return
-	}
-	existingKindNormalized, _ := model.NormalizeKeyKind(existingKind.String)
-	if existingKindNormalized == "" {
-		existingKindNormalized = model.KeyKindReal
-	}
-
-	builtURL := ""
-	if kind == model.KeyKindReal {
-		if rawURL := strings.TrimSpace(req.RawURL); rawURL != "" {
-			if err := validateRealConfigURL(rawURL); err != nil {
-				writeError(w, http.StatusBadRequest, err.Error())
-				return
-			}
-			builtURL = rawURL
-		} else {
-			var err error
-			builtURL, err = vless.BuildVLESSURL(req.UUID, req.Host, req.Port, req.Query, req.Fragment)
-			if err != nil {
-				writeError(w, http.StatusBadRequest, err.Error())
-				return
-			}
-		}
-	} else {
-		if templateText == "" {
-			templateText = label
-		}
-		builtURL = strings.TrimSpace(existingURL.String)
-		if builtURL == "" {
-			token, err := generateToken(12)
-			if err != nil {
-				writeError(w, http.StatusInternalServerError, "failed to generate key")
-				return
-			}
-			builtURL = "info://" + token
-		}
-	}
-
-	sortOrder := existingSort.Int64
-	if !existingSort.Valid || sortOrder <= 0 || existingKindNormalized != kind {
-		if err := a.db.QueryRow(`SELECT COALESCE(MAX(sort_order), 0) + 1 FROM vless_keys`).Scan(&sortOrder); err != nil {
-			writeError(w, http.StatusInternalServerError, "failed to prepare key order")
-			return
-		}
-	}
-
-	if len(builtURL) > 65535 {
-		writeError(w, http.StatusBadRequest, "configuration is too long (max 65535 characters)")
-		return
-	}
-	if len(templateText) > 8192 {
-		writeError(w, http.StatusBadRequest, "template_text is too long (max 8192 characters)")
-		return
-	}
-	if err := a.upsertKeyCategory(category); err != nil {
-		log.Printf("apiUpdateKey upsert category: %v", err)
-		writeError(w, http.StatusInternalServerError, "failed to save key category")
-		return
-	}
-	categoryID, err := a.keyCategoryID(category)
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to resolve key category")
-		return
-	}
-
-	if _, err := a.db.Exec(
-		`UPDATE vless_keys SET label = ?, url = ?, category_id = ?, category = ?, status = ?, key_kind = ?, template_text = ?, sort_order = ? WHERE id = ?`,
-		label, builtURL, categoryID, category, status, kind, nullStringValue(templateText), sortOrder, id,
-	); err != nil {
-		log.Printf("apiUpdateKey: %v", err)
-		writeError(w, http.StatusInternalServerError, "failed to update key")
-		return
-	}
-	a.recordAuditEvent(r, "key.update", "key", strconv.FormatInt(id, 10), map[string]any{"label": label})
-	writeMessage(w, "key updated")
+	a.legacyKeyHandler().UpdateKey(w, r)
 }
 
 func (a *App) apiBulkUpdateKeyStatus(w http.ResponseWriter, r *http.Request) {
-	var req model.BulkUpdateKeyStatusRequest
-	if err := readJSON(r, &req); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid request body")
-		return
-	}
-
-	ids, err := normalizeBulkKeyIDs(req.IDs)
-	if err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
-		return
-	}
-
-	status, ok := model.NormalizeKeyStatus(req.Status)
-	if !ok {
-		writeError(w, http.StatusBadRequest, "invalid key status")
-		return
-	}
-	applyCategory := strings.TrimSpace(req.Category) != ""
-	category := normalizeKeyCategory(req.Category)
-	var categoryID any
-	if applyCategory {
-		if err := a.upsertKeyCategory(category); err != nil {
-			log.Printf("apiBulkUpdateKeyStatus upsert category: %v", err)
-			writeError(w, http.StatusInternalServerError, "failed to save key category")
-			return
-		}
-		categoryID, err = a.keyCategoryID(category)
-		if err != nil {
-			writeError(w, http.StatusInternalServerError, "failed to resolve key category")
-			return
-		}
-	}
-
-	tx, err := a.db.Begin()
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to update keys")
-		return
-	}
-	defer tx.Rollback()
-
-	query := `UPDATE vless_keys SET status = ? WHERE id = ?`
-	if applyCategory {
-		query = `UPDATE vless_keys SET status = ?, category_id = ?, category = ? WHERE id = ?`
-	}
-	stmt, err := tx.Prepare(query)
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to update keys")
-		return
-	}
-	defer stmt.Close()
-
-	for _, id := range ids {
-		var (
-			res sql.Result
-			err error
-		)
-		if applyCategory {
-			res, err = stmt.Exec(status, categoryID, category, id)
-		} else {
-			res, err = stmt.Exec(status, id)
-		}
-		if err != nil {
-			log.Printf("apiBulkUpdateKeyStatus: update key id=%d: %v", id, err)
-			writeError(w, http.StatusInternalServerError, "failed to update keys")
-			return
-		}
-		affected, _ := res.RowsAffected()
-		if affected == 0 {
-			writeError(w, http.StatusNotFound, fmt.Sprintf("key not found: %d", id))
-			return
-		}
-	}
-
-	if err := tx.Commit(); err != nil {
-		log.Printf("apiBulkUpdateKeyStatus: commit: %v", err)
-		writeError(w, http.StatusInternalServerError, "failed to update keys")
-		return
-	}
-
-	a.recordAuditEvent(r, "keys.bulk_status", "key", "multiple", map[string]any{
-		"count":  len(ids),
-		"status": status,
-	})
-	writeJSON(w, http.StatusOK, map[string]any{
-		"message": "keys updated",
-		"updated": len(ids),
-	})
+	a.keyAdministrationHTTPHandler().BulkUpdateKeys(w, r)
 }
 
 func (a *App) apiBulkDeleteKeys(w http.ResponseWriter, r *http.Request) {
-	var req model.BulkDeleteKeysRequest
-	if err := readJSON(r, &req); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid request body")
-		return
-	}
-
-	ids, err := normalizeBulkKeyIDs(req.IDs)
-	if err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
-		return
-	}
-
-	tx, err := a.db.Begin()
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to delete keys")
-		return
-	}
-	defer tx.Rollback()
-
-	stmt, err := tx.Prepare(`DELETE FROM vless_keys WHERE id = ?`)
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to delete keys")
-		return
-	}
-	defer stmt.Close()
-
-	for _, id := range ids {
-		res, err := stmt.Exec(id)
-		if err != nil {
-			log.Printf("apiBulkDeleteKeys: delete key id=%d: %v", id, err)
-			writeError(w, http.StatusInternalServerError, "failed to delete keys")
-			return
-		}
-		affected, _ := res.RowsAffected()
-		if affected == 0 {
-			writeError(w, http.StatusNotFound, fmt.Sprintf("key not found: %d", id))
-			return
-		}
-	}
-
-	if err := tx.Commit(); err != nil {
-		log.Printf("apiBulkDeleteKeys: commit: %v", err)
-		writeError(w, http.StatusInternalServerError, "failed to delete keys")
-		return
-	}
-
-	a.recordAuditEvent(r, "keys.bulk_delete", "key", "multiple", map[string]any{"count": len(ids)})
-	writeJSON(w, http.StatusOK, map[string]any{
-		"message": "keys deleted",
-		"deleted": len(ids),
-	})
+	a.keyAdministrationHTTPHandler().BulkDeleteKeys(w, r)
 }
 
 func (a *App) apiReorderKeys(w http.ResponseWriter, r *http.Request) {
-	var req model.ReorderKeysRequest
-	if err := readJSON(r, &req); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid request body")
-		return
-	}
-
-	rows, err := a.db.Query(`SELECT id FROM vless_keys ORDER BY sort_order, id`)
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to load keys")
-		return
-	}
-	defer rows.Close()
-
-	existingIDs := make([]int64, 0)
-	for rows.Next() {
-		var id int64
-		if err := rows.Scan(&id); err != nil {
-			writeError(w, http.StatusInternalServerError, "failed to read keys")
-			return
-		}
-		existingIDs = append(existingIDs, id)
-	}
-	if err := rows.Err(); err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to read keys")
-		return
-	}
-
-	if len(existingIDs) != len(req.IDs) {
-		writeError(w, http.StatusBadRequest, "ids list must include all keys")
-		return
-	}
-
-	allowed := make(map[int64]struct{}, len(existingIDs))
-	for _, id := range existingIDs {
-		allowed[id] = struct{}{}
-	}
-	seen := make(map[int64]struct{}, len(req.IDs))
-	for _, id := range req.IDs {
-		if _, ok := allowed[id]; !ok {
-			writeError(w, http.StatusBadRequest, "ids list contains unknown key")
-			return
-		}
-		if _, ok := seen[id]; ok {
-			writeError(w, http.StatusBadRequest, "ids list contains duplicates")
-			return
-		}
-		seen[id] = struct{}{}
-	}
-
-	tx, err := a.db.Begin()
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to reorder keys")
-		return
-	}
-	defer tx.Rollback()
-
-	stmt, err := tx.Prepare(`UPDATE vless_keys SET sort_order = ? WHERE id = ?`)
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to reorder keys")
-		return
-	}
-	defer stmt.Close()
-
-	for index, id := range req.IDs {
-		if _, err := stmt.Exec(index+1, id); err != nil {
-			writeError(w, http.StatusInternalServerError, "failed to reorder keys")
-			return
-		}
-	}
-
-	if err := tx.Commit(); err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to reorder keys")
-		return
-	}
-
-	a.recordAuditEvent(r, "keys.reorder", "key", "multiple", map[string]any{"count": len(req.IDs)})
-	writeMessage(w, "keys reordered")
+	a.keyCategoryHandler().ReorderKeys(w, r)
 }
 
 func (a *App) apiDeleteKey(w http.ResponseWriter, r *http.Request) {
-	id, ok := pathID(w, r, "id")
-	if !ok {
-		return
-	}
-	res, err := a.db.Exec(`DELETE FROM vless_keys WHERE id = ?`, id)
-	if err != nil {
-		log.Printf("apiDeleteKey: %v", err)
-		writeError(w, http.StatusInternalServerError, "failed to delete key")
-		return
-	}
-	n, _ := res.RowsAffected()
-	if n == 0 {
-		writeError(w, http.StatusNotFound, "key not found")
-		return
-	}
-	a.recordAuditEvent(r, "key.delete", "key", strconv.FormatInt(id, 10), nil)
-	writeMessage(w, "key deleted")
+	a.legacyKeyHandler().DeleteKey(w, r)
 }
 
 func (a *App) apiCheckKey(w http.ResponseWriter, r *http.Request) {
-	id, ok := pathID(w, r, "id")
-	if !ok {
-		return
-	}
-
-	var rawURL string
-	var kind string
-	if err := a.db.QueryRow(`SELECT url, key_kind FROM vless_keys WHERE id = ?`, id).Scan(&rawURL, &kind); err != nil {
-		writeError(w, http.StatusNotFound, "key not found")
-		return
-	}
-	if normalizedKind, _ := model.NormalizeKeyKind(kind); normalizedKind == model.KeyKindInformational {
-		writeError(w, http.StatusBadRequest, "informational keys do not require checks")
-		return
-	}
-
-	if err := a.checkAndPersistKey(id, rawURL); err != nil {
-		log.Printf("apiCheckKey: %v", err)
-		writeError(w, http.StatusInternalServerError, "failed to check key")
-		return
-	}
-	a.respondJSONKeyCheck(w, id)
+	a.keyAdministrationHTTPHandler().CheckKey(w, r)
 }
 
 func (a *App) apiCheckAllKeys(w http.ResponseWriter, r *http.Request) {
-	rows, err := a.db.Query(`SELECT id, url, key_kind FROM vless_keys ORDER BY CASE WHEN key_kind = 'real' THEN 0 ELSE 1 END, sort_order, id`)
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to load keys")
-		return
-	}
-	defer rows.Close()
-
-	type keyRow struct {
-		id   int64
-		url  string
-		kind string
-	}
-	keys := make([]keyRow, 0)
-	for rows.Next() {
-		var row keyRow
-		if err := rows.Scan(&row.id, &row.url, &row.kind); err != nil {
-			writeError(w, http.StatusInternalServerError, "failed to read keys")
-			return
-		}
-		keys = append(keys, row)
-	}
-	if err := rows.Err(); err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to read keys")
-		return
-	}
-
-	jobID := a.startTrackedJob("keys_health_check", "key", "all")
-	var wg sync.WaitGroup
-	sem := make(chan struct{}, 10) // max 10 concurrent checks
-	checked := 0
-	for _, key := range keys {
-		normalizedKind, _ := model.NormalizeKeyKind(key.kind)
-		if normalizedKind == model.KeyKindInformational {
-			continue
-		}
-		checked++
-		wg.Add(1)
-		sem <- struct{}{}
-		go func(id int64, url string) {
-			defer wg.Done()
-			defer func() { <-sem }()
-			if err := a.checkAndPersistKey(id, url); err != nil {
-				log.Printf("checkAndPersistKey(%d): %v", id, err)
-			}
-		}(key.id, key.url)
-	}
-	wg.Wait()
-
-	updatedRows, err := a.db.Query(`
-		SELECT id, check_status, check_error, last_checked_at, last_latency_ms
-		FROM vless_keys ORDER BY CASE WHEN key_kind = 'real' THEN 0 ELSE 1 END, sort_order, id
-	`)
-	if err != nil {
-		a.finishTrackedJob(jobID, err)
-		writeError(w, http.StatusInternalServerError, "failed to load key checks")
-		return
-	}
-	defer updatedRows.Close()
-
-	results := make([]map[string]any, 0, checked)
-	for updatedRows.Next() {
-		var id int64
-		var checkStatus, checkError sql.NullString
-		var lastCheckedAt sql.NullTime
-		var latency sql.NullInt64
-		if err := updatedRows.Scan(&id, &checkStatus, &checkError, &lastCheckedAt, &latency); err != nil {
-			a.finishTrackedJob(jobID, err)
-			writeError(w, http.StatusInternalServerError, "failed to load key checks")
-			return
-		}
-		payload := map[string]any{
-			"id":                 id,
-			"check_status":       model.NormalizeCheckStatus(checkStatus.String),
-			"check_status_label": model.CheckStatusLabel(model.NormalizeCheckStatus(checkStatus.String)),
-			"check_error":        strings.TrimSpace(checkError.String),
-			"last_checked_at":    "",
-			"last_latency_ms":    int64(0),
-		}
-		if lastCheckedAt.Valid {
-			payload["last_checked_at"] = lastCheckedAt.Time.Local().Format("2006-01-02 15:04:05")
-		}
-		if latency.Valid {
-			payload["last_latency_ms"] = latency.Int64
-		}
-		results = append(results, payload)
-	}
-	if err := updatedRows.Err(); err != nil {
-		a.finishTrackedJob(jobID, err)
-		writeError(w, http.StatusInternalServerError, "failed to load key checks")
-		return
-	}
-	a.finishTrackedJob(jobID, nil)
-	a.recordAuditEvent(r, "keys.health_check", "key", "all", map[string]any{"checked": checked})
-	writeJSON(w, http.StatusOK, map[string]any{"checked": checked, "keys": results})
+	a.keyAdministrationHTTPHandler().CheckAllKeys(w, r)
 }
 
 // --- Subscription API ---
@@ -2219,12 +1229,18 @@ func (a *App) handleSubscription(w http.ResponseWriter, r *http.Request) {
 	if rule != nil {
 		responseType = rule.ResponseType
 	}
-	bodyPlain, settings, denyCode, denyReason, err := a.buildSubscriptionBodyPlainForFormat(r, subscriptionID, responseType)
+	generated, settings, denyCode, denyReason, err := a.generateSelectedSubscription(subscriptionID, responseType)
 	if err != nil {
 		http.Error(w, "failed to load subscription", http.StatusInternalServerError)
 		return
 	}
+	applyGenerationExclusionHeaders(w.Header(), generated.Exclusions)
 	if denyCode != 0 {
+		if denyCode == http.StatusUnprocessableEntity && denyReason == generationReasonAllExcluded {
+			writeJSON(w, denyCode, generationFailurePayload(generated))
+			a.incrementSubscriptionMetric(generated.OutputFormat, "all_excluded")
+			return
+		}
 		status := remarkStatusFromReason(denyReason)
 		writeSubscriptionDenial(w, denyCode, status, a.subscriptionRemark(denyReason))
 		a.incrementSubscriptionMetric(status, "denied")
@@ -2233,27 +1249,21 @@ func (a *App) handleSubscription(w http.ResponseWriter, r *http.Request) {
 
 	a.applySubscriptionResponseHeaders(w, r, settings, subscriptionID)
 	a.applyGlobalDeliveryHeaders(w)
-	body := bodyPlain
-	switch responseType {
-	case "mihomo":
-		body, err = renderMihomoSubscription(bodyPlain)
-	case "sing-box":
-		body, err = renderSingBoxSubscription(bodyPlain)
-	}
-	if err != nil {
-		http.Error(w, "failed to render subscription format", http.StatusUnprocessableEntity)
-		a.incrementSubscriptionMetric(responseType, "render_failed")
-		return
-	}
+	body := generated.Body
 	if rule != nil {
 		if template, loadErr := a.loadTemplate(rule.TemplateID); loadErr == nil && template != nil && template.Enabled {
 			body = applyTemplateContent(template.Content, body, settings.Title)
 		}
 		applyRuleHeaders(w, rule.Headers)
 	}
+	if err := validateGeneratedStructuredBody(responseType, body); err != nil {
+		http.Error(w, "failed to render subscription format", http.StatusUnprocessableEntity)
+		a.incrementSubscriptionMetric(responseType, "render_failed")
+		return
+	}
 	switch responseType {
 	case "base64":
-		body = base64.StdEncoding.EncodeToString([]byte(body))
+		body = encodeBase64Subscription(body)
 		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 	case "plain":
 		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
@@ -2370,11 +1380,12 @@ func (a *App) handleSubscriptionSubBody(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	bodyPlain, settings, denyCode, denyReason, err := a.buildSubscriptionBodyPlain(r, subscriptionID)
+	generated, settings, denyCode, denyReason, err := a.generateSelectedSubscription(subscriptionID, "plain")
 	if err != nil {
 		http.Error(w, "failed to load subscription", http.StatusInternalServerError)
 		return
 	}
+	applyGenerationExclusionHeaders(w.Header(), generated.Exclusions)
 	if denyCode != 0 {
 		status = remarkStatusFromReason(denyReason)
 		writeSubscriptionDenial(w, denyCode, status, a.subscriptionRemark(denyReason))
@@ -2385,7 +1396,7 @@ func (a *App) handleSubscriptionSubBody(w http.ResponseWriter, r *http.Request) 
 	a.applySubscriptionResponseHeaders(w, r, settings, subscriptionID)
 	a.applyGlobalDeliveryHeaders(w)
 	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
-	_, _ = w.Write([]byte(base64.StdEncoding.EncodeToString([]byte(bodyPlain))))
+	_, _ = w.Write([]byte(encodeBase64Subscription(generated.Body)))
 	a.incrementSubscriptionMetric("subbody-base64", "success")
 }
 
@@ -2407,11 +1418,12 @@ func (a *App) handleSubscriptionSubBodyPlain(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
-	bodyPlain, settings, denyCode, denyReason, err := a.buildSubscriptionBodyPlain(r, subscriptionID)
+	generated, settings, denyCode, denyReason, err := a.generateSelectedSubscription(subscriptionID, "plain")
 	if err != nil {
 		http.Error(w, "failed to load subscription", http.StatusInternalServerError)
 		return
 	}
+	applyGenerationExclusionHeaders(w.Header(), generated.Exclusions)
 	if denyCode != 0 {
 		status = remarkStatusFromReason(denyReason)
 		writeSubscriptionDenial(w, denyCode, status, a.subscriptionRemark(denyReason))
@@ -2426,7 +1438,7 @@ func (a *App) handleSubscriptionSubBodyPlain(w http.ResponseWriter, r *http.Requ
 	} else {
 		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 	}
-	_, _ = w.Write([]byte(bodyPlain))
+	_, _ = w.Write([]byte(generated.Body))
 	a.incrementSubscriptionMetric("subbody-plain", "success")
 }
 
@@ -2442,130 +1454,8 @@ func (a *App) buildSubscriptionBodyPlainForFormat(
 	subscriptionID string,
 	responseType string,
 ) (string, model.SubscriptionSettings, int, string, error) {
-	settings, _, _, err := a.effectiveSubscriptionSettings(subscriptionID)
-	if err != nil {
-		return "", model.SubscriptionSettings{}, 0, "", err
-	}
-	switch responseType {
-	case "xray-json":
-		settings.SubscriptionFormat = model.SubscriptionFormatXrayJSON
-	case "base64", "plain", "mihomo", "sing-box":
-		settings.SubscriptionFormat = model.SubscriptionFormatLinks
-	}
-
-	dbRows, err := a.db.Query(`
-		SELECT k.url, k.key_kind, k.template_text, k.label
-		FROM users u
-		JOIN user_keys uk ON uk.user_id = u.id
-		JOIN vless_keys k ON k.id = uk.key_id
-		LEFT JOIN key_categories kc ON kc.id = k.category_id
-		WHERE u.subscription_id = ?
-		  AND k.status = 'active'
-		  AND (k.key_kind = 'informational' OR COALESCE(k.health_failure_count, 0) < 3)
-		ORDER BY
-		  CASE WHEN k.category_id IS NULL THEN 0 ELSE 1 END,
-		  COALESCE(kc.sort_order, 2147483647),
-		  k.sort_order,
-		  k.id
-	`, subscriptionID)
-	if err != nil {
-		return "", model.SubscriptionSettings{}, 0, "", err
-	}
-	defer dbRows.Close()
-
-	templateData, err := a.buildSubscriptionTemplateData(subscriptionID, settings.SubscriptionFormat)
-	if err != nil {
-		return "", model.SubscriptionSettings{}, 0, "", err
-	}
-
-	var lines []string
-	for dbRows.Next() {
-		var keyURL string
-		var keyKind string
-		var templateText sql.NullString
-		var keyLabel sql.NullString
-		if err := dbRows.Scan(&keyURL, &keyKind, &templateText, &keyLabel); err != nil {
-			return "", model.SubscriptionSettings{}, 0, "", err
-		}
-		normalizedKind, _ := model.NormalizeKeyKind(keyKind)
-		if normalizedKind == model.KeyKindInformational {
-			textTemplate := strings.TrimSpace(templateText.String)
-			if textTemplate == "" {
-				textTemplate = strings.TrimSpace(keyLabel.String)
-			}
-			rendered := renderInfoTemplate(textTemplate, templateData)
-			if strings.TrimSpace(rendered) == "" {
-				continue
-			}
-			if settings.SubscriptionFormat == model.SubscriptionFormatXrayJSON {
-				infoJSON := buildInformationalXrayJSON(rendered)
-				if strings.TrimSpace(infoJSON) != "" {
-					lines = append(lines, infoJSON)
-				}
-				continue
-			}
-			lines = append(lines, buildInformationalVLESSURL(rendered))
-			continue
-		}
-		if settings.SubscriptionFormat == model.SubscriptionFormatLinks &&
-			supportedConfigScheme(keyURL) == model.SubscriptionFormatXrayJSON &&
-			responseType != "mihomo" && responseType != "sing-box" {
-			drafts, parseErr := parseXrayJSONDrafts(keyURL)
-			if parseErr != nil {
-				return "", model.SubscriptionSettings{}, 0, "", fmt.Errorf("parse XRAY-JSON key %q: %w", keyLabel.String, parseErr)
-			}
-			for _, draft := range drafts {
-				if draft.Remark == "" {
-					draft.Remark = keyLabel.String
-				}
-				link, buildErr := buildShareLinkFromDraft(draft)
-				if buildErr != nil {
-					return "", model.SubscriptionSettings{}, 0, "", fmt.Errorf("render XRAY-JSON key %q: %w", keyLabel.String, buildErr)
-				}
-				lines = append(lines, link)
-			}
-			continue
-		}
-		if settings.SubscriptionFormat == model.SubscriptionFormatXrayJSON {
-			converted, convErr := normalizeConfigurationForSubscriptionOutput(keyURL, settings.SubscriptionFormat, keyLabel.String)
-			if convErr != nil {
-				return "", model.SubscriptionSettings{}, 0, "", fmt.Errorf("convert key %q to XRAY-JSON: %w", keyLabel.String, convErr)
-			}
-			lines = append(lines, converted)
-			continue
-		}
-		lines = append(lines, strings.TrimSpace(keyURL))
-	}
-	if err := dbRows.Err(); err != nil {
-		return "", model.SubscriptionSettings{}, 0, "", err
-	}
-	if len(lines) == 0 {
-		return "", model.SubscriptionSettings{}, http.StatusServiceUnavailable, "subscription has no available keys", nil
-	}
-
-	if settings.SubscriptionFormat == model.SubscriptionFormatXrayJSON {
-		jsonItems := make([]json.RawMessage, 0, len(lines))
-		for _, line := range lines {
-			trimmed := strings.TrimSpace(line)
-			if trimmed == "" {
-				continue
-			}
-			if !json.Valid([]byte(trimmed)) {
-				return "", model.SubscriptionSettings{}, 0, "", fmt.Errorf("generated invalid XRAY-JSON item")
-			}
-			jsonItems = append(jsonItems, json.RawMessage(trimmed))
-		}
-		if len(jsonItems) == 0 {
-			return "", model.SubscriptionSettings{}, http.StatusServiceUnavailable, "subscription has no available keys", nil
-		}
-		payload, err := json.Marshal(jsonItems)
-		if err != nil {
-			return "", model.SubscriptionSettings{}, 0, "", err
-		}
-		return string(payload), settings, 0, "", nil
-	}
-
-	return strings.Join(lines, "\n"), settings, 0, "", nil
+	generated, settings, denyCode, denyReason, err := a.generateSelectedSubscription(subscriptionID, responseType)
+	return generated.Body, settings, denyCode, denyReason, err
 }
 
 func isBrowserSubscriptionRequest(r *http.Request) bool {
@@ -2641,6 +1531,7 @@ func (a *App) renderSubscriptionBrowserPage(w http.ResponseWriter, r *http.Reque
 // --- Data export API ---
 
 func (a *App) apiExportUsers(w http.ResponseWriter, r *http.Request) {
+	applySensitiveResponseHeaders(w)
 	users, err := a.listUsers()
 	if err != nil {
 		log.Printf("apiExportUsers: %v", err)
@@ -2654,50 +1545,6 @@ func (a *App) apiExportUsers(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, users)
 }
 
-func (a *App) apiExportKeys(w http.ResponseWriter, r *http.Request) {
-	keys, err := a.listKeys()
-	if err != nil {
-		log.Printf("apiExportKeys: %v", err)
-		writeError(w, http.StatusInternalServerError, "failed to export keys")
-		return
-	}
-	if keys == nil {
-		keys = []model.VLESSKey{}
-	}
-	w.Header().Set("Content-Disposition", `attachment; filename="keys.json"`)
-	writeJSON(w, http.StatusOK, keys)
-}
-
-// --- JSON key check response helper ---
-
-func (a *App) respondJSONKeyCheck(w http.ResponseWriter, keyID int64) {
-	var checkStatus, checkError sql.NullString
-	var lastCheckedAt sql.NullTime
-	var latency sql.NullInt64
-	if err := a.db.QueryRow(
-		`SELECT check_status, check_error, last_checked_at, last_latency_ms FROM vless_keys WHERE id = ?`,
-		keyID,
-	).Scan(&checkStatus, &checkError, &lastCheckedAt, &latency); err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to load key check")
-		return
-	}
-	status := model.NormalizeCheckStatus(checkStatus.String)
-	payload := map[string]any{
-		"id":                 keyID,
-		"check_status":       status,
-		"check_status_label": model.CheckStatusLabel(status),
-		"check_error":        strings.TrimSpace(checkError.String),
-		"last_checked_at":    "",
-		"last_latency_ms":    int64(0),
-	}
-	if lastCheckedAt.Valid {
-		payload["last_checked_at"] = lastCheckedAt.Time.Local().Format("2006-01-02 15:04:05")
-	}
-	if latency.Valid {
-		payload["last_latency_ms"] = latency.Int64
-	}
-	writeJSON(w, http.StatusOK, payload)
-}
 func (a *App) apiGetSubscriptionInfo(w http.ResponseWriter, r *http.Request) {
 	subscriptionID := r.PathValue("subscription_id")
 	subscriptionID = strings.TrimSpace(subscriptionID)

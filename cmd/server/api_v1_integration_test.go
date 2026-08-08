@@ -13,17 +13,20 @@ import (
 	"testing"
 	"time"
 
-	"subshare/internal/middleware"
+	"github.com/romanpodg/SubShare-Go/internal/middleware"
+	"github.com/romanpodg/SubShare-Go/internal/security/profilestorage"
 )
 
 func newIntegrationApp(t *testing.T) *App {
 	t.Helper()
-	db, err := initializeSQLite(filepath.Join(t.TempDir(), "integration.db"))
+	data, _ := profilestorage.GenerateKeyringJSON("key-1", "bik-1")
+	kr, _ := profilestorage.LoadKeyringJSON(data)
+	db, err := initializeSQLiteWithJournalMode(filepath.Join(t.TempDir(), "integration.db"), "DELETE", kr)
 	if err != nil {
 		t.Fatalf("initialize sqlite: %v", err)
 	}
 	t.Cleanup(func() { _ = db.Close() })
-	return &App{db: db, subscriptionBodyEncoding: "base64"}
+	return &App{db: db, profileKeyring: kr, subscriptionBodyEncoding: "base64", profileFingerprintKey: []byte("0123456789abcdef0123456789abcdef")}
 }
 
 func seedIntegrationSession(t *testing.T, app *App, role string) (string, string, int64) {
@@ -191,5 +194,36 @@ func TestV1GetUserReturnsEmptyDeviceArrays(t *testing.T) {
 	}
 	if hwids, ok := data["connected_hwids"].([]any); !ok || len(hwids) != 0 {
 		t.Fatalf("connected_hwids = %#v, want []", data["connected_hwids"])
+	}
+}
+
+func TestFullUserProjectionIsNotCacheable(t *testing.T) {
+	app := newIntegrationApp(t)
+	seedSubscriptionUser(t, app, "active")
+	request := httptest.NewRequest(http.MethodGet, "/api/v1/users/full", nil)
+	recorder := httptest.NewRecorder()
+
+	app.apiListUsers(recorder, request)
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("status = %d, body = %s", recorder.Code, recorder.Body.String())
+	}
+	if got := recorder.Header().Get("Cache-Control"); got != "no-store, no-cache, must-revalidate, private" {
+		t.Fatalf("Cache-Control = %q", got)
+	}
+	if got := recorder.Header().Get("Pragma"); got != "no-cache" {
+		t.Fatalf("Pragma = %q", got)
+	}
+	payload := decodeJSONMap(t, recorder)
+	users, ok := payload["users"].([]any)
+	if !ok || len(users) != 1 {
+		t.Fatalf("users = %#v, want one user", payload["users"])
+	}
+	user, ok := users[0].(map[string]any)
+	if !ok {
+		t.Fatalf("user = %#v, want object", users[0])
+	}
+	if got, _ := user["token"].(string); got != "" {
+		t.Fatalf("legacy token was disclosed: %q", got)
 	}
 }

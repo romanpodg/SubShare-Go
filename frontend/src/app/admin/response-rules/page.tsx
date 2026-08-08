@@ -11,8 +11,9 @@ import { Select } from "@/components/ui/Select";
 import { useToast } from "@/components/ui/Toast";
 import { InitialLoading, ResourceError } from "@/components/ui/ResourceState";
 import { useAuth } from "@/hooks/useAuth";
+import { parseResponseRuleDraftJSON, type ResponseRuleDraft } from "@/lib/response-rules";
 
-type RuleDraft = Omit<ResponseRule, "id" | "is_system" | "created_at" | "updated_at">;
+type RuleDraft = ResponseRuleDraft;
 
 const newCondition = (): ResponseRuleCondition => ({
   headerName: "user-agent",
@@ -142,12 +143,13 @@ export default function ResponseRulesPage() {
   const applyJSONDraft = () => {
     if (!isOwner) return;
     try {
-      const parsed = JSON.parse(jsonDraft) as RuleDraft;
+      const parsed = parseResponseRuleDraftJSON(jsonDraft);
       setDraft(parsed);
+      setJSONDraft(JSON.stringify(parsed, null, 2));
       toast("JSON применён к визуальному редактору", "success");
       setJSONMode(false);
-    } catch {
-      toast("JSON содержит синтаксическую ошибку", "error");
+    } catch (error) {
+      toast(error instanceof Error ? error.message : "JSON rule is invalid.", "error");
     }
   };
 
@@ -196,8 +198,8 @@ export default function ResponseRulesPage() {
                     <span className="font-mono text-[10px] text-zinc-600">{rule.priority}</span>
                   </div>
                   <div className="mt-1 flex items-center gap-2 text-xs">
-                    <span className="text-cyan-400">{rule.response_type}</span>
-                    <span className={rule.enabled ? "text-emerald-400" : "text-zinc-600"}>{rule.enabled ? "включено" : "выключено"}</span>
+                    <span className="text-info">{rule.response_type}</span>
+                    <span className={rule.enabled ? "text-success" : "text-dim"}>{rule.enabled ? "включено" : "выключено"}</span>
                   </div>
                 </div>
               </button>
@@ -219,13 +221,13 @@ export default function ResponseRulesPage() {
 
           <div className="space-y-6 p-5">
             {jsonMode && (
-              <div className="rounded-xl border border-cyan-400/20 bg-[#080d13] p-4">
+              <div className="ui-json-editor p-4" data-testid="response-rule-json-editor">
                 <textarea
                   aria-label="JSON правила"
                   value={jsonDraft}
                   onChange={(event) => setJSONDraft(event.target.value)}
                   spellCheck={false}
-                  className="min-h-[420px] w-full resize-y bg-transparent font-mono text-sm leading-6 text-zinc-300 outline-none"
+                  className="ui-json-editor-textarea min-h-[420px] w-full resize-y font-mono text-sm leading-6"
                 />
                 <div className="mt-3 flex justify-end"><Button onClick={applyJSONDraft}>Применить JSON</Button></div>
               </div>
@@ -301,7 +303,7 @@ export default function ResponseRulesPage() {
                     <Input aria-label="Значение" placeholder="happ" value={condition.value} onChange={(event) => updateCondition(index, { value: event.target.value })} />
                     <button type="button" onClick={() => setDraft((current) => ({ ...current, conditions: current.conditions.filter((_, itemIndex) => itemIndex !== index) }))} className="rounded-lg p-2 text-zinc-600 hover:bg-rose-500/10 hover:text-rose-300" aria-label="Удалить условие"><X className="h-4 w-4" /></button>
                     <label className="flex items-center gap-2 text-xs text-zinc-500 md:col-span-4">
-                      <input type="checkbox" checked={condition.caseSensitive} onChange={(event) => updateCondition(index, { caseSensitive: event.target.checked })} className="accent-cyan-500" />
+                      <input type="checkbox" checked={condition.caseSensitive} onChange={(event) => updateCondition(index, { caseSensitive: event.target.checked })} className="accent-accent" />
                       Учитывать регистр
                     </label>
                   </div>
@@ -386,7 +388,7 @@ export default function ResponseRulesPage() {
             </div>
 
             <label className="flex items-center gap-3 rounded-xl border border-border bg-zinc-950/30 px-4 py-3 text-sm text-zinc-300">
-              <input type="checkbox" checked={draft.enabled} onChange={(event) => setDraft((current) => ({ ...current, enabled: event.target.checked }))} className="h-4 w-4 accent-cyan-500" />
+              <input type="checkbox" checked={draft.enabled} onChange={(event) => setDraft((current) => ({ ...current, enabled: event.target.checked }))} className="h-4 w-4 accent-accent" />
               Правило включено
             </label>
               </>

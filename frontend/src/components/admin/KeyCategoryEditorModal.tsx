@@ -7,7 +7,7 @@ import { Select } from "@/components/ui/Select";
 import { Button } from "@/components/ui/Button";
 import { useToast } from "@/components/ui/Toast";
 import { keys as keysApi } from "@/lib/api";
-import type { KeyCategory, VLESSKey } from "@/lib/types";
+import type { KeyCategory, KeySummary } from "@/lib/types";
 import { EmojiText } from "@/components/ui/EmojiText";
 import {
   KEY_CATEGORY_COLOR_PRESETS,
@@ -18,15 +18,15 @@ import {
 interface Props {
   open: boolean;
   categoryName: string;
-  categoryKeys: VLESSKey[];
+  categoryKeys: KeySummary[];
   categories: KeyCategory[];
   onClose: () => void;
   onUpdated: (nextCategory: KeyCategory, previousName: string) => Promise<void>;
   onDeleted: (categoryName: string, mode: "delete_with_keys" | "keep_keys") => Promise<void>;
   onOpenAddConfiguration: (categoryName: string) => void;
-  onEditKey: (key: VLESSKey) => void;
-  onDeleteKey: (key: VLESSKey) => void;
-  onMoveKeyToCategory: (key: VLESSKey, nextCategory: string) => Promise<void>;
+  onEditKey: (key: KeySummary) => void;
+  onDeleteKey: (key: KeySummary) => void;
+  onMoveKeyToCategory: (key: KeySummary, nextCategory: string) => Promise<void>;
 }
 
 function normalizeCategory(value: string | null | undefined): string {
@@ -100,7 +100,7 @@ export function KeyCategoryEditorModal({
     }
   };
 
-  const handleMoveKey = async (key: VLESSKey) => {
+  const handleMoveKey = async (key: KeySummary) => {
     const nextCategory = normalizeCategory(moveDrafts[key.id]);
     if (nextCategory === normalizeCategory(key.category)) {
       toast("Категория у ключа не изменилась", "error");
@@ -110,9 +110,9 @@ export function KeyCategoryEditorModal({
     setMovingKeyID(key.id);
     try {
       await onMoveKeyToCategory(key, nextCategory);
-      toast(`Ключ "${key.label}" перенесён`, "success");
-    } catch (error: unknown) {
-      toast(error instanceof Error ? error.message : "Не удалось перенести ключ", "error");
+      toast("Категория ключа обновлена");
+    } catch {
+      toast("Не удалось перенести ключ", "error");
     } finally {
       setMovingKeyID(null);
     }
@@ -306,7 +306,7 @@ export function KeyCategoryEditorModal({
                       <div className="flex min-w-0 items-baseline gap-1">
                         <span className="shrink-0">Название в клиенте:</span>
                         <EmojiText
-                          text={key.client_display_name || key.label}
+                          text={key.label}
                           truncate
                           className="min-w-0 flex-1 text-zinc-300"
                         />

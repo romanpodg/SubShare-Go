@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Globe2, Plus, Route, Save, Settings, Trash2 } from "lucide-react";
 import { apiV1, subscriptionSettings } from "@/lib/api";
-import type { SubscriptionDeliverySettings, SubscriptionSettings } from "@/lib/types";
+import type { SubscriptionDeliverySettingsUpdate, SubscriptionSettings } from "@/lib/types";
 import { PageHeader } from "@/components/admin/PageHeader";
 import { GlobalSubscriptionSettingsModal } from "@/components/admin/GlobalSubscriptionSettingsModal";
 import { RoutingSettingsModal } from "@/components/admin/RoutingSettingsModal";
@@ -13,13 +13,13 @@ import { useToast } from "@/components/ui/Toast";
 import { InitialLoading, ResourceError } from "@/components/ui/ResourceState";
 import { useAuth } from "@/hooks/useAuth";
 
-const emptyDeliverySettings = (): SubscriptionDeliverySettings => ({
+const emptyDeliverySettings = (): SubscriptionDeliverySettingsUpdate => ({
   response_headers: [],
   announcement: "",
   remarks: { expired: [], paused: [], blocked: [], limited: [], empty: [] },
 });
 
-const remarkLabels: Record<keyof SubscriptionDeliverySettings["remarks"], string> = {
+const remarkLabels: Record<keyof SubscriptionDeliverySettingsUpdate["remarks"], string> = {
   expired: "Подписка истекла",
   paused: "Подписка приостановлена",
   blocked: "Подписка заблокирована",
@@ -31,7 +31,7 @@ export default function SubscriptionSettingsPage() {
   const [settings, setSettings] = useState<SubscriptionSettings | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [routingOpen, setRoutingOpen] = useState(false);
-  const [delivery, setDelivery] = useState<SubscriptionDeliverySettings>(emptyDeliverySettings);
+  const [delivery, setDelivery] = useState<SubscriptionDeliverySettingsUpdate>(emptyDeliverySettings);
   const [initialDelivery, setInitialDelivery] = useState("");
   const [deliveryTab, setDeliveryTab] = useState<"announcement" | "headers" | "remarks">("announcement");
   const [savingDelivery, setSavingDelivery] = useState(false);
@@ -55,8 +55,13 @@ export default function SubscriptionSettingsPage() {
     setDeliveryError(null);
     try {
       const data = await apiV1.deliverySettings.get();
-      setDelivery(data);
-      setInitialDelivery(JSON.stringify(data));
+      const mutable: SubscriptionDeliverySettingsUpdate = {
+        response_headers: data.response_headers,
+        announcement: data.announcement,
+        remarks: data.remarks,
+      };
+      setDelivery(mutable);
+      setInitialDelivery(JSON.stringify(mutable));
     } catch (requestError) {
       setDeliveryError(requestError);
     }
@@ -106,7 +111,7 @@ export default function SubscriptionSettingsPage() {
         <section className="technical-frame border border-border bg-surface-1 p-5">
           <div className="flex items-start justify-between gap-4">
             <div className="flex min-w-0 items-start gap-3">
-              <div className="ui-settings-section-icon flex h-11 w-11 shrink-0 items-center justify-center self-start rounded-sm border border-cyan-400/20 bg-cyan-400/10 text-cyan-300">
+              <div className="ui-settings-section-icon flex h-11 w-11 shrink-0 items-center justify-center self-start rounded-sm border">
                 <Globe2 className="h-5 w-5" aria-hidden="true" />
               </div>
               <div className="min-w-0">
@@ -118,7 +123,7 @@ export default function SubscriptionSettingsPage() {
           </div>
           <dl className="ui-joined-grid mt-6 grid grid-cols-2">
             <div className="rounded-xl border border-border bg-zinc-950/30 p-3"><dt className="text-xs text-zinc-600">Название</dt><dd className="mt-1 text-sm text-zinc-300">{settings?.title || "—"}</dd></div>
-            <div className="rounded-xl border border-border bg-zinc-950/30 p-3"><dt className="text-xs text-zinc-600">Формат fallback</dt><dd className="mt-1 font-mono text-sm text-cyan-300">{settings?.subscription_format || "—"}</dd></div>
+            <div className="rounded-xl border border-border bg-zinc-950/30 p-3"><dt className="text-xs text-zinc-600">Формат fallback</dt><dd className="mt-1 font-mono text-sm text-info">{settings?.subscription_format || "—"}</dd></div>
             <div className="rounded-xl border border-border bg-zinc-950/30 p-3"><dt className="text-xs text-zinc-600">Обновление</dt><dd className="mt-1 text-sm text-zinc-300">{settings?.refresh_hours ?? "—"} ч</dd></div>
             <div className="rounded-xl border border-border bg-zinc-950/30 p-3"><dt className="text-xs text-zinc-600">Язык</dt><dd className="mt-1 text-sm text-zinc-300">{settings?.language || "—"}</dd></div>
           </dl>
@@ -127,7 +132,7 @@ export default function SubscriptionSettingsPage() {
         <section className="technical-frame border border-border bg-surface-1 p-5">
           <div className="flex items-start justify-between gap-4">
             <div className="flex min-w-0 items-start gap-3">
-              <div className="ui-settings-section-icon flex h-11 w-11 shrink-0 items-center justify-center self-start rounded-sm border border-cyan-400/20 bg-cyan-400/10 text-cyan-300">
+              <div className="ui-settings-section-icon flex h-11 w-11 shrink-0 items-center justify-center self-start rounded-sm border">
                 <Route className="h-5 w-5" aria-hidden="true" />
               </div>
               <div className="min-w-0">
@@ -159,11 +164,9 @@ export default function SubscriptionSettingsPage() {
                 key={value}
                 type="button"
                 onClick={() => setDeliveryTab(value)}
-                className={`rounded-lg border px-3 py-2 text-xs font-medium transition ${
-                  deliveryTab === value
-                    ? "border-cyan-400/40 bg-cyan-400/10 text-cyan-200"
-                    : "border-border text-zinc-500 hover:text-zinc-300"
-                }`}
+                role="tab"
+                aria-selected={deliveryTab === value}
+                className="ui-tab px-3 py-2 text-xs font-medium"
               >
                 {label}
               </button>
@@ -180,7 +183,7 @@ export default function SubscriptionSettingsPage() {
                 maxLength={200}
                 rows={5}
                 onChange={(event) => setDelivery((current) => ({ ...current, announcement: event.target.value }))}
-                className="rounded-xl border border-border bg-surface-2 px-3 py-2 text-sm text-zinc-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400"
+                className="rounded-xl border border-border bg-surface-2 px-3 py-2 text-sm text-zinc-200 hover:border-[var(--border-strong)] focus:border-accent focus-visible:border-accent"
                 placeholder="Плановые работы 30 июля с 02:00 до 03:00"
               />
               <span className="text-right text-xs text-zinc-600">{delivery.announcement.length}/200</span>
@@ -237,7 +240,7 @@ export default function SubscriptionSettingsPage() {
 
           {deliveryTab === "remarks" && (
             <div className="ui-joined-grid grid lg:grid-cols-2">
-              {(Object.keys(remarkLabels) as Array<keyof SubscriptionDeliverySettings["remarks"]>).map((status) => (
+              {(Object.keys(remarkLabels) as Array<keyof SubscriptionDeliverySettingsUpdate["remarks"]>).map((status) => (
                 <label key={status} className="flex flex-col gap-2 rounded-xl border border-border bg-zinc-950/30 p-4 text-sm text-zinc-400">
                   <span className="font-medium text-zinc-300">{remarkLabels[status]}</span>
                   <textarea
@@ -250,7 +253,7 @@ export default function SubscriptionSettingsPage() {
                         [status]: event.target.value.split("\n").filter((line) => line.trim() !== "").slice(0, 10),
                       },
                     }))}
-                    className="rounded-lg border border-border bg-surface-2 px-3 py-2 text-sm text-zinc-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400"
+                    className="rounded-lg border border-border bg-surface-2 px-3 py-2 text-sm text-zinc-200 hover:border-[var(--border-strong)] focus:border-accent focus-visible:border-accent"
                     placeholder="Каждая строка — отдельная ремарка"
                   />
                 </label>

@@ -8,7 +8,7 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
-	"os"
+	"net/netip"
 	"strings"
 	"sync"
 	"time"
@@ -18,6 +18,25 @@ type ctxKey string
 
 // CtxKeyRequestID is the context key used to store the request ID.
 const CtxKeyRequestID ctxKey = "request_id"
+
+var trustedProxyConfiguration struct {
+	sync.RWMutex
+	networks []*net.IPNet
+}
+
+// ConfigureTrustedProxyNetworks applies startup-validated proxy networks.
+// It must be called before handlers start accepting requests.
+func ConfigureTrustedProxyNetworks(prefixes []netip.Prefix) {
+	networks := make([]*net.IPNet, 0, len(prefixes))
+	for _, prefix := range prefixes {
+		if _, network, err := net.ParseCIDR(prefix.String()); err == nil {
+			networks = append(networks, network)
+		}
+	}
+	trustedProxyConfiguration.Lock()
+	trustedProxyConfiguration.networks = networks
+	trustedProxyConfiguration.Unlock()
+}
 
 // RateLimiter implements a sliding-window per-IP rate limiter.
 type RateLimiter struct {
@@ -104,16 +123,22 @@ func (rl *RateLimiter) cleanup(interval time.Duration) {
 	}
 }
 
-// TrustedProxy reports whether the immediate peer is explicitly listed in
-// TRUSTED_PROXIES.
+// TrustedProxy reports whether the immediate peer is explicitly listed in the
+// startup-validated trusted proxy configuration.
 func TrustedProxy(r *http.Request) bool {
-	return trustedProxy(r, parseTrustedProxyNetworks(os.Getenv("TRUSTED_PROXIES")))
+	return trustedProxy(r, configuredTrustedProxyNetworks())
 }
 
 // ClientIP extracts the client IP from the request. Forwarding headers are
 // accepted only when the immediate peer is explicitly trusted.
 func ClientIP(r *http.Request) string {
-	return clientIP(r, parseTrustedProxyNetworks(os.Getenv("TRUSTED_PROXIES")))
+	return clientIP(r, configuredTrustedProxyNetworks())
+}
+
+func configuredTrustedProxyNetworks() []*net.IPNet {
+	trustedProxyConfiguration.RLock()
+	defer trustedProxyConfiguration.RUnlock()
+	return append([]*net.IPNet(nil), trustedProxyConfiguration.networks...)
 }
 
 func parseTrustedProxyNetworks(raw string) []*net.IPNet {

@@ -14,6 +14,10 @@ import { Drawer } from "@/components/ui/Drawer";
 import { Input } from "@/components/ui/Input";
 import { ResourceError } from "@/components/ui/ResourceState";
 import { Select } from "@/components/ui/Select";
+import {
+  EXTERNAL_SOURCE_NAME_INPUT_MAX_LENGTH,
+  validateExternalSourceName,
+} from "@/lib/externalSourceName";
 
 interface Props {
   open: boolean;
@@ -106,7 +110,7 @@ export function SourceCreateDrawer({
         raw_final_url: manualBody.trim() ? sourceURL.trim() : undefined,
       });
       setPreview(response);
-      if (!name.trim()) setName((response.suggested_name || "").slice(0, 24));
+      if (!name.trim()) setName(response.suggested_name || "");
       setStep(2);
     } catch (requestError) {
       setError(requestError);
@@ -117,6 +121,11 @@ export function SourceCreateDrawer({
 
   const createSource = async () => {
     if (!preview) return;
+    const nameValidationError = validateExternalSourceName(name);
+    if (nameValidationError) {
+      setError(new ApiError(400, "source_name_invalid", nameValidationError, { name: [nameValidationError] }));
+      return;
+    }
     setBusy(true);
     setError(null);
     try {
@@ -146,6 +155,7 @@ export function SourceCreateDrawer({
   };
 
   const fieldErrors = error instanceof ApiError ? error.fieldErrors : {};
+  const nameValidationError = validateExternalSourceName(name);
   const sourceCategoryNames = useMemo(
     () => Array.from(new Set(sourceCategories.map((item) => item.name))),
     [sourceCategories]
@@ -170,7 +180,7 @@ export function SourceCreateDrawer({
         {step === 2 && (
           <Button
             onClick={() => setStep(3)}
-            disabled={!name.trim() || name.trim().length > 24}
+            disabled={Boolean(nameValidationError)}
           >
             Проверить параметры
             <ChevronRight className="h-4 w-4" />
@@ -202,9 +212,9 @@ export function SourceCreateDrawer({
               key={label}
               className={`rounded-lg border px-3 py-2 text-center text-xs ${
                 value === step
-                  ? "border-cyan-400/40 bg-cyan-400/10 text-cyan-200"
+                  ? "border-accent/40 bg-accent/10 text-accent"
                   : value < step
-                    ? "border-emerald-400/20 text-emerald-300"
+                    ? "border-success/20 text-success"
                     : "border-border text-zinc-600"
               }`}
             >
@@ -241,7 +251,7 @@ export function SourceCreateDrawer({
                 type="checkbox"
                 checked={passHWID}
                 onChange={(event) => setPassHWID(event.target.checked)}
-                className="h-4 w-4 accent-cyan-500"
+                className="h-4 w-4 accent-accent"
               />
               Передавать HWID при запросе источника
             </label>
@@ -286,8 +296,8 @@ export function SourceCreateDrawer({
             label="Название"
             value={name}
             onChange={(event) => setName(event.target.value)}
-            maxLength={24}
-            error={fieldErrors.name?.[0]}
+            maxLength={EXTERNAL_SOURCE_NAME_INPUT_MAX_LENGTH}
+            error={fieldErrors.name?.[0] || nameValidationError || undefined}
           />
           <div>
             <Input
@@ -319,7 +329,7 @@ export function SourceCreateDrawer({
                   onClick={() => setKeyInsertMode(value)}
                   className={`rounded-lg border px-3 py-2 text-sm ${
                     keyInsertMode === value
-                      ? "border-cyan-400/35 bg-cyan-400/10 text-cyan-200"
+                      ? "border-accent/35 bg-accent/10 text-accent"
                       : "border-border text-zinc-500"
                   }`}
                 >
@@ -329,7 +339,7 @@ export function SourceCreateDrawer({
             </div>
           </div>
           <label className="flex items-center gap-3 rounded-xl border border-border bg-surface-1 p-4 text-sm text-zinc-300">
-            <input type="checkbox" checked={enabled} onChange={(event) => setEnabled(event.target.checked)} className="h-4 w-4 accent-cyan-500" />
+            <input type="checkbox" checked={enabled} onChange={(event) => setEnabled(event.target.checked)} className="h-4 w-4 accent-accent" />
             Источник активен
           </label>
         </div>

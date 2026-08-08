@@ -1,0 +1,50 @@
+[
+  {
+    "name": "vless domain",
+    "uri": "vless://11111111-1111-4111-8111-111111111111@VLESS.EXAMPLE.COM?security=tls&type=ws#VLESS%20fixture",
+    "protocol": "vless",
+    "server": "vless.example.com",
+    "port": "443",
+    "display_name": "VLESS fixture"
+  },
+  {
+    "name": "vmess json",
+    "uri": "vmess://eyJ2IjoiMiIsInBzIjoiVk1lc3MgZml4dHVyZSIsImFkZCI6IlZNRVNTLkVYQU1QTEUuQ09NIiwicG9ydCI6IjQ0MyIsImlkIjoiMjIyMjIyMjItMjIyMi00MjIyLTgyMjItMjIyMjIyMjIyMjIyIiwibmV0Ijoid3MiLCJwYXRoIjoiL3NvY2tldCIsInRscyI6InRscyJ9",
+    "protocol": "vmess",
+    "server": "vmess.example.com",
+    "port": "443",
+    "display_name": "VMess fixture"
+  },
+  {
+    "name": "trojan ipv4",
+    "uri": "trojan://fixture%3Apassword@203.0.113.20:8443?security=tls#Trojan",
+    "protocol": "trojan",
+    "server": "203.0.113.20",
+    "port": "8443",
+    "display_name": "Trojan"
+  },
+  {
+    "name": "shadowsocks sip002",
+    "uri": "ss://Y2hhY2hhMjAtaWV0Zi1wb2x5MTMwNTpmaXh0dXJlLXBhc3N3b3Jk@ss.example.com:8388#Shadowsocks",
+    "protocol": "shadowsocks",
+    "server": "ss.example.com",
+    "port": "8388",
+    "display_name": "Shadowsocks"
+  },
+  {
+    "name": "hysteria2 port hopping",
+    "uri": "hysteria2://fixture-auth@hy.example.com:443,5000-5010/?sni=HY.EXAMPLE.COM&pinSHA256=abababababababababababababababababababababababababababababababab#Hysteria%202",
+    "protocol": "hysteria2",
+    "server": "hy.example.com",
+    "port": "443,5000-5010",
+    "display_name": "Hysteria 2"
+  },
+  {
+    "name": "tuic v5",
+    "uri": "tuic://33333333-3333-4333-8333-333333333333:fixture-password@tuic.example.com:10443?sni=TUIC.EXAMPLE.COM&alpn=h3&congestion_control=bbr#TUIC%20v5",
+    "protocol": "tuic",
+    "server": "tuic.example.com",
+    "port": "10443",
+    "display_name": "TUIC v5"
+  }
+]

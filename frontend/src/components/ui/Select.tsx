@@ -154,7 +154,7 @@ export function Select({
             if (!isOpen) updateMenuPosition();
             setIsOpen((current) => !current);
           }}
-          className={`ui-select-trigger flex h-11 min-h-11 w-full cursor-pointer items-center justify-between rounded-sm border border-border bg-surface-2 px-3 py-2.5 text-left text-sm text-zinc-100 transition-colors duration-200 hover:border-[var(--border-strong)] focus-visible:border-accent focus-visible:outline-none ${
+          className={`ui-select-trigger flex h-11 min-h-11 w-full cursor-pointer items-center justify-between rounded-sm border border-border bg-surface-2 px-3 py-2.5 text-left text-sm text-zinc-100 transition-colors duration-200 hover:border-[var(--border-strong)] focus:border-accent focus-visible:border-accent ${
             disabled ? "opacity-50 cursor-not-allowed" : ""
           } ${error ? "ring-1 ring-red-500 border-red-500" : ""}`}
           aria-haspopup="listbox"

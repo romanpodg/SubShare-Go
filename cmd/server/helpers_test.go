@@ -4,7 +4,10 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"net/netip"
 	"testing"
+
+	"github.com/romanpodg/SubShare-Go/internal/middleware"
 )
 
 func TestBuildInformationalXrayJSON(t *testing.T) {
@@ -46,7 +49,8 @@ func TestBuildInformationalXrayJSON(t *testing.T) {
 
 func TestResolveBaseURLTrustsOnlyConfiguredProxyAndValidOrigin(t *testing.T) {
 	app := &App{}
-	t.Setenv("TRUSTED_PROXIES", "10.0.0.0/8")
+	middleware.ConfigureTrustedProxyNetworks([]netip.Prefix{netip.MustParsePrefix("10.0.0.0/8")})
+	t.Cleanup(func() { middleware.ConfigureTrustedProxyNetworks(nil) })
 
 	untrusted := httptest.NewRequest(http.MethodGet, "http://direct.example/sub", nil)
 	untrusted.RemoteAddr = "198.51.100.20:443"

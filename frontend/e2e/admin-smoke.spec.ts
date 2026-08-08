@@ -36,7 +36,17 @@ async function expectTechnicalScrollbar(locator: Locator) {
 }
 
 async function expectUniformAccentBorder(control: Locator, frame = control) {
-  await control.focus();
+  const readBorderColors = () => frame.evaluate((element) => {
+    const computed = getComputedStyle(element);
+    return [
+      computed.borderTopColor,
+      computed.borderRightColor,
+      computed.borderBottomColor,
+      computed.borderLeftColor,
+    ];
+  });
+
+  await control.click();
   await expect.poll(() => frame.evaluate((element) => {
     const computed = getComputedStyle(element);
     return [
@@ -46,9 +56,16 @@ async function expectUniformAccentBorder(control: Locator, frame = control) {
       computed.borderLeftColor,
     ];
   })).toEqual(Array(4).fill("rgb(183, 255, 42)"));
+  await control.hover();
+  await expect.poll(readBorderColors).toEqual(Array(4).fill("rgb(183, 255, 42)"));
+
+  await control.page().keyboard.press("Tab");
+  await control.page().keyboard.press("Shift+Tab");
+  await expect(control).toBeFocused();
+  await expect.poll(readBorderColors).toEqual(Array(4).fill("rgb(183, 255, 42)"));
   await expect.poll(() =>
     frame.evaluate((element) => getComputedStyle(element).outlineStyle)
-  ).toBe("none");
+  ).toBe("solid");
 }
 
 async function expectSingleDividerStructure(locator: Locator) {
@@ -223,10 +240,16 @@ test("user HWID list handles an empty device response", async ({ page }) => {
       body: JSON.stringify({ version: "test", commit: "abc", build_time: "now", schema_version: 5 }),
     })
   );
-  await page.route("**/api/v1/keys/full", (route) =>
+  await page.route("**/api/v1/keys?*", (route) =>
     route.fulfill({
       contentType: "application/json",
-      body: JSON.stringify({ keys: [] }),
+      body: JSON.stringify({ data: [], meta: { page: 1, page_size: 50, total: 0, total_pages: 0 } }),
+    })
+  );
+  await page.route("**/api/v1/keys", (route) =>
+    route.fulfill({
+      contentType: "application/json",
+      body: JSON.stringify({ data: [], meta: { page: 1, page_size: 50, total: 0, total_pages: 0 } }),
     })
   );
   await page.route("**/api/v1/users**", (route) => {
@@ -292,7 +315,7 @@ test("user HWID list handles an empty device response", async ({ page }) => {
   await addUserDialog.getByRole("button", { name: "Закрыть" }).click();
 
   await page.getByRole("button", { name: "Открыть", exact: true }).click();
-  await page.getByRole("button", { name: "Устройства" }).click();
+  await page.getByRole("tab", { name: "Устройства" }).click();
 
   await expect(page.getByText("Устройства ещё не подключались")).toBeVisible();
   await expect(page.getByRole("button", { name: "Управление HWID" })).toBeVisible();
@@ -364,65 +387,48 @@ test("keys controls stay on one desktop row and key lists remain readable", asyn
       }),
     })
   );
-  await page.route("**/api/v1/keys/full", (route) =>
+  const handleKeysRoute = (route: import("@playwright/test").Route) =>
     route.fulfill({
       contentType: "application/json",
       body: JSON.stringify({
-        keys: [
+        data: [
           {
             id: 11,
-            label: "Edge Amsterdam",
-            url: '{"outbounds":[{"protocol":"vless","tag":"Edge Amsterdam","settings":{"vnext":[{"address":"example.com","port":443,"users":[{"id":"00000000-0000-0000-0000-000000000000","encryption":"none"}]}]},"streamSettings":{"network":"ws","security":"tls","wsSettings":{"path":"/edge","headers":{"Host":"example.com"}},"tlsSettings":{"serverName":"example.com"}}}]}',
+            label: longClientDisplayName,
             category: "Либертас",
             kind: "real",
             template_text: "",
-            url_short: "vless://example.com:443",
             status: "active",
-            status_label: "Активен",
             check_status: "up",
-            check_status_label: "Доступен",
             check_error: "",
             last_latency_ms: 38,
             last_checked_at: "2026-07-29T10:00:00Z",
-            edit_uuid: "",
-            edit_host: "",
-            edit_port: "",
-            edit_query: "",
-            edit_fragment: "",
             external_source_id: 0,
             external_source_name: "",
-            client_display_name: longClientDisplayName,
+            protocol: "vless",
             created_at: "2026-07-29T10:00:00Z",
           },
           {
             id: 12,
             label: longKeyLabel,
-            url: "",
             category: "",
             kind: "informational",
             template_text: "Service window: 03:00 UTC",
-            url_short: "",
             status: "active",
-            status_label: "Активен",
             check_status: "unknown",
-            check_status_label: "Не проверялся",
             check_error: "",
             last_latency_ms: 0,
             last_checked_at: "",
-            edit_uuid: "",
-            edit_host: "",
-            edit_port: "",
-            edit_query: "",
-            edit_fragment: "",
             external_source_id: 7,
             external_source_name: longSourceName,
-            client_display_name: "",
             created_at: "2026-07-29T10:00:00Z",
           },
         ],
+        meta: { page: 1, page_size: 50, total: 2, total_pages: 1 },
       }),
-    })
-  );
+    });
+  await page.route("**/api/v1/keys?*", handleKeysRoute);
+  await page.route("**/api/v1/keys", handleKeysRoute);
 
   await page.goto("/admin/keys");
   const sidebar = page.locator("aside[data-collapsed]");
@@ -956,14 +962,14 @@ test("keys controls stay on one desktop row and key lists remain readable", asyn
   expect(discardContentMetrics.scrollHeight).toBeLessThanOrEqual(discardContentMetrics.clientHeight);
   await discardDialog.getByRole("button", { name: "Закрыть" }).last().click();
 
-  const realKeyCard = page.locator(".ui-key-card").filter({ hasText: "Edge Amsterdam" });
+  const realKeyCard = page.locator(".ui-key-card").filter({ hasText: "Обход блокировок" });
   await realKeyCard.getByRole("button", { name: "Изменить" }).click();
   const editDialog = page.getByRole("dialog", {
-    name: "Изменить конфигурацию — Edge Amsterdam",
+    name: new RegExp("Изменить конфигурацию — .*Обход блокировок"),
   });
   await expect(editDialog).toBeVisible();
   await expect(editDialog).toHaveClass(/max-w-6xl/);
-  await expect(editDialog.getByLabel("Название", { exact: true })).toHaveValue("Edge Amsterdam");
+  await expect(editDialog.getByLabel("Название", { exact: true })).toHaveValue(longClientDisplayName);
   await expect(editDialog.getByRole("button", { name: "XRAY-JSON" })).toHaveClass(/bg-accent/);
   await expect(editDialog.locator(".ui-key-editor-workspace")).toHaveCount(1);
   await expect(editDialog.locator(".ui-key-editor-scroll-region")).toHaveCount(1);

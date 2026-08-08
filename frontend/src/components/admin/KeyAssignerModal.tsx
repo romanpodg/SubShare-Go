@@ -1,16 +1,18 @@
 "use client";
 
+"use client";
+
 import { useState } from "react";
 import { Modal } from "@/components/ui/Modal";
 import { Button } from "@/components/ui/Button";
 import { useToast } from "@/components/ui/Toast";
 import { EmojiText } from "@/components/ui/EmojiText";
 import { users as usersApi } from "@/lib/api";
-import type { User, VLESSKey } from "@/lib/types";
+import type { KeySummary, User } from "@/lib/types";
 
 interface Props {
   user: User;
-  assignableKeys: VLESSKey[];
+  assignableKeys: KeySummary[];
   onClose: () => void;
   onRefresh: () => Promise<void>;
 }
@@ -81,7 +83,7 @@ export function KeyAssignerModal({ user, assignableKeys, onClose, onRefresh }: P
         </button>
       </div>
       {mode === "all" && (
-        <div className="mb-4 rounded-lg border border-cyan-400/20 bg-cyan-400/10 px-3 py-2 text-xs text-cyan-200">
+        <div className="mb-4 rounded-lg border border-info/20 bg-info/10 px-3 py-2 text-xs text-info">
           Пользователь получит все текущие и автоматически получит новые ключи.
         </div>
       )}

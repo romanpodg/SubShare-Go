@@ -4,7 +4,7 @@
   "description": "Technical operations interface for SubShare",
   "repository": {
     "type": "git",
-    "url": "https://github.com/romanpodg/vless-keys-to-sub.git",
+    "url": "https://github.com/romanpodg/SubShare-Go.git",
     "directory": "frontend"
   },
   "private": true,
@@ -24,6 +24,7 @@
     "@fontsource-variable/onest": "^5.3.0",
     "emoji-mart": "^5.6.0",
     "emoji-regex": "^10.6.0",
+    "jsonc-parser": "^3.3.1",
     "lucide-react": "^0.574.0",
     "next": "16.1.6",
     "react": "19.2.3",

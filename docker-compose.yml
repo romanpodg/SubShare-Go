@@ -8,6 +8,39 @@
 #   docker compose up -d --build --wait
 
 services:
+  keyring-init:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        VERSION: ${BUILD_VERSION:-dev}
+        COMMIT: ${BUILD_COMMIT:-unknown}
+        BUILD_TIME: ${BUILD_TIME:-unknown}
+    image: subshare-backend:${BUILD_VERSION:-local}
+    restart: "no"
+    environment:
+      PROFILE_ENCRYPTION_KEYRING_FILE: ${PROFILE_ENCRYPTION_KEYRING_FILE-/app/data/keyring.json}
+      PROFILE_ENCRYPTION_KEYRING_JSON: ${PROFILE_ENCRYPTION_KEYRING_JSON:-}
+    command:
+      - /bin/sh
+      - -ec
+      - |
+        if [ -n "$${PROFILE_ENCRYPTION_KEYRING_JSON}" ]; then
+          echo "Inline keyring configured; file initialization skipped."
+          exit 0
+        fi
+        exec ./server bootstrap keyring "$${PROFILE_ENCRYPTION_KEYRING_FILE}"
+    volumes:
+      - app-data:/app/data
+    read_only: true
+    tmpfs:
+      - /tmp:noexec,nosuid,size=8m
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    network_mode: none
+
   backend:
     build:
       context: .
@@ -22,8 +55,17 @@ services:
     env_file:
       - .env
     environment:
+      # The backend validates all environment values before opening SQLite or
+      # accepting requests. See .env.example for accepted values and defaults.
       APP_ENV: production
-      ADMIN_PASSWORD: ${ADMIN_PASSWORD:?Set ADMIN_PASSWORD in .env}
+      # Required by the backend only when it must create the initial owner.
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:-}
+      # Mandatory and stable. Compose/backend never generate this value; the
+      # explicit start scripts persist one to .env when bootstrapping/upgrading.
+      PROFILE_FINGERPRINT_KEY: ${PROFILE_FINGERPRINT_KEY:?Set PROFILE_FINGERPRINT_KEY in .env}
+      PROFILE_FINGERPRINT_PREVIOUS_KEYS: ${PROFILE_FINGERPRINT_PREVIOUS_KEYS:-}
+      PROFILE_ENCRYPTION_KEYRING_FILE: ${PROFILE_ENCRYPTION_KEYRING_FILE-/app/data/keyring.json}
+      PROFILE_ENCRYPTION_KEYRING_JSON: ${PROFILE_ENCRYPTION_KEYRING_JSON:-}
       BASE_URL: ${BASE_URL:?Set BASE_URL in .env}
       DB_PATH: /app/data/app.db
       BACKUP_PATH: ${BACKUP_PATH:-/app/data/backups/app.db}
@@ -31,6 +73,10 @@ services:
 
     volumes:
       - app-data:/app/data
+
+    depends_on:
+      keyring-init:
+        condition: service_completed_successfully
 
     read_only: true
     tmpfs:
@@ -128,8 +174,8 @@ services:
       - internal
 
   # Runs only when explicitly requested by the start scripts. It imports an
-  # existing bind-mounted SQLite database into the new named volume, and never
-  # overwrites a database already present in that volume.
+  # existing bind-mounted SQLite database and keyring into the new named
+  # volume, and never overwrites data already present in that volume.
   migrate-legacy-data:
     image: alpine:3.22.1
     profiles:
@@ -144,20 +190,25 @@ services:
       - -ec
       - |
         if [ -f /target/app.db ]; then
-          echo "Named volume already contains app.db; legacy import skipped."
-          exit 0
+          echo "Named volume already contains app.db; legacy database import skipped."
+        elif [ -f /legacy/app.db ]; then
+          cp /legacy/app.db /target/app.db
+          if [ -f /legacy/app.db-wal ]; then cp /legacy/app.db-wal /target/app.db-wal; fi
+          if [ -f /legacy/app.db-shm ]; then cp /legacy/app.db-shm /target/app.db-shm; fi
+          echo "Legacy SQLite data imported into the named volume."
+        else
+          echo "No legacy data/app.db found; database import skipped."
         fi
-        if [ ! -f /legacy/app.db ]; then
-          echo "No legacy data/app.db found; nothing to import."
-          exit 0
+        if [ -f /target/keyring.json ]; then
+          echo "Named volume already contains keyring.json; legacy keyring import skipped."
+        elif [ -f /legacy/keyring.json ]; then
+          cp /legacy/keyring.json /target/keyring.json
+          echo "Legacy encryption keyring imported into the named volume."
         fi
-        cp /legacy/app.db /target/app.db
-        if [ -f /legacy/app.db-wal ]; then cp /legacy/app.db-wal /target/app.db-wal; fi
-        if [ -f /legacy/app.db-shm ]; then cp /legacy/app.db-shm /target/app.db-shm; fi
         chown -R 1000:1000 /target
         chmod 700 /target
-        chmod 600 /target/app.db*
-        echo "Legacy SQLite data imported into the named volume."
+        if ls /target/app.db* >/dev/null 2>&1; then chmod 600 /target/app.db*; fi
+        if [ -f /target/keyring.json ]; then chmod 600 /target/keyring.json; fi
 
 volumes:
   app-data:

@@ -2,16 +2,7 @@
 
 import { forwardRef, useRef, useCallback, useEffect, useImperativeHandle, type ReactNode } from "react";
 import emojiRegex from "emoji-regex";
-
-const APPLE_CDN =
-  "https://cdn.jsdelivr.net/npm/emoji-datasource-apple@15.0.1/img/apple/64/";
-
-function toUnified(emoji: string): string {
-  return [...emoji]
-    .map((c) => c.codePointAt(0)!.toString(16))
-    .filter(Boolean)
-    .join("-");
-}
+import { getEmojiAssetURL } from "@/lib/emoji-assets";
 
 function esc(s: string): string {
   return s
@@ -20,7 +11,7 @@ function esc(s: string): string {
     .replace(/>/g, "&gt;");
 }
 
-/** Plain text → HTML with Apple emoji <img> tags */
+/** Plain text → safe editor HTML with native Unicode emoji fallback. */
 function toHtml(text: string): string {
   if (!text) return "";
   const re = emojiRegex();
@@ -30,7 +21,10 @@ function toHtml(text: string): string {
     const i = m.index!;
     if (i > last) out += esc(text.slice(last, i)).replace(/\n/g, "<br>");
     const e = m[0];
-    out += `<img src="${APPLE_CDN}${toUnified(e)}.png" alt="${e}" class="emoji-image" draggable="false" loading="lazy" onerror="this.outerHTML=this.alt">`;
+    const assetURL = getEmojiAssetURL(e);
+    out += assetURL
+      ? `<img src="${assetURL}" alt="${esc(e)}" class="emoji-image" draggable="false" loading="lazy">`
+      : `<span class="emoji-native">${esc(e)}</span>`;
     last = i + e.length;
   }
   if (last < text.length) out += esc(text.slice(last)).replace(/\n/g, "<br>");
@@ -183,6 +177,7 @@ export const AppleEmojiInput = forwardRef<AppleEmojiInputHandle, AppleEmojiInput
   const savedCursorPosRef = useRef<number>(value.length);
   const pendingCursorPosRef = useRef<number | null>(null);
   const inputId = id || label?.toLowerCase().replace(/\s+/g, "-");
+  const labelId = label && inputId ? `${inputId}-label` : undefined;
 
   const syncSelection = useCallback(() => {
     const el = ref.current;
@@ -259,7 +254,7 @@ export const AppleEmojiInput = forwardRef<AppleEmojiInputHandle, AppleEmojiInput
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  /* On user input: extract text, replace raw emoji text‑nodes → img */
+  /* On user input: extract plain text and only rewrite when length limiting requires it. */
   const onInput = useCallback(() => {
     const el = ref.current;
     if (!el) return;
@@ -268,19 +263,7 @@ export const AppleEmojiInput = forwardRef<AppleEmojiInputHandle, AppleEmojiInput
     const nextValue = typeof maxLength === "number" ? text.slice(0, maxLength) : text;
     lastVal.current = nextValue;
 
-    // Only rewrite the DOM if raw emoji glyphs exist as text nodes
-    let needsUpdate = false;
-    const tw = document.createTreeWalker(el, NodeFilter.SHOW_TEXT);
-    let tn = tw.nextNode();
-    while (tn) {
-      if (emojiRegex().test(tn.textContent ?? "")) {
-        needsUpdate = true;
-        break;
-      }
-      tn = tw.nextNode();
-    }
-
-    if (needsUpdate || nextValue !== text) {
+    if (nextValue !== text) {
       const pos = saveCursor(el);
       el.innerHTML = toHtml(nextValue);
       restoreCursor(el, pos);
@@ -303,7 +286,7 @@ export const AppleEmojiInput = forwardRef<AppleEmojiInputHandle, AppleEmojiInput
   return (
     <div className="flex flex-col gap-1.5">
       {label && (
-        <label htmlFor={inputId} className="text-sm text-zinc-400">
+        <label id={labelId} htmlFor={inputId} className="text-sm text-zinc-400">
           {label}
         </label>
       )}
@@ -325,6 +308,7 @@ export const AppleEmojiInput = forwardRef<AppleEmojiInputHandle, AppleEmojiInput
           id={inputId}
           contentEditable
           role="textbox"
+          aria-labelledby={labelId}
           aria-multiline={multiline}
           suppressContentEditableWarning
           onInput={onInput}
@@ -356,13 +340,19 @@ export const AppleEmojiInput = forwardRef<AppleEmojiInputHandle, AppleEmojiInput
               multiline ? esc(truncated).replace(/\n/g, "<br>") : truncated
             );
           }}
-          className={`apple-emoji-input w-full rounded-lg border border-border bg-surface-2 px-3 py-2 text-sm text-zinc-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-bg ${multiline ? "apple-emoji-input--multiline min-h-[8.5rem]" : ""} ${error ? "ring-1 ring-red-500" : ""} ${className}`}
+          onErrorCapture={(event) => {
+            const image = event.target;
+            if (!(image instanceof HTMLImageElement)) return;
+            image.replaceWith(document.createTextNode(image.alt));
+            onInput();
+          }}
+          className={`apple-emoji-input w-full rounded-sm border border-border bg-surface-2 px-3 py-2 text-sm text-zinc-200 hover:border-[var(--border-strong)] focus:border-accent focus-visible:border-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-bg ${multiline ? "apple-emoji-input--multiline min-h-[8.5rem]" : ""} ${error ? "ring-1 ring-red-500" : ""} ${className}`}
           style={hasRightSlot ? { paddingRight: inputPaddingRight } : undefined}
         />
 
         {hasRightSlot && (
           <div
-            className="absolute right-0 top-0 bottom-0 flex w-[46px] items-center justify-center rounded-r-lg border-l border-border bg-surface-1/70"
+            className="absolute right-0 top-0 bottom-0 flex w-[46px] items-center justify-center rounded-r-sm border-l border-border bg-surface-1/70"
             style={{ width: `${rightSlotWidth}px` }}
           >
             {rightSlot}

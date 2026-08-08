@@ -15,7 +15,7 @@ import {
   X,
 } from "lucide-react";
 import { apiV1, keys as keysApi, users as usersApi } from "@/lib/api";
-import type { PageMeta, User, UserSummary, VLESSKey } from "@/lib/types";
+import type { KeySummary, PageMeta, User, UserSummary } from "@/lib/types";
 import { AddUserModal } from "@/components/admin/AddUserModal";
 import { EditSubscriptionModal } from "@/components/admin/EditSubscriptionModal";
 import { HwidManager } from "@/components/admin/HwidManager";
@@ -45,7 +45,7 @@ export default function UsersPage() {
   const [detail, setDetail] = useState<User | null>(null);
   const [detailLoading, setDetailLoading] = useState(false);
   const [drawerTab, setDrawerTab] = useState<DrawerTab>("subscription");
-  const [keys, setKeys] = useState<VLESSKey[]>([]);
+  const [keys, setKeys] = useState<KeySummary[]>([]);
   const [editSubscription, setEditSubscription] = useState(false);
   const [editKeys, setEditKeys] = useState(false);
   const [editHWID, setEditHWID] = useState(false);
@@ -72,7 +72,7 @@ export default function UsersPage() {
   useEffect(() => {
     const frame = window.requestAnimationFrame(() => {
       load(1).catch(() => setLoading(false));
-      keysApi.list().then((response) => setKeys(response.keys || [])).catch(() => undefined);
+      keysApi.listSummaries({ page_size: 200 }).then((response) => setKeys(response.data || [])).catch(() => undefined);
     });
     return () => window.cancelAnimationFrame(frame);
   }, [load]);
@@ -198,7 +198,7 @@ export default function UsersPage() {
                     type="checkbox"
                     checked={allSelected}
                     onChange={() => setSelectedIDs(allSelected ? [] : items.map((item) => item.id))}
-                    className="accent-cyan-500"
+                    className="accent-accent"
                   />
                 </th>
                 <th className="px-4 py-3">Пользователь</th>
@@ -217,7 +217,7 @@ export default function UsersPage() {
                       type="checkbox"
                       checked={selectedIDs.includes(user.id)}
                       onChange={() => setSelectedIDs((current) => current.includes(user.id) ? current.filter((id) => id !== user.id) : [...current, user.id])}
-                      className="accent-cyan-500"
+                      className="accent-accent"
                     />
                   </td>
                   <td className="px-4 py-3">
@@ -291,7 +291,7 @@ export default function UsersPage() {
                     ["devices", "Устройства"],
                     ["history", "История"],
                   ] as const).map(([value, label]) => (
-                    <button key={value} type="button" onClick={() => setDrawerTab(value)} className={`border-b-2 px-3 py-3 text-sm ${drawerTab === value ? "border-cyan-400 text-cyan-200" : "border-transparent text-zinc-600"}`}>
+                    <button key={value} type="button" onClick={() => setDrawerTab(value)} role="tab" aria-selected={drawerTab === value} className="ui-tab ui-tab--underline px-3 py-3 text-sm">
                       {label}
                     </button>
                   ))}

@@ -13,7 +13,7 @@ import (
 	"strings"
 	"time"
 
-	"subshare/internal/model"
+	"github.com/romanpodg/SubShare-Go/internal/model"
 )
 
 func (a *App) requireAdmin(next http.Handler) http.Handler {
@@ -183,7 +183,11 @@ func apiTokenAllows(scopes []string, method, path string) bool {
 	switch {
 	case strings.Contains(path, "/users"):
 		return has("users:write")
-	case strings.Contains(path, "/keys"), strings.Contains(path, "/sources"):
+	case strings.Contains(path, "/keys"),
+		strings.Contains(path, "/key-categories"),
+		strings.Contains(path, "/sources"),
+		strings.Contains(path, "/external-sources"),
+		strings.Contains(path, "/source-categories"):
 		return has("keys:write")
 	default:
 		return has("settings:write")

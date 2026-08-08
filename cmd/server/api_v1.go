@@ -11,7 +11,7 @@ import (
 	"strings"
 	"time"
 
-	"subshare/internal/middleware"
+	"github.com/romanpodg/SubShare-Go/internal/middleware"
 )
 
 var (
@@ -143,7 +143,7 @@ func (a *App) apiV1Dashboard(w http.ResponseWriter, r *http.Request) {
 		degradedSections = append(degradedSections, "audit")
 	}
 	backup := map[string]any{"enabled": false, "status": "disabled", "file": "", "last_modified": "", "size_bytes": int64(0)}
-	if backupPath := strings.TrimSpace(os.Getenv("BACKUP_PATH")); backupPath != "" {
+	if backupPath := strings.TrimSpace(a.backupPath); backupPath != "" {
 		backup["enabled"] = true
 		backup["file"] = filepath.Base(backupPath)
 		backup["status"] = "pending"
@@ -218,6 +218,7 @@ func (a *App) apiV1ListUsers(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *App) apiV1GetUser(w http.ResponseWriter, r *http.Request) {
+	applySensitiveResponseHeaders(w)
 	id, ok := pathID(w, r, "id")
 	if !ok {
 		return
@@ -237,49 +238,8 @@ func (a *App) apiV1GetUser(w http.ResponseWriter, r *http.Request) {
 	writeV1Error(w, r, http.StatusNotFound, "user_not_found", "user not found")
 }
 
-type keySummary struct {
-	ID                 int64     `json:"id"`
-	Label              string    `json:"label"`
-	CategoryID         int64     `json:"category_id"`
-	Category           string    `json:"category"`
-	Kind               string    `json:"kind"`
-	Status             string    `json:"status"`
-	CheckStatus        string    `json:"check_status"`
-	CheckError         string    `json:"check_error"`
-	LastLatencyMS      int64     `json:"last_latency_ms"`
-	LastCheckedAt      string    `json:"last_checked_at"`
-	ExternalSourceID   int64     `json:"external_source_id"`
-	ExternalSourceName string    `json:"external_source_name"`
-	CreatedAt          time.Time `json:"created_at"`
-}
-
 func (a *App) apiV1ListKeys(w http.ResponseWriter, r *http.Request) {
-	keys, err := a.listKeys()
-	if err != nil {
-		writeV1Error(w, r, http.StatusInternalServerError, "keys_list_failed", "failed to load keys")
-		return
-	}
-	query := strings.ToLower(strings.TrimSpace(r.URL.Query().Get("query")))
-	status := strings.ToLower(strings.TrimSpace(r.URL.Query().Get("status")))
-	items := make([]keySummary, 0, len(keys))
-	for _, key := range keys {
-		if query != "" && !strings.Contains(strings.ToLower(key.Label+" "+key.Category+" "+key.ExternalSourceName), query) {
-			continue
-		}
-		if status != "" && status != "all" && key.Status != status && key.CheckStatus != status {
-			continue
-		}
-		items = append(items, keySummary{
-			ID: key.ID, Label: key.Label, CategoryID: key.CategoryID, Category: key.Category, Kind: key.Kind,
-			Status: key.Status, CheckStatus: key.CheckStatus, CheckError: key.CheckError,
-			LastLatencyMS: key.LastLatencyMS, LastCheckedAt: key.LastCheckedAtText,
-			ExternalSourceID: key.ExternalSourceID, ExternalSourceName: key.ExternalSourceName,
-			CreatedAt: key.CreatedAt,
-		})
-	}
-	page, pageSize := parsePageParams(r)
-	data, meta := paginate(items, page, pageSize)
-	writeJSON(w, http.StatusOK, map[string]any{"data": data, "meta": meta})
+	a.keyQueryHTTPHandler().ListKeys(w, r)
 }
 
 type auditEvent struct {

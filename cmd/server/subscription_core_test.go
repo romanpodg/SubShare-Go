@@ -7,11 +7,13 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
 
-	"subshare/internal/model"
+	"github.com/romanpodg/SubShare-Go/internal/model"
+	"github.com/romanpodg/SubShare-Go/internal/security/profilestorage"
 )
 
 func seedSubscriptionUser(t *testing.T, app *App, status string) int64 {
@@ -128,16 +130,24 @@ func TestKeyAssignmentModesControlFutureKeys(t *testing.T) {
 func TestUpdateKeyAssignmentAllSelectedAndValidation(t *testing.T) {
 	app := newIntegrationApp(t)
 	userID := seedSubscriptionUser(t, app, model.UserStatusActive)
-	first, err := app.db.Exec(`INSERT INTO vless_keys(label, url, status) VALUES('one', 'vless://assignment-one', 'active')`)
-	if err != nil {
-		t.Fatal(err)
-	}
-	second, err := app.db.Exec(`INSERT INTO vless_keys(label, url, status) VALUES('two', 'vless://assignment-two', 'active')`)
+	activeID, activeKey, _ := app.profileKeyring.GetActiveEncryptionKey()
+	_, bikKey, _ := app.profileKeyring.GetActiveBlindIndexKey()
+
+	first, err := app.db.Exec(`INSERT INTO vless_keys(label, url_blind_index, status) VALUES('one', ?, 'active')`, profilestorage.ComputeBlindIndex(bikKey, "vless://assignment-one"))
 	if err != nil {
 		t.Fatal(err)
 	}
 	firstID, _ := first.LastInsertId()
+	env1, _ := profilestorage.Encrypt([]byte("vless://assignment-one"), activeID, activeKey, firstID)
+	_, _ = app.db.Exec(`INSERT INTO vless_key_secrets(vless_key_id, encrypted_url) VALUES(?, ?)`, firstID, env1)
+
+	second, err := app.db.Exec(`INSERT INTO vless_keys(label, url_blind_index, status) VALUES('two', ?, 'active')`, profilestorage.ComputeBlindIndex(bikKey, "vless://assignment-two"))
+	if err != nil {
+		t.Fatal(err)
+	}
 	secondID, _ := second.LastInsertId()
+	env2, _ := profilestorage.Encrypt([]byte("vless://assignment-two"), activeID, activeKey, secondID)
+	_, _ = app.db.Exec(`INSERT INTO vless_key_secrets(vless_key_id, encrypted_url) VALUES(?, ?)`, secondID, env2)
 
 	if err := app.updateUserKeyAssignment(userID, model.KeyAssignmentModeAll, nil); err != nil {
 		t.Fatalf("assign all: %v", err)
@@ -309,14 +319,21 @@ func TestSubBodyAdaptersReturn503WhenEmptyAndActiveHeadersWhenAvailable(t *testi
 		})
 	}
 
+	activeID, activeKey, _ := app.profileKeyring.GetActiveEncryptionKey()
+	_, bikKey, _ := app.profileKeyring.GetActiveBlindIndexKey()
+	edgeURI := "vless://11111111-1111-1111-1111-111111111111@example.com:443?security=tls"
 	keyResult, err := app.db.Exec(`
-		INSERT INTO vless_keys(label, url, status, key_kind, health_failure_count)
-		VALUES('edge', 'vless://11111111-1111-1111-1111-111111111111@example.com:443?security=tls', 'active', 'real', 0)
-	`)
+		INSERT INTO vless_keys(label, url_blind_index, status, key_kind, health_failure_count)
+		VALUES('edge', ?, 'active', 'real', 0)
+	`, profilestorage.ComputeBlindIndex(bikKey, edgeURI))
 	if err != nil {
 		t.Fatal(err)
 	}
 	keyID, _ := keyResult.LastInsertId()
+	secEnv, _ := profilestorage.Encrypt([]byte(edgeURI), activeID, activeKey, keyID)
+	if _, err := app.db.Exec(`INSERT INTO vless_key_secrets(vless_key_id, encrypted_url) VALUES(?, ?)`, keyID, secEnv); err != nil {
+		t.Fatal(err)
+	}
 	if _, err := app.db.Exec(`INSERT INTO user_keys(user_id, key_id) VALUES(?, ?)`, userID, keyID); err != nil {
 		t.Fatal(err)
 	}
@@ -381,7 +398,7 @@ func TestPrepareDeliveryRuleNotFoundNoMatchAndInvalidRule(t *testing.T) {
 		if err := app.db.QueryRow(`
 			SELECT COUNT(*) FROM audit_events
 			WHERE action = 'response_rule.disabled_invalid' AND target_id = ?
-		`, ruleID).Scan(&audits); err != nil {
+		`, strconv.FormatInt(ruleID, 10)).Scan(&audits); err != nil {
 			t.Fatal(err)
 		}
 		if enabled != 0 || audits != 1 {

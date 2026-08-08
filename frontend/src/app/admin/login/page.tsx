@@ -50,8 +50,8 @@ export default function LoginPage() {
   };
 
   const validatePassword = (value: string) => {
-    if (/[а-яА-ЯёЁ]/.test(value)) {
-      setPasswordError("Пароль не может содержать кириллицу");
+    if (value.length === 0) {
+      setPasswordError("Введите пароль");
       return false;
     }
     setPasswordError("");

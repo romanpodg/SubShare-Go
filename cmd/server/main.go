@@ -7,24 +7,33 @@ import (
 	"log"
 	"log/slog"
 	"net/http"
-	"net/url"
 	"os"
 	"os/signal"
 	"path/filepath"
-	"strings"
 	"syscall"
 	"time"
 
-	"golang.org/x/crypto/bcrypt"
 	_ "modernc.org/sqlite"
 
-	"subshare/internal/middleware"
-	"subshare/internal/model"
+	"github.com/romanpodg/SubShare-Go/internal/middleware"
+	"github.com/romanpodg/SubShare-Go/internal/model"
+	"github.com/romanpodg/SubShare-Go/internal/platform/configuration"
+	adminpassword "github.com/romanpodg/SubShare-Go/internal/security/password"
+	"github.com/romanpodg/SubShare-Go/internal/security/profilestorage"
+	"github.com/romanpodg/SubShare-Go/internal/storage"
 )
 
 func main() {
 	logger := slog.New(slog.NewJSONHandler(os.Stdout, nil))
 	slog.SetDefault(logger)
+
+	if handled, err := handleCLI(os.Args); handled {
+		if err != nil {
+			slog.Error("cli command failed", "error", err)
+			os.Exit(1)
+		}
+		os.Exit(0)
+	}
 
 	if err := run(); err != nil {
 		slog.Error("fatal error", "error", err)
@@ -33,16 +42,27 @@ func main() {
 }
 
 func run() error {
-	dbPath := strings.TrimSpace(os.Getenv("DB_PATH"))
-	if dbPath == "" {
-		dbPath = "data/app.db"
+	return bootstrapRuntime(func() (configuration.Config, error) {
+		return configuration.Load(os.Environ())
+	}, runConfigured)
+}
+
+func bootstrapRuntime(load func() (configuration.Config, error), start func(configuration.Config) error) error {
+	config, err := load()
+	if err != nil {
+		return err
 	}
+	return start(config)
+}
+
+func runConfigured(config configuration.Config) error {
+	dbPath := config.DBPath
 
 	if err := os.MkdirAll(filepath.Dir(dbPath), 0o700); err != nil {
-		return fmt.Errorf("create data dir: %w", err)
+		return fmt.Errorf("create DB_PATH directory")
 	}
 
-	db, err := initializeSQLite(dbPath)
+	db, err := initializeSQLiteWithJournalMode(dbPath, config.SQLiteJournalMode, config.ProfileKeyring)
 	if err != nil {
 		if !isRecoverableSQLiteIO(err) {
 			return err
@@ -53,91 +73,50 @@ func run() error {
 			return fmt.Errorf("recover sqlite sidecars: %w", cleanupErr)
 		}
 
-		db, err = initializeSQLite(dbPath)
+		db, err = initializeSQLiteWithJournalMode(dbPath, config.SQLiteJournalMode, config.ProfileKeyring)
 		if err != nil {
 			return fmt.Errorf("initialize sqlite after sidecar cleanup: %w", err)
 		}
 	}
 	defer db.Close()
 
-	adminUser := strings.TrimSpace(os.Getenv("ADMIN_USER"))
-	if adminUser == "" {
-		adminUser = "admin"
-	}
-	adminPass := strings.TrimSpace(os.Getenv("ADMIN_PASSWORD"))
-	if adminPass == "" {
-		slog.Error("ADMIN_PASSWORD environment variable is required but not set")
-		os.Exit(1)
+	if err := verifyStartupEnvelopesAndInvariants(context.Background(), db, config.ProfileKeyring); err != nil {
+		return fmt.Errorf("startup verification: %w", err)
 	}
 
-	adminPassHash, err := bcrypt.GenerateFromPassword([]byte(adminPass), bcrypt.DefaultCost)
+	passwordHasher := adminpassword.NewDefault()
+	createdOwner, err := ensureBootstrapOwner(context.Background(), db, config.AdminUser, config.AdminPassword, passwordHasher)
 	if err != nil {
-		return fmt.Errorf("hash admin password: %w", err)
+		return err
+	}
+	if createdOwner {
+		log.Printf("Seeded root admin account: %s (role: owner)", config.AdminUser)
 	}
 
-	// Seed root admin if no admins exist
-	var adminCount int
-	if err := db.QueryRow(`SELECT COUNT(*) FROM admins`).Scan(&adminCount); err != nil {
-		return fmt.Errorf("count admins: %w", err)
-	}
-	if adminCount == 0 {
-		if _, err := db.Exec(`INSERT INTO admins (username, password_hash, role) VALUES (?, ?, 'owner')`, adminUser, string(adminPassHash)); err != nil {
-			return fmt.Errorf("seed root admin: %w", err)
-		}
-		log.Printf("Seeded root admin account: %s (role: owner)", adminUser)
-	}
-
-	deviceLimitMessage := strings.TrimSpace(os.Getenv("DEVICE_LIMIT_MESSAGE"))
+	deviceLimitMessage := config.DeviceLimitMessage
 	if deviceLimitMessage == "" {
 		deviceLimitMessage = model.DefaultDeviceLimitMessage
 	}
 
-	baseURL := strings.TrimSpace(os.Getenv("BASE_URL"))
-	if baseURL != "" {
-		normalizedBaseURL, normalizeErr := normalizeAbsoluteHTTPURL(baseURL, "BASE_URL")
-		if normalizeErr != nil {
-			return fmt.Errorf("invalid BASE_URL: %w", normalizeErr)
-		}
-		parsedBaseURL, parseErr := url.Parse(normalizedBaseURL)
-		if parseErr != nil || (parsedBaseURL.Path != "" && parsedBaseURL.Path != "/") || parsedBaseURL.RawQuery != "" || parsedBaseURL.Fragment != "" {
-			return fmt.Errorf("BASE_URL must contain only scheme and host")
-		}
-		baseURL = strings.TrimRight(normalizedBaseURL, "/")
-	} else if strings.EqualFold(strings.TrimSpace(os.Getenv("APP_ENV")), "production") {
-		return fmt.Errorf("BASE_URL is required when APP_ENV=production")
-	}
-	happCryptoAPIURL := strings.TrimSpace(os.Getenv("HAPP_CRYPTO_API_URL"))
-
-	subscriptionBodyEncoding := strings.ToLower(strings.TrimSpace(os.Getenv("SUBSCRIPTION_BODY_ENCODING")))
-	if subscriptionBodyEncoding == "" {
-		subscriptionBodyEncoding = "base64"
-	}
-	if subscriptionBodyEncoding != "base64" {
-		subscriptionBodyEncoding = "plain"
-	}
-
-	var corsOrigins []string
-	if raw := strings.TrimSpace(os.Getenv("CORS_ORIGINS")); raw != "" {
-		for _, o := range strings.Split(raw, ",") {
-			o = strings.TrimSpace(o)
-			if o != "" {
-				corsOrigins = append(corsOrigins, o)
-			}
-		}
-	}
+	middleware.ConfigureTrustedProxyNetworks(config.TrustedProxyNetworks)
 
 	app := &App{
-		db:                       db,
-		dbPath:                   dbPath,
-		deviceLimitMessage:       deviceLimitMessage,
-		baseURL:                  baseURL,
-		happCryptoAPIURL:         happCryptoAPIURL,
-		subscriptionBodyEncoding: subscriptionBodyEncoding,
+		db:                        db,
+		dbPath:                    dbPath,
+		backupPath:                config.BackupPath,
+		deviceLimitMessage:        deviceLimitMessage,
+		baseURL:                   config.BaseURL,
+		happCryptoAPIURL:          config.HappCryptoAPIURL,
+		subscriptionBodyEncoding:  config.SubscriptionBodyEncoding,
+		adminPasswordHasher:       passwordHasher,
+		profileFingerprintKey:     append([]byte(nil), config.ProfileFingerprintKey...),
+		profileFingerprintOldKeys: cloneByteSlices(config.ProfileFingerprintOldKeys),
+		profileKeyring:            config.ProfileKeyring,
 	}
 	app.recoverInterruptedJobs()
 
 	go app.cleanupExpiredSessions(5 * time.Minute)
-	app.startBackup()
+	app.startBackup(config.BackupPath, config.BackupInterval)
 
 	loginLimiter := middleware.NewRateLimiter(5, 1*time.Minute)
 	activationLimiter := middleware.NewRateLimiter(10, 1*time.Minute)
@@ -174,12 +153,7 @@ func run() error {
 	mux.Handle("PUT /api/v1/users/{id}/key-assignment", app.requireAdmin(http.HandlerFunc(app.apiV1UpdateUserKeyAssignment)))
 	mux.Handle("PUT /api/v1/users/{id}/settings", app.requireAdmin(app.v1Compatibility(http.HandlerFunc(app.apiUpdateUserSettings))))
 	mux.Handle("PUT /api/v1/users/{id}/hwid", app.requireAdmin(app.v1Compatibility(http.HandlerFunc(app.apiUpdateUserHWID))))
-	mux.Handle("GET /api/v1/keys", app.requireAdmin(http.HandlerFunc(app.apiV1ListKeys)))
-	mux.Handle("POST /api/v1/keys", app.requireAdmin(app.v1Compatibility(http.HandlerFunc(app.apiCreateKey))))
-	mux.Handle("PUT /api/v1/keys/{id}", app.requireAdmin(app.v1Compatibility(http.HandlerFunc(app.apiUpdateKey))))
-	mux.Handle("DELETE /api/v1/keys/{id}", app.requireAdmin(app.v1Compatibility(http.HandlerFunc(app.apiDeleteKey))))
-	mux.Handle("POST /api/v1/keys/{id}/check", app.requireAdmin(app.v1Compatibility(http.HandlerFunc(app.apiCheckKey))))
-	mux.Handle("POST /api/v1/keys/check-all", app.requireAdmin(http.HandlerFunc(app.apiV1QueueKeyHealthCheck)))
+	app.registerKeyRoutes(mux)
 	mux.Handle("GET /api/v1/sources", app.requireAdmin(http.HandlerFunc(app.apiV1ListSources)))
 	mux.Handle("POST /api/v1/sources/preview", app.requireSuperAdmin(http.HandlerFunc(app.apiV1PreviewSource)))
 	mux.Handle("POST /api/v1/sources", app.requireSuperAdmin(http.HandlerFunc(app.apiV1CreateSource)))
@@ -188,7 +162,6 @@ func run() error {
 	mux.Handle("DELETE /api/v1/sources/{id}", app.requireSuperAdmin(http.HandlerFunc(app.apiV1DeleteSource)))
 	mux.Handle("POST /api/v1/sources/{id}/sync", app.requireSuperAdmin(http.HandlerFunc(app.apiV1QueueSourceSync)))
 	mux.Handle("GET /api/v1/source-categories", app.requireAdmin(http.HandlerFunc(app.apiV1ListSourceCategories)))
-	mux.Handle("GET /api/v1/key-categories", app.requireAdmin(http.HandlerFunc(app.apiV1ListKeyCategories)))
 	mux.Handle("GET /api/v1/audit-events", app.requireAdmin(http.HandlerFunc(app.apiV1ListAuditEvents)))
 	mux.Handle("GET /api/v1/admins", app.requireSuperAdmin(app.v1Compatibility(http.HandlerFunc(app.apiListAdmins))))
 	mux.Handle("POST /api/v1/admins", app.requireSuperAdmin(app.v1Compatibility(http.HandlerFunc(app.apiCreateAdmin))))
@@ -215,17 +188,8 @@ func run() error {
 	// Transitional v1 adapters for admin screens that still need the richer
 	// legacy response shape. No frontend request should depend on /api/admin.
 	mux.Handle("GET /api/v1/users/full", app.requireAdmin(http.HandlerFunc(app.apiListUsers)))
-	mux.Handle("GET /api/v1/keys/full", app.requireAdmin(http.HandlerFunc(app.apiListKeys)))
 	mux.Handle("GET /api/v1/users/{id}/subscription-urls", app.requireAdmin(http.HandlerFunc(app.apiGetUserSubscriptionURLs)))
 	mux.Handle("DELETE /api/v1/users/{id}/hwid/{hwid}", app.requireAdmin(http.HandlerFunc(app.apiDeleteUserHWID)))
-	mux.Handle("POST /api/v1/key-categories", app.requireAdmin(http.HandlerFunc(app.apiCreateKeyCategory)))
-	mux.Handle("PUT /api/v1/key-categories", app.requireAdmin(http.HandlerFunc(app.apiUpdateKeyCategory)))
-	mux.Handle("PUT /api/v1/key-categories/order", app.requireAdmin(http.HandlerFunc(app.apiReorderKeyCategories)))
-	mux.Handle("PUT /api/v1/key-categories/rename", app.requireAdmin(http.HandlerFunc(app.apiRenameKeyCategory)))
-	mux.Handle("POST /api/v1/key-categories/delete", app.requireAdmin(http.HandlerFunc(app.apiDeleteKeyCategory)))
-	mux.Handle("POST /api/v1/keys/bulk/status", app.requireAdmin(http.HandlerFunc(app.apiBulkUpdateKeyStatus)))
-	mux.Handle("POST /api/v1/keys/bulk/delete", app.requireAdmin(http.HandlerFunc(app.apiBulkDeleteKeys)))
-	mux.Handle("PUT /api/v1/keys/order", app.requireAdmin(http.HandlerFunc(app.apiReorderKeys)))
 	mux.Handle("GET /api/v1/subscription-settings", app.requireAdmin(http.HandlerFunc(app.apiGetSubscriptionSettings)))
 	mux.Handle("PUT /api/v1/subscription-settings", app.requireSuperAdmin(http.HandlerFunc(app.apiUpdateSubscriptionSettings)))
 	mux.Handle("GET /api/v1/routing-settings", app.requireAdmin(http.HandlerFunc(app.apiGetRoutingSettings)))
@@ -253,23 +217,6 @@ func run() error {
 	mux.Handle("PUT /api/admin/users/{id}/hwid", app.requireAdmin(http.HandlerFunc(app.apiUpdateUserHWID)))
 	mux.Handle("DELETE /api/admin/users/{id}/hwid/{hwid}", app.requireAdmin(http.HandlerFunc(app.apiDeleteUserHWID)))
 
-	// Keys API
-	mux.Handle("GET /api/admin/keys", app.requireAdmin(http.HandlerFunc(app.apiListKeys)))
-	mux.Handle("GET /api/admin/key-categories", app.requireAdmin(http.HandlerFunc(app.apiListKeyCategories)))
-	mux.Handle("POST /api/admin/key-categories", app.requireAdmin(http.HandlerFunc(app.apiCreateKeyCategory)))
-	mux.Handle("PUT /api/admin/key-categories", app.requireAdmin(http.HandlerFunc(app.apiUpdateKeyCategory)))
-	mux.Handle("PUT /api/admin/key-categories/order", app.requireAdmin(http.HandlerFunc(app.apiReorderKeyCategories)))
-	mux.Handle("PUT /api/admin/key-categories/rename", app.requireAdmin(http.HandlerFunc(app.apiRenameKeyCategory)))
-	mux.Handle("POST /api/admin/key-categories/delete", app.requireAdmin(http.HandlerFunc(app.apiDeleteKeyCategory)))
-	mux.Handle("POST /api/admin/keys", app.requireAdmin(http.HandlerFunc(app.apiCreateKey)))
-	mux.Handle("POST /api/admin/keys/bulk/status", app.requireAdmin(http.HandlerFunc(app.apiBulkUpdateKeyStatus)))
-	mux.Handle("POST /api/admin/keys/bulk/delete", app.requireAdmin(http.HandlerFunc(app.apiBulkDeleteKeys)))
-	mux.Handle("PUT /api/admin/keys/order", app.requireAdmin(http.HandlerFunc(app.apiReorderKeys)))
-	mux.Handle("PUT /api/admin/keys/{id}", app.requireAdmin(http.HandlerFunc(app.apiUpdateKey)))
-	mux.Handle("DELETE /api/admin/keys/{id}", app.requireAdmin(http.HandlerFunc(app.apiDeleteKey)))
-	mux.Handle("POST /api/admin/keys/{id}/check", app.requireAdmin(http.HandlerFunc(app.apiCheckKey)))
-	mux.Handle("POST /api/admin/keys/check-all", app.requireAdmin(http.HandlerFunc(app.apiCheckAllKeys)))
-
 	// External Sources API (Super Admin only)
 	mux.Handle("GET /api/admin/external-sources", app.requireSuperAdmin(http.HandlerFunc(app.apiListExternalSources)))
 	mux.Handle("GET /api/admin/external-sources/categories", app.requireSuperAdmin(http.HandlerFunc(app.apiListExternalSourceCategories)))
@@ -283,7 +230,6 @@ func run() error {
 
 	// Export API
 	mux.Handle("GET /api/admin/export/users", app.requireAdmin(http.HandlerFunc(app.apiExportUsers)))
-	mux.Handle("GET /api/admin/export/keys", app.requireAdmin(http.HandlerFunc(app.apiExportKeys)))
 	mux.Handle("GET /api/admin/subscription-settings", app.requireAdmin(http.HandlerFunc(app.apiGetSubscriptionSettings)))
 	mux.Handle("PUT /api/admin/subscription-settings", app.requireSuperAdmin(http.HandlerFunc(app.apiUpdateSubscriptionSettings)))
 	mux.Handle("GET /api/admin/routing-settings", app.requireAdmin(http.HandlerFunc(app.apiGetRoutingSettings)))
@@ -312,16 +258,11 @@ func run() error {
 		mux.Handle("/", middleware.SPAFileServer(os.DirFS(frontendDir)))
 	}
 
-	addr := os.Getenv("PORT")
-	if addr == "" {
-		addr = ":8080"
-	} else if !strings.Contains(addr, ":") {
-		addr = ":" + addr
-	}
+	addr := config.ListenAddress
 
 	var handler http.Handler = middleware.SecurityHeaders(middleware.RequestID(middleware.LogRequest(middleware.DeprecateLegacyAdminAPI(mux))))
-	if len(corsOrigins) > 0 {
-		handler = middleware.CorsMiddleware(corsOrigins, handler)
+	if len(config.CORSOrigins) > 0 {
+		handler = middleware.CorsMiddleware(config.CORSOrigins, handler)
 	}
 
 	srv := &http.Server{
@@ -356,83 +297,114 @@ func run() error {
 }
 
 func initializeSQLite(dbPath string) (*sql.DB, error) {
-	db, err := sql.Open("sqlite", filepath.ToSlash(dbPath))
+	data, err := profilestorage.GenerateKeyringJSON("key-1", "bik-1")
 	if err != nil {
-		return nil, fmt.Errorf("open db: %w", err)
-	}
-
-	db.SetMaxOpenConns(4)
-	db.SetMaxIdleConns(4)
-	db.SetConnMaxLifetime(0)
-
-	if err := configureSQLitePragmas(db); err != nil {
-		_ = db.Close()
 		return nil, err
 	}
-
-	if err := migrate(db); err != nil {
-		_ = db.Close()
-		return nil, fmt.Errorf("migrate db: %w", err)
+	kr, err := profilestorage.LoadKeyringJSON(data)
+	if err != nil {
+		return nil, err
 	}
-
-	return db, nil
+	return initializeSQLiteWithJournalMode(dbPath, configuration.DefaultSQLiteJournalMode, kr)
 }
 
-func configureSQLitePragmas(db *sql.DB) error {
-	journalMode := normalizeSQLiteJournalMode(os.Getenv("DB_JOURNAL_MODE"))
-
-	// Some Docker bind mounts (especially non-native Linux filesystems) do not
-	// support SQLite WAL shared-memory file resizing and fail with IOERR_SHMSIZE.
-	// In that case we transparently fall back to DELETE mode.
-	if _, err := db.Exec(fmt.Sprintf("PRAGMA journal_mode = %s", journalMode)); err != nil {
-		if journalMode != "WAL" {
-			return fmt.Errorf("set journal mode %s: %w", journalMode, err)
-		}
-		log.Printf("WAL mode unavailable (%v), falling back to DELETE", err)
-		if _, fallbackErr := db.Exec("PRAGMA journal_mode = DELETE"); fallbackErr != nil {
-			return fmt.Errorf("set journal mode fallback DELETE: %w", fallbackErr)
-		}
-	}
-
-	pragmas := []string{
-		"PRAGMA foreign_keys = ON",
-		"PRAGMA busy_timeout = 5000",
-		"PRAGMA synchronous = NORMAL",
-		"PRAGMA cache_size = -4000",
-		"PRAGMA mmap_size = 268435456",
-		"PRAGMA temp_store = MEMORY",
-	}
-	for _, pragma := range pragmas {
-		if _, err := db.Exec(pragma); err != nil {
-			return fmt.Errorf("exec %s: %w", pragma, err)
-		}
-	}
-
-	return nil
+func initializeSQLiteWithJournalMode(dbPath, journalMode string, keyring *profilestorage.Keyring) (*sql.DB, error) {
+	return storage.InitializeSQLiteWithJournalMode(dbPath, journalMode, keyring, migrateWithKeyring)
 }
 
-func normalizeSQLiteJournalMode(raw string) string {
-	mode := strings.ToUpper(strings.TrimSpace(raw))
-	switch mode {
-	case "", "WAL":
-		return "WAL"
-	case "DELETE", "TRUNCATE", "PERSIST", "MEMORY", "OFF":
-		return mode
-	default:
-		return "WAL"
-	}
+func configureSQLitePragmas(db *sql.DB, journalMode string) error {
+	return storage.ConfigureSQLitePragmas(db, journalMode)
 }
 
 func cleanupSQLiteSidecars(dbPath string) error {
-	for _, suffix := range []string{"-shm", "-wal"} {
-		if err := os.Remove(filepath.ToSlash(dbPath) + suffix); err != nil && !os.IsNotExist(err) {
-			return err
-		}
-	}
-	return nil
+	return storage.CleanupSQLiteSidecars(dbPath)
 }
 
 func isRecoverableSQLiteIO(err error) bool {
-	msg := strings.ToLower(err.Error())
-	return strings.Contains(msg, "disk i/o error") || strings.Contains(msg, "(4874)")
+	return storage.IsRecoverableSQLiteIO(err)
+}
+
+func verifyStartupEnvelopesAndInvariants(ctx context.Context, db *sql.DB, keyring *profilestorage.Keyring) error {
+	return storage.VerifyStartupEnvelopesAndInvariants(ctx, db, keyring)
+}
+
+func handleCLI(args []string) (bool, error) {
+	if len(args) < 2 {
+		return false, nil
+	}
+	cmd := args[1]
+	switch cmd {
+	case "bootstrap":
+		if len(args) >= 3 && args[2] == "keyring" {
+			targetPath := "data/keyring.json"
+			if len(args) >= 4 {
+				targetPath = args[3]
+			}
+			if _, err := os.Stat(targetPath); err == nil {
+				fmt.Printf("Keyring already exists at %s; keeping it unchanged.\n", targetPath)
+				return true, nil
+			} else if !os.IsNotExist(err) {
+				return true, fmt.Errorf("stat keyring file: %w", err)
+			}
+			data, err := profilestorage.GenerateKeyringJSON("key-1", "bik-1")
+			if err != nil {
+				return true, err
+			}
+			if err := os.MkdirAll(filepath.Dir(targetPath), 0700); err != nil {
+				return true, err
+			}
+			file, err := os.OpenFile(targetPath, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0600)
+			if os.IsExist(err) {
+				fmt.Printf("Keyring already exists at %s; keeping it unchanged.\n", targetPath)
+				return true, nil
+			}
+			if err != nil {
+				return true, err
+			}
+			if _, err := file.Write(data); err != nil {
+				_ = file.Close()
+				return true, err
+			}
+			if err := file.Close(); err != nil {
+				return true, err
+			}
+			fmt.Printf("Generated keyring at %s\n", targetPath)
+			return true, nil
+		}
+	case "maintenance":
+		if len(args) >= 3 && args[2] == "vacuum" {
+			cfg, err := configuration.Load(os.Environ())
+			if err != nil {
+				return true, err
+			}
+			db, err := sql.Open("sqlite", filepath.ToSlash(cfg.DBPath))
+			if err != nil {
+				return true, err
+			}
+			defer db.Close()
+			log.Println("Executing PRAGMA vacuum...")
+			if _, err := db.Exec("PRAGMA vacuum"); err != nil {
+				return true, fmt.Errorf("vacuum failed: %w", err)
+			}
+			if _, err := db.Exec("PRAGMA wal_checkpoint(TRUNCATE)"); err != nil {
+				return true, fmt.Errorf("checkpoint failed: %w", err)
+			}
+			log.Println("Maintenance vacuum completed successfully.")
+			return true, nil
+		}
+	case "validate-backup":
+		if len(args) < 3 {
+			return true, fmt.Errorf("usage: validate-backup <backup.db>")
+		}
+		backupPath := args[2]
+		cfg, err := configuration.Load(os.Environ())
+		if err != nil {
+			return true, err
+		}
+		if cfg.ProfileKeyring == nil {
+			return true, profilestorage.ErrMissingKeyring
+		}
+		return true, runValidateBackup(backupPath, cfg.ProfileKeyring)
+	}
+	return false, nil
 }
