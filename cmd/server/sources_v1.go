@@ -555,10 +555,5 @@ func (a *App) apiV1ListSourceCategories(w http.ResponseWriter, r *http.Request) 
 }
 
 func (a *App) apiV1ListKeyCategories(w http.ResponseWriter, r *http.Request) {
-	categories, err := a.listKeyCategories()
-	if err != nil {
-		writeV1Error(w, r, http.StatusInternalServerError, "key_categories_failed", "failed to load key categories")
-		return
-	}
-	writeJSON(w, http.StatusOK, map[string]any{"data": categories})
+	a.keyQueryHTTPHandler().ListCategories(w, r)
 }

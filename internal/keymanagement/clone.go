@@ -14,7 +14,7 @@ func (s *Service) CloneAsLocal(ctx context.Context, params CloneParams) (*model.
 		return nil, ErrLabelTooLong
 	}
 
-	clonedKey, clonedURI, err := s.repo.CloneLocal(ctx, profilepersistence.CloneProfileParams{
+	clonedKey, clonedURI, err := s.profileRepo.CloneLocal(ctx, profilepersistence.CloneProfileParams{
 		ID:               params.ID,
 		ExpectedRevision: params.ExpectedProfileRevision,
 		NewLabel:         newLabel,

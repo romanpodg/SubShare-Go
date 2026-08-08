@@ -8,7 +8,6 @@ import (
 
 	"github.com/romanpodg/SubShare-Go/internal/keymanagement"
 	"github.com/romanpodg/SubShare-Go/internal/model"
-	"github.com/romanpodg/SubShare-Go/internal/profilepersistence"
 )
 
 type LegacyKeyHandler struct {
@@ -115,7 +114,7 @@ func (h *LegacyKeyHandler) DeleteKey(w http.ResponseWriter, r *http.Request) {
 
 	err := h.service.DeleteLegacy(r.Context(), id)
 	if err != nil {
-		if errors.Is(err, profilepersistence.ErrProfileNotFound) || errors.Is(err, keymanagement.ErrKeyNotFound) {
+		if errors.Is(err, keymanagement.ErrKeyNotFound) {
 			writeError(w, http.StatusNotFound, "key not found")
 			return
 		}
@@ -166,31 +165,27 @@ func mapLegacyCreateError(w http.ResponseWriter, err error) {
 		writeError(w, http.StatusBadRequest, msg)
 		return
 	}
-	if strings.Contains(err.Error(), "create_failed") {
+	if errors.Is(err, keymanagement.ErrKeyCreateConflict) {
 		writeError(w, http.StatusConflict, "failed to add key (maybe duplicate)")
 		return
 	}
-	if strings.Contains(err.Error(), "failed to save key category") {
+	if errors.Is(err, keymanagement.ErrCategoryPersistence) {
 		writeError(w, http.StatusInternalServerError, "failed to save key category")
 		return
 	}
-	if strings.Contains(err.Error(), "failed to resolve key category") {
-		writeError(w, http.StatusInternalServerError, "failed to resolve key category")
-		return
-	}
-	if strings.Contains(err.Error(), "failed to prepare key order") {
+	if errors.Is(err, keymanagement.ErrKeyOrderPersistence) {
 		writeError(w, http.StatusInternalServerError, "failed to prepare key order")
 		return
 	}
-	if strings.Contains(err.Error(), "encryption key unavailable") {
+	if errors.Is(err, keymanagement.ErrEncryptionUnavailable) {
 		writeError(w, http.StatusInternalServerError, "encryption key unavailable")
 		return
 	}
-	if strings.Contains(err.Error(), "blind index key unavailable") {
+	if errors.Is(err, keymanagement.ErrBlindIndexUnavailable) {
 		writeError(w, http.StatusInternalServerError, "blind index key unavailable")
 		return
 	}
-	if strings.Contains(err.Error(), "failed to encrypt key") {
+	if errors.Is(err, keymanagement.ErrCredentialEncryption) {
 		writeError(w, http.StatusInternalServerError, "failed to encrypt key")
 		return
 	}
@@ -198,7 +193,7 @@ func mapLegacyCreateError(w http.ResponseWriter, err error) {
 }
 
 func mapLegacyUpdateError(w http.ResponseWriter, err error) {
-	if errors.Is(err, profilepersistence.ErrProfileNotFound) || errors.Is(err, keymanagement.ErrKeyNotFound) {
+	if errors.Is(err, keymanagement.ErrKeyNotFound) {
 		writeError(w, http.StatusNotFound, "key not found")
 		return
 	}
@@ -234,23 +229,19 @@ func mapLegacyUpdateError(w http.ResponseWriter, err error) {
 		writeError(w, http.StatusBadRequest, msg)
 		return
 	}
-	if strings.Contains(err.Error(), "failed to save key category") {
+	if errors.Is(err, keymanagement.ErrCategoryPersistence) {
 		writeError(w, http.StatusInternalServerError, "failed to save key category")
 		return
 	}
-	if strings.Contains(err.Error(), "failed to resolve key category") {
-		writeError(w, http.StatusInternalServerError, "failed to resolve key category")
-		return
-	}
-	if strings.Contains(err.Error(), "failed to prepare key order") {
+	if errors.Is(err, keymanagement.ErrKeyOrderPersistence) {
 		writeError(w, http.StatusInternalServerError, "failed to prepare key order")
 		return
 	}
-	if strings.Contains(err.Error(), "encryption key unavailable") {
+	if errors.Is(err, keymanagement.ErrEncryptionUnavailable) {
 		writeError(w, http.StatusInternalServerError, "encryption key unavailable")
 		return
 	}
-	if strings.Contains(err.Error(), "blind index key unavailable") {
+	if errors.Is(err, keymanagement.ErrBlindIndexUnavailable) {
 		writeError(w, http.StatusInternalServerError, "blind index key unavailable")
 		return
 	}

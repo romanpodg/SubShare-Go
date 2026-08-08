@@ -134,7 +134,7 @@ func mapServiceError(w http.ResponseWriter, r *http.Request, err error, defaultC
 		writeV1Error(w, r, http.StatusBadRequest, "invalid_profile_uri", msg)
 		return
 	}
-	if strings.Contains(err.Error(), "create_failed") {
+	if errors.Is(err, keymanagement.ErrProfileCreateConflict) {
 		writeV1Error(w, r, http.StatusConflict, "create_failed", "failed to create key (maybe duplicate)")
 		return
 	}

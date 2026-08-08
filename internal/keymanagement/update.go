@@ -178,7 +178,7 @@ func ApplyStructuredPatchToURI(protocol, currentURI, label string, patch *model.
 }
 
 func (s *Service) UpdateLocal(ctx context.Context, params UpdateLocalParams) (*model.KeyProfileDetailResponse, error) {
-	key, decryptedURI, fetchErr := s.repo.GetByID(ctx, params.ID)
+	key, decryptedURI, fetchErr := s.profileRepo.GetByID(ctx, params.ID)
 	if fetchErr != nil {
 		return nil, fetchErr
 	}
@@ -248,7 +248,7 @@ func (s *Service) UpdateLocal(ctx context.Context, params UpdateLocalParams) (*m
 		storedProtocol = string(parsed.Protocol)
 	}
 
-	updatedKey, updatedURI, err := s.repo.UpdateLocal(ctx, profilepersistence.UpdateProfileParams{
+	updatedKey, updatedURI, err := s.profileRepo.UpdateLocal(ctx, profilepersistence.UpdateProfileParams{
 		ID:               params.ID,
 		ExpectedRevision: params.ProfileRevision,
 		Label:            label,

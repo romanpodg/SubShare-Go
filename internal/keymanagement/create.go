@@ -227,7 +227,7 @@ func (s *Service) CreateLocal(ctx context.Context, params CreateLocalParams) (*m
 		storedProtocol = string(parsedProfile.Protocol)
 	}
 
-	createdKey, decryptedURI, err := s.repo.CreateLocal(ctx, profilepersistence.CreateProfileParams{
+	createdKey, decryptedURI, err := s.profileRepo.CreateLocal(ctx, profilepersistence.CreateProfileParams{
 		Label:        label,
 		Status:       status,
 		Kind:         kind,

@@ -8,7 +8,7 @@ import (
 
 func TestService_LegacyValidation(t *testing.T) {
 	fakeRepo := newFakeRepo()
-	svc := NewService(fakeRepo, nil)
+	svc := newFakeService(fakeRepo)
 	ctx := context.Background()
 
 	// 1. Create with invalid kind

@@ -29,22 +29,3 @@ type CloneProfileParams struct {
 	ExpectedRevision int64
 	NewLabel         string
 }
-
-type CreateLegacyKeyParams struct {
-	Label        string
-	Status       string
-	Kind         string
-	Category     string
-	TemplateText string
-	KeyURL       string
-}
-
-type UpdateLegacyKeyParams struct {
-	ID           int64
-	Label        string
-	Status       string
-	Kind         string
-	Category     string
-	TemplateText string
-	BuiltURL     string
-}

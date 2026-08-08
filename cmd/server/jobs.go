@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"database/sql"
 	"encoding/json"
 	"errors"
@@ -12,8 +13,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/romanpodg/SubShare-Go/internal/model"
-	"github.com/romanpodg/SubShare-Go/internal/security/profilestorage"
+	"github.com/romanpodg/SubShare-Go/internal/keymanagement"
 )
 
 type backgroundJob struct {
@@ -264,61 +264,26 @@ func (a *App) apiV1QueueSourceSync(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *App) apiV1QueueKeyHealthCheck(w http.ResponseWriter, r *http.Request) {
+	a.keyAdministrationHTTPHandler().QueueHealthCheck(w, r)
+}
+
+func (a *App) queueKeyHealthCheck(r *http.Request) int64 {
 	session, _, _ := a.adminSessionFromRequest(r)
 	jobID := a.queueTrackedJob("keys_health_check", "key", "all")
 	if jobID == 0 {
-		writeV1Error(w, r, http.StatusInternalServerError, "job_queue_failed", "failed to queue key health check")
-		return
+		return 0
 	}
 	go a.runQueuedKeyHealthCheck(jobID, session.AdminID, requestIDFromRequest(r))
-	writeJSON(w, http.StatusAccepted, map[string]any{"job_id": jobID, "status": "queued"})
+	return jobID
 }
 
 func (a *App) runQueuedKeyHealthCheck(jobID, actorAdminID int64, requestID string) {
 	a.markTrackedJobRunning(jobID)
-	rows, err := a.db.Query(`
-		SELECT k.id, s.encrypted_url, k.key_kind
-		FROM vless_keys k
-		LEFT JOIN vless_key_secrets s ON k.id = s.vless_key_id
-		ORDER BY CASE WHEN k.key_kind = 'real' THEN 0 ELSE 1 END, k.sort_order, k.id
-	`)
+	targets, err := a.keyService().ListHealthCheckTargets(context.Background())
 	if err != nil {
 		a.finishTrackedJob(jobID, err)
 		return
 	}
-	type keyTarget struct {
-		id   int64
-		url  string
-		kind string
-	}
-	targets := []keyTarget{}
-	for rows.Next() {
-		var id int64
-		var encURL sql.NullString
-		var kind string
-		if scanErr := rows.Scan(&id, &encURL, &kind); scanErr != nil {
-			_ = rows.Close()
-			a.finishTrackedJob(jobID, scanErr)
-			return
-		}
-		if normalized, _ := model.NormalizeKeyKind(kind); normalized == model.KeyKindInformational {
-			continue
-		}
-		if !encURL.Valid || encURL.String == "" {
-			continue
-		}
-		sec, err := profilestorage.Decrypt(encURL.String, a.profileKeyring, id)
-		if err != nil {
-			continue
-		}
-		targets = append(targets, keyTarget{id: id, url: sec.Reveal(), kind: kind})
-	}
-	if err = rows.Err(); err != nil {
-		_ = rows.Close()
-		a.finishTrackedJob(jobID, err)
-		return
-	}
-	_ = rows.Close()
 
 	var waitGroup sync.WaitGroup
 	semaphore := make(chan struct{}, 10)
@@ -327,11 +292,11 @@ func (a *App) runQueuedKeyHealthCheck(jobID, actorAdminID int64, requestID strin
 	for _, target := range targets {
 		waitGroup.Add(1)
 		semaphore <- struct{}{}
-		go func(item keyTarget) {
+		go func(item keymanagement.HealthCheckTarget) {
 			defer waitGroup.Done()
 			defer func() { <-semaphore }()
-			if checkErr := a.checkAndPersistKey(item.id, item.url); checkErr != nil {
-				log.Printf("background key check: key_id=%d err=%v", item.id, checkErr)
+			if checkErr := a.checkAndPersistKey(item.ID, item.URL); checkErr != nil {
+				log.Printf("background key check: key_id=%d err=%v", item.ID, checkErr)
 				errorLock.Lock()
 				errorCount++
 				errorLock.Unlock()

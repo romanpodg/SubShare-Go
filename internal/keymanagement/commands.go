@@ -71,3 +71,28 @@ type UpdateLegacyParams struct {
 	Query        string
 	Fragment     string
 }
+
+type CreateCategoryParams struct {
+	Name  string
+	Color string
+}
+
+type UpdateCategoryParams struct {
+	OldName string
+	NewName string
+	Color   string
+}
+
+type RenameCategoryParams struct {
+	OldName string
+	NewName string
+}
+
+type DeleteCategoryParams struct {
+	Name string
+	Mode string
+}
+
+type ReorderCategoriesParams struct {
+	Names []string
+}

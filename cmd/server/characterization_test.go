@@ -71,6 +71,16 @@ func TestCharacterization_RepresentativeStatusCodes(t *testing.T) {
 		}
 	})
 
+	t.Run("401 Unauthorized reveal", func(t *testing.T) {
+		req := httptest.NewRequest(http.MethodPost, "/api/v1/keys/1/reveal", bytes.NewReader([]byte(`{"target":"raw","profile_revision":1}`)))
+		req.SetPathValue("id", "1")
+		rec := httptest.NewRecorder()
+		app.requireAdmin(http.HandlerFunc(app.apiV1RevealKey)).ServeHTTP(rec, req)
+		if rec.Code != http.StatusUnauthorized {
+			t.Fatalf("status = %d, want 401", rec.Code)
+		}
+	})
+
 	t.Run("400 Bad Request", func(t *testing.T) {
 		req := httptest.NewRequest(http.MethodPost, "/api/v1/keys", bytes.NewReader([]byte("{invalid-json")))
 		req.Header.Set("Content-Type", "application/json")

@@ -75,7 +75,9 @@ func setupTestDB(t *testing.T) *sql.DB {
 		);
 		CREATE TABLE external_subscription_sources (
 			id INTEGER PRIMARY KEY AUTOINCREMENT,
-			name TEXT NOT NULL
+			name TEXT NOT NULL,
+			key_category_id INTEGER,
+			key_category TEXT
 		);
 		CREATE TABLE vless_keys (
 			id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -417,6 +419,9 @@ func TestProfileRepository_ErrorClassifications(t *testing.T) {
 	if _, err := db.Exec(`DELETE FROM vless_key_secrets WHERE vless_key_id = ?`, createdKey.ID); err != nil {
 		t.Fatalf("delete secret row: %v", err)
 	}
+	if _, _, err = repo.GetByID(ctx, createdKey.ID); !errors.Is(err, profilepersistence.ErrStorageIntegrity) {
+		t.Fatalf("expected ErrStorageIntegrity on GetByID missing secret, got %v", err)
+	}
 	_, _, err = repo.CloneLocal(ctx, profilepersistence.CloneProfileParams{
 		ID:               createdKey.ID,
 		ExpectedRevision: 1,
@@ -429,6 +434,9 @@ func TestProfileRepository_ErrorClassifications(t *testing.T) {
 	// 7. Corrupt ciphertext during clone -> ErrStorageIntegrity
 	if _, err := db.Exec(`INSERT INTO vless_key_secrets(vless_key_id, encrypted_url) VALUES(?, 'v1:key-1:corrupt_junk')`, createdKey.ID); err != nil {
 		t.Fatalf("insert corrupt secret: %v", err)
+	}
+	if _, _, err = repo.GetByID(ctx, createdKey.ID); !errors.Is(err, profilepersistence.ErrStorageIntegrity) {
+		t.Fatalf("expected ErrStorageIntegrity on GetByID corrupt ciphertext, got %v", err)
 	}
 	_, _, err = repo.CloneLocal(ctx, profilepersistence.CloneProfileParams{
 		ID:               createdKey.ID,

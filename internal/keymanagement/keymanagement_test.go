@@ -4,13 +4,20 @@ import (
 	"context"
 	"testing"
 
+	"github.com/romanpodg/SubShare-Go/internal/keypersistence"
 	"github.com/romanpodg/SubShare-Go/internal/model"
 	"github.com/romanpodg/SubShare-Go/internal/profilepersistence"
 )
 
 type fakeRepo struct {
-	keys map[int64]*model.VLESSKey
-	uris map[int64]string
+	keys            map[int64]*model.VLESSKey
+	uris            map[int64]string
+	profileGetErr   error
+	profileCloneErr error
+	legacyGetErr    error
+	ensureErr       error
+	bulkUpdateErr   error
+	bulkDeleteErr   error
 }
 
 func newFakeRepo() *fakeRepo {
@@ -20,7 +27,21 @@ func newFakeRepo() *fakeRepo {
 	}
 }
 
+type fakeProfileRepository struct{ ProfileRepository }
+type fakeKeyRepository struct{ KeyRepository }
+
+func newFakeService(repo *fakeRepo) *Service {
+	return NewService(
+		fakeProfileRepository{ProfileRepository: repo},
+		fakeKeyRepository{KeyRepository: repo},
+		nil,
+	)
+}
+
 func (f *fakeRepo) GetByID(ctx context.Context, id int64) (*model.VLESSKey, string, error) {
+	if f.profileGetErr != nil {
+		return nil, "", f.profileGetErr
+	}
 	key, ok := f.keys[id]
 	if !ok {
 		return nil, "", profilepersistence.ErrProfileNotFound
@@ -66,6 +87,9 @@ func (f *fakeRepo) UpdateLocal(ctx context.Context, params profilepersistence.Up
 }
 
 func (f *fakeRepo) CloneLocal(ctx context.Context, params profilepersistence.CloneProfileParams) (*model.VLESSKey, string, error) {
+	if f.profileCloneErr != nil {
+		return nil, "", f.profileCloneErr
+	}
 	source, ok := f.keys[params.ID]
 	if !ok {
 		return nil, "", profilepersistence.ErrProfileNotFound
@@ -100,7 +124,14 @@ func (f *fakeRepo) ListLegacy(ctx context.Context) ([]model.VLESSKey, error) {
 	return out, nil
 }
 
-func (f *fakeRepo) CreateLegacy(ctx context.Context, params profilepersistence.CreateLegacyKeyParams) (int64, error) {
+func (f *fakeRepo) GetLegacyByID(ctx context.Context, id int64) (*model.VLESSKey, string, error) {
+	if f.legacyGetErr != nil {
+		return nil, "", f.legacyGetErr
+	}
+	return f.GetByID(ctx, id)
+}
+
+func (f *fakeRepo) CreateLegacy(ctx context.Context, params keypersistence.CreateLegacyKeyParams) (int64, error) {
 	id := int64(len(f.keys) + 1)
 	key := &model.VLESSKey{
 		ID:       id,
@@ -115,7 +146,7 @@ func (f *fakeRepo) CreateLegacy(ctx context.Context, params profilepersistence.C
 	return id, nil
 }
 
-func (f *fakeRepo) UpdateLegacy(ctx context.Context, params profilepersistence.UpdateLegacyKeyParams) error {
+func (f *fakeRepo) UpdateLegacy(ctx context.Context, params keypersistence.UpdateLegacyKeyParams) error {
 	key, ok := f.keys[params.ID]
 	if !ok {
 		return profilepersistence.ErrProfileNotFound
@@ -138,10 +169,73 @@ func (f *fakeRepo) DeleteLegacy(ctx context.Context, id int64) error {
 	return nil
 }
 
+func (f *fakeRepo) ListKeyCategories(ctx context.Context) ([]model.KeyCategory, error) {
+	return []model.KeyCategory{}, nil
+}
+
+func (f *fakeRepo) CreateKeyCategory(ctx context.Context, params keypersistence.CreateCategoryParams) (model.KeyCategory, error) {
+	return model.KeyCategory{ID: 1, Name: params.Name, Color: params.Color}, nil
+}
+
+func (f *fakeRepo) UpdateKeyCategory(ctx context.Context, params keypersistence.UpdateCategoryParams) (model.KeyCategory, error) {
+	if params.OldName == "notfound" {
+		return model.KeyCategory{}, profilepersistence.ErrProfileNotFound
+	}
+	return model.KeyCategory{ID: 1, Name: params.NewName, Color: params.Color}, nil
+}
+
+func (f *fakeRepo) DeleteKeyCategory(ctx context.Context, params keypersistence.DeleteCategoryParams) error {
+	return nil
+}
+
+func (f *fakeRepo) ReorderKeyCategories(ctx context.Context, names []string) error {
+	return nil
+}
+
+func (f *fakeRepo) ReorderKeys(ctx context.Context, ids []int64) error {
+	return nil
+}
+
+func (f *fakeRepo) GetCategoryColor(ctx context.Context, name string) (string, error) {
+	return "#D8B33D", nil
+}
+
+func (f *fakeRepo) EnsureKeyCategory(ctx context.Context, name string) (int64, error) {
+	return 1, f.ensureErr
+}
+
+func (f *fakeRepo) BulkUpdateKeys(ctx context.Context, params keypersistence.BulkUpdateKeysParams) error {
+	return f.bulkUpdateErr
+}
+
+func (f *fakeRepo) BulkDeleteKeys(ctx context.Context, ids []int64) error {
+	return f.bulkDeleteErr
+}
+
+func (f *fakeRepo) GetHealthCheckTarget(ctx context.Context, id int64) (keypersistence.HealthCheckTarget, error) {
+	return keypersistence.HealthCheckTarget{ID: id, URL: f.uris[id]}, nil
+}
+
+func (f *fakeRepo) ListHealthCheckTargets(ctx context.Context) ([]keypersistence.HealthCheckTarget, error) {
+	return []keypersistence.HealthCheckTarget{}, nil
+}
+
+func (f *fakeRepo) SaveHealthCheckResult(ctx context.Context, params keypersistence.SaveHealthCheckResultParams) error {
+	return nil
+}
+
+func (f *fakeRepo) GetHealthCheckResult(ctx context.Context, id int64) (keypersistence.HealthCheckResult, error) {
+	return keypersistence.HealthCheckResult{ID: id}, nil
+}
+
+func (f *fakeRepo) ListHealthCheckResults(ctx context.Context) ([]keypersistence.HealthCheckResult, error) {
+	return []keypersistence.HealthCheckResult{}, nil
+}
+
 func TestKeyManagementService_Create_Reveal_Update_Clone(t *testing.T) {
 	ctx := context.Background()
 	repo := newFakeRepo()
-	svc := NewService(repo, nil)
+	svc := newFakeService(repo)
 
 	// Create Local SS Key
 	ssURI := "ss://2022-blake3-aes-128-gcm:MTIzNDU2Nzg5MDEyMzQ1Ng==@ss.example.com:8443#TestSS"
@@ -236,7 +330,8 @@ func TestKeyManagementService_Create_Reveal_Update_Clone(t *testing.T) {
 }
 
 func TestKeyManagementService_EditorSchema(t *testing.T) {
-	svc := NewService(newFakeRepo(), nil)
+	fake := newFakeRepo()
+	svc := newFakeService(fake)
 	schema := svc.EditorSchema()
 	if len(schema.Protocols) != 3 {
 		t.Fatalf("protocols count = %d, want 3", len(schema.Protocols))

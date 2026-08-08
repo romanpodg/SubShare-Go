@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"database/sql"
 	"encoding/json"
 	"fmt"
@@ -182,23 +183,7 @@ func containsLegacySubscriptionBodyMarkers(body string) bool {
 
 func (a *App) checkAndPersistKey(keyID int64, rawURL string) error {
 	status, checkErr, latency := checkConfigurationAvailability(rawURL)
-	_, err := a.db.Exec(
-		`UPDATE vless_keys
-		 SET check_status = ?, check_error = ?, last_latency_ms = ?, last_checked_at = CURRENT_TIMESTAMP,
-		     health_failure_count = CASE
-		       WHEN ? = 'up' THEN 0
-		       WHEN ? = 'down' THEN COALESCE(health_failure_count, 0) + 1
-		       ELSE COALESCE(health_failure_count, 0)
-		     END
-		 WHERE id = ?`,
-		status,
-		nullStringValue(checkErr),
-		nullInt64Value(latency),
-		status,
-		status,
-		keyID,
-	)
-	return err
+	return a.keyService().SaveHealthCheckResult(context.Background(), keyID, status, checkErr, latency)
 }
 
 func (a *App) resolveBaseURL(r *http.Request) string {

@@ -19,6 +19,19 @@ func (a *App) keyProfileHTTPHandler() *httpapi.KeyProfileHandler {
 	return httpapi.NewKeyProfileHandler(a.keyService(), a.recordAuditEvent)
 }
 
+func (a *App) keyAdministrationHTTPHandler() *httpapi.KeyAdministrationHandler {
+	return httpapi.NewKeyAdministrationHandler(a.keyService(), a.recordAuditEvent, httpapi.KeyAdministrationRuntime{
+		CheckKey:       a.checkAndPersistKey,
+		StartJob:       a.startTrackedJob,
+		FinishJob:      a.finishTrackedJob,
+		QueueHealthJob: a.queueKeyHealthCheck,
+	})
+}
+
+func (a *App) keyQueryHTTPHandler() *httpapi.KeyQueryHandler {
+	return httpapi.NewKeyQueryHandler(a.keyService())
+}
+
 func (a *App) apiV1GetKey(w http.ResponseWriter, r *http.Request) {
 	a.keyProfileHTTPHandler().GetKey(w, r)
 }
@@ -97,8 +110,7 @@ func (a *App) buildKeyProfileDetailResponse(key model.VLESSKey, decryptedURI str
 }
 
 func (a *App) fetchKeyByID(id int64) (*model.VLESSKey, string, error) {
-	repo := storage.NewProfileRepository(a.db, a.profileKeyring)
-	key, decURI, err := repo.GetByID(context.Background(), id)
+	key, decURI, err := a.keyService().GetRawByID(context.Background(), id)
 	if errors.Is(err, profilepersistence.ErrProfileNotFound) || errors.Is(err, keymanagement.ErrKeyNotFound) {
 		return nil, "", sql.ErrNoRows
 	}
@@ -106,8 +118,9 @@ func (a *App) fetchKeyByID(id int64) (*model.VLESSKey, string, error) {
 }
 
 func (a *App) keyService() *keymanagement.Service {
-	repo := storage.NewProfileRepository(a.db, a.profileKeyring)
-	return keymanagement.NewService(repo, a.buildCapabilitiesMap)
+	profileRepo := storage.NewProfileRepository(a.db, a.profileKeyring)
+	keyRepo := storage.NewKeyRepository(a.db, a.profileKeyring)
+	return keymanagement.NewService(profileRepo, keyRepo, a.buildCapabilitiesMap)
 }
 
 func (a *App) buildURIFromStructuredCreate(proto, label string, patch *model.StructuredProfilePatch) (string, error) {

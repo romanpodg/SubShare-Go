@@ -15,8 +15,9 @@ func TestLegacyKeyHandler_FullSuite(t *testing.T) {
 	db := setupTestDB(t)
 	defer db.Close()
 	kr := newTestKeyringForHTTPAPI(t)
-	repo := storage.NewProfileRepository(db, kr)
-	svc := keymanagement.NewService(repo, nil)
+	profileRepo := storage.NewProfileRepository(db, kr)
+	keyRepo := storage.NewKeyRepository(db, kr)
+	svc := keymanagement.NewService(profileRepo, keyRepo, nil)
 
 	var auditLog []auditRecord
 	recordAudit := func(r *http.Request, eventName, entityType, entityID string, metadata map[string]any) {
@@ -106,8 +107,9 @@ func TestLegacyKeyHandler_SecurityAndListProjection(t *testing.T) {
 	db := setupTestDB(t)
 	defer db.Close()
 	kr := newTestKeyringForHTTPAPI(t)
-	repo := storage.NewProfileRepository(db, kr)
-	svc := keymanagement.NewService(repo, nil)
+	profileRepo := storage.NewProfileRepository(db, kr)
+	keyRepo := storage.NewKeyRepository(db, kr)
+	svc := keymanagement.NewService(profileRepo, keyRepo, nil)
 
 	handler := NewLegacyKeyHandler(svc, nil)
 	vlessURI := "vless://11111111-1111-1111-1111-111111111111@example.com:443?type=tcp#SecKey"

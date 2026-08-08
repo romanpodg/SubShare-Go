@@ -5,9 +5,9 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/romanpodg/SubShare-Go/internal/keypersistence"
 	"github.com/romanpodg/SubShare-Go/internal/model"
 	"github.com/romanpodg/SubShare-Go/internal/profileconfig"
-	"github.com/romanpodg/SubShare-Go/internal/profilepersistence"
 	"github.com/romanpodg/SubShare-Go/internal/vless"
 )
 
@@ -20,7 +20,8 @@ func NormalizeKeyCategory(raw string) string {
 }
 
 func (s *Service) ListLegacy(ctx context.Context) ([]model.VLESSKey, error) {
-	return s.repo.ListLegacy(ctx)
+	keys, err := s.keyRepo.ListLegacy(ctx)
+	return keys, mapKeyPersistenceError(err)
 }
 
 func (s *Service) CreateLegacy(ctx context.Context, params CreateLegacyParams) (int64, string, error) {
@@ -67,7 +68,7 @@ func (s *Service) CreateLegacy(ctx context.Context, params CreateLegacyParams) (
 		return 0, "", ErrTemplateTextTooLong
 	}
 
-	keyID, err := s.repo.CreateLegacy(ctx, profilepersistence.CreateLegacyKeyParams{
+	keyID, err := s.keyRepo.CreateLegacy(ctx, keypersistence.CreateLegacyKeyParams{
 		Label:        label,
 		Status:       status,
 		Kind:         kind,
@@ -76,7 +77,7 @@ func (s *Service) CreateLegacy(ctx context.Context, params CreateLegacyParams) (
 		KeyURL:       keyURL,
 	})
 	if err != nil {
-		return 0, "", err
+		return 0, "", mapKeyPersistenceError(err)
 	}
 	return keyID, label, nil
 }
@@ -101,9 +102,9 @@ func (s *Service) UpdateLegacy(ctx context.Context, id int64, params UpdateLegac
 		return "", ErrLabelTooLong
 	}
 
-	_, existingURL, err := s.repo.GetByID(ctx, id)
+	_, existingURL, err := s.keyRepo.GetLegacyByID(ctx, id)
 	if err != nil {
-		return "", err
+		return "", mapKeyPersistenceError(err)
 	}
 
 	builtURL := ""
@@ -143,7 +144,7 @@ func (s *Service) UpdateLegacy(ctx context.Context, id int64, params UpdateLegac
 		return "", ErrTemplateTextTooLong
 	}
 
-	if err := s.repo.UpdateLegacy(ctx, profilepersistence.UpdateLegacyKeyParams{
+	if err := s.keyRepo.UpdateLegacy(ctx, keypersistence.UpdateLegacyKeyParams{
 		ID:           id,
 		Label:        label,
 		Status:       status,
@@ -152,12 +153,12 @@ func (s *Service) UpdateLegacy(ctx context.Context, id int64, params UpdateLegac
 		TemplateText: templateText,
 		BuiltURL:     builtURL,
 	}); err != nil {
-		return "", err
+		return "", mapKeyPersistenceError(err)
 	}
 
 	return label, nil
 }
 
 func (s *Service) DeleteLegacy(ctx context.Context, id int64) error {
-	return s.repo.DeleteLegacy(ctx, id)
+	return mapKeyPersistenceError(s.keyRepo.DeleteLegacy(ctx, id))
 }

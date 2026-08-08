@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/romanpodg/SubShare-Go/internal/keymanagement"
@@ -43,7 +44,9 @@ func setupTestDB(t *testing.T) *sql.DB {
 		);
 		CREATE TABLE external_subscription_sources (
 			id INTEGER PRIMARY KEY AUTOINCREMENT,
-			name TEXT NOT NULL
+			name TEXT NOT NULL,
+			key_category_id INTEGER,
+			key_category TEXT
 		);
 		CREATE TABLE vless_keys (
 			id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -56,6 +59,7 @@ func setupTestDB(t *testing.T) *sql.DB {
 			check_error TEXT,
 			last_checked_at DATETIME,
 			last_latency_ms INTEGER,
+			health_failure_count INTEGER NOT NULL DEFAULT 0,
 			key_kind TEXT NOT NULL DEFAULT 'real',
 			template_text TEXT,
 			sort_order INTEGER NOT NULL DEFAULT 0,
@@ -100,8 +104,9 @@ func TestKeyProfileHandler_FullSuite(t *testing.T) {
 	db := setupTestDB(t)
 	defer db.Close()
 	kr := newTestKeyringForHTTPAPI(t)
-	repo := storage.NewProfileRepository(db, kr)
-	svc := keymanagement.NewService(repo, nil)
+	profileRepo := storage.NewProfileRepository(db, kr)
+	keyRepo := storage.NewKeyRepository(db, kr)
+	svc := keymanagement.NewService(profileRepo, keyRepo, nil)
 
 	var auditLog []auditRecord
 	recordAudit := func(r *http.Request, eventName, entityType, entityID string, metadata map[string]any) {
@@ -264,6 +269,47 @@ func TestKeyProfileHandler_FullSuite(t *testing.T) {
 	handler.CloneKey(recCloneIntegrity, reqCloneIntegrity)
 	if recCloneIntegrity.Code != http.StatusInternalServerError {
 		t.Fatalf("expected 500 on storage integrity failure, got %d", recCloneIntegrity.Code)
+	}
+	if strings.Contains(recCloneIntegrity.Body.String(), ssURI) {
+		t.Fatal("clone integrity response leaked decrypted credential material")
+	}
+
+	reqGetIntegrity := httptest.NewRequest("GET", "/api/v1/keys/1", nil)
+	reqGetIntegrity.SetPathValue("id", "1")
+	recGetIntegrity := httptest.NewRecorder()
+	handler.GetKey(recGetIntegrity, reqGetIntegrity)
+	if recGetIntegrity.Code != http.StatusInternalServerError || !strings.Contains(recGetIntegrity.Body.String(), `"code":"storage_integrity_error"`) {
+		t.Fatalf("detail integrity mapping changed: status=%d body=%s", recGetIntegrity.Code, recGetIntegrity.Body.String())
+	}
+	if strings.Contains(recGetIntegrity.Body.String(), ssURI) {
+		t.Fatal("detail integrity response leaked decrypted credential material")
+	}
+
+	auditCountBefore = len(auditLog)
+	bodyRevealIntegrity := bytes.NewBufferString(`{"target":"raw","profile_revision":2}`)
+	reqRevealIntegrity := httptest.NewRequest("POST", "/api/v1/keys/1/reveal", bodyRevealIntegrity)
+	reqRevealIntegrity.SetPathValue("id", "1")
+	recRevealIntegrity := httptest.NewRecorder()
+	handler.RevealKey(recRevealIntegrity, reqRevealIntegrity)
+	if recRevealIntegrity.Code != http.StatusInternalServerError {
+		t.Fatalf("reveal integrity mapping changed: status=%d body=%s", recRevealIntegrity.Code, recRevealIntegrity.Body.String())
+	}
+	if len(auditLog) != auditCountBefore || strings.Contains(recRevealIntegrity.Body.String(), ssURI) {
+		t.Fatalf("rejected reveal was audited or leaked secret: audit=%#v body=%s", auditLog, recRevealIntegrity.Body.String())
+	}
+
+	if _, err := db.Exec(`CREATE TRIGGER reject_profile_create BEFORE INSERT ON vless_keys BEGIN SELECT RAISE(ABORT, 'forced profile create failure'); END`); err != nil {
+		t.Fatalf("create profile failure trigger: %v", err)
+	}
+	bodyCreateConflict := bytes.NewBufferString(`{"label":"Conflict","status":"active","kind":"real","creation_mode":"raw","raw_uri":"` + ssURI + `"}`)
+	reqCreateConflict := httptest.NewRequest("POST", "/api/v1/keys", bodyCreateConflict)
+	recCreateConflict := httptest.NewRecorder()
+	handler.CreateKeyProfile(recCreateConflict, reqCreateConflict)
+	if recCreateConflict.Code != http.StatusConflict || !strings.Contains(recCreateConflict.Body.String(), `"code":"create_failed"`) {
+		t.Fatalf("typed create failure mapping changed: status=%d body=%s", recCreateConflict.Code, recCreateConflict.Body.String())
+	}
+	if len(auditLog) != auditCountBefore || strings.Contains(recCreateConflict.Body.String(), ssURI) {
+		t.Fatalf("failed create was audited or leaked secret: audit=%#v body=%s", auditLog, recCreateConflict.Body.String())
 	}
 
 	// 13. Get Editor Schema -> 200

@@ -1,8 +1,8 @@
 package main
 
 import (
+	"context"
 	"database/sql"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
@@ -11,16 +11,10 @@ import (
 	"time"
 
 	"github.com/romanpodg/SubShare-Go/internal/model"
-	"github.com/romanpodg/SubShare-Go/internal/profileconfig"
 	"github.com/romanpodg/SubShare-Go/internal/security/profilestorage"
-	"github.com/romanpodg/SubShare-Go/internal/vless"
 )
 
 var validSQLIdentifier = regexp.MustCompile(`^[a-zA-Z_][a-zA-Z0-9_]*$`)
-
-func clientDisplayNameFromKeyURL(rawURL, fallback string) string {
-	return profileconfig.ClientDisplayNameFromKeyURL(rawURL, fallback)
-}
 
 func migrate(db *sql.DB) error {
 	return migrateWithKeyring(db, nil)
@@ -760,100 +754,7 @@ func (a *App) listUsers() ([]model.User, error) {
 }
 
 func (a *App) listKeys() ([]model.VLESSKey, error) {
-	rows, err := a.db.Query(`
-		SELECT k.id, k.label, s.encrypted_url, k.category_id, COALESCE(kc.name, k.category), k.key_kind, k.template_text, k.status, k.check_status, k.check_error, k.last_checked_at, k.last_latency_ms, k.created_at, k.external_source_id, COALESCE(es.name, ''), k.protocol, k.profile_schema_version, k.profile_compatibility, k.profile_warnings_json, COALESCE(k.profile_revision, 1), COALESCE(k.updated_at, k.created_at)
-		FROM vless_keys k
-		LEFT JOIN vless_key_secrets s ON k.id = s.vless_key_id
-		LEFT JOIN key_categories kc ON kc.id = k.category_id
-		LEFT JOIN external_subscription_sources es ON es.id = k.external_source_id
-		ORDER BY k.sort_order, k.id
-	`)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-
-	var out []model.VLESSKey
-	for rows.Next() {
-		var key model.VLESSKey
-		var encURL sql.NullString
-		var category sql.NullString
-		var kind sql.NullString
-		var templateText sql.NullString
-		var status sql.NullString
-		var checkStatus sql.NullString
-		var checkError sql.NullString
-		var lastCheckedAt sql.NullTime
-		var latency sql.NullInt64
-		var categoryID sql.NullInt64
-		var externalSourceID sql.NullInt64
-		var externalSourceName sql.NullString
-		var warningsJSON string
-		var updatedAt sql.NullString
-		if err := rows.Scan(&key.ID, &key.Label, &encURL, &categoryID, &category, &kind, &templateText, &status, &checkStatus, &checkError, &lastCheckedAt, &latency, &key.CreatedAt, &externalSourceID, &externalSourceName, &key.Protocol, &key.ProfileSchemaVersion, &key.ProfileCompatibility, &warningsJSON, &key.ProfileRevision, &updatedAt); err != nil {
-			return nil, err
-		}
-		if updatedAt.Valid && updatedAt.String != "" {
-			if t, err := time.Parse("2006-01-02 15:04:05", updatedAt.String); err == nil {
-				key.UpdatedAt = t
-			} else if t, err := time.Parse(time.RFC3339, updatedAt.String); err == nil {
-				key.UpdatedAt = t
-			} else {
-				key.UpdatedAt = key.CreatedAt
-			}
-		} else {
-			key.UpdatedAt = key.CreatedAt
-		}
-		if encURL.Valid && encURL.String != "" {
-			if dec, err := profilestorage.Decrypt(encURL.String, a.profileKeyring, key.ID); err == nil {
-				key.URL = dec.Reveal()
-			}
-		}
-		if err := json.Unmarshal([]byte(warningsJSON), &key.ProfileWarnings); err != nil || key.ProfileWarnings == nil {
-			key.ProfileWarnings = []string{}
-		}
-		if categoryID.Valid {
-			key.CategoryID = categoryID.Int64
-		}
-		key.Category = strings.TrimSpace(category.String)
-		key.Kind, _ = model.NormalizeKeyKind(kind.String)
-		if key.Kind == "" {
-			key.Kind = model.KeyKindReal
-		}
-		key.TemplateText = strings.TrimSpace(templateText.String)
-		key.Status, _ = model.NormalizeKeyStatus(status.String)
-		if key.Status == "" {
-			key.Status = model.KeyStatusActive
-		}
-		key.StatusLabel = model.KeyStatusLabel(key.Status)
-		if key.Kind == model.KeyKindInformational {
-			key.URLShort = "Информационный ключ"
-			if key.TemplateText != "" {
-				key.URLShort = vless.TruncateMiddle(key.TemplateText, 88)
-			}
-		} else {
-			key.URLShort = vless.TruncateMiddle(key.URL, 88)
-		}
-		key.CheckStatus = model.NormalizeCheckStatus(checkStatus.String)
-		key.CheckStatusLabel = model.CheckStatusLabel(key.CheckStatus)
-		key.CheckError = strings.TrimSpace(checkError.String)
-		if key.Kind == model.KeyKindReal {
-			key.EditUUID, key.EditHost, key.EditPort, key.EditQuery, key.EditFragment, _ = vless.ParseVLESSParts(key.URL)
-		}
-		if latency.Valid {
-			key.LastLatencyMS = latency.Int64
-		}
-		if lastCheckedAt.Valid {
-			key.LastCheckedAtText = lastCheckedAt.Time.Local().Format("2006-01-02 15:04:05")
-		}
-		if externalSourceID.Valid && externalSourceID.Int64 > 0 {
-			key.ExternalSourceID = externalSourceID.Int64
-		}
-		key.ExternalSourceName = strings.TrimSpace(externalSourceName.String)
-		key.ClientDisplayName = clientDisplayNameFromKeyURL(key.URL, key.Label)
-		out = append(out, key)
-	}
-	return out, rows.Err()
+	return a.keyService().ListLegacy(context.Background())
 }
 
 func (a *App) getSubscriptionSettings() (model.SubscriptionSettings, error) {

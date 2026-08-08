@@ -6,9 +6,11 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"regexp"
 	"strings"
 	"time"
 
+	"github.com/romanpodg/SubShare-Go/internal/keypersistence"
 	"github.com/romanpodg/SubShare-Go/internal/model"
 	"github.com/romanpodg/SubShare-Go/internal/profileconfig"
 	"github.com/romanpodg/SubShare-Go/internal/profilepersistence"
@@ -17,14 +19,16 @@ import (
 )
 
 type ProfileRepository struct {
-	db      *sql.DB
-	keyring *profilestorage.Keyring
+	db          *sql.DB
+	credentials *credentialStore
+	categories  *categoryStore
 }
 
 func NewProfileRepository(db *sql.DB, keyring *profilestorage.Keyring) *ProfileRepository {
 	return &ProfileRepository{
-		db:      db,
-		keyring: keyring,
+		db:          db,
+		credentials: newCredentialStore(keyring),
+		categories:  newCategoryStore(db),
 	}
 }
 
@@ -43,6 +47,10 @@ func nullInt64Value(id int64) any {
 }
 
 func (r *ProfileRepository) GetByID(ctx context.Context, id int64) (*model.VLESSKey, string, error) {
+	return loadKeyByID(ctx, r.db, r.credentials, id)
+}
+
+func loadKeyByID(ctx context.Context, db *sql.DB, credentials *credentialStore, id int64) (*model.VLESSKey, string, error) {
 	var key model.VLESSKey
 	var encURL sql.NullString
 	var category sql.NullString
@@ -60,7 +68,7 @@ func (r *ProfileRepository) GetByID(ctx context.Context, id int64) (*model.VLESS
 	var revision sql.NullInt64
 	var updatedAt sql.NullString
 
-	err := r.db.QueryRowContext(ctx, `
+	err := db.QueryRowContext(ctx, `
 		SELECT k.id, k.label, s.encrypted_url, k.category_id, COALESCE(kc.name, k.category),
 		       k.key_kind, k.template_text, k.status, k.check_status, k.check_error,
 		       k.last_checked_at, k.last_latency_ms, k.created_at, k.external_source_id,
@@ -85,11 +93,12 @@ func (r *ProfileRepository) GetByID(ctx context.Context, id int64) (*model.VLESS
 		return nil, "", err
 	}
 
-	decryptedURI := ""
-	if encURL.Valid && encURL.String != "" && r.keyring != nil {
-		if dec, err := profilestorage.Decrypt(encURL.String, r.keyring, key.ID); err == nil {
-			decryptedURI = dec.Reveal()
+	decryptedURI, err := credentials.decrypt(encURL.String, key.ID)
+	if err != nil {
+		if credentialKeyUnavailable(err) {
+			return nil, "", fmt.Errorf("%w: %v", profilepersistence.ErrEncryptionUnavailable, err)
 		}
+		return nil, "", fmt.Errorf("%w: %w", profilepersistence.ErrStorageIntegrity, err)
 	}
 	if err := json.Unmarshal([]byte(warningsJSON), &key.ProfileWarnings); err != nil || key.ProfileWarnings == nil {
 		key.ProfileWarnings = []string{}
@@ -138,73 +147,14 @@ func (r *ProfileRepository) GetByID(ctx context.Context, id int64) (*model.VLESS
 	return &key, decryptedURI, nil
 }
 
-func (r *ProfileRepository) UpsertCategory(ctx context.Context, category string) (int64, error) {
-	category = strings.TrimSpace(category)
-	if category == "" {
-		return 0, nil
-	}
-	var nextSortOrder int64
-	if err := r.db.QueryRowContext(ctx, `SELECT COALESCE(MAX(sort_order), 0) + 1 FROM key_categories`).Scan(&nextSortOrder); err != nil {
-		return 0, fmt.Errorf("failed to query sort order for category: %w", err)
-	}
-	if _, err := r.db.ExecContext(ctx, `
-		INSERT INTO key_categories(name, color, sort_order, updated_at)
-		VALUES(?, '#4B5563', ?, CURRENT_TIMESTAMP)
-		ON CONFLICT(name) DO UPDATE SET updated_at = CURRENT_TIMESTAMP
-	`, category, nextSortOrder); err != nil {
-		return 0, fmt.Errorf("failed to upsert category: %w", err)
-	}
-	var id int64
-	if err := r.db.QueryRowContext(ctx, `SELECT id FROM key_categories WHERE name = ?`, category).Scan(&id); err != nil {
-		return 0, nil
-	}
-	return id, nil
-}
-
-func (r *ProfileRepository) upsertCategoryTx(ctx context.Context, tx *sql.Tx, category string) (any, error) {
-	category = strings.TrimSpace(category)
-	if category == "" {
-		return nil, nil
-	}
-	var nextSortOrder int64
-	if err := tx.QueryRowContext(ctx, `SELECT COALESCE(MAX(sort_order), 0) + 1 FROM key_categories`).Scan(&nextSortOrder); err != nil {
-		return nil, fmt.Errorf("failed to query sort order for category: %w", err)
-	}
-	if _, err := tx.ExecContext(ctx, `
-		INSERT INTO key_categories(name, color, sort_order, updated_at)
-		VALUES(?, '#4B5563', ?, CURRENT_TIMESTAMP)
-		ON CONFLICT(name) DO UPDATE SET updated_at = CURRENT_TIMESTAMP
-	`, category, nextSortOrder); err != nil {
-		return nil, fmt.Errorf("failed to upsert category: %w", err)
-	}
-	var id int64
-	if err := tx.QueryRowContext(ctx, `SELECT id FROM key_categories WHERE name = ?`, category).Scan(&id); err != nil {
-		return nil, nil
-	}
-	return id, nil
-}
-
-func (r *ProfileRepository) resolveCategoryIDTx(ctx context.Context, tx *sql.Tx, category string, reqID *int64) (any, error) {
-	if reqID != nil && *reqID > 0 {
-		return *reqID, nil
-	}
-	if category == "" {
-		return nil, nil
-	}
-	return r.upsertCategoryTx(ctx, tx, category)
-}
-
 func (r *ProfileRepository) CreateLocal(ctx context.Context, params profilepersistence.CreateProfileParams) (*model.VLESSKey, string, error) {
-	activeID, activeKey, err := r.keyring.GetActiveEncryptionKey()
-	if err != nil {
+	if err := r.credentials.encryptionAvailable(); err != nil {
 		return nil, "", fmt.Errorf("%w: %v", profilepersistence.ErrEncryptionUnavailable, err)
 	}
-	_, bikKey, err := r.keyring.GetActiveBlindIndexKey()
+	blindIndex, err := r.credentials.blindIndex(params.BuiltURI)
 	if err != nil {
 		return nil, "", fmt.Errorf("%w: %v", profilepersistence.ErrBlindIndexUnavailable, err)
 	}
-
-	blindIndex := profilestorage.ComputeBlindIndex(bikKey, params.BuiltURI)
 
 	tx, err := r.db.BeginTx(ctx, nil)
 	if err != nil {
@@ -212,7 +162,7 @@ func (r *ProfileRepository) CreateLocal(ctx context.Context, params profilepersi
 	}
 	defer tx.Rollback()
 
-	categoryIDVal, err := r.resolveCategoryIDTx(ctx, tx, params.Category, params.CategoryID)
+	categoryIDVal, err := r.categories.resolveTx(ctx, tx, params.Category, params.CategoryID, "#4B5563")
 	if err != nil {
 		return nil, "", err
 	}
@@ -231,7 +181,7 @@ func (r *ProfileRepository) CreateLocal(ctx context.Context, params profilepersi
 		) VALUES(?, ?, ?, ?, ?, 'unknown', ?, ?, ?, ?, 1, 'full', '[]', 1, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
 	`, params.Label, blindIndex, categoryIDVal, params.Category, params.Status, params.Kind, nullStringValue(params.TemplateText), nextSort, params.Protocol)
 	if err != nil {
-		return nil, "", fmt.Errorf("create_failed: %w", err)
+		return nil, "", fmt.Errorf("%w: %v", profilepersistence.ErrProfileCreateConflict, err)
 	}
 
 	keyID, err := res.LastInsertId()
@@ -239,7 +189,7 @@ func (r *ProfileRepository) CreateLocal(ctx context.Context, params profilepersi
 		return nil, "", fmt.Errorf("failed to get key ID: %w", err)
 	}
 
-	env, err := profilestorage.Encrypt([]byte(params.BuiltURI), activeID, activeKey, keyID)
+	env, err := r.credentials.encrypt(params.BuiltURI, keyID)
 	if err != nil {
 		return nil, "", fmt.Errorf("failed to encrypt secret: %w", err)
 	}
@@ -261,17 +211,14 @@ func (r *ProfileRepository) CreateLocal(ctx context.Context, params profilepersi
 }
 
 func (r *ProfileRepository) UpdateLocal(ctx context.Context, params profilepersistence.UpdateProfileParams) (*model.VLESSKey, string, error) {
-	activeID, activeKey, err := r.keyring.GetActiveEncryptionKey()
-	if err != nil {
+	if err := r.credentials.encryptionAvailable(); err != nil {
 		return nil, "", fmt.Errorf("%w: %v", profilepersistence.ErrEncryptionUnavailable, err)
 	}
-	_, bikKey, err := r.keyring.GetActiveBlindIndexKey()
+	blindIndex, err := r.credentials.blindIndex(params.NewURI)
 	if err != nil {
 		return nil, "", fmt.Errorf("%w: %v", profilepersistence.ErrBlindIndexUnavailable, err)
 	}
-
-	blindIndex := profilestorage.ComputeBlindIndex(bikKey, params.NewURI)
-	env, err := profilestorage.Encrypt([]byte(params.NewURI), activeID, activeKey, params.ID)
+	env, err := r.credentials.encrypt(params.NewURI, params.ID)
 	if err != nil {
 		return nil, "", fmt.Errorf("failed to encrypt secret: %w", err)
 	}
@@ -282,7 +229,7 @@ func (r *ProfileRepository) UpdateLocal(ctx context.Context, params profilepersi
 	}
 	defer tx.Rollback()
 
-	categoryIDVal, err := r.resolveCategoryIDTx(ctx, tx, params.Category, params.CategoryID)
+	categoryIDVal, err := r.categories.resolveTx(ctx, tx, params.Category, params.CategoryID, "#4B5563")
 	if err != nil {
 		return nil, "", err
 	}
@@ -334,15 +281,12 @@ func (r *ProfileRepository) UpdateLocal(ctx context.Context, params profilepersi
 }
 
 func (r *ProfileRepository) CloneLocal(ctx context.Context, params profilepersistence.CloneProfileParams) (*model.VLESSKey, string, error) {
-	activeID, activeKey, err := r.keyring.GetActiveEncryptionKey()
-	if err != nil {
+	if err := r.credentials.encryptionAvailable(); err != nil {
 		return nil, "", fmt.Errorf("%w: %v", profilepersistence.ErrEncryptionUnavailable, err)
 	}
-	_, bikKey, err := r.keyring.GetActiveBlindIndexKey()
-	if err != nil {
+	if _, err := r.credentials.blindIndex(""); err != nil {
 		return nil, "", fmt.Errorf("%w: %v", profilepersistence.ErrBlindIndexUnavailable, err)
 	}
-
 	tx, err := r.db.BeginTx(ctx, nil)
 	if err != nil {
 		return nil, "", fmt.Errorf("failed to start transaction: %w", err)
@@ -380,14 +324,13 @@ func (r *ProfileRepository) CloneLocal(ctx context.Context, params profilepersis
 		return nil, "", profilepersistence.ErrStorageIntegrity
 	}
 
-	dec, decErr := profilestorage.Decrypt(sourceEncURL.String, r.keyring, params.ID)
+	decryptedURI, decErr := r.credentials.decrypt(sourceEncURL.String, params.ID)
 	if decErr != nil {
-		if errors.Is(decErr, profilestorage.ErrUnknownKeyID) || errors.Is(decErr, profilestorage.ErrMissingKeyring) {
+		if credentialKeyUnavailable(decErr) {
 			return nil, "", fmt.Errorf("%w: %v", profilepersistence.ErrEncryptionUnavailable, decErr)
 		}
 		return nil, "", fmt.Errorf("%w: %v", profilepersistence.ErrStorageIntegrity, decErr)
 	}
-	decryptedURI := dec.Reveal()
 
 	newLabel := strings.TrimSpace(params.NewLabel)
 	if newLabel == "" {
@@ -399,7 +342,10 @@ func (r *ProfileRepository) CloneLocal(ctx context.Context, params profilepersis
 		return nil, "", fmt.Errorf("failed to prepare key order: %w", err)
 	}
 
-	blindIndex := profilestorage.ComputeBlindIndex(bikKey, decryptedURI)
+	blindIndex, err := r.credentials.blindIndex(decryptedURI)
+	if err != nil {
+		return nil, "", fmt.Errorf("%w: %v", profilepersistence.ErrBlindIndexUnavailable, err)
+	}
 	res, err := tx.ExecContext(ctx, `
 		INSERT INTO vless_keys(
 			label, url_blind_index, category_id, category, status, check_status,
@@ -417,7 +363,7 @@ func (r *ProfileRepository) CloneLocal(ctx context.Context, params profilepersis
 		return nil, "", fmt.Errorf("failed to get new key ID: %w", err)
 	}
 
-	env, err := profilestorage.Encrypt([]byte(decryptedURI), activeID, activeKey, newID)
+	env, err := r.credentials.encrypt(decryptedURI, newID)
 	if err != nil {
 		return nil, "", fmt.Errorf("failed to encrypt cloned key: %w", err)
 	}
@@ -433,7 +379,7 @@ func (r *ProfileRepository) CloneLocal(ctx context.Context, params profilepersis
 	return r.GetByID(ctx, newID)
 }
 
-func (r *ProfileRepository) ListLegacy(ctx context.Context) ([]model.VLESSKey, error) {
+func (r *KeyRepository) ListLegacy(ctx context.Context) ([]model.VLESSKey, error) {
 	rows, err := r.db.QueryContext(ctx, `
 		SELECT k.id, k.label, s.encrypted_url, k.category_id, COALESCE(kc.name, k.category), k.key_kind, k.template_text, k.status, k.check_status, k.check_error, k.last_checked_at, k.last_latency_ms, k.created_at, k.external_source_id, COALESCE(es.name, ''), k.protocol, k.profile_schema_version, k.profile_compatibility, k.profile_warnings_json, COALESCE(k.profile_revision, 1), COALESCE(k.updated_at, k.created_at)
 		FROM vless_keys k
@@ -478,11 +424,11 @@ func (r *ProfileRepository) ListLegacy(ctx context.Context) ([]model.VLESSKey, e
 		} else {
 			key.UpdatedAt = key.CreatedAt
 		}
-		if encURL.Valid && encURL.String != "" && r.keyring != nil {
-			if dec, err := profilestorage.Decrypt(encURL.String, r.keyring, key.ID); err == nil {
-				key.URL = dec.Reveal()
-			}
+		decryptedURL, decryptErr := r.credentials.decrypt(encURL.String, key.ID)
+		if decryptErr != nil {
+			return nil, mapKeyCredentialError(decryptErr)
 		}
+		key.URL = decryptedURL
 		if err := json.Unmarshal([]byte(warningsJSON), &key.ProfileWarnings); err != nil || key.ProfileWarnings == nil {
 			key.ProfileWarnings = []string{}
 		}
@@ -530,17 +476,14 @@ func (r *ProfileRepository) ListLegacy(ctx context.Context) ([]model.VLESSKey, e
 	return out, rows.Err()
 }
 
-func (r *ProfileRepository) CreateLegacy(ctx context.Context, params profilepersistence.CreateLegacyKeyParams) (int64, error) {
-	activeID, activeKey, err := r.keyring.GetActiveEncryptionKey()
-	if err != nil {
-		return 0, fmt.Errorf("%w: %v", profilepersistence.ErrEncryptionUnavailable, err)
+func (r *KeyRepository) CreateLegacy(ctx context.Context, params keypersistence.CreateLegacyKeyParams) (int64, error) {
+	if err := r.credentials.encryptionAvailable(); err != nil {
+		return 0, fmt.Errorf("%w: %v", keypersistence.ErrEncryptionUnavailable, err)
 	}
-	_, bikKey, err := r.keyring.GetActiveBlindIndexKey()
+	blindIndex, err := r.credentials.blindIndex(params.KeyURL)
 	if err != nil {
-		return 0, fmt.Errorf("%w: %v", profilepersistence.ErrBlindIndexUnavailable, err)
+		return 0, fmt.Errorf("%w: %v", keypersistence.ErrBlindIndexUnavailable, err)
 	}
-
-	blindIndex := profilestorage.ComputeBlindIndex(bikKey, params.KeyURL)
 
 	tx, err := r.db.BeginTx(ctx, nil)
 	if err != nil {
@@ -548,14 +491,14 @@ func (r *ProfileRepository) CreateLegacy(ctx context.Context, params profilepers
 	}
 	defer tx.Rollback()
 
-	categoryIDVal, err := r.upsertCategoryTx(ctx, tx, params.Category)
+	categoryIDVal, err := r.categories.upsertTx(ctx, tx, params.Category, "#4B5563")
 	if err != nil {
-		return 0, fmt.Errorf("failed to save key category: %w", err)
+		return 0, fmt.Errorf("%w: %v", keypersistence.ErrCategoryPersistence, err)
 	}
 
 	var nextSortOrder int64
 	if err := tx.QueryRowContext(ctx, `SELECT COALESCE(MAX(sort_order), 0) + 1 FROM vless_keys`).Scan(&nextSortOrder); err != nil {
-		return 0, fmt.Errorf("failed to prepare key order: %w", err)
+		return 0, fmt.Errorf("%w: %v", keypersistence.ErrKeyOrderPersistence, err)
 	}
 
 	res, err := tx.ExecContext(ctx, `
@@ -563,7 +506,7 @@ func (r *ProfileRepository) CreateLegacy(ctx context.Context, params profilepers
 		VALUES(?, ?, ?, ?, ?, 'unknown', ?, ?, ?)
 	`, params.Label, blindIndex, categoryIDVal, params.Category, params.Status, params.Kind, nullStringValue(params.TemplateText), nextSortOrder)
 	if err != nil {
-		return 0, fmt.Errorf("create_failed: %w", err)
+		return 0, fmt.Errorf("%w: %v", keypersistence.ErrKeyCreateConflict, err)
 	}
 
 	keyID, err := res.LastInsertId()
@@ -571,9 +514,9 @@ func (r *ProfileRepository) CreateLegacy(ctx context.Context, params profilepers
 		return 0, fmt.Errorf("failed to get key ID: %w", err)
 	}
 
-	env, err := profilestorage.Encrypt([]byte(params.KeyURL), activeID, activeKey, keyID)
+	env, err := r.credentials.encrypt(params.KeyURL, keyID)
 	if err != nil {
-		return 0, fmt.Errorf("failed to encrypt key: %w", err)
+		return 0, fmt.Errorf("%w: %v", keypersistence.ErrCredentialEncryption, err)
 	}
 
 	if _, err := tx.ExecContext(ctx, `INSERT INTO vless_key_secrets(vless_key_id, encrypted_url) VALUES(?, ?)`, keyID, env); err != nil {
@@ -594,14 +537,13 @@ func (r *ProfileRepository) CreateLegacy(ctx context.Context, params profilepers
 	return keyID, nil
 }
 
-func (r *ProfileRepository) UpdateLegacy(ctx context.Context, params profilepersistence.UpdateLegacyKeyParams) error {
-	activeID, activeKey, err := r.keyring.GetActiveEncryptionKey()
-	if err != nil {
-		return fmt.Errorf("%w: %v", profilepersistence.ErrEncryptionUnavailable, err)
+func (r *KeyRepository) UpdateLegacy(ctx context.Context, params keypersistence.UpdateLegacyKeyParams) error {
+	if err := r.credentials.encryptionAvailable(); err != nil {
+		return fmt.Errorf("%w: %v", keypersistence.ErrEncryptionUnavailable, err)
 	}
-	_, bikKey, err := r.keyring.GetActiveBlindIndexKey()
+	blindIndex, err := r.credentials.blindIndex(params.BuiltURL)
 	if err != nil {
-		return fmt.Errorf("%w: %v", profilepersistence.ErrBlindIndexUnavailable, err)
+		return fmt.Errorf("%w: %v", keypersistence.ErrBlindIndexUnavailable, err)
 	}
 
 	tx, err := r.db.BeginTx(ctx, nil)
@@ -615,7 +557,7 @@ func (r *ProfileRepository) UpdateLegacy(ctx context.Context, params profilepers
 	var extSourceID sql.NullInt64
 	err = tx.QueryRowContext(ctx, `SELECT key_kind, sort_order, external_source_id FROM vless_keys WHERE id = ?`, params.ID).Scan(&existingKind, &existingSort, &extSourceID)
 	if errors.Is(err, sql.ErrNoRows) {
-		return profilepersistence.ErrProfileNotFound
+		return keypersistence.ErrKeyNotFound
 	}
 	if err != nil {
 		return fmt.Errorf("failed to query existing key: %w", err)
@@ -629,19 +571,18 @@ func (r *ProfileRepository) UpdateLegacy(ctx context.Context, params profilepers
 	sortOrder := existingSort.Int64
 	if !existingSort.Valid || sortOrder <= 0 || existingKindNormalized != params.Kind {
 		if err := tx.QueryRowContext(ctx, `SELECT COALESCE(MAX(sort_order), 0) + 1 FROM vless_keys`).Scan(&sortOrder); err != nil {
-			return fmt.Errorf("failed to prepare key order: %w", err)
+			return fmt.Errorf("%w: %v", keypersistence.ErrKeyOrderPersistence, err)
 		}
 	}
 
-	categoryIDVal, err := r.upsertCategoryTx(ctx, tx, params.Category)
+	categoryIDVal, err := r.categories.upsertTx(ctx, tx, params.Category, "#4B5563")
 	if err != nil {
-		return fmt.Errorf("failed to save key category: %w", err)
+		return fmt.Errorf("%w: %v", keypersistence.ErrCategoryPersistence, err)
 	}
 
-	blindIndex := profilestorage.ComputeBlindIndex(bikKey, params.BuiltURL)
-	env, err := profilestorage.Encrypt([]byte(params.BuiltURL), activeID, activeKey, params.ID)
+	env, err := r.credentials.encrypt(params.BuiltURL, params.ID)
 	if err != nil {
-		return fmt.Errorf("failed to encrypt key: %w", err)
+		return fmt.Errorf("%w: %v", keypersistence.ErrCredentialEncryption, err)
 	}
 
 	if _, err := tx.ExecContext(ctx, `
@@ -662,7 +603,7 @@ func (r *ProfileRepository) UpdateLegacy(ctx context.Context, params profilepers
 	return tx.Commit()
 }
 
-func (r *ProfileRepository) DeleteLegacy(ctx context.Context, id int64) error {
+func (r *KeyRepository) DeleteLegacy(ctx context.Context, id int64) error {
 	tx, err := r.db.BeginTx(ctx, nil)
 	if err != nil {
 		return fmt.Errorf("failed to start transaction: %w", err)
@@ -675,11 +616,339 @@ func (r *ProfileRepository) DeleteLegacy(ctx context.Context, id int64) error {
 	}
 	n, _ := res.RowsAffected()
 	if n == 0 {
-		return profilepersistence.ErrProfileNotFound
+		return keypersistence.ErrKeyNotFound
 	}
 
 	_, _ = tx.ExecContext(ctx, `DELETE FROM vless_key_secrets WHERE vless_key_id = ?`, id)
 	_, _ = tx.ExecContext(ctx, `DELETE FROM user_keys WHERE key_id = ?`, id)
+
+	return tx.Commit()
+}
+
+var categoryHexColorRegex = regexp.MustCompile(`^#[0-9A-Fa-f]{6}$`)
+
+func normalizeCategoryColor(raw string) string {
+	val := strings.TrimSpace(raw)
+	if val == "" {
+		return "#D8B33D"
+	}
+	if categoryHexColorRegex.MatchString(val) {
+		return strings.ToUpper(val)
+	}
+	return "#D8B33D"
+}
+
+func normalizeCategoryName(raw string) string {
+	val := strings.TrimSpace(raw)
+	if len(val) > 24 {
+		val = val[:24]
+	}
+	return val
+}
+
+func (r *KeyRepository) ListKeyCategories(ctx context.Context) ([]model.KeyCategory, error) {
+	rows, err := r.db.QueryContext(ctx, `SELECT id, name, color FROM key_categories ORDER BY sort_order, id`)
+	if err != nil {
+		return nil, fmt.Errorf("failed to load key categories: %w", err)
+	}
+	defer rows.Close()
+
+	countByName := make(map[string]int)
+	colorByName := make(map[string]string)
+	categories := make([]model.KeyCategory, 0, 16)
+	for rows.Next() {
+		var id int64
+		var name sql.NullString
+		var color sql.NullString
+		if err := rows.Scan(&id, &name, &color); err != nil {
+			return nil, fmt.Errorf("failed to scan key category: %w", err)
+		}
+		normalized := normalizeCategoryName(name.String)
+		if normalized == "" {
+			continue
+		}
+		if _, exists := countByName[normalized]; exists {
+			continue
+		}
+		countByName[normalized] = 0
+		colorByName[normalized] = normalizeCategoryColor(color.String)
+		categories = append(categories, model.KeyCategory{ID: id, Name: normalized, Color: colorByName[normalized], KeysCount: 0})
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("failed to read key categories: %w", err)
+	}
+
+	countRows, err := r.db.QueryContext(ctx, `
+		SELECT kc.name, COUNT(*)
+		FROM vless_keys k
+		JOIN key_categories kc ON kc.id = k.category_id
+		GROUP BY k.category_id, kc.name
+	`)
+	if err != nil {
+		return nil, fmt.Errorf("failed to load key category counts: %w", err)
+	}
+	defer countRows.Close()
+
+	for countRows.Next() {
+		var category sql.NullString
+		var count int64
+		if err := countRows.Scan(&category, &count); err != nil {
+			return nil, fmt.Errorf("failed to scan category count: %w", err)
+		}
+		normalized := normalizeCategoryName(category.String)
+		if normalized == "" {
+			continue
+		}
+		if _, exists := countByName[normalized]; !exists {
+			colorByName[normalized] = "#D8B33D"
+			var id int64
+			_ = r.db.QueryRowContext(ctx, `SELECT id FROM key_categories WHERE name = ?`, normalized).Scan(&id)
+			categories = append(categories, model.KeyCategory{ID: id, Name: normalized, Color: colorByName[normalized], KeysCount: 0})
+		}
+		countByName[normalized] += int(count)
+	}
+	if err := countRows.Err(); err != nil {
+		return nil, fmt.Errorf("failed to read category counts: %w", err)
+	}
+
+	for index := range categories {
+		categories[index].KeysCount = countByName[categories[index].Name]
+		categories[index].Color = normalizeCategoryColor(colorByName[categories[index].Name])
+	}
+	return categories, nil
+}
+
+func (r *KeyRepository) GetCategoryColor(ctx context.Context, name string) (string, error) {
+	var currentColor sql.NullString
+	_ = r.db.QueryRowContext(ctx, `SELECT color FROM key_categories WHERE name = ?`, normalizeCategoryName(name)).Scan(&currentColor)
+	return currentColor.String, nil
+}
+
+func (r *KeyRepository) CreateKeyCategory(ctx context.Context, params keypersistence.CreateCategoryParams) (model.KeyCategory, error) {
+	name := normalizeCategoryName(params.Name)
+	color := params.Color
+
+	var nextSortOrder int64
+	if err := r.db.QueryRowContext(ctx, `SELECT COALESCE(MAX(sort_order), 0) + 1 FROM key_categories`).Scan(&nextSortOrder); err != nil {
+		return model.KeyCategory{}, fmt.Errorf("failed to prepare category order: %w", err)
+	}
+
+	if _, err := r.db.ExecContext(ctx, `
+		INSERT INTO key_categories(name, color, sort_order, updated_at)
+		VALUES(?, ?, ?, CURRENT_TIMESTAMP)
+		ON CONFLICT(name) DO UPDATE SET color = excluded.color, updated_at = CURRENT_TIMESTAMP
+	`, name, color, nextSortOrder); err != nil {
+		return model.KeyCategory{}, fmt.Errorf("failed to create key category: %w", err)
+	}
+
+	var catID int64
+	_ = r.db.QueryRowContext(ctx, `SELECT id FROM key_categories WHERE name = ?`, name).Scan(&catID)
+
+	return model.KeyCategory{
+		ID:    catID,
+		Name:  name,
+		Color: color,
+	}, nil
+}
+
+func (r *KeyRepository) UpdateKeyCategory(ctx context.Context, params keypersistence.UpdateCategoryParams) (model.KeyCategory, error) {
+	oldName := normalizeCategoryName(params.OldName)
+	newName := normalizeCategoryName(params.NewName)
+	color := params.Color
+
+	var keyCount int64
+	if err := r.db.QueryRowContext(ctx, `
+		SELECT COUNT(*) FROM vless_keys
+		 WHERE category_id = (SELECT id FROM key_categories WHERE name = ?)
+		    OR (category_id IS NULL AND category = ?)
+	`, oldName, oldName).Scan(&keyCount); err != nil {
+		return model.KeyCategory{}, fmt.Errorf("failed to count category keys: %w", err)
+	}
+
+	var categoryCount int64
+	var existingSortOrder int64
+	if err := r.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM key_categories WHERE name = ?`, oldName).Scan(&categoryCount); err != nil {
+		return model.KeyCategory{}, fmt.Errorf("failed to count category: %w", err)
+	}
+	_ = r.db.QueryRowContext(ctx, `SELECT COALESCE(sort_order, 0) FROM key_categories WHERE name = ?`, oldName).Scan(&existingSortOrder)
+
+	if keyCount == 0 && categoryCount == 0 {
+		return model.KeyCategory{}, keypersistence.ErrCategoryNotFound
+	}
+
+	tx, err := r.db.BeginTx(ctx, nil)
+	if err != nil {
+		return model.KeyCategory{}, fmt.Errorf("failed to start transaction: %w", err)
+	}
+	defer tx.Rollback()
+
+	if _, err := tx.ExecContext(ctx, `
+		INSERT INTO key_categories(name, color, sort_order, updated_at)
+		VALUES(?, ?, ?, CURRENT_TIMESTAMP)
+		ON CONFLICT(name) DO UPDATE SET color = excluded.color, sort_order = COALESCE(NULLIF(key_categories.sort_order, 0), excluded.sort_order), updated_at = CURRENT_TIMESTAMP
+	`, newName, color, existingSortOrder); err != nil {
+		return model.KeyCategory{}, fmt.Errorf("failed to upsert key category: %w", err)
+	}
+
+	if oldName != newName {
+		var newCategoryID int64
+		if err := tx.QueryRowContext(ctx, `SELECT id FROM key_categories WHERE name = ?`, newName).Scan(&newCategoryID); err != nil {
+			return model.KeyCategory{}, fmt.Errorf("failed to resolve key category ID: %w", err)
+		}
+		if _, err := tx.ExecContext(ctx, `
+			UPDATE vless_keys
+			   SET category_id = ?, category = ?
+			 WHERE category_id = (SELECT id FROM key_categories WHERE name = ?)
+			    OR (category_id IS NULL AND category = ?)
+		`, newCategoryID, newName, oldName, oldName); err != nil {
+			return model.KeyCategory{}, fmt.Errorf("failed to update key category references: %w", err)
+		}
+		if _, err := tx.ExecContext(ctx, `
+			UPDATE external_subscription_sources
+			   SET key_category_id = ?, key_category = ?
+			 WHERE key_category_id = (SELECT id FROM key_categories WHERE name = ?)
+			    OR (key_category_id IS NULL AND key_category = ?)
+		`, newCategoryID, newName, oldName, oldName); err != nil {
+			return model.KeyCategory{}, fmt.Errorf("failed to update source category references: %w", err)
+		}
+		if _, err := tx.ExecContext(ctx, `DELETE FROM key_categories WHERE name = ?`, oldName); err != nil {
+			return model.KeyCategory{}, fmt.Errorf("failed to delete old category: %w", err)
+		}
+	}
+
+	if _, err := tx.ExecContext(ctx, `UPDATE key_categories SET color = ?, updated_at = CURRENT_TIMESTAMP WHERE name = ?`, color, newName); err != nil {
+		return model.KeyCategory{}, fmt.Errorf("failed to update category color: %w", err)
+	}
+
+	if err := tx.Commit(); err != nil {
+		return model.KeyCategory{}, fmt.Errorf("failed to commit category update: %w", err)
+	}
+
+	var catID int64
+	_ = r.db.QueryRowContext(ctx, `SELECT id FROM key_categories WHERE name = ?`, newName).Scan(&catID)
+
+	return model.KeyCategory{
+		ID:    catID,
+		Name:  newName,
+		Color: color,
+	}, nil
+}
+
+func (r *KeyRepository) DeleteKeyCategory(ctx context.Context, params keypersistence.DeleteCategoryParams) error {
+	name := normalizeCategoryName(params.Name)
+	mode := strings.TrimSpace(params.Mode)
+
+	tx, err := r.db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("failed to start transaction: %w", err)
+	}
+	defer tx.Rollback()
+
+	var categoryID sql.NullInt64
+	if err := tx.QueryRowContext(ctx, `SELECT id FROM key_categories WHERE name = ?`, name).Scan(&categoryID); err != nil && !errors.Is(err, sql.ErrNoRows) {
+		return fmt.Errorf("failed to resolve key category: %w", err)
+	}
+
+	if mode == "delete_with_keys" {
+		if _, err := tx.ExecContext(ctx, `
+			DELETE FROM vless_keys
+			 WHERE category_id = ? OR (category_id IS NULL AND category = ?)
+		`, categoryID, name); err != nil {
+			return fmt.Errorf("failed to delete keys in category: %w", err)
+		}
+	} else {
+		if _, err := tx.ExecContext(ctx, `
+			UPDATE vless_keys SET category_id = NULL, category = ''
+			 WHERE category_id = ? OR (category_id IS NULL AND category = ?)
+		`, categoryID, name); err != nil {
+			return fmt.Errorf("failed to clear keys category: %w", err)
+		}
+	}
+
+	if _, err := tx.ExecContext(ctx, `DELETE FROM key_categories WHERE name = ?`, name); err != nil {
+		return fmt.Errorf("failed to delete category: %w", err)
+	}
+
+	return tx.Commit()
+}
+
+func (r *KeyRepository) ReorderKeyCategories(ctx context.Context, names []string) error {
+	tx, err := r.db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("failed to start transaction: %w", err)
+	}
+	defer tx.Rollback()
+
+	stmt, err := tx.PrepareContext(ctx, `UPDATE key_categories SET sort_order = ?, updated_at = CURRENT_TIMESTAMP WHERE name = ?`)
+	if err != nil {
+		return fmt.Errorf("failed to prepare reorder statement: %w", err)
+	}
+	defer stmt.Close()
+
+	for index, name := range names {
+		if _, err := stmt.ExecContext(ctx, index+1, name); err != nil {
+			return fmt.Errorf("failed to update category order for %s: %w", name, err)
+		}
+	}
+
+	return tx.Commit()
+}
+
+func (r *KeyRepository) ReorderKeys(ctx context.Context, ids []int64) error {
+	rows, err := r.db.QueryContext(ctx, `SELECT id FROM vless_keys ORDER BY sort_order, id`)
+	if err != nil {
+		return fmt.Errorf("failed to load keys for reorder: %w", err)
+	}
+	defer rows.Close()
+
+	existingIDs := make([]int64, 0)
+	for rows.Next() {
+		var id int64
+		if err := rows.Scan(&id); err != nil {
+			return fmt.Errorf("failed to read key id: %w", err)
+		}
+		existingIDs = append(existingIDs, id)
+	}
+	if err := rows.Err(); err != nil {
+		return fmt.Errorf("failed to iterate key ids: %w", err)
+	}
+
+	if len(existingIDs) != len(ids) {
+		return keypersistence.ErrInvalidKeyOrderCount
+	}
+
+	allowed := make(map[int64]struct{}, len(existingIDs))
+	for _, id := range existingIDs {
+		allowed[id] = struct{}{}
+	}
+	seen := make(map[int64]struct{}, len(ids))
+	for _, id := range ids {
+		if _, ok := allowed[id]; !ok {
+			return keypersistence.ErrUnknownKeyInOrder
+		}
+		if _, ok := seen[id]; ok {
+			return keypersistence.ErrDuplicateKeyInOrder
+		}
+		seen[id] = struct{}{}
+	}
+
+	tx, err := r.db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("failed to start transaction: %w", err)
+	}
+	defer tx.Rollback()
+
+	stmt, err := tx.PrepareContext(ctx, `UPDATE vless_keys SET sort_order = ? WHERE id = ?`)
+	if err != nil {
+		return fmt.Errorf("failed to prepare key reorder statement: %w", err)
+	}
+	defer stmt.Close()
+
+	for index, id := range ids {
+		if _, err := stmt.ExecContext(ctx, index+1, id); err != nil {
+			return fmt.Errorf("failed to update key sort order: %w", err)
+		}
+	}
 
 	return tx.Commit()
 }
