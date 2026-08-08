@@ -392,6 +392,13 @@ func (r *ProfileRepository) CloneLocal(ctx context.Context, params profilepersis
 		return nil, "", fmt.Errorf("failed to save secret: %w", err)
 	}
 
+	if _, err := tx.ExecContext(ctx, `
+		INSERT INTO user_keys(user_id, key_id)
+		SELECT id, ? FROM users WHERE key_assignment_mode = 'all'
+	`, newID); err != nil {
+		return nil, "", fmt.Errorf("failed to add cloned key to users: %w", err)
+	}
+
 	if err := tx.Commit(); err != nil {
 		return nil, "", fmt.Errorf("failed to commit clone: %w", err)
 	}

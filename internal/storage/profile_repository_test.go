@@ -131,6 +131,9 @@ func TestProfileRepository_Create_Update_Clone(t *testing.T) {
 	defer db.Close()
 	kr := newTestKeyringForRepo(t)
 	repo := NewProfileRepository(db, kr)
+	if _, err := db.Exec(`INSERT INTO users(key_assignment_mode) VALUES('all'), ('selected')`); err != nil {
+		t.Fatalf("seed key assignment modes: %v", err)
+	}
 
 	// 1. Create Local Profile
 	vlessURI := "vless://user1@example.com:443?encryption=none#Node1"
@@ -236,6 +239,16 @@ func TestProfileRepository_Create_Update_Clone(t *testing.T) {
 	}
 	if clonedURI != newURI {
 		t.Fatalf("clonedURI = %q, want %q", clonedURI, newURI)
+	}
+	var allAssignments, selectedAssignments int
+	if err := db.QueryRow(`SELECT COUNT(*) FROM user_keys WHERE user_id = 1`).Scan(&allAssignments); err != nil {
+		t.Fatalf("count all-mode assignments: %v", err)
+	}
+	if err := db.QueryRow(`SELECT COUNT(*) FROM user_keys WHERE user_id = 2`).Scan(&selectedAssignments); err != nil {
+		t.Fatalf("count selected-mode assignments: %v", err)
+	}
+	if allAssignments != 2 || selectedAssignments != 0 {
+		t.Fatalf("clone assignment mismatch: all=%d selected=%d, want 2 and 0", allAssignments, selectedAssignments)
 	}
 
 	// 6. Metadata-only updates to a clone must retain its intentional
