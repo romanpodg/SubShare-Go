@@ -1,402 +1,583 @@
-# SubShare
+<p align="center">
+  <strong>🇬🇧 English</strong> · <a href="README_RU.md">🇷🇺 Русский</a>
+</p>
 
-SubShare представляет собой лёгкий self-hosted Subscription Hub для управления общей подпиской, внутри которой присутствуют VPN-конфигурации, которые можно распределять между польхователями. Проект состоит из Go API, SQLite и маршрутизируемой панели на Next.js. 
+<div align="center">
 
-Репозиторий: `https://github.com/romanpodg/SubShare-Go`.
+# 🔗 SubShare
 
-SubShare не управляет Xray-нодами и не измеряет фактический VPN-трафик. Его задача состоит в хранении, агрегации и выдаче конфигурации подходящего формата конкретному клиенту.
+**Self-hosted VPN subscription hub for managing, aggregating and delivering client-ready profiles.**
 
-## Возможности
+Keep local and external VPN configurations in one place, assign them to users, and publish controlled subscription URLs — without managing VPN nodes themselves.
 
-- Пользователи, сроки подписки и effective status: `active`, `expired`, `paused`, `blocked`, `limited`.
-- Одноразовая активация, постоянные `/sub/{subscription_id}` и HWID-лимиты.
-- VPN-ключи и информационные ключи, категории, порядок, массовые операции и проверка доступности ключей.
-- Безопасный импорт внешних подписок с preview, историей синхронизаций и защитой от SSRF.
-- Шаблоны `base64`, `plain`, `xray-json`, `mihomo` и `sing-box`.
-- Ordered response rules: first match wins; условия по HTTP-заголовкам и User-Agent, regex, custom response headers и fallback.
-- Dashboard, отдельные маршруты Users, Keys, Sources, Templates, Response Rules, Settings, Admins и Audit.
-- Роли `owner`, `operator`, `viewer` и API-токены со scopes.
-- Структурированный аудит без ключей, activation codes, subscription IDs и HWID.
-- Версионные атомарные миграции SQLite и build-info.
+[![CI](https://github.com/romanpodg/SubShare-Go/actions/workflows/ci.yml/badge.svg)](https://github.com/romanpodg/SubShare-Go/actions/workflows/ci.yml)
+[![Release](https://img.shields.io/github/v/tag/romanpodg/SubShare-Go?label=release)](https://github.com/romanpodg/SubShare-Go/tags)
+![Go](https://img.shields.io/badge/Go-1.24+-00ADD8?logo=go&logoColor=white)
+![Next.js](https://img.shields.io/badge/Next.js-16-black?logo=next.js)
+![Docker](https://img.shields.io/badge/Docker-Compose-2496ED?logo=docker&logoColor=white)
+[![License: Unlicense](https://img.shields.io/badge/License-Unlicense-blue.svg)](LICENSE)
 
-## Стек и структура
+</div>
 
-```text
-cmd/server/                 Go HTTP API, delivery pipeline и миграции
-internal/                   модели, middleware и helpers
-frontend/src/app/           Next.js App Router
-frontend/src/components/    UI и admin-компоненты
-frontend/out/               production static export (не хранится в Git)
-data/app.db                 локальная SQLite БД (не хранится в Git)
-cmd/server/openapi.yaml     OpenAPI 3.1 для /api/v1
+---
+
+## 📖 About
+
+SubShare is a lightweight self-hosted service for building and managing VPN subscriptions.
+
+It combines a **Go backend**, **Next.js admin panel**, **SQLite**, **Caddy** and **Docker Compose**. SubShare is intended for situations where VPN profiles already exist and need to be imported, organized, assigned to users and delivered through one controlled subscription layer.
+
+> [!IMPORTANT]
+> SubShare **does not deploy, configure or control VPN/Xray nodes** and does not measure real VPN traffic. It manages connection profiles and subscription delivery.
+
+## 🖥️ Interface
+
+<p align="center">
+  <img src="docs/screenshots/dashboard.png" alt="SubShare Dashboard" width="100%">
+</p>
+
+<p align="center">
+  <b>Dashboard</b><br>
+  Overview of users, profiles, sources and subscription activity.
+</p>
+
+<p align="center">
+  <img src="docs/screenshots/users.png" alt="SubShare Users" width="100%">
+</p>
+
+<p align="center">
+  <b>User management</b><br>
+  Manage users, subscription access and assigned VPN profiles.
+</p>
+
+<p align="center">
+  <img src="docs/screenshots/external-sources.png" alt="SubShare External Sources" width="100%">
+</p>
+
+<p align="center">
+  <b>External sources</b><br>
+  Preview and synchronize profiles from external subscriptions.
+</p>
+
+---
+
+## ✨ Features
+
+- **Users & subscriptions** — expiration, statuses, one-time activation, persistent subscription URLs and HWID/device limits.
+- **VPN profiles** — local profiles, informational keys, categories, ordering, bulk operations and availability checks.
+- **External sources** — HTTP(S) subscriptions, preview-before-import, synchronization history and SSRF-aware fetching.
+- **Profile identity** — credential-safe semantic fingerprints for synchronization and duplicate detection.
+- **Multiple output formats** — `plain`, `base64`, `xray-json`, `mihomo` and `sing-box`.
+- **Response rules** — choose subscription output using headers, User-Agent, regex conditions, templates and fallback rules.
+- **Administration** — Dashboard, Users, Keys, Sources, Templates, Response Rules, Settings, Admins and Audit.
+- **Access control** — `owner`, `operator`, `viewer` roles and scoped API tokens.
+- **Security** — encrypted credential-bearing profile storage, CSRF protection, trusted-proxy handling, rate limiting and structured audit logging.
+- **Persistence** — versioned SQLite migrations, automatic backups and persistent Docker volumes.
+
+---
+
+## 🧩 Supported protocols
+
+| Protocol | URI | Notes |
+| --- | --- | --- |
+| VLESS | `vless://` | Supported |
+| VMess | `vmess://` | Supported |
+| Trojan | `trojan://` | Supported |
+| Shadowsocks | `ss://` | SIP002/SIP022; structured output depends on method/plugin support |
+| Hysteria 2 | `hysteria2://`, `hy2://` | Structured output depends on fields and target format |
+| TUIC v5 | `tuic://` | Supported with compatibility-aware structured generation |
+| TUIC v4 | `tuic://` | Legacy compatibility input; raw delivery only |
+
+`plain` and `base64` are the most compatibility-oriented delivery modes. Structured generators deliberately exclude entries that cannot be represented safely instead of silently changing their connectivity semantics.
+
+---
+
+## 🏗️ Architecture
+
+```mermaid
+flowchart LR
+    Client["VPN client"] --> Caddy["Caddy / HTTPS"]
+    Admin["Administrator"] --> Caddy
+    Caddy --> Frontend["Next.js admin panel"]
+    Caddy --> Backend["Go API"]
+    Frontend --> Backend
+    Backend --> SQLite[("SQLite")]
+    Backend --> Sources["External subscriptions"]
+    Backend --> Generator["Subscription generator"]
+    Generator --> Client
 ```
 
-- Go 1.24, `net/http`
-- SQLite через `modernc.org/sqlite`
-- Next.js 16, React 19, TypeScript, Tailwind CSS
-- Docker Compose, Caddy с автоматическим HTTPS
+The backend is the source of truth for authentication, configuration validation, profile parsing, persistence and subscription delivery.
 
-## Быстрый запуск
+---
 
-Для production-запуска нужны только Git и Docker Compose v2. Go, Node.js,
-Caddy и SQLite устанавливаются внутри контейнеров.
+## 🚀 Quick start
 
-Ubuntu:
+### Requirements
+
+For the recommended deployment you need:
+
+- Git
+- Docker Engine / Docker Desktop
+- Docker Compose v2
+
+Go, Node.js, SQLite and Caddy are provided by the project containers.
+
+> [!IMPORTANT]
+> `PROFILE_FINGERPRINT_KEY` is mandatory. Generate it **once**, keep it private and preserve it across normal restarts.
+
+### Linux / Ubuntu
 
 ```bash
 git clone https://github.com/romanpodg/SubShare-Go.git
 cd SubShare-Go
+
+cp .env.example .env
+FINGERPRINT_KEY="$(docker run --rm alpine:3.22.1 sh -c 'od -An -N32 -tx1 /dev/urandom | tr -d " \n"')"
+sed -i "s/^PROFILE_FINGERPRINT_KEY=.*/PROFILE_FINGERPRINT_KEY=${FINGERPRINT_KEY}/" .env
+
 bash scripts/start.sh
 ```
 
-Windows 10/11 с Docker Desktop в режиме Linux containers:
+### Windows 10/11
+
+Docker Desktop must be running in **Linux containers** mode.
 
 ```powershell
 git clone https://github.com/romanpodg/SubShare-Go.git
 Set-Location SubShare-Go
+
+Copy-Item .env.example .env
+
+$key = docker run --rm alpine:3.22.1 sh -c 'od -An -N32 -tx1 /dev/urandom | tr -d " \n"'
+$content = (Get-Content .env) -replace '^PROFILE_FINGERPRINT_KEY=.*$', "PROFILE_FINGERPRINT_KEY=$key"
+[System.IO.File]::WriteAllLines(
+    (Join-Path (Get-Location) '.env'),
+    $content,
+    [System.Text.UTF8Encoding]::new($false)
+)
+
 powershell -ExecutionPolicy Bypass -File .\scripts\start.ps1
 ```
 
-При первом запуске скрипт создаёт закрытый `.env`, генерирует стойкий пароль
-owner (значение сохраняется в `.env`, но не выводится), собирает образы,
-создаёт случайный encryption keyring в persistent `app-data`, выполняет
-миграции и ждёт готовности сервисов. Повторный запуск сохраняет существующий
-keyring без изменений. По умолчанию панель открывается на
-`http://localhost/admin/login`.
+For local use, keep:
 
-Для публичного HTTPS укажите при первом запросе адрес вида
-`https://vpn.example.com`. DNS домена должен указывать на сервер, а порты 80 и
-443 должны быть открыты. Caddy самостоятельно получает и обновляет сертификаты.
-
-Повторный запуск тем же скриптом сохраняет `.env`, БД и сертификаты. Основные
-операции:
-
-```bash
-docker compose logs -f
-docker compose restart
-docker compose down
+```env
+BASE_URL=http://localhost
 ```
 
-`docker compose down` сохраняет named volumes. Не используйте `down -v`, если
-не хотите безвозвратно удалить БД и TLS-состояние.
+For a public installation, change it before startup:
 
-### Локальная разработка
-
-Для разработки без production-контейнеров требуются Go 1.24+, Node.js 22+ и
-npm. Для пустой БД запустите backend с `ADMIN_PASSWORD`, соответствующим
-политике ниже; если администратор уже существует, переменную можно не задавать.
-Каждый прямой backend startup также требует стабильный
-`PROFILE_FINGERPRINT_KEY`; сгенерируйте 32 random bytes один раз, сохраните их
-как 64 hexadecimal characters в локальном secret environment и не меняйте при
-обычном restart.
-Затем выполните `npm ci && npm run dev` в `frontend/`. Next.js проксирует
-`/api/*` и `/sub/*` на `http://localhost:8080`. Начальный `owner` создаётся
-только когда таблица администраторов пуста.
-
-## Переменные окружения
-
-| Переменная | Назначение |
-|---|---|
-| `ADMIN_USER` | Логин первого owner; по умолчанию `admin` |
-| `ADMIN_PASSWORD` | Пароль первого owner: обязателен только при пустой таблице администраторов; 15–256 Unicode code points и не более 1024 UTF-8 bytes; пробелы сохраняются |
-| `PROFILE_FINGERPRINT_KEY` | Обязательный отдельный секрет: минимум 32 случайных байта в hexadecimal; используется только для HMAC semantic fingerprint профилей и должен сохраняться между перезапусками |
-| `PROFILE_FINGERPRINT_PREVIOUS_KEYS` | Необязательный список прежних fingerprint-ключей через запятую на период ротации; удаляйте старый ключ только после синхронизации всех источников |
-| `PROFILE_ENCRYPTION_KEYRING_FILE` | Путь к JSON keyring для шифрования profile credentials; в Compose по умолчанию `/app/data/keyring.json`, создаётся один раз внутри persistent volume |
-| `PROFILE_ENCRYPTION_KEYRING_JSON` | Альтернатива файлу keyring для secret-manager deployments; с `PROFILE_ENCRYPTION_KEYRING_FILE` взаимоисключающа |
-| `APP_ENV` | `development` (по умолчанию) или `production`; production требует корректный `BASE_URL` |
-| `PORT` | `8080` по умолчанию; номер `1–65535` или валидный `host:port` |
-| `DB_PATH` | Файл SQLite; по умолчанию `data/app.db`; в Compose — `/app/data/app.db` |
-| `DB_JOURNAL_MODE` | `WAL` по умолчанию; только `WAL`, `DELETE`, `TRUNCATE`, `PERSIST`, `MEMORY`, `OFF` |
-| `BASE_URL` | Необязательный публичный HTTP(S) origin без пути/query/fragment; обязателен в production |
-| `CORS_ORIGINS` | HTTP(S) origins через запятую, без пути; пусто — CORS выключен |
-| `TRUSTED_PROXIES` | IP/CIDR доверенных reverse proxy через запятую; пусто — forwarded-заголовки игнорируются |
-| `DEVICE_LIMIT_MESSAGE` | Сообщение при превышении HWID-лимита; пусто — встроенное значение |
-| `SUBSCRIPTION_BODY_ENCODING` | Legacy fallback: только `base64` (по умолчанию) или `plain`; response rules имеют приоритет |
-| `HAPP_CRYPTO_API_URL` | Необязательный абсолютный HTTP(S) endpoint шифрования Happ без credentials; получает полную subscription URL |
-| `BACKUP_PATH` | Необязательный путь консистентной резервной копии; пусто — backup-job выключен |
-| `BACKUP_INTERVAL` | Положительная Go duration, например `1h`; по умолчанию `1h` |
-
-Значения окружения нормализуются по пробелам и регистру только там, где это
-документировано для enum. Любое непустое неподдерживаемое enum-значение,
-некорректный порт, URL, IP/CIDR или duration останавливает запуск до открытия
-SQLite, запуска фоновых задач и HTTP listener. Startup-ошибки называют
-переменную, но не выводят пароли, URL с credentials, query-параметры или другие
-секреты.
-
-`PROFILE_FINGERPRINT_KEY` не имеет development/default fallback и не должен
-переиспользовать пароль администратора, session/CSRF secret или публичный ID.
-Скрипты первого запуска создают 32 случайных байта и сохраняют их только в
-приватном `.env`. Для ротации новый ключ становится текущим, а прежний временно
-добавляется в `PROFILE_FINGERPRINT_PREVIOUS_KEYS`: importer сопоставляет старые
-HMAC и при очередной синхронизации записывает новый. Прежний ключ можно удалить
-после успешной синхронизации всех внешних источников; преждевременное удаление
-может ослабить semantic deduplication, но не меняет legacy public references.
-
-При обновлении существующей установки обычный backend startup намеренно
-завершается с ошибкой до открытия SQLite, миграций, фоновых задач и HTTP
-listener, пока администратор не задаст `PROFILE_FINGERPRINT_KEY`. Команды
-`scripts/start.sh` и `scripts/start.ps1` являются явным setup/bootstrap путём:
-они генерируют ключ только при его отсутствии и сохраняют его в приватном
-пользовательском `.env`; настроенное непустое значение не заменяется. Поэтому
-перезапуск или rebuild с тем же `.env` сохраняет semantic identity. Старые
-ключи ротации должны оставаться настроенными до хотя бы одной успешной
-синхронизации каждого внешнего источника новым ключом. После этого их удаление
-безопасно для deduplication; удаление раньше может создать новые строки вместо
-сопоставления со старыми fingerprint.
-
-Raw URI локальных и внешних профилей содержат credentials и хранятся только в
-`vless_key_secrets.encrypted_url` как authenticated encryption envelope.
-Encryption key ID входит в envelope, а row ID привязан как AAD; keyed blind
-index отделён от encryption keys. Таблица `vless_keys` содержит metadata без
-plaintext URI. Audit, preview, warnings и generic profile metadata не копируют
-raw URI; административная расшифровка доступна только через явный
-revision-aware reveal endpoint.
-
-Importer использует пять разных идентификаторов, которые нельзя подменять друг
-другом: SQLite `vless_keys.id` адресует конкретную source-owned строку и её
-assignments; `external_key_ref` остаётся стабильным legacy/public reference
-внутри источника; encrypted secret хранит точный raw input для reparse/delivery;
-`profile_fingerprint` — keyed semantic identity, уникальный только внутри
-`external_source_id`; preview `ir1_` — краткоживущий HMAC raw bytes вместе с
-one-based item index и не является database/public identity.
-
-Base64 subscription input принимает standard и URL-safe alphabet, с padding
-или без него; необязательный регистронезависимый префикс `base64:` и ASCII
-whitespace разрешены. Encoded и decoded размеры ограничены до parsing, а
-decoded body принимается только если явно распознаётся как поддерживаемый URI
-body или JSON. Base64-looking malformed input возвращает стабильный
-`invalid_base64_subscription`, не попадая в unknown-URI диагностику.
-
-### Генерация подписок и границы совместимости
-
-Выдача выбирает только назначенные пользователю активные записи; real-ключи с
-тремя последовательными health failures исключаются, informational-ключи
-сохраняют прежнее template-поведение. Порядок остаётся детерминированным:
-uncategorized, category sort order, key sort order, source id, row id. Генерация
-выполняется синхронно и не сохраняет готовые credential-bearing bodies.
-
-Перед генерацией backend расшифровывает authoritative secret с проверкой AAD,
-повторно разбирает URI и вычисляет semantic identity текущим
-`PROFILE_FINGERPRINT_KEY`. Это позволяет
-дедуплицировать одинаковое подключение, даже если source-owned строки имеют
-fingerprints разных поколений. Побеждает первая запись в delivery order, поэтому
-её tag/name используется в результате; label не участвует в identity. Строки БД,
-assignments, `external_key_ref` и source lifecycle при этом не объединяются и не
-изменяются. Для legacy Xray JSON, который registry не разбирает, применяется
-только keyed exact-raw identity — семантическая эквивалентность не угадывается.
-
-Plain output выдаёт byte-exact original URI после проверки CR/LF/NUL/control
-characters. Base64 output применяет standard Base64 с padding ко всему уже
-отфильтрованному plain body. TUIC v4 разрешён только в этих raw-delivery форматах.
-Если после eligibility и raw validation не осталось ни одной записи, backend
-возвращает `503` вместо двусмысленного пустого или Base64-представления пустой
-строки. Если все eligible записи исключены только structured generator-ом,
-backend возвращает `422 Unprocessable Content` с кодом `all_profiles_excluded`,
-форматом, общими eligible/excluded counts и агрегированным отображением безопасных
-reason codes. Имена, hosts, row ids и URI в этот response не включаются.
-Unsupported structured entries исключаются частично; безопасные reason codes и
-их количество возвращаются в `SubShare-Exclusion-Codes` и
-`SubShare-Excluded-Count`, а агрегированные количества — в
-`SubShare-Exclusion-Counts`, без URI или credentials.
-
-Структурированные generators закреплены за следующими schema targets:
-
-- Mihomo `1.19.28` — точный target: VLESS, VMess, Trojan; supported Shadowsocks methods/plugins;
-  Hysteria 2 salamander/gecko, port hopping, TLS pin; TUIC v5 common и
-  Mihomo-native fields. ECH/unknown extensions, contradictory duplicates и
-  TUIC v4 исключаются.
-- sing-box `1.13.12` — точный target: VLESS, VMess, Trojan; Shadowsocks; Hysteria 2 salamander и
-  ordered server ports; TUIC v5 common и sing-box-native fields. URI certificate
-  SHA-256 pin не подменяется несовместимым SPKI pin. Gecko относится к 1.14 и не
-  генерируется для выбранного stable target.
-- Xray-core `26.3.27` — минимальный target; `26.7.28` — текущий target. Одинаковая
-  representation прошла syntax validation обоими targets для прежних
-  VLESS/VMess/Trojan, plugin-free Shadowsocks и
-  representable Hysteria 2 (auth, TLS, certificate pin, port hopping,
-  Salamander FinalMask). Gecko без packet-size, TUIC и Shadowsocks с SIP003
-  plugin не конвертируются в другой protocol и возвращают exclusion reason.
-  Hysteria `insecure=1` не преобразуется в удалённый Xray `allowInsecure` и
-  исключается как `field_not_representable`. При port hopping генератор не
-  записывает отсутствующий в URI interval: оба target сами применяют свой
-  официальный default 30 секунд.
-
-`official_binary` в capability matrix означает только, что полный synthetic
-config принят официальной командой проверки синтаксиса. Это не означает сетевой
-handshake, authentication или runtime interoperability; последнее явно
-публикуется как `not_tested`.
-
-Read-only capability matrix доступна в `GET /api/v1/subscription-delivery-settings`.
-Она является backend source of truth; присланное клиентом поле `capabilities`
-не входит в update DTO и отклоняется как неизвестное при update. Тот же response публикует read-only catalog
-`generation_exclusion_reason_codes`; конкретная выдача возвращает только
-безопасные count/codes headers. Подробный frontend profile editor остаётся
-отдельной задачей.
-
-Опциональные проверки официальными binaries не входят в обычный test suite и
-ничего не скачивают. Maintainer сначала вручную скачивает exact tagged official
-release assets, проверяет опубликованные upstream SHA-256 и затем задаёт пути:
-
-```powershell
-$env:MIHOMO_BIN = 'C:\validators\mihomo-v1.19.28.exe'
-$env:SING_BOX_BIN = 'C:\validators\sing-box-1.13.12.exe'
-$env:XRAY_26327_BIN = 'C:\validators\xray-v26.3.27.exe'
-$env:XRAY_CURRENT_BIN = 'C:\validators\xray-v26.7.28.exe'
-go test -count=1 ./cmd/server -run '^TestOfficial(Mihomo|SingBox|Xray)' -v
+```env
+BASE_URL=https://sub.example.com
 ```
 
-Harness использует соответственно `mihomo -t -d <tmp> -f <config>`,
-`sing-box check --disable-color -D <tmp> -c <config>` и
-`xray run -test -c <config>`, подавляет credential-bearing client output и
-удаляет временные configs. При отсутствии переменной соответствующая проверка
-явно пропускается.
+You may leave `ADMIN_PASSWORD=` empty. When the administrators table is empty, the startup script generates the initial owner password, stores it in the private `.env`, and prints it after a successful first startup.
 
-### Пароли администраторов
+The Docker stack also initializes the profile encryption keyring, applies versioned database migrations and waits for the services to become healthy.
 
-Новый или изменённый пароль должен содержать от 15 до 256 Unicode code points
-и занимать не более 1024 байт в UTF-8. Пробелы и Unicode разрешены. Backend и
-панель не обрезают, не нормализуют и не преобразуют пароль; ограничения на
-классы символов не применяются. Эта политика действует при bootstrap, создании
-администратора и смене пароля, но не блокирует вход существующих учётных записей
-с более коротким паролем.
-
-Новые значения хешируются Argon2id и сохраняются в самодостаточном PHC-формате
-`$argon2id$v=19$m=32768,t=3,p=2$<salt>$<digest>`. Параметры: 32 MiB памяти,
-3 итерации, parallelism 2, соль 16 байт и результат 32 байта. После успешного
-входа существующий bcrypt-хеш заменяется Argon2id через условное обновление.
-Ошибка необязательной записи миграции фиксируется безопасным предупреждением,
-но не отменяет успешный вход; неуспешная аутентификация миграцию не запускает.
-
-Проверка по внешней базе утёкших или распространённых паролей намеренно не
-добавлена. Её можно внедрить позже как отдельный слой с надёжным источником и
-ясной политикой доступности, а не как короткий встроенный список слов.
-
-Build metadata передаётся линкером:
-
-```bash
-go build -ldflags "-X main.version=1.2.0 -X main.commit=$(git rev-parse --short HEAD) -X main.buildTime=$(date -u +%FT%TZ)" ./cmd/server
-```
-
-## Маршруты
-
-Панель:
+Open:
 
 ```text
-/admin/overview
-/admin/users
-/admin/keys
-/admin/sources
-/admin/templates
-/admin/response-rules
-/admin/settings/subscription
-/admin/settings/branding
-/admin/settings/security
-/admin/admins
-/admin/audit
+http://localhost/admin/login
 ```
 
-Публичные endpoints:
-
-- `POST /api/subscription/activate`
-- `GET /sub/{subscription_id}` — основной обратно совместимый endpoint выдачи
-- `GET /api/sub/{subscription_id}/info`
-- `GET /health`
-
-Основной admin API расположен под `/api/v1`:
-
-- `GET /api/v1/dashboard`
-- `GET|POST /api/v1/users`, `GET|DELETE /api/v1/users/{id}` и вложенные операции
-- `GET|POST /api/v1/keys`, `PUT|DELETE /api/v1/keys/{id}`
-- CRUD `/api/v1/sources`, `/templates`, `/response-rules`, `/api-tokens`
-- `GET /api/v1/jobs`, `/audit-events`, `/build-info`
-- `GET /api/v1/openapi.yaml`
-
-Старые `/api/admin/*` пока сохранены как compatibility API на переходный релиз. Исключение — удалённые небезопасные bulk-secret GET-маршруты `GET /api/admin/keys` и `GET /api/admin/export/keys`. Новая разработка должна использовать `/api/v1`; данные ключа без секретов доступны через `GET /api/v1/keys` и `GET /api/v1/keys/{id}`, а расшифрованный материал — только через явный revision-aware `POST /api/v1/keys/{id}/reveal`. Переходный `GET /api/v1/keys/full` также удалён.
-
-## Шаблоны и response rules
-
-Правила выполняются по `priority`, затем по `id`. Выигрывает первое совпадение. Пустой список условий соответствует любому запросу и подходит только для последнего fallback.
-
-Поддерживаются операторы:
+Default bootstrap username:
 
 ```text
-EQUALS, NOT_EQUALS, CONTAINS, NOT_CONTAINS,
-STARTS_WITH, NOT_STARTS_WITH, ENDS_WITH, NOT_ENDS_WITH,
-REGEX, NOT_REGEX
+admin
 ```
 
-Шаблон должен совпадать по формату с `response_type`. В custom content доступны `{{subscription}}` и `{{title}}`. Сервер отклоняет CRLF, опасные response headers и некорректные regex.
+---
 
-## Роли и API-токены
+## 🧭 First steps
 
-- `owner` — безопасность, администраторы, настройки и все операции.
-- `operator` — ежедневная работа с пользователями и ключами.
-- `viewer` — только чтение.
+A typical setup is:
 
-Секрет API-токена показывается один раз. В БД сохраняется SHA-256 hash. Доступные scopes: `read`, `users:write`, `keys:write`, `settings:write`.
+1. Sign in to `/admin/login`.
+2. Add local profiles in **Keys**, or configure an external subscription in **Sources**.
+3. Preview external changes before importing them.
+4. Create a user.
+5. Assign the required profiles.
+6. Adjust templates, response rules or subscription settings if needed.
+7. Copy the user's subscription URL and add it to the VPN client.
+8. Use synchronization history and **Audit** when troubleshooting.
 
-```bash
-curl -H "Authorization: Bearer ss_..." https://example.com/api/v1/dashboard
+> [!CAUTION]
+> Treat subscription URLs as bearer secrets. Anyone with a valid URL may be able to retrieve the corresponding subscription.
+
+---
+
+## 🌐 Public deployment
+
+Set:
+
+```env
+BASE_URL=https://sub.example.com
 ```
 
-## Backup и восстановление
+Then make sure:
 
-Backend немедленно создаёт и затем раз в `BACKUP_INTERVAL` атомарно обновляет
-проверенную SQLite-копию внутри persistent volume. Экспортируйте её на хост:
+- DNS points to the server;
+- TCP ports **80** and **443** are reachable;
+- UDP **443** is allowed if you want HTTP/3;
+- no other service occupies ports 80/443.
+
+Caddy obtains and renews HTTPS certificates automatically.
+
+`BASE_URL` must contain only the origin — no trailing slash, path, query string or credentials.
+
+---
+
+## 🐳 Operations
+
+Common Docker commands:
+
+| Task | Command |
+| --- | --- |
+| Service status | `docker compose ps` |
+| Follow logs | `docker compose logs -f` |
+| Backend logs | `docker compose logs -f backend` |
+| Restart services | `docker compose restart` |
+| Stop containers | `docker compose down` |
+| Start existing stack | `docker compose up -d --wait` |
+
+> [!CAUTION]
+> Do **not** run `docker compose down -v` unless you intentionally want to destroy persistent volumes. The data volume contains the SQLite database and profile encryption keyring.
+
+### Backup
+
+When `BACKUP_PATH` is enabled, SubShare maintains an integrity-checked SQLite backup in persistent storage.
+
+Linux:
 
 ```bash
 bash scripts/backup.sh
 ```
 
+Windows:
+
 ```powershell
 .\scripts\backup.ps1
 ```
 
-Скрипт экспортирует пару `app_<timestamp>.db` и
-`keyring_<timestamp>.json` в `backups/`; каталог игнорируется Git. Перед каждым
-upgrade сделайте такой export и отдельно сохраните закрытый `.env`, содержащий
-стабильный `PROFILE_FINGERPRINT_KEY`. Перед восстановлением остановите stack и
-сохраните текущую БД отдельно. Не копируйте активный `app.db` напрямую:
-используйте только экспортированный backup. Восстанавливайте БД только вместе
-с соответствующим keyring, затем проверьте `/health`, вход и существующую
-subscription URL.
+The scripts export a matching pair to `backups/`:
 
-SQLite backup не содержит plaintext profile URI: credentials остаются в
-authenticated encrypted envelopes. При этом БД содержит чувствительные user
-access identifiers и становится расшифровываемой вместе с keyring, поэтому оба
-файла храните как secrets с ограниченным доступом. Потеря keyring делает
-существующие profile credentials невосстановимыми; создание нового keyring не
-восстанавливает старые данные. При использовании
-`PROFILE_ENCRYPTION_KEYRING_JSON` сохраните это secret-manager значение вместо
-файла keyring.
+```text
+app_<timestamp>.db
+keyring_<timestamp>.json
+```
 
-При первом переходе со старой bind-mount конфигурации start-скрипт обнаруживает
-`data/app.db` и копирует его вместе с WAL sidecars и существующим
-`data/keyring.json` в новый named volume, не перезаписывая уже имеющиеся данные.
-Исходные файлы не изменяются и не удаляются. Версионные миграции запускаются
-backend автоматически до открытия HTTP listener.
+Also preserve the private `.env`, especially `PROFILE_FINGERPRINT_KEY`.
 
-## Модель угроз
+A database containing encrypted profile credentials is not independently restorable without its matching encryption keyring.
 
-- Внешние источники принимают только HTTP(S). Loopback, private, link-local, unspecified и другие специальные адреса запрещены после DNS resolution и на каждом redirect.
-- Ответ источника имеет лимит размера и времени; redirects ограничены.
-- `X-Forwarded-*` и `X-Real-IP` учитываются только от явно заданных `TRUSTED_PROXIES`.
-- Unsafe browser-запросы требуют CSRF; cookies имеют HttpOnly/SameSite.
-- Rate limiter ограничивает число хранимых IP.
-- Audit и метрики не должны содержать subscription IDs, activation codes, ключи или HWID.
+### Update
 
-Если репозиторий с ранее отслеживаемыми бинарниками или `backups/*.db` когда-либо публиковался, простого удаления файлов недостаточно: очистите Git history и смените пароль owner, activation codes и subscription IDs.
+Create a fresh backup, then update the repository and rerun the normal start script:
 
-## Проверки
+```bash
+git pull --ff-only
+bash scripts/start.sh
+```
+
+PowerShell:
+
+```powershell
+git pull --ff-only
+powershell -ExecutionPolicy Bypass -File .\scripts\start.ps1
+```
+
+Existing `.env` values and persistent Docker volumes are preserved.
+
+---
+
+## ⚙️ Configuration
+
+The complete reference is in [`.env.example`](.env.example).
+
+| Variable | Purpose |
+| --- | --- |
+| `ADMIN_USER` | Initial owner username; default `admin` |
+| `ADMIN_PASSWORD` | Initial owner password; needed only while no administrators exist |
+| `PROFILE_FINGERPRINT_KEY` | Stable HMAC secret for semantic profile fingerprints |
+| `PROFILE_FINGERPRINT_PREVIOUS_KEYS` | Previous fingerprint keys temporarily retained during rotation |
+| `PROFILE_ENCRYPTION_KEYRING_FILE` | File-backed encryption keyring |
+| `PROFILE_ENCRYPTION_KEYRING_JSON` | Secret-manager alternative to the keyring file |
+| `BASE_URL` | Public HTTP(S) origin |
+| `PORT` | Go API listen port/address; default `8080` |
+| `DB_PATH` | SQLite database path |
+| `DB_JOURNAL_MODE` | SQLite journal mode; `WAL` by default |
+| `CORS_ORIGINS` | Allowed browser origins |
+| `TRUSTED_PROXIES` | Proxy IP/CIDR allowlist for forwarded client-IP headers |
+| `SUBSCRIPTION_BODY_ENCODING` | Legacy fallback: `base64` or `plain` |
+| `BACKUP_PATH` | Automatic backup path |
+| `BACKUP_INTERVAL` | Backup interval, e.g. `1h` |
+| `HAPP_CRYPTO_API_URL` | Optional trusted Happ encryption service |
+
+### Fingerprint key rotation
+
+When intentionally rotating `PROFILE_FINGERPRINT_KEY`:
+
+1. generate a new key;
+2. put the old key in `PROFILE_FINGERPRINT_PREVIOUS_KEYS`;
+3. set the new active key;
+4. synchronize every external source;
+5. remove the old key only after synchronization succeeds everywhere.
+
+Never use the administrator password as the fingerprint key.
+
+---
+
+## 💻 Local development
+
+Requirements:
+
+- Go 1.24+
+- Node.js 22+
+- npm
+
+Create the encryption keyring once:
+
+```bash
+go run ./cmd/server bootstrap keyring data/keyring.json
+```
+
+Start the backend with the required environment variables.
+
+Bash example:
+
+```bash
+export APP_ENV=development
+export ADMIN_USER=admin
+export ADMIN_PASSWORD='replace-with-a-strong-development-password'
+export PROFILE_FINGERPRINT_KEY="$(openssl rand -hex 32)"
+export PROFILE_ENCRYPTION_KEYRING_FILE="data/keyring.json"
+export DB_PATH="data/app.db"
+export BASE_URL="http://localhost:3000"
+
+go run ./cmd/server
+```
+
+PowerShell example:
+
+```powershell
+$env:APP_ENV = "development"
+$env:ADMIN_USER = "admin"
+$env:ADMIN_PASSWORD = "replace-with-a-strong-development-password"
+$env:PROFILE_ENCRYPTION_KEYRING_FILE = "data/keyring.json"
+$env:DB_PATH = "data/app.db"
+$env:BASE_URL = "http://localhost:3000"
+
+$bytes = New-Object byte[] 32
+$rng = [System.Security.Cryptography.RandomNumberGenerator]::Create()
+$rng.GetBytes($bytes)
+$rng.Dispose()
+$env:PROFILE_FINGERPRINT_KEY = -join ($bytes | ForEach-Object { $_.ToString("x2") })
+
+go run ./cmd/server
+```
+
+For persistent development data, reuse the same fingerprint key between restarts.
+
+Start the frontend in a second terminal:
+
+```bash
+cd frontend
+npm ci
+npm run dev
+```
+
+Open `http://localhost:3000/admin/login`.
+
+During development, Next.js proxies `/api/*` and `/sub/*` to the backend on `localhost:8080`.
+
+---
+
+## 🔌 API
+
+The current administration API lives under:
+
+```text
+/api/v1
+```
+
+Common routes:
+
+```text
+GET  /health
+POST /api/subscription/activate
+GET  /sub/{subscription_id}
+GET  /api/sub/{subscription_id}/info
+
+GET  /api/v1/dashboard
+GET  /api/v1/users
+GET  /api/v1/keys
+GET  /api/v1/sources
+GET  /api/v1/jobs
+GET  /api/v1/audit-events
+GET  /api/v1/build-info
+GET  /api/v1/openapi.yaml
+```
+
+See the full OpenAPI 3.1 specification:
+
+[`cmd/server/openapi.yaml`](cmd/server/openapi.yaml)
+
+Legacy `/api/admin/*` routes remain for compatibility in the current release. New integrations should use `/api/v1`.
+
+API token scopes include:
+
+```text
+read
+users:write
+keys:write
+settings:write
+```
+
+Token secrets are displayed once; only their hash is persisted.
+
+---
+
+## 🛡️ Security
+
+SubShare treats VPN credentials, activation data and subscription identifiers as secrets.
+
+Notable controls include:
+
+- application-level authenticated encryption for credential-bearing profile URIs;
+- keyed semantic fingerprints and blind indexes;
+- Argon2id administrator password hashing with legacy bcrypt upgrade support;
+- SSRF protection with DNS and redirect re-validation;
+- CSRF protection for unsafe browser requests;
+- HttpOnly/SameSite session cookies;
+- trusted-proxy allowlisting;
+- rate limiting on sensitive endpoints;
+- role-based administration and scoped API tokens;
+- structured audit logging designed not to expose raw VPN keys, activation codes, subscription IDs or HWIDs.
+
+---
+
+## 🧪 Testing & CI
+
+Backend:
 
 ```bash
 go test ./...
 go vet ./...
-
-cd frontend
-npm ci
-npm run lint
-npx tsc --noEmit
-npm run build
 ```
 
-CI также запрещает tracked runtime binaries, `.env` и SQLite backups. Критерий совместимости: все существующие `/sub/{subscription_id}` продолжают работать после миграций.
+Frontend:
+
+```bash
+cd frontend
+npm ci
+npx tsc --noEmit
+npm run lint
+npm test
+npm run build
+npm run test:e2e
+```
+
+GitHub Actions checks Go build/tests, migration compatibility, `go mod tidy`, Gitleaks, frontend typecheck/lint/tests, Playwright E2E, Docker builds, Caddy configuration and a clean-stack deployment smoke test.
+
+---
+
+## 📁 Project structure
+
+```text
+.
+├── .github/workflows/       GitHub Actions CI
+├── cmd/server/              Go application, API and migrations
+│   └── openapi.yaml         OpenAPI 3.1 specification
+├── internal/                Domain, persistence, protocol and security packages
+├── frontend/                Next.js admin panel, Caddy and E2E tests
+├── scripts/                 Start/update and backup helpers
+├── .env.example             Environment reference
+├── docker-compose.yml       Production stack
+├── Dockerfile               Backend image
+├── Makefile                 Build helpers
+├── go.mod
+└── LICENSE
+```
+
+### Stack
+
+| Layer | Technology |
+| --- | --- |
+| Backend | Go 1.24, `net/http` |
+| Database | SQLite via `modernc.org/sqlite` |
+| Frontend | Next.js 16, React 19, TypeScript |
+| Styling | Tailwind CSS |
+| Reverse proxy | Caddy |
+| Deployment | Docker Compose |
+| API | OpenAPI 3.1 |
+| Tests | Go tests, Vitest, Playwright |
+| Secret scanning | Gitleaks |
+
+---
+
+## 🩺 Troubleshooting
+
+**`PROFILE_FINGERPRINT_KEY` is missing**
+
+Generate a 32-byte random hexadecimal key and store it in `.env` as 64 hexadecimal characters. Keep it stable across normal restarts.
+
+**`BASE_URL` is invalid**
+
+Use only an origin:
+
+```env
+BASE_URL=http://localhost
+```
+
+or:
+
+```env
+BASE_URL=https://sub.example.com
+```
+
+**Ports 80/443 are already in use**
+
+Stop or reconfigure the service currently listening on those host ports.
+
+**HTTPS certificate is not issued**
+
+Check DNS, inbound TCP 80/443, `BASE_URL`, and:
+
+```bash
+docker compose logs frontend
+```
+
+**Existing profiles cannot be decrypted**
+
+Restore the original matching profile encryption keyring. Creating a new keyring cannot recover data encrypted with a lost key.
+
+**Need backend diagnostics**
+
+```bash
+docker compose logs --tail=200 backend
+curl -fsS http://localhost/health
+```
+
+A healthy backend returns:
+
+```json
+{"status":"ok"}
+```
+
+---
+
+## 📄 License
+
+SubShare is released under the [Unlicense](LICENSE).
+
+The software is provided as-is, without warranty.
+
+---
+
+<div align="center">
+
+**SubShare — one subscription layer for your VPN profiles.**
+
+</div>

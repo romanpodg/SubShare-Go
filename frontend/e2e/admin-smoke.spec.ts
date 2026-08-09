@@ -98,11 +98,39 @@ async function expectSingleDividerStructure(locator: Locator) {
 }
 
 async function expectNoHorizontalOverflow(page: Page) {
-  const dimensions = await page.evaluate(() => ({
-    scrollWidth: document.documentElement.scrollWidth,
-    clientWidth: document.documentElement.clientWidth,
-  }));
-  expect(dimensions.scrollWidth).toBeLessThanOrEqual(dimensions.clientWidth);
+  await expect.poll(() => page.evaluate(() => (
+    document.documentElement.scrollWidth - document.documentElement.clientWidth
+  ))).toBeLessThanOrEqual(0);
+}
+
+async function expectOverviewStatsFillLastRow(page: Page) {
+  const stats = page.getByTestId("overview-stats");
+  const metrics = await stats.evaluate((element) => {
+    const grid = element.getBoundingClientRect();
+    const cards = Array.from(element.children).map((child) => child.getBoundingClientRect());
+    const lastRowTop = Math.max(...cards.map((card) => card.top));
+    const lastRow = cards.filter((card) => Math.abs(card.top - lastRowTop) <= 1);
+    return {
+      gridRight: grid.right,
+      lastRowRight: Math.max(...lastRow.map((card) => card.right)),
+    };
+  });
+
+  expect(Math.abs(metrics.gridRight - metrics.lastRowRight)).toBeLessThanOrEqual(2);
+}
+
+async function expectOverviewJoinedAccentAssignments(page: Page) {
+  const joinedAccents = page.locator([
+    "[data-testid='overview-stats'] > .technical-frame--joined-accent",
+    "[data-testid='overview-recent-actions'].technical-frame--joined-accent",
+    "[data-testid='overview-operational-status'].technical-frame--joined-accent",
+    "[data-testid='overview-background-jobs'].technical-frame--joined-accent",
+  ].join(", "));
+
+  await expect(joinedAccents).toHaveCount(8);
+  expect(await joinedAccents.evaluateAll((elements) => elements.every((element) =>
+    element.parentElement?.matches(".ui-joined-grid, .ui-joined-list")
+  ))).toBe(true);
 }
 
 async function expectNoWcagViolations(page: Page) {
@@ -215,7 +243,17 @@ test("authenticated overview renders dashboard data without runtime errors", asy
   await expect(page.getByText("2/3")).toBeVisible();
   await expect(page.getByText("готова")).toBeVisible();
   await expectSingleDividerStructure(page.locator(".ui-joined-grid").first());
-  await expectNoHorizontalOverflow(page);
+  for (const viewport of [
+    { width: 1920, height: 1080 },
+    { width: 1440, height: 900 },
+    { width: 1024, height: 900 },
+    { width: 390, height: 844 },
+  ]) {
+    await page.setViewportSize(viewport);
+    await expectOverviewStatsFillLastRow(page);
+    await expectOverviewJoinedAccentAssignments(page);
+    await expectNoHorizontalOverflow(page);
+  }
   expect(runtimeErrors).toEqual([]);
 });
 

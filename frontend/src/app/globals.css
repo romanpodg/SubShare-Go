@@ -304,6 +304,12 @@ a {
   gap: 1px;
 }
 
+@media (min-width: 640px) and (max-width: 1279px) {
+  .ui-overview-stats > :last-child:nth-child(odd) {
+    grid-column: 1 / -1;
+  }
+}
+
 .ui-joined-grid > *,
 .ui-joined-list > * {
   min-width: 0;
@@ -332,6 +338,15 @@ a {
   height: 7px;
   pointer-events: none;
   content: "";
+}
+
+.ui-joined-grid
+  > .technical-frame.technical-frame--joined-accent::before,
+.ui-joined-list
+  > .technical-frame.technical-frame--joined-accent::before {
+  top: 1px;
+  left: 0;
+  display: block;
 }
 
 .ui-control {

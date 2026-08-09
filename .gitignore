@@ -21,13 +21,9 @@ coverage.out
 .env
 .env.local
 
-# SQLite runtime files
-data/*.db
-data/*.db-shm
-data/*.db-wal
-backups/*.db
-backups/*.db-shm
-backups/*.db-wal
+# Runtime state and local backups
+/data/
+/backups/
 
 # Logs
 *.log
@@ -41,9 +37,5 @@ backups/*.db-wal
 # Legacy SSL/Certbot material (Caddy now stores TLS state in a Docker volume)
 certs/
 *.key
-data/*.db
-data/*.db-shm
-data/*.db-wal
-
 
 CLAUDE.md

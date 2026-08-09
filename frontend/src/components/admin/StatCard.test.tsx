@@ -20,4 +20,20 @@ describe("StatCard", () => {
     expect(screen.getByText("из 50")).toBeInTheDocument();
     expect(screen.getByLabelText("Статистика")).toBeInTheDocument();
   });
+
+  it("forwards a semantic layout modifier to its technical frame", () => {
+    const { container } = render(
+      <StatCard
+        className="technical-frame--joined-accent"
+        label="Активные"
+        value={42}
+        icon={<Activity />}
+      />
+    );
+
+    expect(container.firstElementChild).toHaveClass(
+      "technical-frame",
+      "technical-frame--joined-accent"
+    );
+  });
 });

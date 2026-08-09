@@ -84,17 +84,22 @@ export default function OverviewPage() {
               Часть данных временно недоступна: {data.degraded_sections.join(", ")}.
             </div>
           )}
-          <div className="ui-joined-list technical-frame">
-            <div className="ui-joined-grid grid sm:grid-cols-2 xl:grid-cols-5">
-              <StatCard label="Всего пользователей" value={data.users.total} icon={<Users className="h-5 w-5" />} />
-              <StatCard label="Активные" value={data.users.active} icon={<ShieldCheck className="h-5 w-5" />} tone="emerald" />
-              <StatCard label="Истекли" value={data.users.expired} icon={<AlertTriangle className="h-5 w-5" />} tone="rose" />
-              <StatCard label="Ключи доступны" value={`${data.keys.up}/${data.keys.total}`} icon={<KeyRound className="h-5 w-5" />} tone={data.keys.down ? "amber" : "cyan"} />
-              <StatCard label="Источники" value={data.sources.total} hint={data.sources.errors ? `Ошибок: ${data.sources.errors}` : "Ошибок нет"} icon={<RadioTower className="h-5 w-5" />} tone={data.sources.errors ? "rose" : "zinc"} />
-            </div>
+          <div
+            className="ui-overview-stats ui-joined-grid grid sm:grid-cols-2 xl:grid-cols-5"
+            data-testid="overview-stats"
+          >
+            <StatCard className="technical-frame--joined-accent" label="Всего пользователей" value={data.users.total} icon={<Users className="h-5 w-5" />} />
+            <StatCard className="technical-frame--joined-accent" label="Активные" value={data.users.active} icon={<ShieldCheck className="h-5 w-5" />} tone="emerald" />
+            <StatCard className="technical-frame--joined-accent" label="Истекли" value={data.users.expired} icon={<AlertTriangle className="h-5 w-5" />} tone="rose" />
+            <StatCard className="technical-frame--joined-accent" label="Ключи доступны" value={`${data.keys.up}/${data.keys.total}`} icon={<KeyRound className="h-5 w-5" />} tone={data.keys.down ? "amber" : "cyan"} />
+            <StatCard className="technical-frame--joined-accent" label="Источники" value={data.sources.total} hint={data.sources.errors ? `Ошибок: ${data.sources.errors}` : "Ошибок нет"} icon={<RadioTower className="h-5 w-5" />} tone={data.sources.errors ? "rose" : "zinc"} />
+          </div>
 
-            <div className="ui-joined-grid grid xl:grid-cols-[1.4fr_1fr]">
-            <section className="technical-frame border border-border bg-surface-1">
+          <div className="ui-joined-grid grid xl:grid-cols-[1.4fr_1fr]">
+            <section
+              className="technical-frame technical-frame--joined-accent border border-border bg-surface-1"
+              data-testid="overview-recent-actions"
+            >
               <div className="border-b border-border px-5 py-4">
                 <h2 className="font-semibold text-zinc-200">Последние действия</h2>
                 <p className="mt-1 text-xs text-zinc-600">Журнал не содержит токенов, HWID и содержимого ключей.</p>
@@ -114,7 +119,10 @@ export default function OverviewPage() {
               </div>
             </section>
 
-            <section className="technical-frame border border-border bg-surface-1 p-5">
+            <section
+              className="technical-frame technical-frame--joined-accent border border-border bg-surface-1 p-5"
+              data-testid="overview-operational-status"
+            >
               <h2 className="font-semibold text-zinc-200">Операционный статус</h2>
               <div className="ui-joined-list mt-5">
                 {[
@@ -147,28 +155,32 @@ export default function OverviewPage() {
                 ))}
               </div>
             </section>
-            </div>
-            <section className="technical-frame border border-border bg-surface-1">
-            <div className="border-b border-border px-5 py-4">
-              <h2 className="font-semibold text-zinc-200">Фоновые задания</h2>
-              <p className="mt-1 text-xs text-zinc-600">Синхронизации источников и массовые проверки ключей.</p>
-            </div>
-            {Boolean(jobsError) && (
-              <div className="p-4">
-                <ResourceError error={jobsError} onRetry={() => void load()} compact title="Не удалось загрузить фоновые задания" />
+          </div>
+          <div className="ui-joined-list">
+            <section
+              className="technical-frame technical-frame--joined-accent border border-border bg-surface-1"
+              data-testid="overview-background-jobs"
+            >
+              <div className="border-b border-border px-5 py-4">
+                <h2 className="font-semibold text-zinc-200">Фоновые задания</h2>
+                <p className="mt-1 text-xs text-zinc-600">Синхронизации источников и массовые проверки ключей.</p>
               </div>
-            )}
-            <div className="divide-y divide-border">
-              {!jobsError && jobs.map((job) => (
-                <div key={job.id} className="grid gap-3 px-5 py-4 text-sm md:grid-cols-[180px_120px_1fr_auto] md:items-center">
-                  <span className="font-medium text-zinc-300">{job.kind}</span>
-                  <span className={job.status === "succeeded" ? "text-success" : job.status === "failed" ? "text-danger" : "text-warning"}>{job.status}</span>
-                  <span className="truncate text-xs text-zinc-600">{job.error_message || `${job.target_type} ${job.target_id}`}</span>
-                  {job.status === "failed" && <Button variant="outline" onClick={() => retryJob(job.id)}>Повторить</Button>}
+              {Boolean(jobsError) && (
+                <div className="p-4">
+                  <ResourceError error={jobsError} onRetry={() => void load()} compact title="Не удалось загрузить фоновые задания" />
                 </div>
-              ))}
-              {!jobsError && jobs.length === 0 && <div className="px-5 py-10 text-center text-sm text-zinc-600">Заданий пока нет</div>}
-            </div>
+              )}
+              <div className="divide-y divide-border">
+                {!jobsError && jobs.map((job) => (
+                  <div key={job.id} className="grid gap-3 px-5 py-4 text-sm md:grid-cols-[180px_120px_1fr_auto] md:items-center">
+                    <span className="font-medium text-zinc-300">{job.kind}</span>
+                    <span className={job.status === "succeeded" ? "text-success" : job.status === "failed" ? "text-danger" : "text-warning"}>{job.status}</span>
+                    <span className="truncate text-xs text-zinc-600">{job.error_message || `${job.target_type} ${job.target_id}`}</span>
+                    {job.status === "failed" && <Button variant="outline" onClick={() => retryJob(job.id)}>Повторить</Button>}
+                  </div>
+                ))}
+                {!jobsError && jobs.length === 0 && <div className="px-5 py-10 text-center text-sm text-zinc-600">Заданий пока нет</div>}
+              </div>
             </section>
           </div>
         </>

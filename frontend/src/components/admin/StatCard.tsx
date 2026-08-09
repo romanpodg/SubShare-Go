@@ -6,12 +6,14 @@ export function StatCard({
   icon,
   tone = "cyan",
   hint,
+  className = "",
 }: {
   label: string;
   value: number | string;
   icon: ReactNode;
   tone?: "cyan" | "emerald" | "amber" | "rose" | "zinc";
   hint?: string;
+  className?: string;
 }) {
   const tones = {
     cyan: "border-info/20 bg-info/10 text-info",
@@ -21,7 +23,7 @@ export function StatCard({
     zinc: "border-border bg-surface-2 text-muted",
   };
   return (
-    <div className="technical-frame min-h-36 border border-border bg-surface-1 p-4">
+    <div className={`technical-frame min-h-36 border border-border bg-surface-1 p-4 ${className}`}>
       <div className="flex items-start justify-between gap-4">
         <div>
           <div className="font-mono text-[9px] font-semibold uppercase tracking-[0.14em] text-zinc-600">{label}</div>
