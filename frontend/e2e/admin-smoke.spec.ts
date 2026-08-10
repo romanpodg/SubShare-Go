@@ -138,6 +138,162 @@ async function expectNoWcagViolations(page: Page) {
   expect(results.violations, results.violations.map((violation) => `${violation.id}: ${violation.help}`).join("\n")).toEqual([]);
 }
 
+async function openKeysPage(page: Page) {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  const longKeyLabel = "Очень длинное название ключа 👇 без гарантии, с дополнительным описанием маршрута и региона подключения";
+  const longSourceName = "EXAMPLE VPN | @examplebot — резервный внешний источник с очень длинным служебным названием для проверки синхронизации импортированных конфигураций и резервных маршрутов";
+  const longClientDisplayName = "🔴 Обход блокировок без гарантии — резервный маршрут через Амстердам с дополнительным описанием подключения";
+
+  await page.route("**/api/auth/me", (route) =>
+    route.fulfill({
+      contentType: "application/json",
+      body: JSON.stringify({ username: "owner", role: "owner", csrf_token: "test" }),
+    })
+  );
+  await page.route("**/api/v1/panel-settings", (route) =>
+    route.fulfill({
+      contentType: "application/json",
+      body: JSON.stringify({ app_name: "SubShare", logo_url: "", theme: "dark" }),
+    })
+  );
+  await page.route("**/api/v1/build-info", (route) =>
+    route.fulfill({
+      contentType: "application/json",
+      body: JSON.stringify({ version: "test", commit: "abc", build_time: "now", schema_version: 5 }),
+    })
+  );
+  await page.route("**/api/v1/subscription-settings", (route) =>
+    route.fulfill({
+      contentType: "application/json",
+      body: JSON.stringify({
+        title: "SubShare",
+        refresh_hours: 24,
+        info_url: "",
+        extra_url: "",
+        extra_status: "down",
+        subscription_format: "links",
+        time_zone: "UTC",
+        language: "ru",
+        provider_id: "subshare",
+        happ_no_limit_mode: false,
+        happ_no_limit_mode_xhttp_only: false,
+        happ_mandatory_hwid: false,
+        happ_notify_expiration: false,
+        happ_hide_server_settings: false,
+        happ_subscription_body: "",
+      }),
+    })
+  );
+  await page.route("**/api/v1/key-categories", (route) =>
+    route.fulfill({
+      contentType: "application/json",
+      body: JSON.stringify({
+        data: [
+          { id: 1, name: "EXAMPLE VPN", color: "#22b8cf", keys_count: 1 },
+          { id: 2, name: "Резерв", color: "#f59e0b", keys_count: 0 },
+          { id: 3, name: "Авто", color: "#8b5cf6", keys_count: 0 },
+          { id: 4, name: "Игровой", color: "#22c55e", keys_count: 0 },
+          { id: 5, name: "Хистерия", color: "#eab308", keys_count: 0 },
+          {
+            id: 6,
+            name: "Очень длинное название дополнительной категории",
+            color: "#06b6d4",
+            keys_count: 0,
+          },
+        ],
+      }),
+    })
+  );
+  const handleKeysRoute = (route: import("@playwright/test").Route) =>
+    route.fulfill({
+      contentType: "application/json",
+      body: JSON.stringify({
+        data: [
+          {
+            id: 11,
+            label: longClientDisplayName,
+            client_display_name: longClientDisplayName,
+            category: "EXAMPLE VPN",
+            kind: "real",
+            template_text: "",
+            status: "active",
+            check_status: "up",
+            check_error: "",
+            last_latency_ms: 38,
+            last_checked_at: "2026-07-29T10:00:00Z",
+            external_source_id: 0,
+            external_source_name: "",
+            protocol: "vless",
+            created_at: "2026-07-29T10:00:00Z",
+          },
+          {
+            id: 12,
+            label: longKeyLabel,
+            client_display_name: "",
+            category: "",
+            kind: "informational",
+            template_text: "Service window: 03:00 UTC",
+            status: "active",
+            check_status: "unknown",
+            check_error: "",
+            last_latency_ms: 0,
+            last_checked_at: "",
+            external_source_id: 7,
+            external_source_name: longSourceName,
+            created_at: "2026-07-29T10:00:00Z",
+          },
+        ],
+        meta: { page: 1, page_size: 50, total: 2, total_pages: 1 },
+      }),
+    });
+  await page.route("**/api/v1/keys?*", handleKeysRoute);
+  await page.route("**/api/v1/keys", handleKeysRoute);
+  await page.route("**/api/v1/key-editor-schema", (route) =>
+    route.fulfill({
+      contentType: "application/json",
+      body: JSON.stringify({ data: { protocols: [], exclusion_reason_codes: {} } }),
+    })
+  );
+  await page.route("**/api/v1/keys/11", (route) =>
+    route.fulfill({
+      contentType: "application/json",
+      body: JSON.stringify({
+        data: {
+          id: 11,
+          label: longClientDisplayName,
+          client_display_name: longClientDisplayName,
+          client_display_name_overridden: true,
+          category_id: 1,
+          category: "EXAMPLE VPN",
+          kind: "real",
+          status: "active",
+          check_status: "up",
+          check_error: { code: "", message: "" },
+          last_latency_ms: 38,
+          last_checked_at: "2026-07-29T10:00:00Z",
+          template_text: "",
+          ownership: "local",
+          external_source_id: null,
+          external_source_name: "",
+          protocol: "vless",
+          profile_schema_version: 1,
+          profile_compatibility: "supported",
+          profile_warnings: [],
+          profile_revision: 1,
+          created_at: "2026-07-29T10:00:00Z",
+          updated_at: "2026-07-29T10:00:00Z",
+          unknown_query_parameters: [],
+          capabilities: {},
+        },
+      }),
+    })
+  );
+
+  await page.goto("/admin/keys");
+  await expect(page.locator(".ui-key-card")).toHaveCount(2);
+  return { longKeyLabel, longSourceName, longClientDisplayName };
+}
+
 test("login page is usable at desktop and mobile widths", async ({ page }) => {
   await page.route("**/api/v1/panel-settings", (route) =>
     route.fulfill({
@@ -360,115 +516,8 @@ test("user HWID list handles an empty device response", async ({ page }) => {
   expect(runtimeErrors).toEqual([]);
 });
 
-test("keys controls stay on one desktop row and key lists remain readable", async ({ page }) => {
-  await page.setViewportSize({ width: 1440, height: 900 });
-  const longKeyLabel = "Очень длинное название ключа 👇 без гарантии, с дополнительным описанием маршрута и региона подключения";
-  const longSourceName = "LIBERTAS @lbrtsbot — резервный внешний источник с очень длинным служебным названием для синхронизации импортированных конфигураций и резервных маршрутов";
-  const longClientDisplayName = "🔴 Обход блокировок без гарантии — резервный маршрут через Амстердам с дополнительным описанием подключения";
-  await page.route("**/api/auth/me", (route) =>
-    route.fulfill({
-      contentType: "application/json",
-      body: JSON.stringify({ username: "owner", role: "owner", csrf_token: "test" }),
-    })
-  );
-  await page.route("**/api/v1/panel-settings", (route) =>
-    route.fulfill({
-      contentType: "application/json",
-      body: JSON.stringify({ app_name: "SubShare", logo_url: "", theme: "dark" }),
-    })
-  );
-  await page.route("**/api/v1/build-info", (route) =>
-    route.fulfill({
-      contentType: "application/json",
-      body: JSON.stringify({ version: "test", commit: "abc", build_time: "now", schema_version: 5 }),
-    })
-  );
-  await page.route("**/api/v1/subscription-settings", (route) =>
-    route.fulfill({
-      contentType: "application/json",
-      body: JSON.stringify({
-        title: "SubShare",
-        refresh_hours: 24,
-        info_url: "",
-        extra_url: "",
-        extra_status: "down",
-        subscription_format: "links",
-        time_zone: "UTC",
-        language: "ru",
-        provider_id: "subshare",
-        happ_no_limit_mode: false,
-        happ_no_limit_mode_xhttp_only: false,
-        happ_mandatory_hwid: false,
-        happ_notify_expiration: false,
-        happ_hide_server_settings: false,
-        happ_subscription_body: "",
-      }),
-    })
-  );
-  await page.route("**/api/v1/key-categories", (route) =>
-    route.fulfill({
-      contentType: "application/json",
-      body: JSON.stringify({
-        data: [
-          { id: 1, name: "Либертас", color: "#22b8cf", keys_count: 1 },
-          { id: 2, name: "Резерв", color: "#f59e0b", keys_count: 0 },
-          { id: 3, name: "Авто", color: "#8b5cf6", keys_count: 0 },
-          { id: 4, name: "Игровой", color: "#22c55e", keys_count: 0 },
-          { id: 5, name: "Хистерия", color: "#eab308", keys_count: 0 },
-          {
-            id: 6,
-            name: "Очень длинное название дополнительной категории",
-            color: "#06b6d4",
-            keys_count: 0,
-          },
-        ],
-      }),
-    })
-  );
-  const handleKeysRoute = (route: import("@playwright/test").Route) =>
-    route.fulfill({
-      contentType: "application/json",
-      body: JSON.stringify({
-        data: [
-          {
-            id: 11,
-            label: longClientDisplayName,
-            category: "Либертас",
-            kind: "real",
-            template_text: "",
-            status: "active",
-            check_status: "up",
-            check_error: "",
-            last_latency_ms: 38,
-            last_checked_at: "2026-07-29T10:00:00Z",
-            external_source_id: 0,
-            external_source_name: "",
-            protocol: "vless",
-            created_at: "2026-07-29T10:00:00Z",
-          },
-          {
-            id: 12,
-            label: longKeyLabel,
-            category: "",
-            kind: "informational",
-            template_text: "Service window: 03:00 UTC",
-            status: "active",
-            check_status: "unknown",
-            check_error: "",
-            last_latency_ms: 0,
-            last_checked_at: "",
-            external_source_id: 7,
-            external_source_name: longSourceName,
-            created_at: "2026-07-29T10:00:00Z",
-          },
-        ],
-        meta: { page: 1, page_size: 50, total: 2, total_pages: 1 },
-      }),
-    });
-  await page.route("**/api/v1/keys?*", handleKeysRoute);
-  await page.route("**/api/v1/keys", handleKeysRoute);
-
-  await page.goto("/admin/keys");
+test("sidebar keeps its item alignment and supports scrolling when collapsed or short", async ({ page }) => {
+  await openKeysPage(page);
   const sidebar = page.locator("aside[data-collapsed]");
   const sidebarNav = sidebar.locator(".ui-sidebar-nav");
   const sidebarLinks = sidebar.locator(".ui-sidebar-nav-item");
@@ -515,6 +564,10 @@ test("keys controls stay on one desktop row and key lists remain readable", asyn
     element.scrollTop = 0;
   });
   await page.setViewportSize({ width: 1440, height: 900 });
+});
+
+test("key-list controls, alignment, and labels remain readable across viewports", async ({ page }) => {
+  const { longKeyLabel, longSourceName, longClientDisplayName } = await openKeysPage(page);
 
   const headerControls = page.locator(".ui-key-module-header").locator("button, a[role='button'], label.ui-icon-button");
   await expect(headerControls).toHaveCount(6);
@@ -626,15 +679,15 @@ test("keys controls stay on one desktop row and key lists remain readable", asyn
 
   const keyModuleCard = page.locator(".ui-key-module-card");
   const uncategorizedBlock = page.locator('[data-category-block="uncategorized"]');
-  const libertasBlock = page.locator('[data-category-block="Либертас"]');
+  const sourceBlock = page.locator('[data-category-block="EXAMPLE VPN"]');
   const reserveBlock = page.locator('[data-category-block="Резерв"]');
-  const libertasPanel = libertasBlock.locator(".ui-key-category-panel");
+  const sourcePanel = sourceBlock.locator(".ui-key-category-panel");
   const reservePanel = reserveBlock.locator(".ui-key-category-panel");
-  const libertasRailContainer = libertasBlock.locator(".ui-key-category-rail");
-  const libertasRailLine = libertasBlock.locator(".ui-key-category-rail-line");
-  const libertasRailLabel = libertasBlock.locator(".ui-key-category-rail-label");
+  const sourceRailContainer = sourceBlock.locator(".ui-key-category-rail");
+  const sourceRailLine = sourceBlock.locator(".ui-key-category-rail-line");
+  const sourceRailLabel = sourceBlock.locator(".ui-key-category-rail-label");
   const reserveRailLabel = reserveBlock.locator(".ui-key-category-rail-label");
-  const libertasRailBadge = libertasBlock.locator(".ui-key-category-rail-badge");
+  const sourceRailBadge = sourceBlock.locator(".ui-key-category-rail-badge");
   const reserveRailBadge = reserveBlock.locator(".ui-key-category-rail-badge");
 
   const expectRailLabelCentered = async (rail: Locator, badge: Locator, panel: Locator) => {
@@ -657,9 +710,9 @@ test("keys controls stay on one desktop row and key lists remain readable", asyn
     await expect(keyModuleCard).toHaveCSS("margin-right", `${expectedMarginRight}px`);
     const bounds = await Promise.all([
       uncategorizedBlock.boundingBox(),
-      libertasPanel.boundingBox(),
+      sourcePanel.boundingBox(),
       keyModuleCard.boundingBox(),
-      libertasRailContainer.boundingBox(),
+      sourceRailContainer.boundingBox(),
     ]);
     expect(bounds.every(Boolean)).toBe(true);
     const [uncategorizedBounds, panelBounds, moduleBounds, railBounds] = bounds as [
@@ -675,11 +728,11 @@ test("keys controls stay on one desktop row and key lists remain readable", asyn
     expect(Math.abs(railBounds.height - panelBounds.height)).toBeLessThanOrEqual(1);
     expect(railBounds.x).toBeGreaterThan(moduleBounds.x + moduleBounds.width);
     expect(Math.round(railBounds.width)).toBe(52);
-    await expectRailLabelCentered(libertasRailContainer, libertasRailBadge, libertasPanel);
+    await expectRailLabelCentered(sourceRailContainer, sourceRailBadge, sourcePanel);
   };
 
   await expectAlignedCategoryGeometry(84);
-  const railTerminalMetrics = await libertasRailLine.evaluate((element) => {
+  const railTerminalMetrics = await sourceRailLine.evaluate((element) => {
     const line = getComputedStyle(element);
     const before = getComputedStyle(element, "::before");
     const after = getComputedStyle(element, "::after");
@@ -702,7 +755,7 @@ test("keys controls stay on one desktop row and key lists remain readable", asyn
   expect(railTerminalMetrics.afterHeight).toBe("1px");
   expect(railTerminalMetrics.beforeColor).toBe(railTerminalMetrics.lineColor);
   expect(railTerminalMetrics.afterColor).toBe(railTerminalMetrics.lineColor);
-  await expect(libertasRailContainer).toHaveAttribute("aria-hidden", "true");
+  await expect(sourceRailContainer).toHaveAttribute("aria-hidden", "true");
   await expectNoHorizontalOverflow(page);
 
   await page.setViewportSize({ width: 1920, height: 900 });
@@ -711,15 +764,15 @@ test("keys controls stay on one desktop row and key lists remain readable", asyn
 
   await page.setViewportSize({ width: 1024, height: 900 });
   await expectAlignedCategoryGeometry(84);
-  await expect(libertasRailContainer).toBeVisible();
+  await expect(sourceRailContainer).toBeVisible();
   await expectNoHorizontalOverflow(page);
 
   await page.setViewportSize({ width: 768, height: 900 });
   await expect(keyModuleCard).toHaveCSS("margin-right", "0px");
-  await expect(libertasRailContainer).toBeHidden();
+  await expect(sourceRailContainer).toBeHidden();
   const compactCategoryBounds = await Promise.all([
     uncategorizedBlock.boundingBox(),
-    libertasPanel.boundingBox(),
+    sourcePanel.boundingBox(),
   ]);
   expect(compactCategoryBounds.every(Boolean)).toBe(true);
   expect(Math.abs(compactCategoryBounds[0]!.x - compactCategoryBounds[1]!.x)).toBeLessThanOrEqual(1);
@@ -728,28 +781,28 @@ test("keys controls stay on one desktop row and key lists remain readable", asyn
   await page.setViewportSize({ width: 1440, height: 900 });
 
   await page.emulateMedia({ reducedMotion: "reduce" });
-  await page.getByRole("button", { name: "Перейти к категории «Либертас»" }).click();
-  await expect(libertasBlock).toBeFocused();
-  await Promise.all([libertasPanel, reservePanel].map((panel) =>
+  await page.getByRole("button", { name: "Перейти к категории «EXAMPLE VPN»" }).click();
+  await expect(sourceBlock).toBeFocused();
+  await Promise.all([sourcePanel, reservePanel].map((panel) =>
     panel.evaluate((element) => {
       element.style.minHeight = "900px";
     })
   ));
-  await expect(libertasRailLabel).toHaveCSS("position", "sticky");
-  await expect(libertasRailLabel).toHaveCSS("top", "80px");
+  await expect(sourceRailLabel).toHaveCSS("position", "sticky");
+  await expect(sourceRailLabel).toHaveCSS("top", "80px");
   await expectAlignedCategoryGeometry(84);
 
-  const libertasDocumentTop = await libertasBlock.evaluate((element) =>
+  const sourceDocumentTop = await sourceBlock.evaluate((element) =>
     element.getBoundingClientRect().top + window.scrollY
   );
-  await page.evaluate((scrollTop) => window.scrollTo(0, scrollTop), libertasDocumentTop + 240);
+  await page.evaluate((scrollTop) => window.scrollTo(0, scrollTop), sourceDocumentTop + 240);
   await expect.poll(() =>
-    libertasRailLabel.evaluate((element) => Math.round(element.getBoundingClientRect().top))
+    sourceRailLabel.evaluate((element) => Math.round(element.getBoundingClientRect().top))
   ).toBe(80);
-  await expectRailLabelCentered(libertasRailContainer, libertasRailBadge, libertasPanel);
+  await expectRailLabelCentered(sourceRailContainer, sourceRailBadge, sourcePanel);
   const firstCategoryBounds = await Promise.all([
-    libertasPanel.evaluate((element) => element.getBoundingClientRect().bottom),
-    libertasRailBadge.evaluate((element) => element.getBoundingClientRect().bottom),
+    sourcePanel.evaluate((element) => element.getBoundingClientRect().bottom),
+    sourceRailBadge.evaluate((element) => element.getBoundingClientRect().bottom),
   ]);
   expect(firstCategoryBounds[1]).toBeLessThanOrEqual(firstCategoryBounds[0] + 1);
 
@@ -760,21 +813,21 @@ test("keys controls stay on one desktop row and key lists remain readable", asyn
   await expect.poll(() =>
     reserveRailLabel.evaluate((element) => Math.round(element.getBoundingClientRect().top))
   ).toBe(80);
-  await expectRailLabelCentered(libertasRailContainer, libertasRailBadge, libertasPanel);
+  await expectRailLabelCentered(sourceRailContainer, sourceRailBadge, sourcePanel);
   await expectRailLabelCentered(
     reserveBlock.locator(".ui-key-category-rail"),
     reserveRailBadge,
     reservePanel
   );
   const categoryHandoffBounds = await Promise.all([
-    libertasRailBadge.evaluate((element) => element.getBoundingClientRect().bottom),
+    sourceRailBadge.evaluate((element) => element.getBoundingClientRect().bottom),
     reservePanel.evaluate((element) => element.getBoundingClientRect().top),
     reserveRailLabel.evaluate((element) => element.getBoundingClientRect().top),
   ]);
   expect(categoryHandoffBounds[0]).toBeLessThanOrEqual(categoryHandoffBounds[1] + 1);
   expect(Math.round(categoryHandoffBounds[2])).toBe(80);
 
-  await Promise.all([libertasPanel, reservePanel].map((panel) =>
+  await Promise.all([sourcePanel, reservePanel].map((panel) =>
     panel.evaluate((element) => {
       element.style.minHeight = "";
     })
@@ -783,13 +836,13 @@ test("keys controls stay on one desktop row and key lists remain readable", asyn
     window.scrollTo(0, 0);
   });
 
-  const hideLibertas = page.getByRole("button", { name: "Скрыть категорию «Либертас»" }).first();
-  await hideLibertas.click();
-  await expect(libertasBlock.getByText("Категория скрыта")).toBeVisible();
-  await page.getByRole("button", { name: "Показать категорию «Либертас»" }).first().click();
-  await expect(libertasBlock.getByText("Категория скрыта")).toHaveCount(0);
+  const hideSourceCategory = page.getByRole("button", { name: "Скрыть категорию «EXAMPLE VPN»" }).first();
+  await hideSourceCategory.click();
+  await expect(sourceBlock.getByText("Категория скрыта")).toBeVisible();
+  await page.getByRole("button", { name: "Показать категорию «EXAMPLE VPN»" }).first().click();
+  await expect(sourceBlock.getByText("Категория скрыта")).toHaveCount(0);
 
-  const categoryIconControls = libertasBlock.locator(".ui-key-category-controls button");
+  const categoryIconControls = sourceBlock.locator(".ui-key-category-controls button");
   await expect(categoryIconControls).toHaveCount(4);
   const categoryIconWidths = await categoryIconControls.evaluateAll((controls) =>
     controls.map((control) => Math.round(control.getBoundingClientRect().width))
@@ -903,6 +956,10 @@ test("keys controls stay on one desktop row and key lists remain readable", asyn
   await expect(page.getByRole("button", { name: "Внешние источники", exact: true })).toBeVisible();
   await expect(page.getByRole("button", { name: /Изменить выбранные ключи/ })).toHaveCount(0);
   await expect(page.getByRole("button", { name: /Удалить выбранные ключи/ })).toHaveCount(0);
+});
+
+test("key editor remains usable and responsive", async ({ page }) => {
+  const { longClientDisplayName } = await openKeysPage(page);
 
   const informationalColumnTitle = page
     .locator(".ui-key-column-title")
@@ -974,7 +1031,7 @@ test("keys controls stay on one desktop row and key lists remain readable", asyn
   expect(categoryOverflow).toEqual({ horizontal: false, vertical: false });
   await categoryDialog.getByRole("button", { name: "Закрыть" }).click();
 
-  await configurationDialog.getByLabel("Название").fill("Несохранённый черновик");
+  await configurationDialog.getByLabel("Название", { exact: true }).fill("Несохранённый черновик");
   await configurationDialog.getByRole("button", { name: "Закрыть" }).click();
   const discardDialog = page.getByRole("dialog", { name: "Закрыть без сохранения?" });
   const discardFrameMetrics = await discardDialog.evaluate((element) => ({
@@ -1030,6 +1087,10 @@ test("keys controls stay on one desktop row and key lists remain readable", asyn
   await editDialog.getByRole("button", { name: "Закрыть" }).click();
 
   await expectNoHorizontalOverflow(page);
+});
+
+test("key drag autoscrolls the page near the viewport edge", async ({ page }) => {
+  await openKeysPage(page);
 
   await page.evaluate(() => {
     document.body.style.minHeight = "3200px";
@@ -1339,10 +1400,17 @@ test("public subscription page stays dark, accessible, and responsive", async ({
     const windowsLink = page.locator('[data-button-id="windows"]');
     const windowsIcon = windowsLink.locator('[style*="--button-icon-mask"]');
     await expect(windowsIcon).toBeVisible();
-    const iconColors = await Promise.all([
-      windowsLink.evaluate((element) => getComputedStyle(element).color),
-      windowsIcon.evaluate((element) => getComputedStyle(element).backgroundColor),
-    ]);
+    await expect.poll(() => windowsLink.evaluate((element) => {
+      const icon = element.querySelector<HTMLElement>('[style*="--button-icon-mask"]');
+      return icon !== null && getComputedStyle(icon).backgroundColor === getComputedStyle(element).color;
+    })).toBe(true);
+    const iconColors = await windowsLink.evaluate((element) => {
+      const icon = element.querySelector<HTMLElement>('[style*="--button-icon-mask"]');
+      return [
+        getComputedStyle(element).color,
+        icon ? getComputedStyle(icon).backgroundColor : "",
+      ];
+    });
     expect(iconColors[1]).toBe(iconColors[0]);
     await expect(page.locator('[data-button-id="google-play"] img')).toBeVisible();
 
