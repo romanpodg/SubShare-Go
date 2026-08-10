@@ -90,6 +90,7 @@ export interface SubscriptionSettings {
   extra_url: string;
   extra_status: string;
   subscription_format: "links" | "xray-json";
+  show_subscription_expiration: boolean;
   time_zone: string;
   language: string;
   provider_id: string;
@@ -193,7 +194,7 @@ export interface ExternalSourcePreviewKey {
   line_index?: number;
   label: string;
   display_name?: string;
-  protocol?: ExternalProfileProtocol | "unknown";
+  protocol?: ExternalDetectedProtocol;
   scheme: string;
   host?: string;
   port?: string;
@@ -215,10 +216,13 @@ export type ExternalProfileProtocol =
   | "hysteria2"
   | "tuic";
 
+export type ExternalDetectedProtocol = ExternalProfileProtocol | "hysteria" | "unknown" | string;
+
 export type ExternalProfileCompatibility = "legacy" | "full" | "read_only";
 
 export type ExternalImportItemStatus =
   | "accepted"
+  | "added"
   | "rejected"
   | "duplicate"
   | "updated"
@@ -229,6 +233,7 @@ export type ExternalImportItemStatus =
 
 export interface ExternalImportResultCounts {
   accepted: number;
+  added?: number;
   rejected: number;
   duplicate: number;
   updated: number;
@@ -236,6 +241,7 @@ export interface ExternalImportResultCounts {
   compatibility_only: number;
   ambiguous: number;
   unsupported: number;
+  removed?: number;
 }
 
 export interface ExternalSourcePreview {
@@ -291,6 +297,7 @@ export interface UserSummary {
 export interface KeySummary {
   id: number;
   label: string;
+  client_display_name: string;
   category_id?: number;
   category: string;
   kind: "real" | "informational";
@@ -465,10 +472,21 @@ export interface SubscriptionGenerationFailure {
 export interface BackgroundJob {
   id: number;
   kind: string;
-  status: "queued" | "running" | "succeeded" | "failed";
+  status: "queued" | "running" | "succeeded" | "succeeded_with_warnings" | "failed";
   target_type: string;
   target_id: string;
   error_message: string;
+  result_counts?: {
+    total_selected: number;
+    checked: number;
+    healthy: number;
+    unhealthy: number;
+    check_failed: number;
+    skipped_disabled: number;
+    skipped_unsupported: number;
+    persisted_ok: number;
+    persist_failed: number;
+  };
   run_after: string | null;
   started_at: string | null;
   finished_at: string | null;
@@ -552,6 +570,8 @@ export interface SanitizedCheckError {
 export interface KeyProfileDetailResponse {
   id: number;
   label: string;
+  client_display_name: string;
+  client_display_name_overridden: boolean;
   category_id: number | null;
   category: string;
   kind: "real" | "informational";
@@ -640,6 +660,7 @@ export interface StructuredProfilePatch {
 
 export interface UpdateKeyProfileInput {
   label: string;
+  client_display_name?: string;
   category_id?: number | null;
   category?: string;
   status: "active" | "non-active";
@@ -653,6 +674,7 @@ export interface UpdateKeyProfileInput {
 
 export interface CreateKeyProfileInput {
   label: string;
+  client_display_name?: string;
   category_id?: number | null;
   category?: string;
   status: "active" | "non-active";

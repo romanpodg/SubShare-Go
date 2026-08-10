@@ -46,8 +46,11 @@ type BulkUpdateKeysParams struct {
 }
 
 type HealthCheckTarget struct {
-	ID  int64
-	URL string
+	ID         int64
+	URL        string
+	Status     string
+	Kind       string
+	Unreadable bool
 }
 
 type SaveHealthCheckResultParams struct {

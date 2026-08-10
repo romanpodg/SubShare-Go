@@ -47,6 +47,21 @@ func TestBuildInformationalXrayJSON(t *testing.T) {
 	}
 }
 
+func TestRenderInfoTemplateSupportedVariablesAndUnknownPreservation(t *testing.T) {
+	data := subscriptionTemplateData{
+		UserName: "Иван", Telegram: "ivan_example", SubscriptionID: "sample-id",
+		ExpiryDate: "25/08/2026", ExpiryDateTime: "25/08/2026 12:00", RealKeysCount: 6,
+	}
+	template := "{user_name}|{telegram}|{subscription_id}|{expires_date}|{expires_at}|{real_keys_count}|{unknown}|<script>alert(1)</script>"
+	want := "Иван|ivan_example|sample-id|25/08/2026|25/08/2026 12:00|6|{unknown}|<script>alert(1)</script>"
+	if got := renderInfoTemplate(template, data); got != want {
+		t.Fatalf("rendered template=%q want=%q", got, want)
+	}
+	if got := renderInfoTemplate("", data); got != "" {
+		t.Fatalf("empty template=%q", got)
+	}
+}
+
 func TestResolveBaseURLTrustsOnlyConfiguredProxyAndValidOrigin(t *testing.T) {
 	app := &App{}
 	middleware.ConfigureTrustedProxyNetworks([]netip.Prefix{netip.MustParsePrefix("10.0.0.0/8")})

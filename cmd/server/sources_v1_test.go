@@ -389,8 +389,9 @@ func TestV1DashboardAggregatesEffectiveStatuses(t *testing.T) {
 		{"Blocked", "token-blocked", "blocked", "", 1},
 		{"Expired", "token-expired", "active", "2000-01-01 00:00:00", 1},
 		{"Limited", "token-limited", "active", "", 1},
+		{"Unlimited", "token-unlimited", "active", "", 0},
 	}
-	var limitedID int64
+	var limitedID, unlimitedID int64
 	for _, user := range users {
 		result, err := app.db.Exec(
 			`INSERT INTO users(name, token, status, expires_at, max_devices) VALUES(?, ?, ?, NULLIF(?, ''), ?)`,
@@ -406,10 +407,13 @@ func TestV1DashboardAggregatesEffectiveStatuses(t *testing.T) {
 		if user.name == "Limited" {
 			limitedID, _ = result.LastInsertId()
 		}
+		if user.name == "Unlimited" {
+			unlimitedID, _ = result.LastInsertId()
+		}
 	}
 	if _, err := app.db.Exec(
-		`INSERT INTO user_devices(user_id, hwid) VALUES(?, 'device-hash')`,
-		limitedID,
+		`INSERT INTO user_devices(user_id, hwid) VALUES(?, 'device-hash'), (?, 'unlimited-device')`,
+		limitedID, unlimitedID,
 	); err != nil {
 		t.Fatalf("insert device: %v", err)
 	}
@@ -423,7 +427,7 @@ func TestV1DashboardAggregatesEffectiveStatuses(t *testing.T) {
 	payload := decodeJSONMap(t, recorder)
 	counts := payload["users"].(map[string]any)
 	for status, want := range map[string]float64{
-		"total": 5, "active": 1, "paused": 1, "blocked": 1, "expired": 1, "limited": 1,
+		"total": 6, "active": 2, "paused": 1, "blocked": 1, "expired": 1, "limited": 1,
 	} {
 		if counts[status] != want {
 			t.Fatalf("%s = %#v, want %.0f; payload=%#v", status, counts[status], want, counts)

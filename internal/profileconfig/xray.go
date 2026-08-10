@@ -40,6 +40,17 @@ func AnyToString(value any) string {
 	}
 }
 
+// IsGenericXrayOutboundTag identifies routing identifiers that are not
+// subscriber-facing node names.
+func IsGenericXrayOutboundTag(value string) bool {
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case "proxy", "direct", "block", "dns", "freedom", "blackhole", "outbound":
+		return true
+	default:
+		return false
+	}
+}
+
 // AnyToPort extracts a valid numeric port string from primitive JSON values, defaulting to "443".
 func AnyToPort(value any) string {
 	raw := AnyToString(value)
@@ -153,6 +164,7 @@ func ParseXrayJSONDrafts(raw string) ([]LinkConfigurationDraft, error) {
 		realitySettings, _ := AsObject(stream["realitySettings"])
 		base.SNI = firstNonEmpty(AnyToString(realitySettings["serverName"]), AnyToString(tlsSettings["serverName"]))
 		base.Fingerprint = firstNonEmpty(AnyToString(realitySettings["fingerprint"]), AnyToString(tlsSettings["fingerprint"]))
+		base.ALPN = firstNonEmpty(xrayStringList(realitySettings["alpn"]), xrayStringList(tlsSettings["alpn"]))
 		base.PublicKey = AnyToString(realitySettings["publicKey"])
 		base.ShortID = AnyToString(realitySettings["shortId"])
 		base.SpiderX = AnyToString(realitySettings["spiderX"])
@@ -169,6 +181,33 @@ func ParseXrayJSONDrafts(raw string) ([]LinkConfigurationDraft, error) {
 		}
 		grpcSettings, _ := AsObject(stream["grpcSettings"])
 		base.GRPCServiceName = firstNonEmpty(AnyToString(grpcSettings["serviceName"]), AnyToString(grpcSettings["service_name"]))
+		if base.Network == "grpc" {
+			base.Host = AnyToString(grpcSettings["authority"])
+		}
+		if base.Network == "httpupgrade" {
+			httpUpgradeSettings, _ := AsObject(stream["httpupgradeSettings"])
+			base.Path = AnyToString(httpUpgradeSettings["path"])
+			base.Host = AnyToString(httpUpgradeSettings["host"])
+		}
+		if base.Network == "xhttp" {
+			xhttpSettings, _ := AsObject(stream["xhttpSettings"])
+			base.Path = AnyToString(xhttpSettings["path"])
+			base.Host = AnyToString(xhttpSettings["host"])
+		}
+		if base.Network == "tcp" || base.Network == "raw" {
+			rawSettings, _ := AsObject(stream["rawSettings"])
+			if rawSettings == nil {
+				rawSettings, _ = AsObject(stream["tcpSettings"])
+			}
+			header, _ := AsObject(rawSettings["header"])
+			base.HeaderType = NormalizeHeaderType(AnyToString(header["type"]))
+			if request, ok := AsObject(header["request"]); ok {
+				base.Path = xrayStringList(request["path"])
+				if headers, ok := AsObject(request["headers"]); ok {
+					base.Host = firstNonEmpty(xrayStringList(headers["Host"]), xrayStringList(headers["host"]))
+				}
+			}
+		}
 
 		switch protocol {
 		case "vless", "vmess":
@@ -232,6 +271,220 @@ func ParseXrayJSONDrafts(raw string) ([]LinkConfigurationDraft, error) {
 	}
 	if len(drafts) == 0 {
 		return nil, fmt.Errorf("XRAY-JSON contains no supported outbound")
+	}
+	return drafts, nil
+}
+
+// ProjectXrayJSONDrafts parses each supported proxy outbound independently for
+// delivery projection. Invalid proxy outbounds are counted and skipped, while
+// routing helpers such as freedom and blackhole are ignored.
+func ProjectXrayJSONDrafts(raw string) ([]LinkConfigurationDraft, int, error) {
+	var root map[string]any
+	if err := json.Unmarshal([]byte(strings.TrimSpace(raw)), &root); err != nil {
+		return nil, 0, fmt.Errorf("invalid XRAY-JSON syntax")
+	}
+	outbounds := AsArray(root["outbounds"])
+	if len(outbounds) == 0 {
+		return nil, 0, fmt.Errorf("XRAY-JSON must contain outbounds")
+	}
+
+	drafts := make([]LinkConfigurationDraft, 0, len(outbounds))
+	rejected := 0
+	for _, outboundRaw := range outbounds {
+		outbound, ok := AsObject(outboundRaw)
+		if !ok {
+			continue
+		}
+		protocol := strings.ToLower(AnyToString(outbound["protocol"]))
+		switch protocol {
+		case "vless", "vmess", "trojan":
+			encoded, _ := json.Marshal(map[string]any{"outbounds": []any{outbound}})
+			parsed, err := ParseXrayJSONDrafts(string(encoded))
+			if err != nil {
+				rejected++
+				continue
+			}
+			drafts = append(drafts, parsed...)
+		case "shadowsocks":
+			parsed, err := projectXrayShadowsocks(outbound)
+			if err != nil {
+				rejected++
+				continue
+			}
+			drafts = append(drafts, parsed...)
+		case "hysteria", "hysteria2":
+			parsed, err := projectXrayHysteria2(outbound)
+			if err != nil {
+				rejected++
+				continue
+			}
+			drafts = append(drafts, parsed...)
+		case "tuic":
+			parsed, err := projectXrayTUIC(outbound)
+			if err != nil {
+				rejected++
+				continue
+			}
+			drafts = append(drafts, parsed...)
+		}
+	}
+	return drafts, rejected, nil
+}
+
+func outboundRemark(outbound map[string]any) string {
+	return firstNonEmpty(AnyToString(outbound["tag"]), AnyToString(outbound["remarks"]))
+}
+
+func xrayStringList(value any) string {
+	items := AsArray(value)
+	if len(items) == 0 {
+		return AnyToString(value)
+	}
+	values := make([]string, 0, len(items))
+	for _, item := range items {
+		if text := AnyToString(item); text != "" {
+			values = append(values, text)
+		}
+	}
+	return strings.Join(values, ",")
+}
+
+func xrayBool(object map[string]any, keys ...string) bool {
+	for _, key := range keys {
+		if value, ok := object[key].(bool); ok {
+			return value
+		}
+		if ParseBooleanFlag(AnyToString(object[key])) {
+			return true
+		}
+	}
+	return false
+}
+
+func projectXrayShadowsocks(outbound map[string]any) ([]LinkConfigurationDraft, error) {
+	settings, _ := AsObject(outbound["settings"])
+	nodes := AsArray(settings["servers"])
+	if len(nodes) == 0 {
+		nodes = []any{settings}
+	}
+	drafts := make([]LinkConfigurationDraft, 0, len(nodes))
+	for _, nodeRaw := range nodes {
+		node, ok := AsObject(nodeRaw)
+		if !ok {
+			return nil, fmt.Errorf("invalid shadowsocks server")
+		}
+		plugin := AnyToString(node["plugin"])
+		pluginOptions := firstNonEmpty(
+			AnyToString(node["pluginOpts"]),
+			AnyToString(node["plugin_opts"]),
+			AnyToString(node["pluginOptions"]),
+		)
+		if pluginObject, ok := AsObject(node["plugin"]); ok {
+			plugin = firstNonEmpty(AnyToString(pluginObject["name"]), AnyToString(pluginObject["type"]))
+			pluginOptions = firstNonEmpty(
+				AnyToString(pluginObject["options"]),
+				AnyToString(pluginObject["opts"]),
+				pluginOptions,
+			)
+		}
+		if pluginOptions != "" {
+			if plugin == "" {
+				return nil, fmt.Errorf("shadowsocks plugin options without plugin")
+			}
+			plugin += ";" + pluginOptions
+		}
+		port, err := strconv.Atoi(AnyToPort(node["port"]))
+		draft := LinkConfigurationDraft{
+			Protocol: "shadowsocks", Remark: outboundRemark(outbound),
+			Server: firstNonEmpty(AnyToString(node["address"]), AnyToString(node["server"])),
+			Port:   port, Identifier: AnyToString(node["password"]),
+			ShadowsocksMethod: firstNonEmpty(AnyToString(node["method"]), AnyToString(node["cipher"])),
+			Plugin:            plugin,
+		}
+		if err != nil || draft.Server == "" || draft.Identifier == "" || draft.ShadowsocksMethod == "" {
+			return nil, fmt.Errorf("incomplete shadowsocks server")
+		}
+		drafts = append(drafts, draft)
+	}
+	return drafts, nil
+}
+
+func projectXrayHysteria2(outbound map[string]any) ([]LinkConfigurationDraft, error) {
+	settings, _ := AsObject(outbound["settings"])
+	stream, _ := AsObject(outbound["streamSettings"])
+	hysteriaSettings, _ := AsObject(stream["hysteriaSettings"])
+	version := firstNonEmpty(AnyToString(settings["version"]), AnyToString(hysteriaSettings["version"]))
+	if version != "" && version != "2" {
+		return nil, fmt.Errorf("unsupported hysteria version")
+	}
+	portText := AnyToPort(settings["port"])
+	port, err := strconv.Atoi(portText)
+	draft := LinkConfigurationDraft{
+		Protocol: "hysteria2", Remark: outboundRemark(outbound),
+		Server: AnyToString(settings["address"]), Port: port,
+		Identifier: firstNonEmpty(AnyToString(hysteriaSettings["auth"]), AnyToString(settings["auth"])),
+	}
+	tlsSettings, _ := AsObject(stream["tlsSettings"])
+	draft.SNI = AnyToString(tlsSettings["serverName"])
+	draft.ALPN = xrayStringList(tlsSettings["alpn"])
+	draft.AllowInsecure = xrayBool(tlsSettings, "allowInsecure")
+	draft.CertificateSHA256 = AnyToString(tlsSettings["pinnedPeerCertSha256"])
+	finalMask, _ := AsObject(stream["finalmask"])
+	if quicParams, ok := AsObject(finalMask["quicParams"]); ok {
+		if udpHop, ok := AsObject(quicParams["udpHop"]); ok {
+			draft.PortExpression = AnyToString(udpHop["ports"])
+		}
+	}
+	if masks := AsArray(finalMask["udp"]); len(masks) > 0 {
+		if len(masks) != 1 {
+			return nil, fmt.Errorf("ambiguous hysteria2 udp masks")
+		}
+		mask, ok := AsObject(masks[0])
+		if !ok {
+			return nil, fmt.Errorf("invalid hysteria2 udp mask")
+		}
+		draft.ObfuscationType = strings.ToLower(AnyToString(mask["type"]))
+		if maskSettings, ok := AsObject(mask["settings"]); ok {
+			draft.ObfuscationPassword = AnyToString(maskSettings["password"])
+		}
+		if draft.ObfuscationType != "salamander" || draft.ObfuscationPassword == "" {
+			return nil, fmt.Errorf("unsupported hysteria2 udp mask")
+		}
+	}
+	if err != nil || draft.Server == "" || draft.Identifier == "" {
+		return nil, fmt.Errorf("incomplete hysteria2 server")
+	}
+	return []LinkConfigurationDraft{draft}, nil
+}
+
+func projectXrayTUIC(outbound map[string]any) ([]LinkConfigurationDraft, error) {
+	settings, _ := AsObject(outbound["settings"])
+	nodes := AsArray(settings["servers"])
+	if len(nodes) == 0 {
+		nodes = []any{settings}
+	}
+	drafts := make([]LinkConfigurationDraft, 0, len(nodes))
+	for _, nodeRaw := range nodes {
+		node, ok := AsObject(nodeRaw)
+		if !ok {
+			return nil, fmt.Errorf("invalid tuic server")
+		}
+		port, err := strconv.Atoi(AnyToPort(node["port"]))
+		draft := LinkConfigurationDraft{
+			Protocol: "tuic", Remark: outboundRemark(outbound),
+			Server: firstNonEmpty(AnyToString(node["address"]), AnyToString(node["server"])), Port: port,
+			Identifier: AnyToString(node["uuid"]), TUICPassword: AnyToString(node["password"]),
+			SNI:  firstNonEmpty(AnyToString(node["sni"]), AnyToString(node["serverName"])),
+			ALPN: xrayStringList(node["alpn"]), AllowInsecure: xrayBool(node, "skip_cert_verify", "allowInsecure"),
+			CongestionController: firstNonEmpty(AnyToString(node["congestion_control"]), AnyToString(node["congestionController"])),
+			UDPRelayMode:         firstNonEmpty(AnyToString(node["udp_relay_mode"]), AnyToString(node["udpRelayMode"])),
+			UDPOverStream:        xrayBool(node, "udp_over_stream"), ZeroRTT: xrayBool(node, "zero_rtt_handshake", "zeroRTT"),
+			Heartbeat: AnyToString(node["heartbeat"]),
+		}
+		if err != nil || draft.Server == "" || draft.Identifier == "" || draft.TUICPassword == "" {
+			return nil, fmt.Errorf("incomplete tuic server")
+		}
+		drafts = append(drafts, draft)
 	}
 	return drafts, nil
 }

@@ -7,6 +7,8 @@ import (
 	"net/url"
 	"strconv"
 	"strings"
+
+	"github.com/romanpodg/SubShare-Go/internal/profiles"
 )
 
 func firstNonEmpty(values ...string) string {
@@ -23,6 +25,12 @@ func ClientDisplayNameFromKeyURL(rawURL, fallback string) string {
 	rawURL = strings.TrimSpace(rawURL)
 	fallback = strings.TrimSpace(fallback)
 	if rawURL == "" {
+		return fallback
+	}
+	if profile, err := profiles.Parse(rawURL); err == nil {
+		if name := strings.TrimSpace(profile.DisplayName); name != "" {
+			return name
+		}
 		return fallback
 	}
 
@@ -48,6 +56,22 @@ func ClientDisplayNameFromKeyURL(rawURL, fallback string) string {
 	}
 
 	return fallback
+}
+
+// EffectiveClientDisplayName resolves subscriber-facing metadata without
+// confusing source-owned XRAY routing tags with human-readable source names.
+// A stored value is always an explicit administrator override. Source-owned
+// rows otherwise follow their synchronized label; local rows retain legacy
+// URI fragment and VMess ps fallback behavior.
+func EffectiveClientDisplayName(storedOverride, rawURL, label string, sourceOwned bool) string {
+	if override := strings.TrimSpace(storedOverride); override != "" {
+		return override
+	}
+	label = strings.TrimSpace(label)
+	if sourceOwned {
+		return label
+	}
+	return ClientDisplayNameFromKeyURL(rawURL, label)
 }
 
 // SupportedConfigScheme returns the scheme identifier or "xray-json" for supported configurations.

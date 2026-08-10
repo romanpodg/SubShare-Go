@@ -20,6 +20,7 @@ func NewKeyQueryHandler(service *keymanagement.Service) *KeyQueryHandler {
 type keySummary struct {
 	ID                   int64     `json:"id"`
 	Label                string    `json:"label"`
+	ClientDisplayName    string    `json:"client_display_name"`
 	CategoryID           int64     `json:"category_id"`
 	Category             string    `json:"category"`
 	Kind                 string    `json:"kind"`
@@ -55,14 +56,14 @@ func (h *KeyQueryHandler) ListKeys(w http.ResponseWriter, r *http.Request) {
 	status := strings.ToLower(strings.TrimSpace(r.URL.Query().Get("status")))
 	items := make([]keySummary, 0, len(keys))
 	for _, key := range keys {
-		if query != "" && !strings.Contains(strings.ToLower(key.Label+" "+key.Category+" "+key.ExternalSourceName), query) {
+		if query != "" && !strings.Contains(strings.ToLower(key.Label+" "+key.ClientDisplayName+" "+key.Category+" "+key.ExternalSourceName), query) {
 			continue
 		}
 		if status != "" && status != "all" && key.Status != status && key.CheckStatus != status {
 			continue
 		}
 		items = append(items, keySummary{
-			ID: key.ID, Label: key.Label, CategoryID: key.CategoryID, Category: key.Category, Kind: key.Kind,
+			ID: key.ID, Label: key.Label, ClientDisplayName: key.ClientDisplayName, CategoryID: key.CategoryID, Category: key.Category, Kind: key.Kind,
 			TemplateText: key.TemplateText,
 			Status:       key.Status, CheckStatus: key.CheckStatus, CheckError: key.CheckError,
 			LastLatencyMS: key.LastLatencyMS, LastCheckedAt: key.LastCheckedAtText,

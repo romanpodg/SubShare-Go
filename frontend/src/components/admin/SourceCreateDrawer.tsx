@@ -18,6 +18,13 @@ import {
   EXTERNAL_SOURCE_NAME_INPUT_MAX_LENGTH,
   validateExternalSourceName,
 } from "@/lib/externalSourceName";
+import {
+  externalImportProtocolLabel,
+  externalImportReasonMessage,
+  externalImportStatusMessage,
+  externalImportWarningMessage,
+  safeExternalPreviewEndpoint,
+} from "@/lib/external-import-messages";
 
 interface Props {
   open: boolean;
@@ -364,19 +371,29 @@ export function SourceCreateDrawer({
             <section className="rounded-xl border border-amber-400/25 bg-amber-400/5 p-4 text-sm text-amber-200">
               <div className="mb-2 flex items-center gap-2 font-medium"><AlertTriangle className="h-4 w-4" />Предупреждения</div>
               <ul className="list-disc space-y-1 pl-5">
-                {preview.warnings.map((warning) => <li key={warning}>{warning}</li>)}
+                {preview.warnings.map((warning) => <li key={warning}>{externalImportWarningMessage(warning)}</li>)}
               </ul>
             </section>
           )}
           <section className="overflow-hidden rounded-xl border border-border bg-surface-1">
             <div className="border-b border-border px-4 py-3 text-sm font-medium text-zinc-300">Все ключи</div>
             <div className="divide-y divide-border">
-              {preview.keys.map((key, index) => (
-                <div key={`${key.url_short}-${index}`} className="px-4 py-3">
-                  <div className="text-sm text-zinc-300">{key.label}</div>
-                  <div className="mt-1 truncate font-mono text-xs text-zinc-600">{key.scheme} · {key.url_short}</div>
-                </div>
-              ))}
+              {preview.keys.map((key, index) => {
+                const endpoint = safeExternalPreviewEndpoint(key);
+                const reason = externalImportReasonMessage(key.error_code);
+                return (
+                  <div key={key.item_ref || `${key.url_short}-${index}`} className="px-4 py-3">
+                    <div className="flex flex-wrap items-start justify-between gap-2">
+                      <div className="text-sm text-zinc-300">{key.display_name || key.label || `Профиль ${index + 1}`}</div>
+                      {key.status && <div className="rounded-sm border border-border px-2 py-0.5 text-[10px] uppercase tracking-wide text-zinc-400">{externalImportStatusMessage(key.status)}</div>}
+                    </div>
+                    <div className="mt-1 font-mono text-xs text-zinc-500">
+                      {externalImportProtocolLabel(key.protocol || key.scheme)}{endpoint ? ` · ${endpoint}` : ""}
+                    </div>
+                    {reason && <div className="mt-1 text-xs text-amber-200">{reason}</div>}
+                  </div>
+                );
+              })}
             </div>
           </section>
         </div>

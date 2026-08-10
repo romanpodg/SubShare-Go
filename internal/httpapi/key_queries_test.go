@@ -46,9 +46,10 @@ func TestKeyQueryHandler_V1ProjectionFilteringAndIntegrityFailure(t *testing.T) 
 	}
 	var response struct {
 		Data []struct {
-			ID     int64  `json:"id"`
-			Label  string `json:"label"`
-			Status string `json:"status"`
+			ID                int64  `json:"id"`
+			Label             string `json:"label"`
+			ClientDisplayName string `json:"client_display_name"`
+			Status            string `json:"status"`
 		} `json:"data"`
 		Meta struct {
 			Page       int `json:"page"`
@@ -60,7 +61,7 @@ func TestKeyQueryHandler_V1ProjectionFilteringAndIntegrityFailure(t *testing.T) 
 	if err := json.Unmarshal(recorder.Body.Bytes(), &response); err != nil {
 		t.Fatalf("decode v1 list: %v", err)
 	}
-	if len(response.Data) != 1 || response.Data[0].ID != betaID || response.Data[0].Label != "Beta" || response.Data[0].Status != "non-active" {
+	if len(response.Data) != 1 || response.Data[0].ID != betaID || response.Data[0].Label != "Beta" || response.Data[0].ClientDisplayName != "beta-secret" || response.Data[0].Status != "non-active" {
 		t.Fatalf("unexpected v1 list data: %#v", response.Data)
 	}
 	if response.Meta.Page != 1 || response.Meta.PageSize != 1 || response.Meta.Total != 1 || response.Meta.TotalPages != 1 {

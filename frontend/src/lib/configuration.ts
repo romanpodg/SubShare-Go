@@ -1245,6 +1245,97 @@ export function createXrayJSONFromConfiguration(raw: string) {
   });
 }
 
+export function parseEditableConfiguration(raw: string): XrayJSONDraft {
+  const converted = createXrayJSONFromConfiguration(raw);
+  const parsed = parseXrayJSONConfiguration(converted);
+  if (!parsed) {
+    throw new Error("Не удалось разобрать конфигурацию");
+  }
+  return parsed.draft;
+}
+
+function patchSearchValue(
+  search: URLSearchParams,
+  aliases: string[],
+  value: string | undefined,
+  fallbackKey = aliases[0]
+) {
+  aliases.forEach((key) => search.delete(key));
+  if (value?.trim()) search.set(fallbackKey, value.trim());
+}
+
+function patchObjectValue(
+  object: Record<string, unknown>,
+  aliases: string[],
+  value: string | boolean | undefined,
+  fallbackKey = aliases[0]
+) {
+  aliases.forEach((key) => delete object[key]);
+  if (typeof value === "boolean") {
+    if (value) object[fallbackKey] = "1";
+  } else if (value?.trim()) {
+    object[fallbackKey] = value.trim();
+  }
+}
+
+// Patches only represented legacy share-link fields. Unknown query entries,
+// duplicate unrelated entries, and VMess payload properties remain intact.
+export function patchEditableConfiguration(raw: string, patch: XrayJSONPatch) {
+  const parsed = parseConfiguration(raw);
+  if (!parsed) throw new Error("Не удалось разобрать конфигурацию");
+  const next = { ...parsed };
+  if (hasPatchField(patch, "server")) next.server = patch.server ?? "";
+  if (hasPatchField(patch, "port")) next.port = patch.port ?? "";
+  if (hasPatchField(patch, "identifier")) next.identifier = patch.identifier ?? "";
+  if (hasPatchField(patch, "remark")) next.remark = patch.remark ?? "";
+
+  if (parsed.protocol === "vmess") {
+    const extra = parseVmessExtraParams(parsed.params);
+    if (hasPatchField(patch, "network")) patchObjectValue(extra, ["net"], patch.network === "tcp" ? "" : patch.network);
+    if (hasPatchField(patch, "security")) {
+      delete extra.tls;
+      delete extra.security;
+      if (patch.security === "tls") extra.tls = "tls";
+      else if (patch.security && patch.security !== "none") extra.security = patch.security;
+    }
+    if (hasPatchField(patch, "path")) patchObjectValue(extra, ["path"], patch.path);
+    if (hasPatchField(patch, "host")) patchObjectValue(extra, ["host"], patch.host);
+    if (hasPatchField(patch, "sni")) patchObjectValue(extra, ["sni"], patch.sni);
+    if (hasPatchField(patch, "alpn")) patchObjectValue(extra, ["alpn"], patch.alpn);
+    if (hasPatchField(patch, "flow")) patchObjectValue(extra, ["flow"], patch.flow);
+    if (hasPatchField(patch, "fingerprint")) patchObjectValue(extra, ["fp", "fingerprint"], patch.fingerprint);
+    if (hasPatchField(patch, "publicKey")) patchObjectValue(extra, ["pbk", "publicKey", "password"], patch.publicKey);
+    if (hasPatchField(patch, "shortId")) patchObjectValue(extra, ["sid", "shortId"], patch.shortId);
+    if (hasPatchField(patch, "spiderX")) patchObjectValue(extra, ["spx", "spiderX"], patch.spiderX);
+    if (hasPatchField(patch, "allowInsecure")) patchObjectValue(extra, ["allowInsecure", "allowinsecure"], patch.allowInsecure);
+    if (hasPatchField(patch, "grpcAuthority")) patchObjectValue(extra, ["authority"], patch.grpcAuthority);
+    if (hasPatchField(patch, "headerType")) patchObjectValue(extra, ["type", "headerType"], patch.headerType);
+    if (hasPatchField(patch, "vmessSecurity")) patchObjectValue(extra, ["scy", "encryption", "securityType"], patch.vmessSecurity);
+    if (hasPatchField(patch, "vmessAlterId")) patchObjectValue(extra, ["aid"], patch.vmessAlterId);
+    next.params = Object.keys(extra).length > 0 ? JSON.stringify(extra) : "";
+    return buildConfiguration(next);
+  }
+
+  const search = new URLSearchParams(parsed.params);
+  if (hasPatchField(patch, "network")) patchSearchValue(search, ["type"], patch.network === "tcp" ? "" : patch.network);
+  if (hasPatchField(patch, "security")) patchSearchValue(search, ["security"], patch.security === "none" ? "" : patch.security);
+  if (hasPatchField(patch, "path")) patchSearchValue(search, ["path"], patch.path);
+  if (hasPatchField(patch, "host")) patchSearchValue(search, ["host"], patch.host);
+  if (hasPatchField(patch, "sni")) patchSearchValue(search, ["sni"], patch.sni);
+  if (hasPatchField(patch, "alpn")) patchSearchValue(search, ["alpn"], patch.alpn);
+  if (hasPatchField(patch, "encryption")) patchSearchValue(search, ["encryption"], patch.encryption);
+  if (hasPatchField(patch, "flow")) patchSearchValue(search, ["flow"], patch.flow);
+  if (hasPatchField(patch, "fingerprint")) patchSearchValue(search, ["fp", "fingerprint"], patch.fingerprint, "fp");
+  if (hasPatchField(patch, "publicKey")) patchSearchValue(search, ["pbk", "publicKey", "password"], patch.publicKey, "pbk");
+  if (hasPatchField(patch, "shortId")) patchSearchValue(search, ["sid", "shortId"], patch.shortId, "sid");
+  if (hasPatchField(patch, "spiderX")) patchSearchValue(search, ["spx", "spiderX"], patch.spiderX, "spx");
+  if (hasPatchField(patch, "allowInsecure")) patchSearchValue(search, ["allowInsecure", "allowinsecure", "allow_insecure"], patch.allowInsecure ? "1" : "");
+  if (hasPatchField(patch, "grpcAuthority")) patchSearchValue(search, ["authority"], patch.grpcAuthority);
+  if (hasPatchField(patch, "headerType")) patchSearchValue(search, ["headerType", "header_type", "typeHeader"], patch.headerType);
+  next.params = search.toString();
+  return buildConfiguration(next);
+}
+
 export function createConfigurationFromXrayJSON(raw: string) {
   const parsed = parseXrayJSONConfiguration(formatXrayJSON(raw));
   if (!parsed) {

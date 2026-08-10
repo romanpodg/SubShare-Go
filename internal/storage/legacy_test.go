@@ -589,7 +589,7 @@ func TestKeyRepository_BulkMutationsRollbackOnMissingKey(t *testing.T) {
 	}
 }
 
-func TestKeyRepository_CredentialsFailClosedAndHealthBatchSkipsUnreadable(t *testing.T) {
+func TestKeyRepository_CredentialsFailClosedAndHealthBatchAccountsForUnreadable(t *testing.T) {
 	db := setupTestDB(t)
 	defer db.Close()
 	kr := newTestKeyringForStorage(t)
@@ -632,8 +632,13 @@ func TestKeyRepository_CredentialsFailClosedAndHealthBatchSkipsUnreadable(t *tes
 	if err != nil {
 		t.Fatalf("list health targets: %v", err)
 	}
-	if len(targets) != 0 {
-		t.Fatalf("health batch included unreadable targets: %#v", targets)
+	if len(targets) != 2 {
+		t.Fatalf("health batch did not account for unreadable targets: %#v", targets)
+	}
+	for _, target := range targets {
+		if !target.Unreadable || target.URL != "" {
+			t.Fatalf("unreadable health target exposed credentials or lost its marker: %#v", target)
+		}
 	}
 	_ = envelopeTwo
 }

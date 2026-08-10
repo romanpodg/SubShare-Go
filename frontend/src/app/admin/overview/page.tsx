@@ -10,6 +10,37 @@ import { Button } from "@/components/ui/Button";
 import { InitialLoading, ResourceError } from "@/components/ui/ResourceState";
 import { useToast } from "@/components/ui/Toast";
 
+function jobStatusLabel(status: BackgroundJob["status"]): string {
+  switch (status) {
+    case "queued":
+      return "В очереди";
+    case "running":
+      return "Выполняется";
+    case "succeeded":
+      return "Завершено";
+    case "succeeded_with_warnings":
+      return "Завершено с предупреждениями";
+    case "failed":
+      return "Ошибка";
+  }
+}
+
+function jobSummary(job: BackgroundJob): string {
+  if (job.status === "succeeded_with_warnings") {
+    const warnings: string[] = [];
+    if ((job.result_counts?.persist_failed ?? 0) > 0) {
+      warnings.push(`Не удалось сохранить результаты: ${job.result_counts?.persist_failed}`);
+    }
+    if ((job.result_counts?.check_failed ?? 0) > 0) {
+      warnings.push(`Не удалось выполнить проверки: ${job.result_counts?.check_failed}`);
+    }
+    if (warnings.length > 0) {
+      return warnings.join(" · ");
+    }
+  }
+  return job.error_message || `${job.target_type} ${job.target_id}`;
+}
+
 export default function OverviewPage() {
   const [data, setData] = useState<DashboardData | null>(null);
   const [loading, setLoading] = useState(true);
@@ -174,8 +205,8 @@ export default function OverviewPage() {
                 {!jobsError && jobs.map((job) => (
                   <div key={job.id} className="grid gap-3 px-5 py-4 text-sm md:grid-cols-[180px_120px_1fr_auto] md:items-center">
                     <span className="font-medium text-zinc-300">{job.kind}</span>
-                    <span className={job.status === "succeeded" ? "text-success" : job.status === "failed" ? "text-danger" : "text-warning"}>{job.status}</span>
-                    <span className="truncate text-xs text-zinc-600">{job.error_message || `${job.target_type} ${job.target_id}`}</span>
+                    <span className={job.status === "succeeded" ? "text-success" : job.status === "failed" ? "text-danger" : "text-warning"}>{jobStatusLabel(job.status)}</span>
+                    <span className="truncate text-xs text-zinc-600">{jobSummary(job)}</span>
                     {job.status === "failed" && <Button variant="outline" onClick={() => retryJob(job.id)}>Повторить</Button>}
                   </div>
                 ))}

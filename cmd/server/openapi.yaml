@@ -1135,6 +1135,7 @@ components:
       properties:
         id: { type: integer, format: int64 }
         label: { type: string }
+        client_display_name: { type: string }
         category: { type: string }
         kind: { type: string }
         status: { type: string }
@@ -1159,10 +1160,14 @@ components:
     KeyProfileDetail:
       type: object
       description: Secret-safe key detail. Presence flags may be returned, but credential values are omitted.
-      required: [id, label, kind, status, protocol, profile_revision, profile_warnings]
+      required: [id, label, client_display_name, client_display_name_overridden, kind, status, protocol, profile_revision, profile_warnings]
       properties:
         id: { type: integer, format: int64 }
         label: { type: string }
+        client_display_name: { type: string }
+        client_display_name_overridden:
+          type: boolean
+          description: True when client_display_name is an explicit local override rather than a source/raw-derived fallback.
         category_id: { type: [integer, "null"], format: int64 }
         category: { type: string }
         kind: { type: string, enum: [real, informational] }
@@ -1195,6 +1200,7 @@ components:
       required: [label, status, kind, creation_mode]
       properties:
         label: { type: string, minLength: 1, maxLength: 255 }
+        client_display_name: { type: string, maxLength: 255 }
         category_id: { type: [integer, "null"], format: int64, minimum: 1 }
         category: { type: string }
         status: { type: string, enum: [active, non-active] }
@@ -1214,6 +1220,10 @@ components:
       required: [label, status, kind, profile_revision, patch_mode]
       properties:
         label: { type: string, minLength: 1, maxLength: 255 }
+        client_display_name:
+          type: string
+          maxLength: 255
+          description: Omit to preserve the current client-facing name. For source-owned profiles this is the only mutable field; an empty value clears the local override.
         category_id: { type: [integer, "null"], format: int64, minimum: 1 }
         category: { type: string }
         status: { type: string, enum: [active, non-active] }

@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"database/sql"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
@@ -9,8 +10,10 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
 	"testing"
 
+	"github.com/romanpodg/SubShare-Go/internal/profileconfig"
 	"github.com/romanpodg/SubShare-Go/internal/profiles"
 	"github.com/romanpodg/SubShare-Go/internal/security/profilestorage"
 )
@@ -230,13 +233,189 @@ func TestExternalImporterExistingXrayJSONCompatibility(t *testing.T) {
 	}
 
 	for _, raw := range []string{
-		`{"outbounds":[{"protocol":"freedom","settings":{}}]}`,
 		`{"outbounds":[]}`,
 		`{"valid":"json but not xray"}`,
 	} {
 		parsed := parseExternalTestBody(t, raw)
 		if len(parsed.Keys) != 0 || parsed.Counts.Rejected != 1 || parsed.Items[0].ErrorCode != "invalid_xray_json" {
 			t.Fatalf("unsupported Xray-shaped JSON result=%#v", parsed)
+		}
+	}
+}
+
+func TestExternalImporterRecognizesXrayHysteria2AndPreservesSupportedFields(t *testing.T) {
+	raw := `{
+		"remarks":"HY2 JSON",
+		"outbounds":[{
+			"tag":"HY2 outbound",
+			"protocol":"hysteria",
+			"settings":{"version":2,"address":"hy-json.example","port":443},
+			"streamSettings":{
+				"method":"hysteria",
+				"security":"tls",
+				"hysteriaSettings":{"version":2,"auth":"json-hysteria-auth"},
+				"tlsSettings":{"serverName":"tls-json.example","pinnedPeerCertSha256":"abababababababababababababababababababababababababababababababab"},
+				"finalmask":{
+					"quicParams":{"udpHop":{"ports":"443,5000-5010"}},
+					"udp":[{"type":"salamander","settings":{"password":"json-obfs-secret"}}]
+				}
+			}
+		}]
+	}`
+	parsed := parseExternalTestBody(t, raw)
+	if parsed.Counts.Accepted != 1 || len(parsed.Keys) != 1 || parsed.Keys[0].Protocol != "hysteria2" {
+		t.Fatalf("Hysteria2 JSON parse=%#v", parsed)
+	}
+	profile, err := profiles.Parse(parsed.Keys[0].URL)
+	if err != nil {
+		t.Fatalf("parse imported Hysteria2 URI: %v", err)
+	}
+	data, ok := profile.Data.(profiles.Hysteria2Data)
+	if !ok || profile.Server != "hy-json.example" || profile.Port.Expression != "443,5000-5010" ||
+		profile.DisplayName != "HY2 JSON" ||
+		data.Authentication.Reveal() != "json-hysteria-auth" || data.SNI != "tls-json.example" ||
+		data.CertificateSHA256 != "abababababababababababababababababababababababababababababababab" ||
+		data.ObfuscationType != "salamander" || data.ObfuscationPassword.Reveal() != "json-obfs-secret" {
+		t.Fatalf("imported Hysteria2 profile=%#v data=%#v", profile, data)
+	}
+	if parsed.Keys[0].Fingerprint == "" {
+		t.Fatal("semantic fingerprint missing")
+	}
+	encoded, err := json.Marshal(parsed.Items)
+	if err != nil {
+		t.Fatalf("marshal preview: %v", err)
+	}
+	for _, secret := range []string{"json-hysteria-auth", "json-obfs-secret", "hysteria2://", `"outbounds"`} {
+		if strings.Contains(string(encoded), secret) {
+			t.Fatalf("preview leaked %q: %s", secret, encoded)
+		}
+	}
+}
+
+func TestExternalImporterClassifiesHysteriaV1AndIdentifiableXrayFailures(t *testing.T) {
+	v1 := `{"remarks":"Legacy Hysteria","outbounds":[{"protocol":"hysteria","settings":{"version":1,"address":"legacy-hy.example","port":8443},"streamSettings":{"hysteriaSettings":{"version":1,"auth":"never-preview-this"}}}]}`
+	parsed := parseExternalTestBody(t, v1)
+	if len(parsed.Keys) != 0 || parsed.Counts.Unsupported != 1 {
+		t.Fatalf("Hysteria v1 parse=%#v", parsed)
+	}
+	item := parsed.Items[0]
+	if item.Protocol != "hysteria" || item.ErrorCode != "unsupported_hysteria_v1" || item.DisplayName != "Legacy Hysteria" || item.Host != "legacy-hy.example" || item.Port != "8443" {
+		t.Fatalf("Hysteria v1 diagnostic=%#v", item)
+	}
+	ambiguous := parseExternalTestBody(t, `{"remarks":"Unknown Hysteria","outbounds":[{"protocol":"hysteria","settings":{"address":"unknown-hy.example","port":443},"streamSettings":{"network":"hysteria","hysteriaSettings":{"auth":"never-preview-this-either"}}},{"protocol":"freedom","settings":{}},{"protocol":"blackhole","settings":{}}]}`)
+	if ambiguous.Counts.Unsupported != 1 || ambiguous.Items[0].Protocol != "hysteria-unknown" || ambiguous.Items[0].ErrorCode != "ambiguous_hysteria_version" {
+		t.Fatalf("markerless Hysteria must remain ambiguous: %#v", ambiguous)
+	}
+
+	unsupported := parseExternalTestBody(t, `{"outbounds":[{"tag":"Direct","protocol":"freedom","settings":{}}]}`)
+	if unsupported.Counts.Unsupported != 1 || unsupported.Items[0].Protocol != "freedom" || unsupported.Items[0].ErrorCode != "unsupported_xray_protocol" {
+		t.Fatalf("unsupported Xray diagnostic=%#v", unsupported)
+	}
+
+	malformed := parseExternalTestBody(t, `{"outbounds":[{"tag":"Broken VLESS","protocol":"vless","settings":{"vnext":[]}}]}`)
+	if malformed.Counts.Rejected != 1 || malformed.Items[0].Protocol != "vless" || malformed.Items[0].ErrorCode != "invalid_vless_json" {
+		t.Fatalf("malformed VLESS diagnostic=%#v", malformed)
+	}
+
+	withAuxiliary := parseExternalTestBody(t, `{"outbounds":[{"protocol":"hysteria","settings":{"version":2,"address":"hy.example","port":443},"streamSettings":{"network":"hysteria","security":"tls","hysteriaSettings":{"version":2,"auth":"not-in-preview"}}},{"protocol":"freedom","settings":{}},{"protocol":"blackhole","settings":{}}]}`)
+	if withAuxiliary.Counts.Accepted != 1 || len(withAuxiliary.Keys) != 1 || withAuxiliary.Keys[0].Protocol != "hysteria2" {
+		t.Fatalf("Hysteria2 with routing helpers must import: %#v", withAuxiliary)
+	}
+
+	malformedHysteria2 := parseExternalTestBody(t, `{"remarks":"Broken HY2","outbounds":[{"protocol":"hysteria","settings":{"version":2,"address":"broken-hy2.example","port":443},"streamSettings":{"network":"hysteria","security":"tls","hysteriaSettings":{"version":2}}},{"protocol":"freedom","settings":{}},{"protocol":"blackhole","settings":{}}]}`)
+	if malformedHysteria2.Counts.Rejected != 1 || malformedHysteria2.Items[0].Protocol != "hysteria2" || malformedHysteria2.Items[0].ErrorCode != "invalid_hysteria2_json" {
+		t.Fatalf("malformed Hysteria2 diagnostic=%#v", malformedHysteria2)
+	}
+
+	diagnosticItems := append(append([]externalSafeImportItem{}, parsed.Items...), ambiguous.Items...)
+	encoded, err := json.Marshal(diagnosticItems)
+	if err != nil || strings.Contains(string(encoded), "never-preview-this") || strings.Contains(string(encoded), "never-preview-this-either") {
+		t.Fatalf("Hysteria v1 preview leaked credentials: json=%s err=%v", encoded, err)
+	}
+}
+
+func runtimeShapeHysteria2Fixture(label, host, auth string) string {
+	return fmt.Sprintf(`{
+		"remarks":%q,
+		"dns":{},"inbounds":[],"log":{},"routing":{},
+		"outbounds":[
+			{"tag":"proxy","protocol":"hysteria","settings":{"version":2,"address":%q,"port":443},"streamSettings":{
+				"network":"hysteria","security":"tls",
+				"hysteriaSettings":{"version":2,"auth":%q},
+				"tlsSettings":{"serverName":"sni.fixture.example","alpn":["h3"],"fingerprint":"chrome"},
+				"finalmask":{"udp":[]}
+			}},
+			{"tag":"direct","protocol":"freedom","settings":{}},
+			{"tag":"block","protocol":"blackhole","settings":{}}
+		]
+	}`, label, host, auth)
+}
+
+func TestExtractJSONSubscriptionLabelRejectsGenericRoutingTags(t *testing.T) {
+	for _, tag := range []string{"proxy", "direct", "block", "dns", "freedom", "blackhole", "outbound"} {
+		root := map[string]any{
+			"tag":       tag,
+			"meta":      map[string]any{"serverDescription": "Human source name"},
+			"outbounds": []any{map[string]any{"tag": tag}},
+		}
+		if got := extractJSONSubscriptionLabel(root, "Fallback"); got != "Human source name" {
+			t.Fatalf("generic tag %q replaced human metadata: %q", tag, got)
+		}
+	}
+	root := map[string]any{"outbounds": []any{map[string]any{"tag": "Meaningful edge name"}}}
+	if got := extractJSONSubscriptionLabel(root, "Fallback"); got != "Meaningful edge name" {
+		t.Fatalf("meaningful outbound tag was discarded: %q", got)
+	}
+}
+
+func TestExternalImporterRuntimeXrayHysteria2ShapeAndCandidateAccounting(t *testing.T) {
+	standalone := runtimeShapeHysteria2Fixture("EE fixture", "ee-hy2.fixture.example", "fixture-auth-ee")
+	parsedStandalone := parseExternalTestBody(t, standalone)
+	if parsedStandalone.Counts.Accepted != 1 || len(parsedStandalone.Keys) != 1 || len(parsedStandalone.Items) != 1 || parsedStandalone.Keys[0].Protocol != "hysteria2" {
+		t.Fatalf("runtime-shape Hysteria2 parse=%#v", parsedStandalone)
+	}
+	profile, err := profiles.Parse(parsedStandalone.Keys[0].URL)
+	if err != nil {
+		t.Fatalf("parse runtime-shape Hysteria2 URI: %v", err)
+	}
+	data := profile.Data.(profiles.Hysteria2Data)
+	if profile.Server != "ee-hy2.fixture.example" || data.Authentication.Reveal() != "fixture-auth-ee" || data.SNI != "sni.fixture.example" {
+		t.Fatalf("runtime-shape Hysteria2 data=%#v profile=%#v", data, profile)
+	}
+	extensions := map[string]bool{}
+	for _, parameter := range profile.UnknownQueryParameters {
+		extensions[parameter.Key] = true
+	}
+	if !extensions["alpn"] || !extensions["fp"] {
+		t.Fatalf("Xray TLS extensions were not preserved: %#v", profile.UnknownQueryParameters)
+	}
+
+	aggregate := `{
+		"remarks":"Best server fixture",
+		"outbounds":[
+			{"protocol":"vless","settings":{"vnext":[{"address":"vless.fixture.example","port":443,"users":[{"id":"11111111-1111-4111-8111-111111111111"}]}]}},
+			{"protocol":"hysteria","settings":{"version":2,"address":"aggregate-hy.fixture.example","port":443},"streamSettings":{"network":"hysteria","security":"tls","hysteriaSettings":{"version":2,"auth":"aggregate-fixture-auth"}}},
+			{"protocol":"freedom","settings":{}},{"protocol":"blackhole","settings":{}}
+		]
+	}`
+	objects := []string{aggregate}
+	for index := 0; index < 4; index++ {
+		objects = append(objects, runtimeShapeHysteria2Fixture(fmt.Sprintf("HY2 fixture %d", index+1), fmt.Sprintf("hy2-%d.fixture.example", index+1), fmt.Sprintf("fixture-auth-%d", index+1)))
+	}
+	parsed := parseExternalTestBody(t, "["+strings.Join(objects, ",")+"]")
+	if len(parsed.Keys) != len(objects) || len(parsed.Items) != len(objects) || parsed.Counts.Accepted != len(objects) || parsed.Counts.Rejected != 0 || parsed.Counts.Unsupported != 0 {
+		t.Fatalf("candidate accounting lost an object: keys=%d items=%d counts=%#v", len(parsed.Keys), len(parsed.Items), parsed.Counts)
+	}
+	if parsed.Keys[0].Protocol != "xray-json" {
+		t.Fatalf("multi-profile aggregate was reduced instead of retained as XRAY-JSON: %#v", parsed.Keys[0])
+	}
+	preview, err := json.Marshal(parsed.Items)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, secret := range []string{"fixture-auth-ee", "aggregate-fixture-auth", "fixture-auth-1", `"outbounds"`, "hysteria2://"} {
+		if strings.Contains(string(preview), secret) {
+			t.Fatalf("runtime-shape preview leaked %q: %s", secret, preview)
 		}
 	}
 }
@@ -369,6 +548,243 @@ func seedExternalProfileSource(t *testing.T, app *App, sourceURL string) int64 {
 	return id
 }
 
+func seedExternalRepairUser(t *testing.T, app *App, suffix string) int64 {
+	t.Helper()
+	result, err := app.db.Exec(
+		`INSERT INTO users(name, token, status, key_assignment_mode) VALUES(?, ?, 'active', 'selected')`,
+		"repair-"+suffix,
+		"repair-token-"+suffix,
+	)
+	if err != nil {
+		t.Fatalf("insert repair user: %v", err)
+	}
+	id, _ := result.LastInsertId()
+	return id
+}
+
+func insertHistoricalExternalProfile(t *testing.T, app *App, sourceID int64, raw, protocol, fingerprint string, userIDs ...int64) int64 {
+	t.Helper()
+	result, err := app.db.Exec(`
+		INSERT INTO vless_keys(
+			label, status, key_kind, external_source_id, external_key_ref, protocol,
+			profile_fingerprint, profile_schema_version, profile_compatibility
+		) VALUES('historical', 'active', 'real', ?, ?, ?, ?, 0, 'legacy')
+	`, sourceID, buildExternalKeyRef(raw), protocol, nullStringValue(fingerprint))
+	if err != nil {
+		t.Fatalf("insert historical profile: %v", err)
+	}
+	keyID, _ := result.LastInsertId()
+	activeID, activeKey, err := app.profileKeyring.GetActiveEncryptionKey()
+	if err != nil {
+		t.Fatalf("load encryption key: %v", err)
+	}
+	envelope, err := profilestorage.Encrypt([]byte(raw), activeID, activeKey, keyID)
+	if err != nil {
+		t.Fatalf("encrypt historical profile: %v", err)
+	}
+	if _, err := app.db.Exec(`INSERT INTO vless_key_secrets(vless_key_id, encrypted_url) VALUES(?, ?)`, keyID, envelope); err != nil {
+		t.Fatalf("insert historical profile secret: %v", err)
+	}
+	for _, userID := range userIDs {
+		if _, err := app.db.Exec(`INSERT INTO user_keys(user_id, key_id) VALUES(?, ?)`, userID, keyID); err != nil {
+			t.Fatalf("assign historical profile: %v", err)
+		}
+	}
+	return keyID
+}
+
+func sourceProfileCount(t *testing.T, app *App, sourceID int64) int {
+	t.Helper()
+	var count int
+	if err := app.db.QueryRow(`SELECT COUNT(*) FROM vless_keys WHERE external_source_id = ?`, sourceID).Scan(&count); err != nil {
+		t.Fatalf("count source profiles: %v", err)
+	}
+	return count
+}
+
+func TestExternalProfileSyncRepairsHistoricalDuplicatesAndMergesAssignments(t *testing.T) {
+	app := newIntegrationApp(t)
+	sourceID := seedExternalProfileSource(t, app, "https://provider.example/historical-repair")
+	firstUser := seedExternalRepairUser(t, app, "first")
+	secondUser := seedExternalRepairUser(t, app, "second")
+	firstRaw := strings.Replace(externalTestVLESS, "#VLESS", "#Historical first", 1)
+	secondRaw := strings.Replace(externalTestVLESS, "#VLESS", "#Historical second", 1)
+	blankLowerID := insertHistoricalExternalProfile(t, app, sourceID, firstRaw, "vless", "", firstUser)
+	currentFingerprint := parseExternalTestBody(t, externalTestVLESS).Keys[0].Fingerprint
+	ownerID := insertHistoricalExternalProfile(t, app, sourceID, secondRaw, "vless", currentFingerprint, secondUser)
+	if ownerID <= blankLowerID {
+		t.Fatalf("test fixture IDs are not ordered: blank=%d owner=%d", blankLowerID, ownerID)
+	}
+	if _, err := app.db.Exec(`UPDATE vless_keys SET client_display_name = 'Historical override' WHERE id = ?`, blankLowerID); err != nil {
+		t.Fatalf("set duplicate override: %v", err)
+	}
+
+	result, err := app.syncExternalSource(sourceID, parseExternalTestBody(t, externalTestVLESS))
+	if err != nil {
+		t.Fatalf("repair sync failed: %v", err)
+	}
+	if got := sourceProfileCount(t, app, sourceID); got != 1 {
+		t.Fatalf("source rows=%d want=1 result=%#v", got, result)
+	}
+	var survivorID int64
+	if err := app.db.QueryRow(`SELECT id FROM vless_keys WHERE external_source_id = ?`, sourceID).Scan(&survivorID); err != nil {
+		t.Fatal(err)
+	}
+	if survivorID != ownerID {
+		t.Fatalf("survivor=%d want current-fingerprint owner=%d", survivorID, ownerID)
+	}
+	var clientDisplayName string
+	if err := app.db.QueryRow(`SELECT client_display_name FROM vless_keys WHERE id = ?`, survivorID).Scan(&clientDisplayName); err != nil || clientDisplayName != "Historical override" {
+		t.Fatalf("merged client override=%q err=%v", clientDisplayName, err)
+	}
+	var assignments int
+	if err := app.db.QueryRow(`SELECT COUNT(*) FROM user_keys WHERE key_id = ? AND user_id IN (?, ?)`, survivorID, firstUser, secondUser).Scan(&assignments); err != nil || assignments != 2 {
+		t.Fatalf("merged assignments=%d want=2 err=%v", assignments, err)
+	}
+}
+
+func TestExternalProfileSyncPreservesAndThenFollowsResetClientDisplayName(t *testing.T) {
+	app := newIntegrationApp(t)
+	sourceID := seedExternalProfileSource(t, app, "https://provider.example/client-name-override")
+	initialRaw := strings.Replace(externalTestVLESS, "#VLESS", "#Source A", 1)
+	if _, err := app.syncExternalSource(sourceID, parseExternalTestBody(t, initialRaw)); err != nil {
+		t.Fatalf("initial sync: %v", err)
+	}
+	var keyID int64
+	if err := app.db.QueryRow(`SELECT id FROM vless_keys WHERE external_source_id = ?`, sourceID).Scan(&keyID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := app.db.Exec(`UPDATE vless_keys SET client_display_name = 'CUSTOM' WHERE id = ?`, keyID); err != nil {
+		t.Fatal(err)
+	}
+
+	renamedRaw := strings.Replace(externalTestVLESS, "#VLESS", "#Source B", 1)
+	if _, err := app.syncExternalSource(sourceID, parseExternalTestBody(t, renamedRaw)); err != nil {
+		t.Fatalf("renamed sync: %v", err)
+	}
+	var label string
+	var override sql.NullString
+	if err := app.db.QueryRow(`SELECT label, client_display_name FROM vless_keys WHERE id = ?`, keyID).Scan(&label, &override); err != nil {
+		t.Fatal(err)
+	}
+	if label != "Source B" || !override.Valid || override.String != "CUSTOM" {
+		t.Fatalf("after rename label=%q override=%#v", label, override)
+	}
+
+	if _, err := app.db.Exec(`UPDATE vless_keys SET client_display_name = NULL WHERE id = ?`, keyID); err != nil {
+		t.Fatal(err)
+	}
+	latestRaw := strings.Replace(externalTestVLESS, "#VLESS", "#Source C", 1)
+	if _, err := app.syncExternalSource(sourceID, parseExternalTestBody(t, latestRaw)); err != nil {
+		t.Fatalf("post-reset sync: %v", err)
+	}
+	if err := app.db.QueryRow(`SELECT label, client_display_name FROM vless_keys WHERE id = ?`, keyID).Scan(&label, &override); err != nil {
+		t.Fatal(err)
+	}
+	if label != "Source C" || override.Valid {
+		t.Fatalf("after reset rename label=%q override=%#v", label, override)
+	}
+	var envelope string
+	if err := app.db.QueryRow(`SELECT encrypted_url FROM vless_key_secrets WHERE vless_key_id = ?`, keyID).Scan(&envelope); err != nil {
+		t.Fatal(err)
+	}
+	secret, err := profilestorage.Decrypt(envelope, app.profileKeyring, keyID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if effective := profileconfig.EffectiveClientDisplayName("", secret.Reveal(), label, true); effective != "Source C" {
+		t.Fatalf("post-reset effective client name=%q", effective)
+	}
+}
+
+func TestExternalProfileSyncRepairsBlankDuplicatesDuringPartialImport(t *testing.T) {
+	app := newIntegrationApp(t)
+	sourceID := seedExternalProfileSource(t, app, "https://provider.example/partial-repair")
+	firstRaw := strings.Replace(externalTestHY2, "#HY2", "#first", 1)
+	secondRaw := strings.Replace(externalTestHY2, "#HY2", "#second", 1)
+	secondRaw = strings.Replace(secondRaw, "hysteria2://", "hy2://", 1)
+	firstID := insertHistoricalExternalProfile(t, app, sourceID, firstRaw, "hysteria2", "")
+	insertHistoricalExternalProfile(t, app, sourceID, secondRaw, "hysteria2", "")
+	missingID := insertHistoricalExternalProfile(t, app, sourceID, externalTestVMess, "vmess", "")
+
+	parsed := parseExternalTestBody(t, externalTestHY2+"\n"+"hysteria://unsupported.example:443")
+	result, err := app.syncExternalSource(sourceID, parsed)
+	if err != nil {
+		t.Fatalf("partial repair sync failed: %v", err)
+	}
+	if result.Counts.Removed != 1 || sourceProfileCount(t, app, sourceID) != 2 {
+		t.Fatalf("partial repair result=%#v rows=%d", result, sourceProfileCount(t, app, sourceID))
+	}
+	for _, keyID := range []int64{firstID, missingID} {
+		var exists int
+		if err := app.db.QueryRow(`SELECT COUNT(*) FROM vless_keys WHERE id = ?`, keyID).Scan(&exists); err != nil || exists != 1 {
+			t.Fatalf("preserved key %d exists=%d err=%v", keyID, exists, err)
+		}
+	}
+}
+
+func TestExternalProfileSyncLeavesRawXrayJSONOnExactRawIdentity(t *testing.T) {
+	app := newIntegrationApp(t)
+	sourceID := seedExternalProfileSource(t, app, "https://provider.example/xray-exact-repair")
+	secondRaw := strings.Replace(externalTestXray, `"tag":"Xray"`, `"tag":"Xray renamed"`, 1)
+	firstID := insertHistoricalExternalProfile(t, app, sourceID, externalTestXray, "xray-json", "")
+	secondID := insertHistoricalExternalProfile(t, app, sourceID, secondRaw, "xray-json", "")
+
+	parsed := parseExternalTestBody(t, externalTestXray+"\n"+"hysteria://unsupported.example:443")
+	result, err := app.syncExternalSource(sourceID, parsed)
+	if err != nil {
+		t.Fatalf("XRAY-JSON partial sync failed: %v", err)
+	}
+	if result.Counts.Removed != 0 {
+		t.Fatalf("XRAY-JSON exact-raw rows were reported removed: result=%#v", result)
+	}
+	for _, keyID := range []int64{firstID, secondID} {
+		var exists int
+		if err := app.db.QueryRow(`SELECT COUNT(*) FROM vless_keys WHERE id = ?`, keyID).Scan(&exists); err != nil || exists != 1 {
+			t.Fatalf("XRAY-JSON exact-raw key %d exists=%d err=%v", keyID, exists, err)
+		}
+	}
+}
+
+func TestExternalProfileSyncRepairsEightyRowsToFortyAndRemainsStable(t *testing.T) {
+	app := newIntegrationApp(t)
+	sourceID := seedExternalProfileSource(t, app, "https://provider.example/eighty-to-forty")
+	otherSourceID := seedExternalProfileSource(t, app, "https://provider.example/eighty-to-forty-other")
+	current := make([]string, 0, 40)
+	for index := 1; index <= 40; index++ {
+		raw := fmt.Sprintf("vless://%08x-1111-4111-8111-%012x@node-%02d.example:443?security=tls&type=tcp#Current-%02d", index, index, index, index)
+		variant := strings.Replace(raw, "?security=tls&type=tcp", "?type=tcp&security=tls", 1)
+		variant = strings.Replace(variant, fmt.Sprintf("#Current-%02d", index), fmt.Sprintf("#Historical-%02d", index), 1)
+		insertHistoricalExternalProfile(t, app, sourceID, raw, "vless", "")
+		insertHistoricalExternalProfile(t, app, sourceID, variant, "vless", "")
+		current = append(current, raw)
+	}
+	insertHistoricalExternalProfile(t, app, otherSourceID, current[0], "vless", "")
+	if got := sourceProfileCount(t, app, sourceID); got != 80 {
+		t.Fatalf("corrupted fixture rows=%d want=80", got)
+	}
+
+	for attempt := 1; attempt <= 3; attempt++ {
+		result, err := app.syncExternalSource(sourceID, parseExternalTestBody(t, strings.Join(current, "\n")))
+		if err != nil {
+			t.Fatalf("sync %d failed: %v", attempt, err)
+		}
+		if got := sourceProfileCount(t, app, sourceID); got != 40 {
+			t.Fatalf("sync %d rows=%d want=40 result=%#v", attempt, got, result)
+		}
+		if attempt == 1 {
+			if result.Counts.Removed != 40 || result.Counts.Updated != 40 || result.Counts.Added != 0 {
+				t.Fatalf("repair classifications=%#v", result.Counts)
+			}
+		} else if result.Counts.Removed != 0 || result.Counts.Updated != 0 || result.Counts.Unchanged != 40 {
+			t.Fatalf("stable sync %d classifications=%#v", attempt, result.Counts)
+		}
+	}
+	if got := sourceProfileCount(t, app, otherSourceID); got != 1 {
+		t.Fatalf("cross-source row count=%d want=1", got)
+	}
+}
+
 func TestExternalProfileDuplicateWithinSourcePersistsOnce(t *testing.T) {
 	app := newIntegrationApp(t)
 	sourceID := seedExternalProfileSource(t, app, "https://provider.example/source-duplicate")
@@ -453,6 +869,165 @@ func TestExternalProfilePersistenceAndSynchronization(t *testing.T) {
 	}
 	if changedFingerprint == fingerprint {
 		t.Fatal("changed credential retained the old semantic fingerprint")
+	}
+}
+
+func TestExternalProfileSynchronizationIsIdempotentAndSourceScoped(t *testing.T) {
+	app := newIntegrationApp(t)
+	sourceID := seedExternalProfileSource(t, app, "https://provider.example/idempotent")
+	initialBody := strings.Join([]string{externalTestVLESS, externalTestVMess, externalTestTrojan}, "\n")
+	initial := parseExternalTestBody(t, initialBody)
+
+	first, err := app.syncExternalSource(sourceID, initial)
+	if err != nil || first.Counts.Added != 3 || first.Counts.Updated != 0 || first.Counts.Unchanged != 0 {
+		t.Fatalf("first sync result=%#v err=%v", first, err)
+	}
+	assertCount := func(want int) {
+		t.Helper()
+		var got int
+		if err := app.db.QueryRow(`SELECT COUNT(*) FROM vless_keys WHERE external_source_id = ?`, sourceID).Scan(&got); err != nil || got != want {
+			t.Fatalf("source rows=%d want=%d err=%v", got, want, err)
+		}
+	}
+	assertCount(3)
+
+	for attempt := 2; attempt <= 3; attempt++ {
+		result, syncErr := app.syncExternalSource(sourceID, parseExternalTestBody(t, initialBody))
+		if syncErr != nil || result.Counts.Added != 0 || result.Counts.Updated != 0 || result.Counts.Unchanged != 3 {
+			t.Fatalf("sync %d result=%#v err=%v", attempt, result, syncErr)
+		}
+		assertCount(3)
+	}
+
+	reorderedBody := strings.Join([]string{externalTestTrojan, externalTestVLESS, externalTestVMess}, "\n")
+	reordered, err := app.syncExternalSource(sourceID, parseExternalTestBody(t, reorderedBody))
+	if err != nil || reordered.Counts.Added != 0 || reordered.Counts.Unchanged != 3 {
+		t.Fatalf("reordered sync result=%#v err=%v", reordered, err)
+	}
+	assertCount(3)
+
+	var stableVLESSID int64
+	if err := app.db.QueryRow(`SELECT id FROM vless_keys WHERE external_source_id = ? AND protocol = 'vless'`, sourceID).Scan(&stableVLESSID); err != nil {
+		t.Fatalf("read stable VLESS id: %v", err)
+	}
+	renamedVLESS := strings.Replace(externalTestVLESS, "#VLESS", "#Renamed VLESS", 1)
+	renamedBody := strings.Join([]string{renamedVLESS, externalTestVMess, externalTestTrojan}, "\n")
+	renamed, err := app.syncExternalSource(sourceID, parseExternalTestBody(t, renamedBody))
+	if err != nil || renamed.Counts.Added != 0 || renamed.Counts.Updated != 1 || renamed.Counts.Unchanged != 2 {
+		t.Fatalf("renamed sync result=%#v err=%v", renamed, err)
+	}
+	var renamedVLESSID int64
+	if err := app.db.QueryRow(`SELECT id FROM vless_keys WHERE external_source_id = ? AND protocol = 'vless'`, sourceID).Scan(&renamedVLESSID); err != nil || renamedVLESSID != stableVLESSID {
+		t.Fatalf("renamed VLESS id=%d want=%d err=%v", renamedVLESSID, stableVLESSID, err)
+	}
+
+	withNew := renamedBody + "\n" + externalTestSS
+	added, err := app.syncExternalSource(sourceID, parseExternalTestBody(t, withNew))
+	if err != nil || added.Counts.Added != 1 || added.Counts.Unchanged != 3 {
+		t.Fatalf("new-profile sync result=%#v err=%v", added, err)
+	}
+	assertCount(4)
+
+	partial := parseExternalTestBody(t, renamedVLESS+"\n"+"hysteria://unsupported@example.com:443")
+	retained, err := app.syncExternalSource(sourceID, partial)
+	if err != nil || retained.Counts.Removed != 0 {
+		t.Fatalf("partial missing-profile sync result=%#v err=%v", retained, err)
+	}
+	assertCount(4)
+
+	removed, err := app.syncExternalSource(sourceID, parseExternalTestBody(t, renamedVLESS))
+	if err != nil || removed.Counts.Removed != 3 || removed.Counts.Unchanged != 1 {
+		t.Fatalf("complete missing-profile sync result=%#v err=%v", removed, err)
+	}
+	assertCount(1)
+
+	otherSourceID := seedExternalProfileSource(t, app, "https://provider.example/idempotent-other")
+	other, err := app.syncExternalSource(otherSourceID, parseExternalTestBody(t, renamedVLESS))
+	if err != nil || other.Counts.Added != 1 {
+		t.Fatalf("second-source sync result=%#v err=%v", other, err)
+	}
+	var crossSourceRows int
+	if err := app.db.QueryRow(`SELECT COUNT(*) FROM vless_keys WHERE protocol = 'vless' AND external_source_id IN (?, ?)`, sourceID, otherSourceID).Scan(&crossSourceRows); err != nil || crossSourceRows != 2 {
+		t.Fatalf("cross-source rows=%d err=%v", crossSourceRows, err)
+	}
+}
+
+func TestExternalProfileConcurrentRetryDoesNotDuplicateAndHistoryCountsAreAccurate(t *testing.T) {
+	app := newIntegrationApp(t)
+	sourceID := seedExternalProfileSource(t, app, "https://provider.example/concurrent")
+	parsed := parseExternalTestBody(t, strings.Join([]string{externalTestVLESS, externalTestVMess, externalTestTrojan}, "\n"))
+
+	results := make(chan externalSyncResult, 2)
+	errors := make(chan error, 2)
+	var wait sync.WaitGroup
+	for index := 0; index < 2; index++ {
+		wait.Add(1)
+		go func() {
+			defer wait.Done()
+			result, err := app.syncExternalSource(sourceID, parsed)
+			results <- result
+			errors <- err
+		}()
+	}
+	wait.Wait()
+	close(results)
+	close(errors)
+	for err := range errors {
+		if err != nil {
+			t.Fatalf("concurrent sync failed: %v", err)
+		}
+	}
+	addedTotal := 0
+	unchangedTotal := 0
+	var historyResult externalSyncResult
+	for result := range results {
+		addedTotal += result.Counts.Added
+		unchangedTotal += result.Counts.Unchanged
+		if result.Counts.Unchanged == 3 {
+			historyResult = result
+		}
+	}
+	if addedTotal != 3 || unchangedTotal != 3 {
+		t.Fatalf("concurrent classifications added=%d unchanged=%d", addedTotal, unchangedTotal)
+	}
+	var rows int
+	if err := app.db.QueryRow(`SELECT COUNT(*) FROM vless_keys WHERE external_source_id = ?`, sourceID).Scan(&rows); err != nil || rows != 3 {
+		t.Fatalf("concurrent source rows=%d err=%v", rows, err)
+	}
+
+	runID := app.startSourceSyncRun(sourceID)
+	app.finishSourceSyncRun(runID, historyResult, nil)
+	var countsJSON string
+	if err := app.db.QueryRow(`SELECT result_counts_json FROM source_sync_runs WHERE id = ?`, runID).Scan(&countsJSON); err != nil {
+		t.Fatalf("read sync history: %v", err)
+	}
+	var counts externalImportCounts
+	if err := json.Unmarshal([]byte(countsJSON), &counts); err != nil || counts.Added != 0 || counts.Updated != 0 || counts.Unchanged != 3 {
+		t.Fatalf("history counts=%#v json=%q err=%v", counts, countsJSON, err)
+	}
+}
+
+func TestExternalProfileLegacyRowWithoutFingerprintKeepsIDOnRename(t *testing.T) {
+	app := newIntegrationApp(t)
+	sourceID := seedExternalProfileSource(t, app, "https://provider.example/legacy-fingerprint-backfill")
+	userID := seedSubscriptionUser(t, app, "active")
+	legacyID := insertAssignedDeliveryKey(t, app, userID, sourceID, "Old name", externalTestVLESS, "vless", "legacy", 1)
+	if _, err := app.db.Exec(`UPDATE vless_keys SET external_key_ref = ?, profile_fingerprint = NULL WHERE id = ?`, buildExternalKeyRef(externalTestVLESS), legacyID); err != nil {
+		t.Fatalf("prepare legacy row: %v", err)
+	}
+
+	renamed := strings.Replace(externalTestVLESS, "#VLESS", "#New name", 1)
+	result, err := app.syncExternalSource(sourceID, parseExternalTestBody(t, renamed))
+	if err != nil || result.Counts.Added != 0 || result.Counts.Updated != 1 {
+		t.Fatalf("legacy rename result=%#v err=%v", result, err)
+	}
+	var currentID int64
+	var fingerprint string
+	if err := app.db.QueryRow(`SELECT id, profile_fingerprint FROM vless_keys WHERE external_source_id = ?`, sourceID).Scan(&currentID, &fingerprint); err != nil {
+		t.Fatal(err)
+	}
+	if currentID != legacyID || !strings.HasPrefix(fingerprint, "pf1_") {
+		t.Fatalf("legacy identity changed: id=%d want=%d fingerprint=%q", currentID, legacyID, fingerprint)
 	}
 }
 

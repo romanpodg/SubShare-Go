@@ -14,6 +14,13 @@ interface Props {
   onRefresh: () => Promise<void>;
 }
 
+export function connectedDevicesHeading(connected: number, maximum: number) {
+  if (maximum === 0) {
+    return `Подключенные устройства: ${connected} — без ограничений`;
+  }
+  return `Подключенные устройства (${connected}/${maximum})`;
+}
+
 export function HwidManager({ user, onClose, onRefresh }: Props) {
   const { toast } = useToast();
   const [loading, setLoading] = useState(false);
@@ -132,7 +139,7 @@ export function HwidManager({ user, onClose, onRefresh }: Props) {
               value={maxDevicesInput}
               onChange={(e) => {
                 const digits = e.target.value.replace(/\D/g, "");
-                setMaxDevicesInput(digits === "" ? "" : String(Math.min(32, Math.max(1, parseInt(digits, 10)))));
+                setMaxDevicesInput(digits === "" ? "" : String(Math.min(32, Math.max(0, parseInt(digits, 10)))));
               }}
               onBlur={() => setMaxDevicesInput(String(parsedMaxDevices))}
               className="ui-control w-full px-3 text-center text-sm"
@@ -157,7 +164,7 @@ export function HwidManager({ user, onClose, onRefresh }: Props) {
 
       <div className="mt-4">
         <h3 className="text-sm text-zinc-400 mb-2">
-          Подключенные устройства ({user.connected_device_count}/{user.max_devices})
+          {connectedDevicesHeading(user.connected_device_count, user.max_devices)}
         </h3>
         {connectedDevices.length > 0 ? (
           <div className="flex flex-col gap-1">

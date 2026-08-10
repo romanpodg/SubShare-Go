@@ -5,7 +5,6 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"log"
 	"net/http"
 	"strconv"
@@ -14,19 +13,137 @@ import (
 	"time"
 
 	"github.com/romanpodg/SubShare-Go/internal/keymanagement"
+	"github.com/romanpodg/SubShare-Go/internal/model"
 )
 
+const keyHealthCheckConcurrency = 10
+
+type keyHealthCheckJobSummary struct {
+	TotalSelected      int `json:"total_selected"`
+	Checked            int `json:"checked"`
+	Healthy            int `json:"healthy"`
+	Unhealthy          int `json:"unhealthy"`
+	CheckFailed        int `json:"check_failed"`
+	SkippedDisabled    int `json:"skipped_disabled"`
+	SkippedUnsupported int `json:"skipped_unsupported"`
+	PersistedOK        int `json:"persisted_ok"`
+	PersistFailed      int `json:"persist_failed"`
+}
+
 type backgroundJob struct {
-	ID           int64      `json:"id"`
-	Kind         string     `json:"kind"`
-	Status       string     `json:"status"`
-	TargetType   string     `json:"target_type"`
-	TargetID     string     `json:"target_id"`
-	ErrorMessage string     `json:"error_message"`
-	RunAfter     *time.Time `json:"run_after"`
-	StartedAt    *time.Time `json:"started_at"`
-	FinishedAt   *time.Time `json:"finished_at"`
-	CreatedAt    time.Time  `json:"created_at"`
+	ID           int64                     `json:"id"`
+	Kind         string                    `json:"kind"`
+	Status       string                    `json:"status"`
+	TargetType   string                    `json:"target_type"`
+	TargetID     string                    `json:"target_id"`
+	ErrorMessage string                    `json:"error_message"`
+	ResultCounts *keyHealthCheckJobSummary `json:"result_counts,omitempty"`
+	RunAfter     *time.Time                `json:"run_after"`
+	StartedAt    *time.Time                `json:"started_at"`
+	FinishedAt   *time.Time                `json:"finished_at"`
+	CreatedAt    time.Time                 `json:"created_at"`
+}
+
+type keyHealthCheckExecutor func(rawURL string) (status string, detail string, latency int64, err error)
+type keyHealthResultPersister func(keyID int64, status string, detail string, latency int64) error
+
+type keyHealthCheckItemResult struct {
+	status        string
+	checkFailed   bool
+	unsupported   bool
+	persistFailed bool
+}
+
+func executeKeyHealthCheckBatch(
+	targets []keymanagement.HealthCheckTarget,
+	check keyHealthCheckExecutor,
+	persist keyHealthResultPersister,
+	concurrency int,
+) keyHealthCheckJobSummary {
+	if concurrency < 1 {
+		concurrency = 1
+	}
+	summary := keyHealthCheckJobSummary{TotalSelected: len(targets)}
+	results := make(chan keyHealthCheckItemResult, len(targets))
+	semaphore := make(chan struct{}, concurrency)
+	var waitGroup sync.WaitGroup
+
+	for _, target := range targets {
+		targetStatus, _ := model.NormalizeKeyStatus(target.Status)
+		if targetStatus != model.KeyStatusActive {
+			summary.SkippedDisabled++
+			continue
+		}
+		if kind, _ := model.NormalizeKeyKind(target.Kind); kind == model.KeyKindInformational {
+			summary.SkippedUnsupported++
+			continue
+		}
+		if target.Unreadable || strings.TrimSpace(target.URL) == "" {
+			summary.CheckFailed++
+			continue
+		}
+
+		waitGroup.Add(1)
+		semaphore <- struct{}{}
+		go func(item keymanagement.HealthCheckTarget) {
+			defer waitGroup.Done()
+			defer func() { <-semaphore }()
+			result := keyHealthCheckItemResult{}
+			defer func() {
+				if recover() != nil {
+					result = keyHealthCheckItemResult{checkFailed: true}
+				}
+				results <- result
+			}()
+
+			status, detail, latency, err := check(item.URL)
+			if err != nil {
+				result.checkFailed = true
+				return
+			}
+			result.status = model.NormalizeCheckStatus(status)
+			if result.status == "unknown" {
+				result.unsupported = true
+			}
+			if err := persist(item.ID, result.status, detail, latency); err != nil {
+				log.Printf("background key check result persistence failed: key_id=%d err=%v", item.ID, err)
+				result.persistFailed = true
+			}
+		}(target)
+	}
+
+	waitGroup.Wait()
+	close(results)
+	for result := range results {
+		summary.Checked++
+		if result.checkFailed {
+			summary.CheckFailed++
+			continue
+		}
+		if result.unsupported {
+			summary.SkippedUnsupported++
+		} else if result.status == "up" {
+			summary.Healthy++
+		} else {
+			summary.Unhealthy++
+		}
+		if result.persistFailed {
+			summary.PersistFailed++
+		} else {
+			summary.PersistedOK++
+		}
+	}
+	return summary
+}
+
+func keyHealthCheckJobStatus(summary keyHealthCheckJobSummary, fatalErr error) string {
+	if fatalErr != nil {
+		return "failed"
+	}
+	if summary.CheckFailed > 0 || summary.PersistFailed > 0 {
+		return "succeeded_with_warnings"
+	}
+	return "succeeded"
 }
 
 func (a *App) recoverInterruptedJobs() {
@@ -107,6 +224,36 @@ func (a *App) finishTrackedJob(id int64, err error) {
 	_, _ = a.db.Exec(`UPDATE background_jobs SET status = 'succeeded', error_message = '', finished_at = CURRENT_TIMESTAMP WHERE id = ?`, id)
 }
 
+func (a *App) finishKeyHealthCheckJob(id int64, summary keyHealthCheckJobSummary, fatalErr error) {
+	if id == 0 {
+		return
+	}
+	countsJSON, err := json.Marshal(summary)
+	if err != nil {
+		countsJSON = []byte("{}")
+	}
+	status := keyHealthCheckJobStatus(summary, fatalErr)
+	errorMessage := ""
+	if fatalErr != nil {
+		errorMessage = fatalErr.Error()
+	}
+	_, _ = a.db.Exec(`
+		UPDATE background_jobs
+		SET status = ?, error_message = ?, result_counts_json = ?, finished_at = CURRENT_TIMESTAMP
+		WHERE id = ?
+	`, status, errorMessage, string(countsJSON), id)
+}
+
+func decodeKeyHealthCheckJobCounts(item *backgroundJob, raw string) {
+	if item == nil || item.Kind != "keys_health_check" || strings.TrimSpace(raw) == "" {
+		return
+	}
+	var counts keyHealthCheckJobSummary
+	if json.Unmarshal([]byte(raw), &counts) == nil {
+		item.ResultCounts = &counts
+	}
+}
+
 func (a *App) startSourceSyncRun(sourceID int64) int64 {
 	result, err := a.db.Exec(`INSERT INTO source_sync_runs(source_id, status) VALUES(?, 'running')`, sourceID)
 	if err != nil {
@@ -146,7 +293,7 @@ func (a *App) apiV1ListJobs(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	rows, err := a.db.Query(`
-		SELECT id, kind, status, target_type, target_id, error_message, run_after, started_at, finished_at, created_at
+		SELECT id, kind, status, target_type, target_id, error_message, result_counts_json, run_after, started_at, finished_at, created_at
 		FROM background_jobs ORDER BY id DESC LIMIT ? OFFSET ?
 	`, pageSize, (page-1)*pageSize)
 	if err != nil {
@@ -157,14 +304,16 @@ func (a *App) apiV1ListJobs(w http.ResponseWriter, r *http.Request) {
 	items := []backgroundJob{}
 	for rows.Next() {
 		var item backgroundJob
+		var resultCountsJSON string
 		var runAfter, startedAt, finishedAt sql.NullTime
-		if err := rows.Scan(&item.ID, &item.Kind, &item.Status, &item.TargetType, &item.TargetID, &item.ErrorMessage, &runAfter, &startedAt, &finishedAt, &item.CreatedAt); err != nil {
+		if err := rows.Scan(&item.ID, &item.Kind, &item.Status, &item.TargetType, &item.TargetID, &item.ErrorMessage, &resultCountsJSON, &runAfter, &startedAt, &finishedAt, &item.CreatedAt); err != nil {
 			writeV1Error(w, r, http.StatusInternalServerError, "jobs_list_failed", "failed to load jobs")
 			return
 		}
 		item.RunAfter = nullTimePointer(runAfter)
 		item.StartedAt = nullTimePointer(startedAt)
 		item.FinishedAt = nullTimePointer(finishedAt)
+		decodeKeyHealthCheckJobCounts(&item, resultCountsJSON)
 		items = append(items, item)
 	}
 	totalPages := 0
@@ -180,15 +329,16 @@ func (a *App) apiV1GetJob(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var item backgroundJob
+	var resultCountsJSON string
 	var runAfter, startedAt, finishedAt sql.NullTime
 	err := a.db.QueryRow(`
-		SELECT id, kind, status, target_type, target_id, error_message,
+		SELECT id, kind, status, target_type, target_id, error_message, result_counts_json,
 		       run_after, started_at, finished_at, created_at
 		FROM background_jobs
 		WHERE id = ?
 	`, jobID).Scan(
 		&item.ID, &item.Kind, &item.Status, &item.TargetType, &item.TargetID,
-		&item.ErrorMessage, &runAfter, &startedAt, &finishedAt, &item.CreatedAt,
+		&item.ErrorMessage, &resultCountsJSON, &runAfter, &startedAt, &finishedAt, &item.CreatedAt,
 	)
 	if errors.Is(err, sql.ErrNoRows) {
 		writeV1Error(w, r, http.StatusNotFound, "job_not_found", "job not found")
@@ -201,6 +351,7 @@ func (a *App) apiV1GetJob(w http.ResponseWriter, r *http.Request) {
 	item.RunAfter = nullTimePointer(runAfter)
 	item.StartedAt = nullTimePointer(startedAt)
 	item.FinishedAt = nullTimePointer(finishedAt)
+	decodeKeyHealthCheckJobCounts(&item, resultCountsJSON)
 	writeJSON(w, http.StatusOK, map[string]any{"data": item})
 }
 
@@ -281,38 +432,19 @@ func (a *App) runQueuedKeyHealthCheck(jobID, actorAdminID int64, requestID strin
 	a.markTrackedJobRunning(jobID)
 	targets, err := a.keyService().ListHealthCheckTargets(context.Background())
 	if err != nil {
-		a.finishTrackedJob(jobID, err)
+		a.finishKeyHealthCheckJob(jobID, keyHealthCheckJobSummary{}, err)
 		return
 	}
-
-	var waitGroup sync.WaitGroup
-	semaphore := make(chan struct{}, 10)
-	errorCount := 0
-	var errorLock sync.Mutex
-	for _, target := range targets {
-		waitGroup.Add(1)
-		semaphore <- struct{}{}
-		go func(item keymanagement.HealthCheckTarget) {
-			defer waitGroup.Done()
-			defer func() { <-semaphore }()
-			if checkErr := a.checkAndPersistKey(item.ID, item.URL); checkErr != nil {
-				log.Printf("background key check: key_id=%d err=%v", item.ID, checkErr)
-				errorLock.Lock()
-				errorCount++
-				errorLock.Unlock()
-			}
-		}(target)
-	}
-	waitGroup.Wait()
-	if errorCount > 0 {
-		err = fmt.Errorf("%d key checks could not be persisted", errorCount)
-		a.finishTrackedJob(jobID, err)
-		return
-	}
-	a.finishTrackedJob(jobID, nil)
+	summary := executeKeyHealthCheckBatch(targets, func(rawURL string) (string, string, int64, error) {
+		status, detail, latency := checkConfigurationAvailability(rawURL)
+		return status, detail, latency, nil
+	}, func(keyID int64, status string, detail string, latency int64) error {
+		return a.keyService().SaveHealthCheckResult(context.Background(), keyID, status, detail, latency)
+	}, keyHealthCheckConcurrency)
+	a.finishKeyHealthCheckJob(jobID, summary, nil)
 	a.recordAuditEventForActor(actorAdminID, requestID, "keys.health_check", "key", "all", map[string]any{
-		"checked": len(targets),
-		"job_id":  jobID,
+		"job_id":        jobID,
+		"result_counts": summary,
 	})
 }
 

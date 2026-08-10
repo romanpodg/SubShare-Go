@@ -142,9 +142,18 @@ func (h *KeyAdministrationHandler) CheckAllKeys(w http.ResponseWriter, r *http.R
 	if h.runtime.StartJob != nil {
 		jobID = h.runtime.StartJob("keys_health_check", "key", "all")
 	}
+	eligibleTargets := make([]keymanagement.HealthCheckTarget, 0, len(targets))
+	for _, target := range targets {
+		status, _ := model.NormalizeKeyStatus(target.Status)
+		kind, _ := model.NormalizeKeyKind(target.Kind)
+		if status != model.KeyStatusActive || kind == model.KeyKindInformational || target.Unreadable || target.URL == "" {
+			continue
+		}
+		eligibleTargets = append(eligibleTargets, target)
+	}
 	var waitGroup sync.WaitGroup
 	semaphore := make(chan struct{}, 10)
-	for _, target := range targets {
+	for _, target := range eligibleTargets {
 		waitGroup.Add(1)
 		semaphore <- struct{}{}
 		go func(item keymanagement.HealthCheckTarget) {
@@ -172,9 +181,9 @@ func (h *KeyAdministrationHandler) CheckAllKeys(w http.ResponseWriter, r *http.R
 	}
 	h.finishJob(jobID, nil)
 	if h.audit != nil {
-		h.audit(r, "keys.health_check", "key", "all", map[string]any{"checked": len(targets)})
+		h.audit(r, "keys.health_check", "key", "all", map[string]any{"checked": len(eligibleTargets)})
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"checked": len(targets), "keys": payloads})
+	writeJSON(w, http.StatusOK, map[string]any{"checked": len(eligibleTargets), "keys": payloads})
 }
 
 func (h *KeyAdministrationHandler) QueueHealthCheck(w http.ResponseWriter, r *http.Request) {

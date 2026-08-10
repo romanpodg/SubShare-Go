@@ -66,10 +66,11 @@ var schemaMigrations = []schemaMigration{
 			`CREATE TABLE IF NOT EXISTS background_jobs (
 				id INTEGER PRIMARY KEY AUTOINCREMENT,
 				kind TEXT NOT NULL,
-				status TEXT NOT NULL CHECK (status IN ('queued','running','succeeded','failed')),
+				status TEXT NOT NULL CHECK (status IN ('queued','running','succeeded','succeeded_with_warnings','failed')),
 				target_type TEXT NOT NULL DEFAULT '',
 				target_id TEXT NOT NULL DEFAULT '',
 				error_message TEXT NOT NULL DEFAULT '',
+				result_counts_json TEXT NOT NULL DEFAULT '{}',
 				run_after DATETIME,
 				started_at DATETIME,
 				finished_at DATETIME,
@@ -456,6 +457,119 @@ var schemaMigrations = []schemaMigration{
 			`UPDATE vless_keys SET updated_at = COALESCE(created_at, CURRENT_TIMESTAMP) WHERE updated_at IS NULL`,
 		},
 	},
+	{
+		version: 15,
+		name:    "add_general_subscription_expiration_setting",
+		runGo:   migrateShowSubscriptionExpiration,
+	},
+	{
+		version: 16,
+		name:    "add_client_display_name_to_vless_keys",
+		runGo:   migrateClientDisplayName,
+	},
+	{
+		version: 17,
+		name:    "add_background_job_warning_results",
+		runGo:   migrateBackgroundJobWarningResults,
+	},
+}
+
+func migrateShowSubscriptionExpiration(_ context.Context, _ *sql.Conn, db *sql.DB, _ *profilestorage.Keyring) error {
+	return ensureColumn(db, "subscription_settings", "show_subscription_expiration", "INTEGER NOT NULL DEFAULT 0")
+}
+
+func migrateClientDisplayName(_ context.Context, _ *sql.Conn, db *sql.DB, _ *profilestorage.Keyring) error {
+	return ensureColumn(db, "vless_keys", "client_display_name", "TEXT")
+}
+
+func migrateBackgroundJobWarningResults(ctx context.Context, conn *sql.Conn, _ *sql.DB, _ *profilestorage.Keyring) error {
+	rows, err := conn.QueryContext(ctx, `PRAGMA table_info(background_jobs)`)
+	if err != nil {
+		return fmt.Errorf("inspect background_jobs schema: %w", err)
+	}
+	hasResultCounts := false
+	hasBackgroundJobs := false
+	for rows.Next() {
+		hasBackgroundJobs = true
+		var columnID int
+		var name, columnType string
+		var notNull, primaryKey int
+		var defaultValue sql.NullString
+		if err := rows.Scan(&columnID, &name, &columnType, &notNull, &defaultValue, &primaryKey); err != nil {
+			rows.Close()
+			return fmt.Errorf("scan background_jobs schema: %w", err)
+		}
+		if name == "result_counts_json" {
+			hasResultCounts = true
+		}
+	}
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		return fmt.Errorf("iterate background_jobs schema: %w", err)
+	}
+	if err := rows.Close(); err != nil {
+		return fmt.Errorf("close background_jobs schema rows: %w", err)
+	}
+	if !hasBackgroundJobs {
+		if _, err := conn.ExecContext(ctx, `CREATE TABLE background_jobs (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			kind TEXT NOT NULL,
+			status TEXT NOT NULL CHECK (status IN ('queued','running','succeeded','succeeded_with_warnings','failed')),
+			target_type TEXT NOT NULL DEFAULT '', target_id TEXT NOT NULL DEFAULT '',
+			error_message TEXT NOT NULL DEFAULT '', result_counts_json TEXT NOT NULL DEFAULT '{}',
+			run_after DATETIME, started_at DATETIME, finished_at DATETIME,
+			created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+		)`); err != nil {
+			return fmt.Errorf("create background_jobs table: %w", err)
+		}
+		if _, err := conn.ExecContext(ctx, `CREATE INDEX idx_background_jobs_status ON background_jobs(status, run_after, id)`); err != nil {
+			return fmt.Errorf("create background_jobs status index: %w", err)
+		}
+		return nil
+	}
+	if hasResultCounts {
+		return nil
+	}
+
+	tx, err := conn.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("begin background_jobs rebuild: %w", err)
+	}
+	defer tx.Rollback()
+	statements := []string{
+		`CREATE TABLE background_jobs_new (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			kind TEXT NOT NULL,
+			status TEXT NOT NULL CHECK (status IN ('queued','running','succeeded','succeeded_with_warnings','failed')),
+			target_type TEXT NOT NULL DEFAULT '',
+			target_id TEXT NOT NULL DEFAULT '',
+			error_message TEXT NOT NULL DEFAULT '',
+			result_counts_json TEXT NOT NULL DEFAULT '{}',
+			run_after DATETIME,
+			started_at DATETIME,
+			finished_at DATETIME,
+			created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+		)`,
+		`INSERT INTO background_jobs_new(
+			id, kind, status, target_type, target_id, error_message,
+			result_counts_json, run_after, started_at, finished_at, created_at
+		)
+		SELECT id, kind, status, target_type, target_id, error_message,
+		       '{}', run_after, started_at, finished_at, created_at
+		FROM background_jobs`,
+		`DROP TABLE background_jobs`,
+		`ALTER TABLE background_jobs_new RENAME TO background_jobs`,
+		`CREATE INDEX idx_background_jobs_status ON background_jobs(status, run_after, id)`,
+	}
+	for _, statement := range statements {
+		if _, err := tx.ExecContext(ctx, statement); err != nil {
+			return fmt.Errorf("rebuild background_jobs: %w", err)
+		}
+	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("commit background_jobs rebuild: %w", err)
+	}
+	return nil
 }
 
 func runVersionedMigrations(db *sql.DB) error {

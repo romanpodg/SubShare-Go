@@ -44,14 +44,14 @@ function applyEmojiPickerShadowTheme(picker: EmojiMartPicker) {
   style.dataset.subshareEmojiTheme = "true";
   style.textContent = `
     :host { width: 100%; height: 100%; min-height: 0; border-radius: 0; box-shadow: none; }
-    #root { --padding: 8px; --sidebar-width: var(--scrollbar-size); border-radius: 0; }
+    #root { --padding: 8px; --sidebar-width: var(--scrollbar-size); display: flex; height: 100%; min-height: 0; flex-direction: column; border-radius: 0; overflow: hidden; }
     .search input[type="search"] { border-radius: var(--radius-sm); }
     .search input[type="search"]:focus { box-shadow: inset 0 0 0 1px var(--accent); }
     .sticky { background: var(--surface-2); backdrop-filter: none; font-family: var(--font-mono); font-size: 11px; letter-spacing: .06em; text-transform: uppercase; }
     .category > div:last-child:empty::after { display: block; padding: 16px 8px; color: var(--text-dim); content: "Эмодзи не найден"; font-family: var(--font-mono); font-size: 11px; }
     #nav .bar { height: 2px; border-radius: 0; }
     .category button .background, .menu, .option { border-radius: var(--radius-sm); }
-    .scroll { scrollbar-color: var(--scrollbar-thumb) var(--scrollbar-track); scrollbar-width: thin; }
+    .scroll { min-height: 0; overscroll-behavior: contain; scrollbar-color: var(--scrollbar-thumb) var(--scrollbar-track); scrollbar-width: thin; touch-action: pan-y; }
     .scroll::-webkit-scrollbar { width: var(--scrollbar-size); height: var(--scrollbar-size); }
     .scroll::-webkit-scrollbar-track { background: var(--scrollbar-track); }
     .scroll::-webkit-scrollbar-thumb { min-height: 32px; border: 2px solid var(--scrollbar-track); border-radius: 0; background: var(--scrollbar-thumb); background-clip: padding-box; }
@@ -156,11 +156,14 @@ export function EmojiPickerButton({ onSelect, className = "", inline = false, ic
         dynamicWidth: false,
         onEmojiSelect: (emoji: { native?: string }) => {
           if (typeof emoji.native === "string" && emoji.native) onSelectRef.current(emoji.native);
-          if (!inline) close(true);
+          if (!inline) close(false);
         },
       }) as unknown as EmojiMartPicker;
       picker.classList.add("emoji-picker-host");
       picker.setAttribute("aria-label", "Выбор эмодзи");
+      const containPickerScroll = (event: Event) => event.stopPropagation();
+      picker.addEventListener("wheel", containPickerScroll, { passive: true });
+      picker.addEventListener("touchmove", containPickerScroll, { passive: true });
       container.replaceChildren(picker);
       applyEmojiPickerShadowTheme(picker);
       setLoadState("ready");
@@ -187,6 +190,8 @@ export function EmojiPickerButton({ onSelect, className = "", inline = false, ic
       tabIndex={-1}
       data-placement={layout?.placement}
       className={inline ? "emoji-picker-surface emoji-picker-surface--inline mt-3" : "emoji-picker-surface emoji-picker-popover"}
+      onWheel={(event) => event.stopPropagation()}
+      onTouchMove={(event) => event.stopPropagation()}
       style={inline ? undefined : {
         height: layout?.height,
         left: layout?.left,

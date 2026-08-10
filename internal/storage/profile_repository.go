@@ -39,6 +39,13 @@ func nullStringValue(s string) any {
 	return s
 }
 
+func optionalNullStringValue(value *string) any {
+	if value == nil {
+		return nil
+	}
+	return nullStringValue(*value)
+}
+
 func nullInt64Value(id int64) any {
 	if id <= 0 {
 		return nil
@@ -64,12 +71,13 @@ func loadKeyByID(ctx context.Context, db *sql.DB, credentials *credentialStore, 
 	var categoryID sql.NullInt64
 	var externalSourceID sql.NullInt64
 	var externalSourceName sql.NullString
+	var storedClientDisplayName sql.NullString
 	var warningsJSON string
 	var revision sql.NullInt64
 	var updatedAt sql.NullString
 
 	err := db.QueryRowContext(ctx, `
-		SELECT k.id, k.label, s.encrypted_url, k.category_id, COALESCE(kc.name, k.category),
+		SELECT k.id, k.label, k.client_display_name, s.encrypted_url, k.category_id, COALESCE(kc.name, k.category),
 		       k.key_kind, k.template_text, k.status, k.check_status, k.check_error,
 		       k.last_checked_at, k.last_latency_ms, k.created_at, k.external_source_id,
 		       COALESCE(es.name, ''), k.protocol, k.profile_schema_version,
@@ -81,7 +89,7 @@ func loadKeyByID(ctx context.Context, db *sql.DB, credentials *credentialStore, 
 		LEFT JOIN external_subscription_sources es ON es.id = k.external_source_id
 		WHERE k.id = ?
 	`, id).Scan(
-		&key.ID, &key.Label, &encURL, &categoryID, &category, &kind, &templateText, &status,
+		&key.ID, &key.Label, &storedClientDisplayName, &encURL, &categoryID, &category, &kind, &templateText, &status,
 		&checkStatus, &checkError, &lastCheckedAt, &latency, &key.CreatedAt, &externalSourceID,
 		&externalSourceName, &key.Protocol, &key.ProfileSchemaVersion, &key.ProfileCompatibility,
 		&warningsJSON, &revision, &updatedAt,
@@ -143,6 +151,10 @@ func loadKeyByID(ctx context.Context, db *sql.DB, credentials *credentialStore, 
 		key.ExternalSourceID = externalSourceID.Int64
 	}
 	key.ExternalSourceName = strings.TrimSpace(externalSourceName.String)
+	key.ClientDisplayNameOverridden = strings.TrimSpace(storedClientDisplayName.String) != ""
+	key.ClientDisplayName = profileconfig.EffectiveClientDisplayName(
+		storedClientDisplayName.String, decryptedURI, key.Label, key.ExternalSourceID > 0,
+	)
 
 	return &key, decryptedURI, nil
 }
@@ -174,12 +186,12 @@ func (r *ProfileRepository) CreateLocal(ctx context.Context, params profilepersi
 
 	res, err := tx.ExecContext(ctx, `
 		INSERT INTO vless_keys(
-			label, url_blind_index, category_id, category, status, check_status,
+			label, client_display_name, url_blind_index, category_id, category, status, check_status,
 			key_kind, template_text, sort_order, protocol, profile_schema_version,
 			profile_compatibility, profile_warnings_json, profile_revision,
 			created_at, updated_at
-		) VALUES(?, ?, ?, ?, ?, 'unknown', ?, ?, ?, ?, 1, 'full', '[]', 1, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
-	`, params.Label, blindIndex, categoryIDVal, params.Category, params.Status, params.Kind, nullStringValue(params.TemplateText), nextSort, params.Protocol)
+		) VALUES(?, ?, ?, ?, ?, ?, 'unknown', ?, ?, ?, ?, 1, 'full', '[]', 1, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+	`, params.Label, nullStringValue(params.ClientDisplayName), blindIndex, categoryIDVal, params.Category, params.Status, params.Kind, nullStringValue(params.TemplateText), nextSort, params.Protocol)
 	if err != nil {
 		return nil, "", fmt.Errorf("%w: %v", profilepersistence.ErrProfileCreateConflict, err)
 	}
@@ -218,11 +230,6 @@ func (r *ProfileRepository) UpdateLocal(ctx context.Context, params profilepersi
 	if err != nil {
 		return nil, "", fmt.Errorf("%w: %v", profilepersistence.ErrBlindIndexUnavailable, err)
 	}
-	env, err := r.credentials.encrypt(params.NewURI, params.ID)
-	if err != nil {
-		return nil, "", fmt.Errorf("failed to encrypt secret: %w", err)
-	}
-
 	tx, err := r.db.BeginTx(ctx, nil)
 	if err != nil {
 		return nil, "", fmt.Errorf("failed to start transaction: %w", err)
@@ -269,14 +276,17 @@ func (r *ProfileRepository) UpdateLocal(ctx context.Context, params profilepersi
 	if storedURI == params.NewURI {
 		blindIndex = storedBlindIndex
 	}
+	uriChanged := storedURI != params.NewURI
 
 	res, err := tx.ExecContext(ctx, `
 		UPDATE vless_keys
-		SET label = ?, url_blind_index = ?, category_id = ?, category = ?, status = ?,
+		SET label = ?,
+		    client_display_name = CASE WHEN ? THEN ? ELSE client_display_name END,
+		    url_blind_index = ?, category_id = ?, category = ?, status = ?,
 		    key_kind = ?, template_text = ?, protocol = ?, profile_revision = profile_revision + 1,
 		    updated_at = CURRENT_TIMESTAMP
 		WHERE id = ? AND profile_revision = ? AND external_source_id IS NULL
-	`, params.Label, blindIndex, categoryIDVal, params.Category, params.Status, params.Kind, nullStringValue(params.TemplateText), params.Protocol, params.ID, params.ExpectedRevision)
+	`, params.Label, params.ClientDisplayName != nil, optionalNullStringValue(params.ClientDisplayName), blindIndex, categoryIDVal, params.Category, params.Status, params.Kind, nullStringValue(params.TemplateText), params.Protocol, params.ID, params.ExpectedRevision)
 	if err != nil {
 		return nil, "", fmt.Errorf("failed to update key: %w", err)
 	}
@@ -286,17 +296,81 @@ func (r *ProfileRepository) UpdateLocal(ctx context.Context, params profilepersi
 		return nil, "", profilepersistence.ErrProfileRevisionConflict
 	}
 
-	if _, err := tx.ExecContext(ctx, `
-		INSERT INTO vless_key_secrets(vless_key_id, encrypted_url) VALUES(?, ?)
-		ON CONFLICT(vless_key_id) DO UPDATE SET encrypted_url = excluded.encrypted_url
-	`, params.ID, env); err != nil {
-		return nil, "", fmt.Errorf("failed to update secret: %w", err)
+	if uriChanged {
+		env, encryptErr := r.credentials.encrypt(params.NewURI, params.ID)
+		if encryptErr != nil {
+			return nil, "", fmt.Errorf("failed to encrypt secret: %w", encryptErr)
+		}
+		if _, err := tx.ExecContext(ctx, `
+			INSERT INTO vless_key_secrets(vless_key_id, encrypted_url) VALUES(?, ?)
+			ON CONFLICT(vless_key_id) DO UPDATE SET encrypted_url = excluded.encrypted_url
+		`, params.ID, env); err != nil {
+			return nil, "", fmt.Errorf("failed to update secret: %w", err)
+		}
 	}
 
 	if err := tx.Commit(); err != nil {
 		return nil, "", fmt.Errorf("failed to commit key update: %w", err)
 	}
 
+	return r.GetByID(ctx, params.ID)
+}
+
+// UpdateClientDisplayName changes only subscriber-facing metadata. It is the
+// narrow mutation used for source-owned profiles; source-controlled fields and
+// the encrypted configuration are deliberately excluded from the UPDATE.
+func (r *ProfileRepository) UpdateClientDisplayName(ctx context.Context, params profilepersistence.UpdateClientDisplayNameParams) (*model.VLESSKey, string, error) {
+	if err := r.credentials.encryptionAvailable(); err != nil {
+		return nil, "", fmt.Errorf("%w: %v", profilepersistence.ErrEncryptionUnavailable, err)
+	}
+	tx, err := r.db.BeginTx(ctx, nil)
+	if err != nil {
+		return nil, "", fmt.Errorf("failed to start transaction: %w", err)
+	}
+	defer tx.Rollback()
+
+	var storedRevision int64
+	var storedEncryptedURL sql.NullString
+	err = tx.QueryRowContext(ctx, `
+		SELECT COALESCE(k.profile_revision, 1), s.encrypted_url
+		FROM vless_keys k
+		LEFT JOIN vless_key_secrets s ON s.vless_key_id = k.id
+		WHERE k.id = ?
+	`, params.ID).Scan(&storedRevision, &storedEncryptedURL)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, "", profilepersistence.ErrProfileNotFound
+	}
+	if err != nil {
+		return nil, "", fmt.Errorf("failed to load key metadata: %w", err)
+	}
+	if storedRevision != params.ExpectedRevision {
+		return nil, "", profilepersistence.ErrProfileRevisionConflict
+	}
+	if !storedEncryptedURL.Valid || storedEncryptedURL.String == "" {
+		return nil, "", profilepersistence.ErrStorageIntegrity
+	}
+	if _, decryptErr := r.credentials.decrypt(storedEncryptedURL.String, params.ID); decryptErr != nil {
+		if credentialKeyUnavailable(decryptErr) {
+			return nil, "", fmt.Errorf("%w: %v", profilepersistence.ErrEncryptionUnavailable, decryptErr)
+		}
+		return nil, "", fmt.Errorf("%w: %v", profilepersistence.ErrStorageIntegrity, decryptErr)
+	}
+
+	result, err := tx.ExecContext(ctx, `
+		UPDATE vless_keys
+		SET client_display_name = ?, profile_revision = profile_revision + 1, updated_at = CURRENT_TIMESTAMP
+		WHERE id = ? AND profile_revision = ?
+	`, optionalNullStringValue(params.ClientDisplayName), params.ID, params.ExpectedRevision)
+	if err != nil {
+		return nil, "", fmt.Errorf("failed to update client display name: %w", err)
+	}
+	affected, _ := result.RowsAffected()
+	if affected == 0 {
+		return nil, "", profilepersistence.ErrProfileRevisionConflict
+	}
+	if err := tx.Commit(); err != nil {
+		return nil, "", fmt.Errorf("failed to commit client display name: %w", err)
+	}
 	return r.GetByID(ctx, params.ID)
 }
 
@@ -314,20 +388,20 @@ func (r *ProfileRepository) CloneLocal(ctx context.Context, params profilepersis
 	defer tx.Rollback()
 
 	var sourceLabel, sourceCategory, sourceKind, sourceStatus, sourceProtocol string
-	var sourceTemplateText, sourceWarnings, sourceEncURL sql.NullString
-	var sourceCategoryID sql.NullInt64
+	var sourceTemplateText, sourceWarnings, sourceEncURL, sourceClientDisplayName sql.NullString
+	var sourceCategoryID, sourceExternalSourceID sql.NullInt64
 	var sourceSchemaVer int
 	var sourceRevision int64
 	err = tx.QueryRowContext(ctx, `
-		SELECT k.label, k.category, k.key_kind, k.template_text, k.status, k.protocol,
+		SELECT k.label, k.client_display_name, k.category, k.key_kind, k.template_text, k.status, k.protocol,
 		       k.profile_schema_version, k.profile_warnings_json, s.encrypted_url,
-		       k.category_id, COALESCE(k.profile_revision, 1)
+		       k.category_id, k.external_source_id, COALESCE(k.profile_revision, 1)
 		FROM vless_keys k
 		LEFT JOIN vless_key_secrets s ON k.id = s.vless_key_id
 		WHERE k.id = ?
 	`, params.ID).Scan(
-		&sourceLabel, &sourceCategory, &sourceKind, &sourceTemplateText, &sourceStatus,
-		&sourceProtocol, &sourceSchemaVer, &sourceWarnings, &sourceEncURL, &sourceCategoryID, &sourceRevision,
+		&sourceLabel, &sourceClientDisplayName, &sourceCategory, &sourceKind, &sourceTemplateText, &sourceStatus,
+		&sourceProtocol, &sourceSchemaVer, &sourceWarnings, &sourceEncURL, &sourceCategoryID, &sourceExternalSourceID, &sourceRevision,
 	)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, "", profilepersistence.ErrProfileNotFound
@@ -356,6 +430,14 @@ func (r *ProfileRepository) CloneLocal(ctx context.Context, params profilepersis
 	if newLabel == "" {
 		newLabel = sourceLabel + " (Копия)"
 	}
+	cloneClientDisplayName := strings.TrimSpace(sourceClientDisplayName.String)
+	if cloneClientDisplayName == "" && sourceExternalSourceID.Valid && sourceExternalSourceID.Int64 > 0 {
+		sourceEffectiveName := profileconfig.EffectiveClientDisplayName("", decryptedURI, sourceLabel, true)
+		localFallbackName := profileconfig.EffectiveClientDisplayName("", decryptedURI, newLabel, false)
+		if sourceEffectiveName != localFallbackName {
+			cloneClientDisplayName = sourceEffectiveName
+		}
+	}
 
 	var nextSortOrder int64
 	if err := tx.QueryRowContext(ctx, `SELECT COALESCE(MAX(sort_order), 0) + 1 FROM vless_keys`).Scan(&nextSortOrder); err != nil {
@@ -368,12 +450,12 @@ func (r *ProfileRepository) CloneLocal(ctx context.Context, params profilepersis
 	}
 	res, err := tx.ExecContext(ctx, `
 		INSERT INTO vless_keys(
-			label, url_blind_index, category_id, category, status, check_status,
+			label, client_display_name, url_blind_index, category_id, category, status, check_status,
 			key_kind, template_text, sort_order, external_source_id, external_key_ref,
 			protocol, profile_schema_version, profile_compatibility, profile_warnings_json,
 			profile_revision, created_at, updated_at
-		) VALUES(?, ?, ?, ?, ?, 'unknown', ?, ?, ?, NULL, NULL, ?, ?, 'full', ?, 1, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
-	`, newLabel, blindIndex, nullInt64Value(sourceCategoryID.Int64), sourceCategory, sourceStatus, sourceKind, nullStringValue(sourceTemplateText.String), nextSortOrder, sourceProtocol, sourceSchemaVer, nullStringValue(sourceWarnings.String))
+		) VALUES(?, ?, ?, ?, ?, ?, 'unknown', ?, ?, ?, NULL, NULL, ?, ?, 'full', ?, 1, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+	`, newLabel, nullStringValue(cloneClientDisplayName), blindIndex, nullInt64Value(sourceCategoryID.Int64), sourceCategory, sourceStatus, sourceKind, nullStringValue(sourceTemplateText.String), nextSortOrder, sourceProtocol, sourceSchemaVer, nullStringValue(sourceWarnings.String))
 	if err != nil {
 		return nil, "", fmt.Errorf("failed to insert cloned key: %w", err)
 	}
@@ -408,7 +490,7 @@ func (r *ProfileRepository) CloneLocal(ctx context.Context, params profilepersis
 
 func (r *KeyRepository) ListLegacy(ctx context.Context) ([]model.VLESSKey, error) {
 	rows, err := r.db.QueryContext(ctx, `
-		SELECT k.id, k.label, s.encrypted_url, k.category_id, COALESCE(kc.name, k.category), k.key_kind, k.template_text, k.status, k.check_status, k.check_error, k.last_checked_at, k.last_latency_ms, k.created_at, k.external_source_id, COALESCE(es.name, ''), k.protocol, k.profile_schema_version, k.profile_compatibility, k.profile_warnings_json, COALESCE(k.profile_revision, 1), COALESCE(k.updated_at, k.created_at)
+		SELECT k.id, k.label, k.client_display_name, s.encrypted_url, k.category_id, COALESCE(kc.name, k.category), k.key_kind, k.template_text, k.status, k.check_status, k.check_error, k.last_checked_at, k.last_latency_ms, k.created_at, k.external_source_id, COALESCE(es.name, ''), k.protocol, k.profile_schema_version, k.profile_compatibility, k.profile_warnings_json, COALESCE(k.profile_revision, 1), COALESCE(k.updated_at, k.created_at)
 		FROM vless_keys k
 		LEFT JOIN vless_key_secrets s ON k.id = s.vless_key_id
 		LEFT JOIN key_categories kc ON kc.id = k.category_id
@@ -435,9 +517,10 @@ func (r *KeyRepository) ListLegacy(ctx context.Context) ([]model.VLESSKey, error
 		var categoryID sql.NullInt64
 		var externalSourceID sql.NullInt64
 		var externalSourceName sql.NullString
+		var storedClientDisplayName sql.NullString
 		var warningsJSON string
 		var updatedAt sql.NullString
-		if err := rows.Scan(&key.ID, &key.Label, &encURL, &categoryID, &category, &kind, &templateText, &status, &checkStatus, &checkError, &lastCheckedAt, &latency, &key.CreatedAt, &externalSourceID, &externalSourceName, &key.Protocol, &key.ProfileSchemaVersion, &key.ProfileCompatibility, &warningsJSON, &key.ProfileRevision, &updatedAt); err != nil {
+		if err := rows.Scan(&key.ID, &key.Label, &storedClientDisplayName, &encURL, &categoryID, &category, &kind, &templateText, &status, &checkStatus, &checkError, &lastCheckedAt, &latency, &key.CreatedAt, &externalSourceID, &externalSourceName, &key.Protocol, &key.ProfileSchemaVersion, &key.ProfileCompatibility, &warningsJSON, &key.ProfileRevision, &updatedAt); err != nil {
 			return nil, err
 		}
 		if updatedAt.Valid && updatedAt.String != "" {
@@ -497,7 +580,10 @@ func (r *KeyRepository) ListLegacy(ctx context.Context) ([]model.VLESSKey, error
 			key.ExternalSourceID = externalSourceID.Int64
 		}
 		key.ExternalSourceName = strings.TrimSpace(externalSourceName.String)
-		key.ClientDisplayName = profileconfig.ClientDisplayNameFromKeyURL(key.URL, key.Label)
+		key.ClientDisplayNameOverridden = strings.TrimSpace(storedClientDisplayName.String) != ""
+		key.ClientDisplayName = profileconfig.EffectiveClientDisplayName(
+			storedClientDisplayName.String, key.URL, key.Label, key.ExternalSourceID > 0,
+		)
 		out = append(out, key)
 	}
 	return out, rows.Err()

@@ -21,6 +21,7 @@ func TestEffectiveUserStatus(t *testing.T) {
 		{name: "paused wins", status: "paused", expiresAt: now.Add(-time.Hour), hasExpiry: true, want: "paused"},
 		{name: "expired", status: "active", expiresAt: now.Add(-time.Second), hasExpiry: true, want: "expired"},
 		{name: "limited", status: "active", devices: 2, maxDevices: 2, want: "limited"},
+		{name: "unlimited with connected devices", status: "active", devices: 20, maxDevices: 0, want: "active"},
 		{name: "future expiry", status: "active", expiresAt: now.Add(time.Hour), hasExpiry: true, want: "active"},
 	}
 	for _, test := range tests {

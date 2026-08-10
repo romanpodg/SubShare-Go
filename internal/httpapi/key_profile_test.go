@@ -51,6 +51,7 @@ func setupTestDB(t *testing.T) *sql.DB {
 		CREATE TABLE vless_keys (
 			id INTEGER PRIMARY KEY AUTOINCREMENT,
 			label TEXT NOT NULL,
+			client_display_name TEXT,
 			url_blind_index TEXT,
 			category_id INTEGER,
 			category TEXT,
@@ -232,11 +233,29 @@ func TestKeyProfileHandler_FullSuite(t *testing.T) {
 		t.Fatalf("UpdateKeyProfile expected 200, got %d", recUpdate.Code)
 	}
 
-	// 10. Update Source-Owned Profile -> 403
+	// 10. Source-owned client-name-only update is allowed without rewriting the secret.
 	if _, err := db.Exec(`UPDATE vless_keys SET external_source_id = 100 WHERE id = 1`); err != nil {
 		t.Fatalf("set external_source_id: %v", err)
 	}
-	bodyUpdateExt := bytes.NewBufferString(`{"profile_revision":2,"label":"Update Ext","status":"active","kind":"real","patch_mode":"raw","raw_uri":"` + ssURI + `"}`)
+	var sourceEnvelopeBefore string
+	if err := db.QueryRow(`SELECT encrypted_url FROM vless_key_secrets WHERE vless_key_id = 1`).Scan(&sourceEnvelopeBefore); err != nil {
+		t.Fatal(err)
+	}
+	bodySourceName := bytes.NewBufferString(`{"profile_revision":2,"label":"Updated SS","client_display_name":"Source override","status":"active","kind":"real","category":"","template_text":"","patch_mode":"structured"}`)
+	reqSourceName := httptest.NewRequest("PUT", "/api/v1/keys/1", bodySourceName)
+	reqSourceName.SetPathValue("id", "1")
+	recSourceName := httptest.NewRecorder()
+	handler.UpdateKeyProfile(recSourceName, reqSourceName)
+	if recSourceName.Code != http.StatusOK || !strings.Contains(recSourceName.Body.String(), `"client_display_name":"Source override"`) || !strings.Contains(recSourceName.Body.String(), `"client_display_name_overridden":true`) {
+		t.Fatalf("source client-name update status=%d body=%s", recSourceName.Code, recSourceName.Body.String())
+	}
+	var sourceEnvelopeAfter string
+	if err := db.QueryRow(`SELECT encrypted_url FROM vless_key_secrets WHERE vless_key_id = 1`).Scan(&sourceEnvelopeAfter); err != nil || sourceEnvelopeAfter != sourceEnvelopeBefore {
+		t.Fatalf("source metadata update rewrote secret=%v err=%v", sourceEnvelopeAfter != sourceEnvelopeBefore, err)
+	}
+
+	// Full configuration and source label mutations remain forbidden.
+	bodyUpdateExt := bytes.NewBufferString(`{"profile_revision":3,"label":"Updated SS","client_display_name":"Source override","status":"active","kind":"real","patch_mode":"raw","raw_uri":"` + ssURI + `"}`)
 	reqUpdateExt := httptest.NewRequest("PUT", "/api/v1/keys/1", bodyUpdateExt)
 	reqUpdateExt.SetPathValue("id", "1")
 	recUpdateExt := httptest.NewRecorder()
@@ -244,12 +263,33 @@ func TestKeyProfileHandler_FullSuite(t *testing.T) {
 	if recUpdateExt.Code != http.StatusForbidden {
 		t.Fatalf("expected 403 on source-owned update, got %d", recUpdateExt.Code)
 	}
+	bodyRenameExt := bytes.NewBufferString(`{"profile_revision":3,"label":"Update Ext","client_display_name":"Source override","status":"active","kind":"real","patch_mode":"structured"}`)
+	reqRenameExt := httptest.NewRequest("PUT", "/api/v1/keys/1", bodyRenameExt)
+	reqRenameExt.SetPathValue("id", "1")
+	recRenameExt := httptest.NewRecorder()
+	handler.UpdateKeyProfile(recRenameExt, reqRenameExt)
+	if recRenameExt.Code != http.StatusForbidden {
+		t.Fatalf("expected 403 on source label update, got %d", recRenameExt.Code)
+	}
+
+	bodyResetSourceName := bytes.NewBufferString(`{"profile_revision":3,"label":"Updated SS","client_display_name":"","status":"active","kind":"real","category":"","template_text":"","patch_mode":"structured"}`)
+	reqResetSourceName := httptest.NewRequest("PUT", "/api/v1/keys/1", bodyResetSourceName)
+	reqResetSourceName.SetPathValue("id", "1")
+	recResetSourceName := httptest.NewRecorder()
+	handler.UpdateKeyProfile(recResetSourceName, reqResetSourceName)
+	if recResetSourceName.Code != http.StatusOK || !strings.Contains(recResetSourceName.Body.String(), `"client_display_name_overridden":false`) {
+		t.Fatalf("source client-name reset status=%d body=%s", recResetSourceName.Code, recResetSourceName.Body.String())
+	}
+	var storedSourceOverride sql.NullString
+	if err := db.QueryRow(`SELECT client_display_name FROM vless_keys WHERE id = 1`).Scan(&storedSourceOverride); err != nil || storedSourceOverride.Valid {
+		t.Fatalf("source reset override=%#v err=%v", storedSourceOverride, err)
+	}
 	if _, err := db.Exec(`UPDATE vless_keys SET external_source_id = NULL WHERE id = 1`); err != nil {
 		t.Fatalf("reset external_source_id: %v", err)
 	}
 
 	// 11. Clone Key Profile -> 201
-	bodyClone := bytes.NewBufferString(`{"expected_profile_revision":2,"new_label":"Cloned SS"}`)
+	bodyClone := bytes.NewBufferString(`{"expected_profile_revision":4,"new_label":"Cloned SS"}`)
 	reqClone := httptest.NewRequest("POST", "/api/v1/keys/1/clone", bodyClone)
 	reqClone.SetPathValue("id", "1")
 	recClone := httptest.NewRecorder()
@@ -262,7 +302,7 @@ func TestKeyProfileHandler_FullSuite(t *testing.T) {
 	if _, err := db.Exec(`DELETE FROM vless_key_secrets WHERE vless_key_id = 1`); err != nil {
 		t.Fatalf("delete secrets row: %v", err)
 	}
-	bodyCloneIntegrity := bytes.NewBufferString(`{"expected_profile_revision":2,"new_label":"Clone Fail"}`)
+	bodyCloneIntegrity := bytes.NewBufferString(`{"expected_profile_revision":4,"new_label":"Clone Fail"}`)
 	reqCloneIntegrity := httptest.NewRequest("POST", "/api/v1/keys/1/clone", bodyCloneIntegrity)
 	reqCloneIntegrity.SetPathValue("id", "1")
 	recCloneIntegrity := httptest.NewRecorder()

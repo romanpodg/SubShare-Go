@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"database/sql"
 	"path/filepath"
 	"strings"
@@ -113,6 +114,148 @@ func TestMigrateAppliesVersionedMigrationsIdempotently(t *testing.T) {
 	}
 	if status != "active" || protocol != "legacy" || schemaVersion != 0 || compatibility != "legacy" || warnings != "[]" || healthFailures != 0 || createdAt.IsZero() {
 		t.Fatalf("rebuilt defaults changed: status=%q protocol=%q version=%d compatibility=%q warnings=%q failures=%d created=%v", status, protocol, schemaVersion, compatibility, warnings, healthFailures, createdAt)
+	}
+}
+
+func TestMigrateBackgroundJobWarningResultsPreservesExistingJobs(t *testing.T) {
+	db, err := sql.Open("sqlite", filepath.Join(t.TempDir(), "background-jobs.db"))
+	if err != nil {
+		t.Fatalf("open sqlite: %v", err)
+	}
+	defer db.Close()
+	if _, err := db.Exec(`CREATE TABLE background_jobs (
+		id INTEGER PRIMARY KEY AUTOINCREMENT,
+		kind TEXT NOT NULL,
+		status TEXT NOT NULL CHECK (status IN ('queued','running','succeeded','failed')),
+		target_type TEXT NOT NULL DEFAULT '', target_id TEXT NOT NULL DEFAULT '',
+		error_message TEXT NOT NULL DEFAULT '', run_after DATETIME, started_at DATETIME,
+		finished_at DATETIME, created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+	)`); err != nil {
+		t.Fatalf("create legacy jobs table: %v", err)
+	}
+	if _, err := db.Exec(`CREATE INDEX idx_background_jobs_status ON background_jobs(status, run_after, id)`); err != nil {
+		t.Fatalf("create legacy jobs index: %v", err)
+	}
+	if _, err := db.Exec(`INSERT INTO background_jobs(id, kind, status, error_message) VALUES(7, 'keys_health_check', 'failed', 'legacy error')`); err != nil {
+		t.Fatalf("insert legacy job: %v", err)
+	}
+	conn, err := db.Conn(context.Background())
+	if err != nil {
+		t.Fatalf("open migration connection: %v", err)
+	}
+	defer conn.Close()
+	if err := migrateBackgroundJobWarningResults(context.Background(), conn, db, nil); err != nil {
+		t.Fatalf("migrate warning results: %v", err)
+	}
+	if err := migrateBackgroundJobWarningResults(context.Background(), conn, db, nil); err != nil {
+		t.Fatalf("repeat warning results migration: %v", err)
+	}
+
+	var id int64
+	var status, message, counts string
+	if err := db.QueryRow(`SELECT id, status, error_message, result_counts_json FROM background_jobs WHERE id = 7`).Scan(&id, &status, &message, &counts); err != nil {
+		t.Fatalf("read preserved job: %v", err)
+	}
+	if id != 7 || status != "failed" || message != "legacy error" || counts != "{}" {
+		t.Fatalf("legacy job was not preserved: id=%d status=%q message=%q counts=%q", id, status, message, counts)
+	}
+	if _, err := db.Exec(`INSERT INTO background_jobs(kind, status, result_counts_json) VALUES('keys_health_check', 'succeeded_with_warnings', '{"persist_failed":1}')`); err != nil {
+		t.Fatalf("warning status is not accepted after migration: %v", err)
+	}
+}
+
+func TestLegacyBootstrapPreservesUnlimitedMaxDevices(t *testing.T) {
+	t.Parallel()
+
+	db, err := sql.Open("sqlite", filepath.Join(t.TempDir(), "legacy-unlimited-devices.db"))
+	if err != nil {
+		t.Fatalf("open sqlite: %v", err)
+	}
+	defer db.Close()
+	if _, err := db.Exec(`
+		CREATE TABLE users (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			name TEXT NOT NULL,
+			token TEXT NOT NULL UNIQUE,
+			max_devices INTEGER
+		);
+		INSERT INTO users(name, token, max_devices) VALUES('Unlimited', 'unlimited-token', 0);
+	`); err != nil {
+		t.Fatalf("prepare legacy database: %v", err)
+	}
+
+	if err := migrateWithKeyring(db, testKeyring(t)); err != nil {
+		t.Fatalf("migrate legacy database: %v", err)
+	}
+	var maxDevices int
+	if err := db.QueryRow(`SELECT max_devices FROM users WHERE token = 'unlimited-token'`).Scan(&maxDevices); err != nil {
+		t.Fatalf("read migrated device limit: %v", err)
+	}
+	if maxDevices != 0 {
+		t.Fatalf("legacy unlimited device limit changed to %d", maxDevices)
+	}
+}
+
+func TestMigrationAddsGeneralExpirationSettingWithoutCopyingHappValue(t *testing.T) {
+	t.Parallel()
+	db, err := sql.Open("sqlite", filepath.Join(t.TempDir(), "expiration-setting-upgrade.db"))
+	if err != nil {
+		t.Fatalf("open sqlite: %v", err)
+	}
+	defer db.Close()
+	if _, err := db.Exec(`
+		CREATE TABLE schema_migrations(version INTEGER PRIMARY KEY, name TEXT NOT NULL, applied_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP);
+		CREATE TABLE subscription_settings(
+			id INTEGER PRIMARY KEY CHECK (id = 1),
+			happ_notify_expiration INTEGER NOT NULL DEFAULT 0
+		);
+		CREATE TABLE vless_keys(id INTEGER PRIMARY KEY, label TEXT NOT NULL);
+		INSERT INTO subscription_settings(id, happ_notify_expiration) VALUES(1, 1);
+	`); err != nil {
+		t.Fatalf("prepare version-14 settings database: %v", err)
+	}
+	for version := 1; version <= 14; version++ {
+		if _, err := db.Exec(`INSERT INTO schema_migrations(version, name) VALUES(?, 'old')`, version); err != nil {
+			t.Fatalf("record migration %d: %v", version, err)
+		}
+	}
+	if err := migrateWithKeyring(db, nil); err != nil {
+		t.Fatalf("upgrade settings database: %v", err)
+	}
+	if err := migrateWithKeyring(db, nil); err != nil {
+		t.Fatalf("repeat settings upgrade: %v", err)
+	}
+	var happValue, showExpiration int
+	if err := db.QueryRow(`SELECT happ_notify_expiration, show_subscription_expiration FROM subscription_settings WHERE id = 1`).Scan(&happValue, &showExpiration); err != nil {
+		t.Fatalf("read upgraded settings: %v", err)
+	}
+	if happValue != 1 || showExpiration != 0 {
+		t.Fatalf("upgraded values happ=%d show_expiration=%d", happValue, showExpiration)
+	}
+}
+
+func TestMigrationAddsNullableClientDisplayNameIdempotently(t *testing.T) {
+	t.Parallel()
+	db, err := sql.Open("sqlite", filepath.Join(t.TempDir(), "client-display-name-upgrade.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	if _, err := db.Exec(`CREATE TABLE vless_keys(id INTEGER PRIMARY KEY, label TEXT NOT NULL); INSERT INTO vless_keys(id, label) VALUES(1, 'Panel');`); err != nil {
+		t.Fatal(err)
+	}
+	if err := migrateClientDisplayName(context.Background(), nil, db, nil); err != nil {
+		t.Fatal(err)
+	}
+	if err := migrateClientDisplayName(context.Background(), nil, db, nil); err != nil {
+		t.Fatal(err)
+	}
+	var value sql.NullString
+	if err := db.QueryRow(`SELECT client_display_name FROM vless_keys WHERE id = 1`).Scan(&value); err != nil {
+		t.Fatal(err)
+	}
+	if value.Valid {
+		t.Fatalf("legacy row was rewritten: %#v", value)
 	}
 }
 
@@ -237,6 +380,7 @@ func createPopulatedPreStage5Schema(t *testing.T, db *sql.DB, version int) {
 	}
 	statements := []string{
 		`CREATE TABLE schema_migrations(version INTEGER PRIMARY KEY, name TEXT NOT NULL, applied_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP)`,
+		`CREATE TABLE subscription_settings(id INTEGER PRIMARY KEY CHECK (id = 1), happ_notify_expiration INTEGER NOT NULL DEFAULT 0)`,
 		`CREATE TABLE external_subscription_sources(id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL, key_category TEXT NOT NULL DEFAULT '', key_category_id INTEGER)`,
 		`CREATE TABLE key_categories(id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL UNIQUE, color TEXT NOT NULL DEFAULT '#d8b33d', sort_order INTEGER NOT NULL DEFAULT 0, created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP, updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP)`,
 		`CREATE TABLE users(id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL, token TEXT NOT NULL UNIQUE)`,

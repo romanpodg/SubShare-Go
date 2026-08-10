@@ -94,7 +94,8 @@ func (a *App) apiV1Dashboard(w http.ResponseWriter, r *http.Request) {
 				WHEN LOWER(TRIM(COALESCE(u.status, 'active'))) = 'blocked' THEN 'blocked'
 				WHEN LOWER(TRIM(COALESCE(u.status, 'active'))) = 'paused' THEN 'paused'
 				WHEN u.expires_at IS NOT NULL AND datetime(u.expires_at) < CURRENT_TIMESTAMP THEN 'expired'
-				WHEN COALESCE(d.connected_devices, 0) >= COALESCE(NULLIF(u.max_devices, 0), 1) THEN 'limited'
+				WHEN COALESCE(u.max_devices, 0) > 0
+				 AND COALESCE(d.connected_devices, 0) >= u.max_devices THEN 'limited'
 				ELSE 'active'
 			END AS effective_status
 			FROM users u

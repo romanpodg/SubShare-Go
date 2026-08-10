@@ -60,6 +60,7 @@ func migrateWithKeyring(db *sql.DB, keyring *profilestorage.Keyring) error {
 		`CREATE TABLE IF NOT EXISTS vless_keys (
 			id INTEGER PRIMARY KEY AUTOINCREMENT,
 			label TEXT NOT NULL,
+			client_display_name TEXT,
 			url TEXT NOT NULL,
 			created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
 		);`,
@@ -86,6 +87,7 @@ func migrateWithKeyring(db *sql.DB, keyring *profilestorage.Keyring) error {
 			extra_url TEXT,
 			extra_status TEXT,
 			subscription_format TEXT NOT NULL DEFAULT 'links',
+			show_subscription_expiration INTEGER NOT NULL DEFAULT 0,
 			provider_id TEXT,
 			happ_no_limit_mode INTEGER NOT NULL DEFAULT 0,
 			happ_no_limit_mode_xhttp_only INTEGER NOT NULL DEFAULT 0,
@@ -257,6 +259,9 @@ func migrateWithKeyring(db *sql.DB, keyring *profilestorage.Keyring) error {
 	if err := ensureColumn(db, "vless_keys", "updated_at", "DATETIME"); err != nil {
 		return err
 	}
+	if err := ensureColumn(db, "vless_keys", "client_display_name", "TEXT"); err != nil {
+		return err
+	}
 	if err := ensureColumn(db, "key_categories", "color", "TEXT NOT NULL DEFAULT '#d8b33d'"); err != nil {
 		return err
 	}
@@ -315,7 +320,7 @@ func migrateWithKeyring(db *sql.DB, keyring *profilestorage.Keyring) error {
 	if _, err := db.Exec(`UPDATE users SET subscription_id = token WHERE subscription_id IS NULL OR TRIM(subscription_id) = ''`); err != nil {
 		return err
 	}
-	if _, err := db.Exec(`UPDATE users SET max_devices = 1 WHERE max_devices IS NULL OR max_devices < 1`); err != nil {
+	if _, err := db.Exec(`UPDATE users SET max_devices = 1 WHERE max_devices IS NULL OR max_devices < 0`); err != nil {
 		return err
 	}
 	if _, err := db.Exec(`UPDATE users SET subscription_refresh_hours = 12 WHERE subscription_refresh_hours IS NULL OR subscription_refresh_hours < 1`); err != nil {
@@ -406,6 +411,9 @@ func migrateWithKeyring(db *sql.DB, keyring *profilestorage.Keyring) error {
 		return err
 	}
 	if err := ensureColumn(db, "subscription_settings", "subscription_format", "TEXT NOT NULL DEFAULT 'links'"); err != nil {
+		return err
+	}
+	if err := ensureColumn(db, "subscription_settings", "show_subscription_expiration", "INTEGER NOT NULL DEFAULT 0"); err != nil {
 		return err
 	}
 	if err := ensureColumn(db, "subscription_settings", "provider_id", "TEXT"); err != nil {
@@ -759,6 +767,7 @@ func (a *App) getSubscriptionSettings() (model.SubscriptionSettings, error) {
 	var extraURL sql.NullString
 	var extraStatus sql.NullString
 	var subscriptionFormat sql.NullString
+	var showSubscriptionExpiration sql.NullInt64
 	var timeZone sql.NullString
 	var language sql.NullString
 	var providerID sql.NullString
@@ -770,7 +779,7 @@ func (a *App) getSubscriptionSettings() (model.SubscriptionSettings, error) {
 	var happSubscriptionBody sql.NullString
 
 	err := a.db.QueryRow(
-		`SELECT title, refresh_hours, info_url, extra_url, extra_status, subscription_format, time_zone, language,
+		`SELECT title, refresh_hours, info_url, extra_url, extra_status, subscription_format, show_subscription_expiration, time_zone, language,
 		        provider_id, happ_no_limit_mode, happ_no_limit_mode_xhttp_only, happ_mandatory_hwid,
 		        happ_notify_expiration, happ_hide_server_settings, happ_subscription_body
 		   FROM subscription_settings WHERE id = 1`,
@@ -781,6 +790,7 @@ func (a *App) getSubscriptionSettings() (model.SubscriptionSettings, error) {
 		&extraURL,
 		&extraStatus,
 		&subscriptionFormat,
+		&showSubscriptionExpiration,
 		&timeZone,
 		&language,
 		&providerID,
@@ -796,21 +806,22 @@ func (a *App) getSubscriptionSettings() (model.SubscriptionSettings, error) {
 	}
 
 	settings := model.SubscriptionSettings{
-		Title:                    strings.TrimSpace(title.String),
-		RefreshHours:             12,
-		InfoURL:                  strings.TrimSpace(infoURL.String),
-		ExtraURL:                 strings.TrimSpace(extraURL.String),
-		ExtraStatus:              strings.TrimSpace(extraStatus.String),
-		SubscriptionFormat:       strings.TrimSpace(subscriptionFormat.String),
-		TimeZone:                 strings.TrimSpace(timeZone.String),
-		Language:                 strings.TrimSpace(language.String),
-		ProviderID:               strings.TrimSpace(providerID.String),
-		HappNoLimitMode:          happNoLimitMode.Valid && happNoLimitMode.Int64 != 0,
-		HappNoLimitModeXHTTPOnly: happNoLimitModeXHTTPOnly.Valid && happNoLimitModeXHTTPOnly.Int64 != 0,
-		HappMandatoryHWID:        happMandatoryHWID.Valid && happMandatoryHWID.Int64 != 0,
-		HappNotifyExpiration:     happNotifyExpiration.Valid && happNotifyExpiration.Int64 != 0,
-		HappHideServerSettings:   happHideServerSettings.Valid && happHideServerSettings.Int64 != 0,
-		HappSubscriptionBody:     happSubscriptionBody.String,
+		Title:                      strings.TrimSpace(title.String),
+		RefreshHours:               12,
+		InfoURL:                    strings.TrimSpace(infoURL.String),
+		ExtraURL:                   strings.TrimSpace(extraURL.String),
+		ExtraStatus:                strings.TrimSpace(extraStatus.String),
+		SubscriptionFormat:         strings.TrimSpace(subscriptionFormat.String),
+		ShowSubscriptionExpiration: showSubscriptionExpiration.Valid && showSubscriptionExpiration.Int64 != 0,
+		TimeZone:                   strings.TrimSpace(timeZone.String),
+		Language:                   strings.TrimSpace(language.String),
+		ProviderID:                 strings.TrimSpace(providerID.String),
+		HappNoLimitMode:            happNoLimitMode.Valid && happNoLimitMode.Int64 != 0,
+		HappNoLimitModeXHTTPOnly:   happNoLimitModeXHTTPOnly.Valid && happNoLimitModeXHTTPOnly.Int64 != 0,
+		HappMandatoryHWID:          happMandatoryHWID.Valid && happMandatoryHWID.Int64 != 0,
+		HappNotifyExpiration:       happNotifyExpiration.Valid && happNotifyExpiration.Int64 != 0,
+		HappHideServerSettings:     happHideServerSettings.Valid && happHideServerSettings.Int64 != 0,
+		HappSubscriptionBody:       happSubscriptionBody.String,
 	}
 	if refreshHours.Valid && refreshHours.Int64 > 0 {
 		settings.RefreshHours = int(refreshHours.Int64)

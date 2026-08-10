@@ -140,16 +140,17 @@ func (h *KeyProfileHandler) CreateKeyProfile(w http.ResponseWriter, r *http.Requ
 	}
 
 	detail, err := h.service.CreateLocal(r.Context(), keymanagement.CreateLocalParams{
-		Label:        req.Label,
-		Status:       req.Status,
-		Kind:         req.Kind,
-		Category:     req.Category,
-		CategoryID:   req.CategoryID,
-		TemplateText: req.TemplateText,
-		CreationMode: req.CreationMode,
-		RawURI:       req.RawURI,
-		Protocol:     req.Protocol,
-		Structured:   req.Structured,
+		Label:             req.Label,
+		ClientDisplayName: req.ClientDisplayName,
+		Status:            req.Status,
+		Kind:              req.Kind,
+		Category:          req.Category,
+		CategoryID:        req.CategoryID,
+		TemplateText:      req.TemplateText,
+		CreationMode:      req.CreationMode,
+		RawURI:            req.RawURI,
+		Protocol:          req.Protocol,
+		Structured:        req.Structured,
 	})
 	if err != nil {
 		mapServiceError(w, r, err, "create_failed", "failed to create key")
@@ -177,17 +178,18 @@ func (h *KeyProfileHandler) UpdateKeyProfile(w http.ResponseWriter, r *http.Requ
 	}
 
 	detail, err := h.service.UpdateLocal(r.Context(), keymanagement.UpdateLocalParams{
-		ID:              id,
-		ProfileRevision: req.ProfileRevision,
-		Label:           req.Label,
-		Status:          req.Status,
-		Kind:            req.Kind,
-		Category:        req.Category,
-		CategoryID:      req.CategoryID,
-		TemplateText:    req.TemplateText,
-		PatchMode:       req.PatchMode,
-		RawURI:          req.RawURI,
-		StructuredPatch: req.StructuredPatch,
+		ID:                id,
+		ProfileRevision:   req.ProfileRevision,
+		Label:             req.Label,
+		ClientDisplayName: req.ClientDisplayName,
+		Status:            req.Status,
+		Kind:              req.Kind,
+		Category:          req.Category,
+		CategoryID:        req.CategoryID,
+		TemplateText:      req.TemplateText,
+		PatchMode:         req.PatchMode,
+		RawURI:            req.RawURI,
+		StructuredPatch:   req.StructuredPatch,
 	})
 	if err != nil {
 		mapServiceError(w, r, err, "update_failed", "failed to update key")

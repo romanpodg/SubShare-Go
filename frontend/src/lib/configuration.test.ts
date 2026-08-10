@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import {
+  parseEditableConfiguration,
   parseXrayJSONConfiguration,
+  patchEditableConfiguration,
   patchXrayJSONConfiguration,
 } from "./configuration";
 import {
@@ -298,5 +300,29 @@ describe("patchXrayJSONConfiguration", () => {
     });
     expect(selected.settings.servers[1]).toEqual(originalSelected.settings.servers[1]);
     expect(parseXrayJSONConfiguration(result)?.draft.protocol).toBe("trojan");
+  });
+});
+
+describe("loss-aware legacy structured editing", () => {
+  it("patches supported VLESS fields without dropping unknown or duplicate parameters", () => {
+    const raw = "vless://11111111-1111-4111-8111-111111111111@example.com:443?type=ws&security=tls&path=%2Fold&unknown=one&unknown=two#Node";
+    const patched = patchEditableConfiguration(raw, { path: "/new", sni: "tls.example" });
+    const url = new URL(patched);
+    expect(url.searchParams.get("path")).toBe("/new");
+    expect(url.searchParams.get("sni")).toBe("tls.example");
+    expect(url.searchParams.getAll("unknown")).toEqual(["one", "two"]);
+    expect(parseEditableConfiguration(patched)).toMatchObject({ network: "ws", path: "/new", sni: "tls.example" });
+  });
+
+  it("patches VMess fields while preserving unrepresented payload data", () => {
+    const payload = {
+      v: "2", ps: "VMess", add: "vmess.example", port: "443",
+      id: "22222222-2222-4222-8222-222222222222", net: "ws", path: "/old",
+      custom: { preserve: true }, extraSecretField: "keep-me",
+    };
+    const raw = `vmess://${btoa(JSON.stringify(payload))}`;
+    const patched = patchEditableConfiguration(raw, { path: "/new", vmessAlterId: "0" });
+    const decoded = JSON.parse(atob(patched.slice("vmess://".length)));
+    expect(decoded).toMatchObject({ path: "/new", aid: "0", custom: { preserve: true }, extraSecretField: "keep-me" });
   });
 });

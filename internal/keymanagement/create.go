@@ -9,7 +9,6 @@ import (
 
 	"github.com/romanpodg/SubShare-Go/internal/model"
 	"github.com/romanpodg/SubShare-Go/internal/profilepersistence"
-	"github.com/romanpodg/SubShare-Go/internal/profiles"
 )
 
 func generateToken(nBytes int) (string, error) {
@@ -154,6 +153,13 @@ func BuildURIFromStructuredCreate(proto, label string, patch *model.StructuredPr
 
 func (s *Service) CreateLocal(ctx context.Context, params CreateLocalParams) (*model.KeyProfileDetailResponse, error) {
 	label := strings.TrimSpace(params.Label)
+	clientDisplayName := ""
+	if params.ClientDisplayName != nil {
+		clientDisplayName = strings.TrimSpace(*params.ClientDisplayName)
+		if clientDisplayName == "" {
+			clientDisplayName = label
+		}
+	}
 	status, statusOK := model.NormalizeKeyStatus(params.Status)
 	kind, kindOK := model.NormalizeKeyKind(params.Kind)
 	templateText := strings.TrimSpace(params.TemplateText)
@@ -162,6 +168,9 @@ func (s *Service) CreateLocal(ctx context.Context, params CreateLocalParams) (*m
 		return nil, ErrInvalidInput
 	}
 	if len(label) > 255 {
+		return nil, ErrLabelTooLong
+	}
+	if len(clientDisplayName) > 255 {
 		return nil, ErrLabelTooLong
 	}
 
@@ -190,7 +199,7 @@ func (s *Service) CreateLocal(ctx context.Context, params CreateLocalParams) (*m
 			if builtURI == "" {
 				return nil, ErrRawURIRequired
 			}
-			if _, parseErr := profiles.Parse(builtURI); parseErr != nil {
+			if _, _, parseErr := validateStoredConfiguration(builtURI); parseErr != nil {
 				return nil, invalidProfileURIError(parseErr)
 			}
 		} else {
@@ -221,21 +230,21 @@ func (s *Service) CreateLocal(ctx context.Context, params CreateLocalParams) (*m
 		builtURI = "info://" + token
 	}
 
-	parsedProfile, _ := profiles.Parse(builtURI)
 	storedProtocol := "legacy"
-	if parsedProfile != nil {
-		storedProtocol = string(parsedProfile.Protocol)
+	if protocol, _, validationErr := validateStoredConfiguration(builtURI); validationErr == nil {
+		storedProtocol = protocol
 	}
 
 	createdKey, decryptedURI, err := s.profileRepo.CreateLocal(ctx, profilepersistence.CreateProfileParams{
-		Label:        label,
-		Status:       status,
-		Kind:         kind,
-		Category:     params.Category,
-		CategoryID:   params.CategoryID,
-		TemplateText: templateText,
-		Protocol:     storedProtocol,
-		BuiltURI:     builtURI,
+		Label:             label,
+		ClientDisplayName: clientDisplayName,
+		Status:            status,
+		Kind:              kind,
+		Category:          params.Category,
+		CategoryID:        params.CategoryID,
+		TemplateText:      templateText,
+		Protocol:          storedProtocol,
+		BuiltURI:          builtURI,
 	})
 	if err != nil {
 		return nil, err

@@ -17,6 +17,7 @@ import (
 	"unicode"
 
 	"github.com/romanpodg/SubShare-Go/internal/model"
+	"github.com/romanpodg/SubShare-Go/internal/profileconfig"
 	"github.com/romanpodg/SubShare-Go/internal/profiles"
 	"github.com/romanpodg/SubShare-Go/internal/security/profilestorage"
 	"gopkg.in/yaml.v3"
@@ -162,14 +163,15 @@ func (item generationExclusion) Error() string {
 }
 
 type deliveryEntry struct {
-	ID             int64
-	SourceID       sql.NullInt64
-	Raw            string
-	Kind           string
-	TemplateText   string
-	Label          string
-	StoredProtocol string
-	Compatibility  string
+	ID                int64
+	SourceID          sql.NullInt64
+	Raw               string
+	Kind              string
+	TemplateText      string
+	Label             string
+	ClientDisplayName string
+	StoredProtocol    string
+	Compatibility     string
 }
 
 func (entry deliveryEntry) safeRef() string { return "key:" + strconv.FormatInt(entry.ID, 10) }
@@ -200,6 +202,18 @@ type subscriptionGenerationFailure struct {
 func hasUnsafeSubscriptionControl(raw string) bool {
 	for _, char := range raw {
 		if char == 0x7f || char < 0x20 {
+			return true
+		}
+	}
+	return false
+}
+
+func hasUnsafeStoredControl(raw string) bool {
+	if supportedConfigScheme(raw) != model.SubscriptionFormatXrayJSON {
+		return hasUnsafeSubscriptionControl(raw)
+	}
+	for _, char := range raw {
+		if char == 0x7f || (char < 0x20 && char != '\n' && char != '\r' && char != '\t') {
 			return true
 		}
 	}
@@ -251,7 +265,8 @@ func (a *App) selectSubscriptionEntries(subscriptionID, responseType string) (de
 
 	rows, err := a.db.Query(`
 		SELECT k.id, k.external_source_id, s.encrypted_url, k.key_kind, COALESCE(k.template_text, ''),
-		       COALESCE(k.label, ''), COALESCE(k.protocol, 'legacy'), COALESCE(k.profile_compatibility, 'legacy')
+		       COALESCE(k.label, ''), COALESCE(k.client_display_name, ''),
+		       COALESCE(k.protocol, 'legacy'), COALESCE(k.profile_compatibility, 'legacy')
 		FROM users u
 		JOIN user_keys uk ON uk.user_id = u.id
 		JOIN vless_keys k ON k.id = uk.key_id
@@ -277,7 +292,7 @@ func (a *App) selectSubscriptionEntries(subscriptionID, responseType string) (de
 	for rows.Next() {
 		var entry deliveryEntry
 		var encURL sql.NullString
-		if err := rows.Scan(&entry.ID, &entry.SourceID, &encURL, &entry.Kind, &entry.TemplateText, &entry.Label, &entry.StoredProtocol, &entry.Compatibility); err != nil {
+		if err := rows.Scan(&entry.ID, &entry.SourceID, &encURL, &entry.Kind, &entry.TemplateText, &entry.Label, &entry.ClientDisplayName, &entry.StoredProtocol, &entry.Compatibility); err != nil {
 			return deliverySelection{}, 0, "", err
 		}
 		kind, _ := model.NormalizeKeyKind(entry.Kind)
@@ -299,8 +314,11 @@ func (a *App) selectSubscriptionEntries(subscriptionID, responseType string) (de
 			continue
 		}
 		entry.Raw = sec.Reveal()
+		entry.ClientDisplayName = profileconfig.EffectiveClientDisplayName(
+			entry.ClientDisplayName, entry.Raw, entry.Label, entry.SourceID.Valid && entry.SourceID.Int64 > 0,
+		)
 		protocol := safeProtocolName(entry.Raw, entry.StoredProtocol)
-		if hasUnsafeSubscriptionControl(entry.Raw) {
+		if hasUnsafeStoredControl(entry.Raw) {
 			selection.Exclusions = append(selection.Exclusions, generationExclusion{entry.safeRef(), protocol, responseType, generationReasonUnsafeControl})
 			continue
 		}
@@ -350,8 +368,11 @@ func validateStoredDeliveryEntry(raw string) error {
 		}
 		return errors.New(generationReasonInvalidStored)
 	case model.SubscriptionFormatXrayJSON:
-		_, err := parseXrayJSONDrafts(raw)
-		return err
+		var root map[string]any
+		if err := json.Unmarshal([]byte(raw), &root); err != nil || len(asArray(root["outbounds"])) == 0 {
+			return errors.New(generationReasonInvalidStored)
+		}
+		return nil
 	default:
 		return errors.New(generationReasonInvalidStored)
 	}
@@ -486,25 +507,6 @@ func renderPlainEntries(entries []deliveryEntry, settings model.SubscriptionSett
 			}
 			continue
 		}
-		if settings.SubscriptionFormat == model.SubscriptionFormatLinks && supportedConfigScheme(entry.Raw) == model.SubscriptionFormatXrayJSON {
-			drafts, parseErr := parseXrayJSONDrafts(entry.Raw)
-			if parseErr != nil {
-				result.Exclusions = append(result.Exclusions, generationExclusion{entry.safeRef(), "xray-json", "plain", generationReasonInvalidStored})
-				continue
-			}
-			for _, draft := range drafts {
-				if draft.Remark == "" {
-					draft.Remark = entry.Label
-				}
-				link, buildErr := buildShareLinkFromDraft(draft)
-				if buildErr != nil || hasUnsafeSubscriptionControl(link) {
-					result.Exclusions = append(result.Exclusions, generationExclusion{entry.safeRef(), draft.Protocol, "plain", generationReasonSerialization})
-					continue
-				}
-				lines = append(lines, link)
-			}
-			continue
-		}
 		if settings.SubscriptionFormat == model.SubscriptionFormatXrayJSON {
 			converted, exclusion := xrayJSONForEntryWithNames(entry, names)
 			if exclusion != nil {
@@ -514,9 +516,9 @@ func renderPlainEntries(entries []deliveryEntry, settings model.SubscriptionSett
 			lines = append(lines, converted...)
 			continue
 		}
-		// Exact source bytes are delivered for URI formats. Safety validation
-		// above guarantees one stored record cannot inject another line.
-		lines = append(lines, entry.Raw)
+		projected, exclusions := projectEntryShareLinks(entry, names)
+		result.Exclusions = append(result.Exclusions, exclusions...)
+		lines = append(lines, projected...)
 	}
 	if settings.SubscriptionFormat == model.SubscriptionFormatXrayJSON {
 		items := make([]json.RawMessage, 0, len(lines))
@@ -537,6 +539,65 @@ func renderPlainEntries(entries []deliveryEntry, settings model.SubscriptionSett
 	result.Body = strings.Join(lines, "\n")
 	result.GeneratedCount = len(lines)
 	return result, nil
+}
+
+func projectEntryShareLinks(entry deliveryEntry, names *uniqueNames) ([]string, []generationExclusion) {
+	if supportedConfigScheme(entry.Raw) == model.SubscriptionFormatXrayJSON {
+		drafts, rejected, err := projectXrayJSONDrafts(entry.Raw)
+		if err != nil {
+			return nil, []generationExclusion{{entry.safeRef(), "xray-json", "plain", generationReasonInvalidStored}}
+		}
+		links := make([]string, 0, len(drafts))
+		exclusions := make([]generationExclusion, 0, rejected)
+		for index, draft := range drafts {
+			fallback := draft.Remark
+			if entry.ClientDisplayName != "" {
+				fallback = entry.ClientDisplayName
+			}
+			draft.Remark = names.next(fallback, firstNonEmpty(entry.Label, fmt.Sprintf("proxy-%d", index+1)))
+			link, buildErr := buildShareLinkFromDraft(draft)
+			if buildErr != nil || supportedConfigScheme(link) == "" || supportedConfigScheme(link) == model.SubscriptionFormatXrayJSON {
+				exclusions = append(exclusions, generationExclusion{entry.safeRef(), draft.Protocol, "plain", generationReasonUnrepresentable})
+				continue
+			}
+			links = append(links, link)
+		}
+		for index := 0; index < rejected; index++ {
+			exclusions = append(exclusions, generationExclusion{entry.safeRef(), "xray-json", "plain", generationReasonUnrepresentable})
+		}
+		if len(links) == 0 && len(exclusions) == 0 {
+			exclusions = append(exclusions, generationExclusion{entry.safeRef(), "xray-json", "plain", generationReasonUnsupportedProtocol})
+		}
+		return links, exclusions
+	}
+
+	link, err := shareURIWithDisplayName(entry.Raw, entry.ClientDisplayName)
+	if err != nil || supportedConfigScheme(link) == "" || supportedConfigScheme(link) == model.SubscriptionFormatXrayJSON {
+		return nil, []generationExclusion{{entry.safeRef(), safeProtocolName(entry.Raw, entry.StoredProtocol), "plain", generationReasonUnrepresentable}}
+	}
+	return []string{link}, nil
+}
+
+func shareURIWithDisplayName(raw, displayName string) (string, error) {
+	displayName = strings.TrimSpace(displayName)
+	if displayName == "" || profileconfig.ClientDisplayNameFromKeyURL(raw, "") == displayName {
+		return raw, nil
+	}
+	profile, err := profiles.Parse(raw)
+	if err == nil {
+		profile.DisplayName = displayName
+		serialized, serializeErr := profiles.Serialize(profile, profiles.CanonicalSerialization)
+		if serializeErr != nil {
+			return "", serializeErr
+		}
+		return serialized.URI.Reveal(), nil
+	}
+	draft, err := parseLinkConfiguration(raw)
+	if err != nil {
+		return "", err
+	}
+	draft.Remark = displayName
+	return buildShareLinkFromDraft(draft)
 }
 
 func structuredProfile(entry deliveryEntry, format string) (*profiles.Profile, *generationExclusion) {
@@ -587,7 +648,7 @@ func safeGeneratedName(raw string) string {
 }
 
 func profileName(entry deliveryEntry, profile *profiles.Profile, names *uniqueNames) string {
-	return names.next(profile.DisplayName, firstNonEmpty(entry.Label, string(profile.Protocol)+"-"+profile.Server))
+	return names.next(firstNonEmpty(entry.ClientDisplayName, profile.DisplayName), firstNonEmpty(entry.Label, string(profile.Protocol)+"-"+profile.Server))
 }
 
 func syntheticDeliveryEntries(raw string) []deliveryEntry {
@@ -628,7 +689,7 @@ func renderMihomoEntries(entries []deliveryEntry) (generatedSubscription, error)
 			continue
 		}
 		for index, draft := range drafts {
-			name := names.next(draftDisplayName(draft, index), entry.Label)
+			name := names.next(firstNonEmpty(entry.ClientDisplayName, draftDisplayName(draft, index)), entry.Label)
 			proxiesOut = append(proxiesOut, mihomoLegacyProxy(draft, name))
 		}
 	}
@@ -670,7 +731,7 @@ func renderSingBoxEntries(entries []deliveryEntry) (generatedSubscription, error
 			continue
 		}
 		for index, draft := range drafts {
-			name := names.next(draftDisplayName(draft, index), entry.Label)
+			name := names.next(firstNonEmpty(entry.ClientDisplayName, draftDisplayName(draft, index)), entry.Label)
 			outbounds = append(outbounds, singBoxLegacyOutbound(draft, name))
 		}
 	}
@@ -1252,7 +1313,7 @@ func xrayJSONForEntryWithNames(entry deliveryEntry, names *uniqueNames) ([]strin
 		}
 		return []string{string(normalized)}, nil
 	}
-	converted, err := normalizeConfigurationForSubscriptionOutput(entry.Raw, model.SubscriptionFormatXrayJSON, entry.Label)
+	converted, err := normalizeConfigurationForSubscriptionOutput(entry.Raw, model.SubscriptionFormatXrayJSON, firstNonEmpty(entry.ClientDisplayName, entry.Label))
 	if err != nil {
 		return nil, &generationExclusion{entry.safeRef(), safeProtocolName(entry.Raw, entry.StoredProtocol), "xray-json", generationReasonInvalidStored}
 	}

@@ -11,6 +11,9 @@ import (
 )
 
 func ApplyStructuredPatchToURI(protocol, currentURI, label string, patch *model.StructuredProfilePatch) (string, error) {
+	if patch != nil && patch.Server == nil && patch.Port == nil && patch.DisplayName == nil && patch.Shadowsocks == nil && patch.Hysteria2 == nil && patch.TUIC == nil {
+		return currentURI, nil
+	}
 	parsed, err := profiles.Parse(currentURI)
 	if err != nil {
 		return BuildURIFromStructuredCreate(protocol, label, patch)
@@ -183,15 +186,25 @@ func (s *Service) UpdateLocal(ctx context.Context, params UpdateLocalParams) (*m
 		return nil, fetchErr
 	}
 
-	if key.ExternalSourceID > 0 {
-		return nil, ErrSourceOwnedReadOnly
-	}
-
 	if key.ProfileRevision != params.ProfileRevision {
 		return nil, ErrProfileRevisionConflict
 	}
+	if key.ExternalSourceID > 0 {
+		return s.updateSourceOwnedClientDisplayName(ctx, key, decryptedURI, params)
+	}
 
 	label := strings.TrimSpace(params.Label)
+	var clientDisplayName *string
+	if params.ClientDisplayName != nil {
+		resolved := strings.TrimSpace(*params.ClientDisplayName)
+		if resolved == "" {
+			resolved = label
+		}
+		if len(resolved) > 255 {
+			return nil, ErrLabelTooLong
+		}
+		clientDisplayName = &resolved
+	}
 	status, statusOK := model.NormalizeKeyStatus(params.Status)
 	kind, kindOK := model.NormalizeKeyKind(params.Kind)
 	templateText := strings.TrimSpace(params.TemplateText)
@@ -228,7 +241,7 @@ func (s *Service) UpdateLocal(ctx context.Context, params UpdateLocalParams) (*m
 			if newURI == "" {
 				return nil, ErrRawURIRequired
 			}
-			if _, parseErr := profiles.Parse(newURI); parseErr != nil {
+			if _, _, parseErr := validateStoredConfiguration(newURI); parseErr != nil {
 				return nil, invalidProfileURIError(parseErr)
 			}
 		} else {
@@ -244,26 +257,72 @@ func (s *Service) UpdateLocal(ctx context.Context, params UpdateLocalParams) (*m
 	}
 
 	storedProtocol := "legacy"
-	if parsed, err := profiles.Parse(newURI); err == nil && parsed != nil {
-		storedProtocol = string(parsed.Protocol)
+	if protocol, _, validationErr := validateStoredConfiguration(newURI); validationErr == nil {
+		storedProtocol = protocol
 	}
 
 	updatedKey, updatedURI, err := s.profileRepo.UpdateLocal(ctx, profilepersistence.UpdateProfileParams{
-		ID:               params.ID,
-		ExpectedRevision: params.ProfileRevision,
-		Label:            label,
-		Status:           status,
-		Kind:             kind,
-		Category:         params.Category,
-		CategoryID:       params.CategoryID,
-		TemplateText:     templateText,
-		Protocol:         storedProtocol,
-		NewURI:           newURI,
+		ID:                params.ID,
+		ExpectedRevision:  params.ProfileRevision,
+		Label:             label,
+		ClientDisplayName: clientDisplayName,
+		Status:            status,
+		Kind:              kind,
+		Category:          params.Category,
+		CategoryID:        params.CategoryID,
+		TemplateText:      templateText,
+		Protocol:          storedProtocol,
+		NewURI:            newURI,
 	})
 	if err != nil {
 		return nil, err
 	}
 
+	detail := BuildKeyProfileDetailResponse(*updatedKey, updatedURI, s.capabilityResolver)
+	return &detail, nil
+}
+
+func (s *Service) updateSourceOwnedClientDisplayName(ctx context.Context, key *model.VLESSKey, decryptedURI string, params UpdateLocalParams) (*model.KeyProfileDetailResponse, error) {
+	status, statusOK := model.NormalizeKeyStatus(params.Status)
+	kind, kindOK := model.NormalizeKeyKind(params.Kind)
+	patchMode := strings.ToLower(strings.TrimSpace(params.PatchMode))
+	categoryMatches := strings.TrimSpace(params.Category) == strings.TrimSpace(key.Category)
+	categoryIDMatches := params.CategoryID == nil || (key.CategoryID > 0 && *params.CategoryID == key.CategoryID)
+
+	// Source-owned updates are accepted only when the request is an exact
+	// metadata-only projection of the current source row. The persistence method
+	// below cannot mutate any source-controlled column, but these checks also
+	// reject crafted full-profile requests instead of silently ignoring them.
+	if params.ClientDisplayName == nil ||
+		strings.TrimSpace(params.Label) != strings.TrimSpace(key.Label) ||
+		!statusOK || status != key.Status ||
+		!kindOK || kind != key.Kind ||
+		!categoryMatches || !categoryIDMatches ||
+		strings.TrimSpace(params.TemplateText) != strings.TrimSpace(key.TemplateText) ||
+		strings.TrimSpace(params.RawURI) != "" || params.StructuredPatch != nil ||
+		(patchMode != "" && patchMode != "structured") {
+		return nil, ErrSourceOwnedReadOnly
+	}
+
+	resolved := strings.TrimSpace(*params.ClientDisplayName)
+	if len(resolved) > 255 {
+		return nil, ErrLabelTooLong
+	}
+	var override *string
+	if resolved != "" {
+		override = &resolved
+	}
+	updatedKey, updatedURI, err := s.profileRepo.UpdateClientDisplayName(ctx, profilepersistence.UpdateClientDisplayNameParams{
+		ID:                params.ID,
+		ExpectedRevision:  params.ProfileRevision,
+		ClientDisplayName: override,
+	})
+	if err != nil {
+		return nil, err
+	}
+	if updatedURI == "" {
+		updatedURI = decryptedURI
+	}
 	detail := BuildKeyProfileDetailResponse(*updatedKey, updatedURI, s.capabilityResolver)
 	return &detail, nil
 }

@@ -106,6 +106,7 @@ export function GlobalSubscriptionSettingsModal({ open, onClose, onSaved }: Prop
   const [extraURL, setExtraURL] = useState("");
   const [extraStatus, setExtraStatus] = useState("");
   const [subscriptionFormat, setSubscriptionFormat] = useState<SubscriptionFormatOption>("links");
+  const [showSubscriptionExpiration, setShowSubscriptionExpiration] = useState(false);
   const [timeZoneChoice, setTimeZoneChoice] = useState("Europe/Moscow");
   const [customTimeZone, setCustomTimeZone] = useState("");
   const [language, setLanguage] = useState("ru");
@@ -124,6 +125,7 @@ export function GlobalSubscriptionSettingsModal({ open, onClose, onSaved }: Prop
     extraURL: "",
     extraStatus: "",
     subscriptionFormat: "links" as SubscriptionFormatOption,
+    showSubscriptionExpiration: false,
     timeZone: "Europe/Moscow",
     language: "ru",
     providerID: "",
@@ -151,6 +153,7 @@ export function GlobalSubscriptionSettingsModal({ open, onClose, onSaved }: Prop
           extraURL: data.extra_url || "",
           extraStatus: data.extra_status || "",
           subscriptionFormat: normalizedSubscriptionFormat,
+          showSubscriptionExpiration: Boolean(data.show_subscription_expiration),
           timeZone: data.time_zone || "Europe/Moscow",
           language: data.language || "ru",
           providerID: data.provider_id || "",
@@ -167,6 +170,7 @@ export function GlobalSubscriptionSettingsModal({ open, onClose, onSaved }: Prop
         setExtraURL(next.extraURL);
         setExtraStatus(next.extraStatus);
         setSubscriptionFormat(next.subscriptionFormat);
+        setShowSubscriptionExpiration(next.showSubscriptionExpiration);
         setTimeZoneChoice(hasPresetTimeZone ? normalizedTimeZone : CUSTOM_TIMEZONE_VALUE);
         setCustomTimeZone(hasPresetTimeZone ? "" : normalizedTimeZone);
         setLanguage(next.language);
@@ -210,6 +214,7 @@ export function GlobalSubscriptionSettingsModal({ open, onClose, onSaved }: Prop
       extraURL !== initialState.extraURL ||
       extraStatus !== initialState.extraStatus ||
       subscriptionFormat !== initialState.subscriptionFormat ||
+      showSubscriptionExpiration !== initialState.showSubscriptionExpiration ||
       effectiveTimeZone !== initialState.timeZone ||
       language !== initialState.language ||
       providerID !== initialState.providerID ||
@@ -225,6 +230,7 @@ export function GlobalSubscriptionSettingsModal({ open, onClose, onSaved }: Prop
     extraURL,
     extraStatus,
     subscriptionFormat,
+    showSubscriptionExpiration,
     effectiveTimeZone,
     language,
     providerID,
@@ -256,6 +262,7 @@ export function GlobalSubscriptionSettingsModal({ open, onClose, onSaved }: Prop
         extra_url: extraURL,
         extra_status: extraStatus,
         subscription_format: subscriptionFormat,
+        show_subscription_expiration: showSubscriptionExpiration,
         time_zone: effectiveTimeZone,
         language,
         provider_id: providerID.trim(),
@@ -273,6 +280,7 @@ export function GlobalSubscriptionSettingsModal({ open, onClose, onSaved }: Prop
         extraURL,
         extraStatus,
         subscriptionFormat,
+        showSubscriptionExpiration,
         timeZone: effectiveTimeZone,
         language,
         providerID,
@@ -398,6 +406,23 @@ export function GlobalSubscriptionSettingsModal({ open, onClose, onSaved }: Prop
               }}
               disabled={false}
             />
+            <label className="flex cursor-pointer items-start gap-3 rounded-lg border border-border bg-surface-2/50 px-3 py-3">
+              <input
+                type="checkbox"
+                checked={showSubscriptionExpiration}
+                onChange={(event) => {
+                  markFieldChange();
+                  setShowSubscriptionExpiration(event.target.checked);
+                }}
+                className="mt-0.5 h-4 w-4 accent-[var(--accent)]"
+              />
+              <span className="min-w-0">
+                <span className="block text-sm font-medium text-zinc-200">Показывать дату окончания подписки</span>
+                <span className="mt-1 block text-xs leading-5 text-zinc-500">
+                  Передаёт дату окончания подписки совместимым клиентам.
+                </span>
+              </span>
+            </label>
           </div>
 
           <div className="grid content-start gap-4 rounded-xl border border-border bg-surface-2/20 p-4">

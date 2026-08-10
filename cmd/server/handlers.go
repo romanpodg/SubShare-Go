@@ -968,13 +968,18 @@ func (a *App) apiUpdateSubscriptionSettings(w http.ResponseWriter, r *http.Reque
 	happNotifyExpiration := req.HappNotifyExpiration
 	happHideServerSettings := req.HappHideServerSettings
 	happSubscriptionBody := req.HappSubscriptionBody
+	var showSubscriptionExpiration any
+	if req.ShowSubscriptionExpiration != nil {
+		showSubscriptionExpiration = boolToInt(*req.ShowSubscriptionExpiration)
+	}
 	if len(happSubscriptionBody) > 10000 {
 		writeError(w, http.StatusBadRequest, "happ_subscription_body is too long (max 10000 characters)")
 		return
 	}
 	if _, err := a.db.Exec(
 		`UPDATE subscription_settings
-		 SET title = ?, refresh_hours = ?, info_url = ?, extra_url = ?, extra_status = ?, subscription_format = ?, time_zone = ?, language = ?,
+		 SET title = ?, refresh_hours = ?, info_url = ?, extra_url = ?, extra_status = ?, subscription_format = ?,
+		     show_subscription_expiration = COALESCE(?, show_subscription_expiration), time_zone = ?, language = ?,
 		     provider_id = ?, happ_no_limit_mode = ?, happ_no_limit_mode_xhttp_only = ?, happ_mandatory_hwid = ?,
 		     happ_notify_expiration = ?, happ_hide_server_settings = ?, happ_subscription_body = ?, updated_at = CURRENT_TIMESTAMP
 		 WHERE id = 1`,
@@ -984,6 +989,7 @@ func (a *App) apiUpdateSubscriptionSettings(w http.ResponseWriter, r *http.Reque
 		nullStringValue(extraURL),
 		nullStringValue(extraStatus),
 		subscriptionFormat,
+		showSubscriptionExpiration,
 		timeZone,
 		language,
 		nullStringValue(providerID),
@@ -1256,6 +1262,10 @@ func (a *App) handleSubscription(w http.ResponseWriter, r *http.Request) {
 		}
 		applyRuleHeaders(w, rule.Headers)
 	}
+	if err := a.applySubscriptionExpirationMetadata(w.Header(), settings, subscriptionID); err != nil {
+		http.Error(w, "failed to load subscription", http.StatusInternalServerError)
+		return
+	}
 	if err := validateGeneratedStructuredBody(responseType, body); err != nil {
 		http.Error(w, "failed to render subscription format", http.StatusUnprocessableEntity)
 		a.incrementSubscriptionMetric(responseType, "render_failed")
@@ -1362,6 +1372,45 @@ func (a *App) applySubscriptionResponseHeaders(
 	}
 }
 
+func subscriptionUserinfoWithExpire(current string, expire *int64) string {
+	parts := strings.Split(current, ";")
+	result := make([]string, 0, len(parts)+1)
+	for _, part := range parts {
+		part = strings.TrimSpace(part)
+		if part == "" {
+			continue
+		}
+		key, _, _ := strings.Cut(part, "=")
+		if strings.EqualFold(strings.TrimSpace(key), "expire") {
+			continue
+		}
+		result = append(result, part)
+	}
+	if expire != nil {
+		result = append(result, "expire="+strconv.FormatInt(*expire, 10))
+	}
+	return strings.Join(result, "; ")
+}
+
+func (a *App) applySubscriptionExpirationMetadata(header http.Header, settings model.SubscriptionSettings, subscriptionID string) error {
+	var expiresAt sql.NullTime
+	if err := a.db.QueryRow(`SELECT expires_at FROM users WHERE subscription_id = ?`, subscriptionID).Scan(&expiresAt); err != nil {
+		return err
+	}
+	var expire *int64
+	if settings.ShowSubscriptionExpiration && expiresAt.Valid {
+		value := expiresAt.Time.UTC().Unix()
+		expire = &value
+	}
+	userinfo := subscriptionUserinfoWithExpire(header.Get("Subscription-Userinfo"), expire)
+	if userinfo == "" {
+		header.Del("Subscription-Userinfo")
+	} else {
+		header.Set("Subscription-Userinfo", userinfo)
+	}
+	return nil
+}
+
 func (a *App) handleSubscriptionSubBody(w http.ResponseWriter, r *http.Request) {
 	subscriptionID := strings.TrimSpace(r.PathValue("subscription_id"))
 	if subscriptionID == "" || strings.Contains(subscriptionID, "/") {
@@ -1395,6 +1444,10 @@ func (a *App) handleSubscriptionSubBody(w http.ResponseWriter, r *http.Request) 
 
 	a.applySubscriptionResponseHeaders(w, r, settings, subscriptionID)
 	a.applyGlobalDeliveryHeaders(w)
+	if err := a.applySubscriptionExpirationMetadata(w.Header(), settings, subscriptionID); err != nil {
+		http.Error(w, "failed to load subscription", http.StatusInternalServerError)
+		return
+	}
 	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 	_, _ = w.Write([]byte(encodeBase64Subscription(generated.Body)))
 	a.incrementSubscriptionMetric("subbody-base64", "success")
@@ -1433,6 +1486,10 @@ func (a *App) handleSubscriptionSubBodyPlain(w http.ResponseWriter, r *http.Requ
 
 	a.applySubscriptionResponseHeaders(w, r, settings, subscriptionID)
 	a.applyGlobalDeliveryHeaders(w)
+	if err := a.applySubscriptionExpirationMetadata(w.Header(), settings, subscriptionID); err != nil {
+		http.Error(w, "failed to load subscription", http.StatusInternalServerError)
+		return
+	}
 	if settings.SubscriptionFormat == model.SubscriptionFormatXrayJSON {
 		w.Header().Set("Content-Type", "application/json; charset=utf-8")
 	} else {

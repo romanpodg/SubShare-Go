@@ -52,4 +52,39 @@ describe("OverviewPage", () => {
     expect(screen.getByText("jobs temporarily unavailable")).toBeInTheDocument();
     expect(screen.queryByText(/Не удалось загрузить обзор/i)).not.toBeInTheDocument();
   });
+
+  it("renders partial health persistence as a completed warning", async () => {
+    mocks.jobsList.mockResolvedValue({
+      data: [{
+        id: 17,
+        kind: "keys_health_check",
+        status: "succeeded_with_warnings",
+        target_type: "key",
+        target_id: "all",
+        error_message: "",
+        result_counts: {
+          total_selected: 100,
+          checked: 100,
+          healthy: 80,
+          unhealthy: 20,
+          check_failed: 0,
+          skipped_disabled: 0,
+          skipped_unsupported: 0,
+          persisted_ok: 79,
+          persist_failed: 21,
+        },
+        run_after: null,
+        started_at: "2026-08-10T23:00:00Z",
+        finished_at: "2026-08-10T23:01:00Z",
+        created_at: "2026-08-10T23:00:00Z",
+      }],
+      meta: { page: 1, page_size: 6, total: 1, total_pages: 1 },
+    });
+
+    render(<OverviewPage />);
+
+    expect(await screen.findByText("Завершено с предупреждениями")).toBeInTheDocument();
+    expect(screen.getByText("Не удалось сохранить результаты: 21")).toBeInTheDocument();
+    expect(screen.queryByText("Ошибка")).not.toBeInTheDocument();
+  });
 });

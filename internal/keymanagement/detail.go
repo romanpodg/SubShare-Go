@@ -2,9 +2,11 @@ package keymanagement
 
 import (
 	"context"
+	"strconv"
 	"strings"
 
 	"github.com/romanpodg/SubShare-Go/internal/model"
+	"github.com/romanpodg/SubShare-Go/internal/profileconfig"
 	"github.com/romanpodg/SubShare-Go/internal/profiles"
 )
 
@@ -91,6 +93,25 @@ func BuildSafeStructuredProfile(parsed *profiles.Profile) *model.SafeStructuredP
 	return safe
 }
 
+func buildSafeXrayJSONProfile(raw string) *model.SafeStructuredProfile {
+	drafts, err := profileconfig.ParseXrayJSONDrafts(raw)
+	if err != nil || len(drafts) == 0 {
+		return nil
+	}
+	draft := drafts[0]
+	return &model.SafeStructuredProfile{
+		Server:      draft.Server,
+		Port:        strconv.Itoa(draft.Port),
+		PortKind:    string(profiles.PortSingle),
+		DisplayName: draft.Remark,
+		XrayJSON: &model.SafeXrayJSONDetail{
+			HasRawJSON: true,
+			Network:    draft.Network,
+			Security:   draft.Security,
+		},
+	}
+}
+
 func BuildKeyProfileDetailResponse(key model.VLESSKey, decryptedURI string, resolver CapabilityResolver) model.KeyProfileDetailResponse {
 	var categoryID *int64
 	if key.CategoryID > 0 {
@@ -116,6 +137,9 @@ func BuildKeyProfileDetailResponse(key model.VLESSKey, decryptedURI string, reso
 	}
 
 	safeStructured := BuildSafeStructuredProfile(parsed)
+	if safeStructured == nil && key.Kind == model.KeyKindReal && profileconfig.SupportedConfigScheme(decryptedURI) == "xray-json" {
+		safeStructured = buildSafeXrayJSONProfile(decryptedURI)
+	}
 	unknownParams := make([]model.UnknownQueryParamDTO, 0)
 	if parsed != nil {
 		for _, qp := range parsed.UnknownQueryParameters {
@@ -135,30 +159,32 @@ func BuildKeyProfileDetailResponse(key model.VLESSKey, decryptedURI string, reso
 	sanitizedErr := SanitizeCheckError(key.CheckError)
 
 	return model.KeyProfileDetailResponse{
-		ID:                     key.ID,
-		Label:                  key.Label,
-		CategoryID:             categoryID,
-		Category:               key.Category,
-		Kind:                   key.Kind,
-		Status:                 key.Status,
-		CheckStatus:            key.CheckStatus,
-		CheckError:             sanitizedErr,
-		LastLatencyMS:          key.LastLatencyMS,
-		LastCheckedAt:          key.LastCheckedAtText,
-		TemplateText:           key.TemplateText,
-		Ownership:              ownership,
-		ExternalSourceID:       extSourceID,
-		ExternalSourceName:     key.ExternalSourceName,
-		Protocol:               key.Protocol,
-		ProfileSchemaVersion:   key.ProfileSchemaVersion,
-		ProfileCompatibility:   key.ProfileCompatibility,
-		ProfileWarnings:        warnings,
-		ProfileRevision:        key.ProfileRevision,
-		CreatedAt:              key.CreatedAt,
-		UpdatedAt:              key.UpdatedAt,
-		SafeStructured:         safeStructured,
-		UnknownQueryParameters: unknownParams,
-		Capabilities:           caps,
+		ID:                          key.ID,
+		Label:                       key.Label,
+		ClientDisplayName:           key.ClientDisplayName,
+		ClientDisplayNameOverridden: key.ClientDisplayNameOverridden,
+		CategoryID:                  categoryID,
+		Category:                    key.Category,
+		Kind:                        key.Kind,
+		Status:                      key.Status,
+		CheckStatus:                 key.CheckStatus,
+		CheckError:                  sanitizedErr,
+		LastLatencyMS:               key.LastLatencyMS,
+		LastCheckedAt:               key.LastCheckedAtText,
+		TemplateText:                key.TemplateText,
+		Ownership:                   ownership,
+		ExternalSourceID:            extSourceID,
+		ExternalSourceName:          key.ExternalSourceName,
+		Protocol:                    key.Protocol,
+		ProfileSchemaVersion:        key.ProfileSchemaVersion,
+		ProfileCompatibility:        key.ProfileCompatibility,
+		ProfileWarnings:             warnings,
+		ProfileRevision:             key.ProfileRevision,
+		CreatedAt:                   key.CreatedAt,
+		UpdatedAt:                   key.UpdatedAt,
+		SafeStructured:              safeStructured,
+		UnknownQueryParameters:      unknownParams,
+		Capabilities:                caps,
 	}
 }
 

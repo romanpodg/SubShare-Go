@@ -33,6 +33,82 @@ func TestSupportedConfigScheme(t *testing.T) {
 	}
 }
 
+func TestEffectiveClientDisplayNameSeparatesSourceAndLocalFallbacks(t *testing.T) {
+	for _, tag := range []string{"proxy", "direct", "block", "dns", "freedom", "blackhole", "outbound"} {
+		raw := `{"outbounds":[{"tag":"` + tag + `","protocol":"trojan","settings":{"servers":[{"address":"example.com","port":443,"password":"secret"}]}}]}`
+		if got := EffectiveClientDisplayName("", raw, "Human name", true); got != "Human name" {
+			t.Fatalf("source tag %q replaced synchronized label: %q", tag, got)
+		}
+	}
+
+	rawJSON := `{"outbounds":[{"tag":"proxy","protocol":"trojan","settings":{"servers":[{"address":"example.com","port":443,"password":"secret"}]}}]}`
+	if got := EffectiveClientDisplayName("proxy", rawJSON, "Human name", true); got != "proxy" {
+		t.Fatalf("genuine explicit override was discarded: %q", got)
+	}
+	if got := EffectiveClientDisplayName("", "vless://uuid@example.com:443#Embedded%20URI", "Panel", false); got != "Embedded URI" {
+		t.Fatalf("local URI fragment fallback changed: %q", got)
+	}
+	vmessPayload := base64.StdEncoding.EncodeToString([]byte(`{"add":"vm.example","port":"443","id":"uuid","ps":"Embedded VMess"}`))
+	if got := EffectiveClientDisplayName("", "vmess://"+vmessPayload, "Panel", false); got != "Embedded VMess" {
+		t.Fatalf("local VMess ps fallback changed: %q", got)
+	}
+}
+
+func TestProjectXrayJSONDraftsSupportsProxyOutboundsAndSkipsHelpers(t *testing.T) {
+	raw := `{
+		"dns":{"servers":["1.1.1.1"]},
+		"routing":{"rules":[{"outboundTag":"direct"}]},
+		"outbounds":[
+			{"tag":"VLESS","protocol":"vless","settings":{"vnext":[{"address":"vless.example","port":443,"users":[{"id":"11111111-1111-4111-8111-111111111111","encryption":"none"}]}]},"streamSettings":{"network":"ws","security":"reality","wsSettings":{"path":"/ws","headers":{"Host":"cdn.example"}},"realitySettings":{"serverName":"sni.example","publicKey":"public-key","shortId":"abcd","fingerprint":"chrome"}}},
+			{"tag":"VMess","protocol":"vmess","settings":{"vnext":[{"address":"vmess.example","port":8443,"users":[{"id":"22222222-2222-4222-8222-222222222222","security":"auto"}]}]}},
+			{"tag":"Trojan","protocol":"trojan","settings":{"servers":[{"address":"trojan.example","port":443,"password":"trojan-password"}]}},
+			{"tag":"SS","protocol":"shadowsocks","settings":{"address":"ss.example","port":8388,"method":"aes-256-gcm","password":"ss-password","plugin":"v2ray-plugin","plugin_opts":"mode=websocket;host=cdn.example"}},
+			{"tag":"HY2","protocol":"hysteria","settings":{"version":2,"address":"hy.example","port":443},"streamSettings":{"security":"tls","hysteriaSettings":{"version":2,"auth":"hy-auth"},"tlsSettings":{"serverName":"hy-sni.example"}}},
+			{"tag":"TUIC","protocol":"tuic","settings":{"address":"tuic.example","port":443,"uuid":"33333333-3333-4333-8333-333333333333","password":"tuic-password","sni":"tuic-sni.example","alpn":["h3"],"congestion_control":"bbr"}},
+			{"tag":"direct","protocol":"freedom","settings":{}},
+			{"tag":"block","protocol":"blackhole","settings":{}},
+			{"tag":"broken","protocol":"trojan","settings":{"servers":[]}}
+		]
+	}`
+	drafts, rejected, err := ProjectXrayJSONDrafts(raw)
+	if err != nil {
+		t.Fatalf("project XRAY-JSON: %v", err)
+	}
+	if len(drafts) != 6 || rejected != 1 {
+		t.Fatalf("drafts=%d rejected=%d", len(drafts), rejected)
+	}
+	wantProtocols := []string{"vless", "vmess", "trojan", "shadowsocks", "hysteria2", "tuic"}
+	for index, draft := range drafts {
+		if draft.Protocol != wantProtocols[index] {
+			t.Fatalf("draft %d protocol=%q", index, draft.Protocol)
+		}
+		link, buildErr := BuildShareLinkFromDraft(draft)
+		if buildErr != nil {
+			t.Fatalf("build %s link: %v", draft.Protocol, buildErr)
+		}
+		if SupportedConfigScheme(link) == "xray-json" || strings.Contains(link, `"outbounds"`) {
+			t.Fatalf("raw JSON reached projected link: %q", link)
+		}
+	}
+	if drafts[0].Network != "ws" || drafts[0].Security != "reality" || drafts[0].Path != "/ws" || drafts[0].Host != "cdn.example" || drafts[0].PublicKey != "public-key" {
+		t.Fatalf("VLESS transport projection lost representable fields: %#v", drafts[0])
+	}
+	if drafts[3].Plugin != "v2ray-plugin;mode=websocket;host=cdn.example" {
+		t.Fatalf("Shadowsocks plugin projection lost options: %#v", drafts[3])
+	}
+}
+
+func TestProjectXrayJSONDraftsRejectsAmbiguousHysteria2Masks(t *testing.T) {
+	raw := `{"outbounds":[{"protocol":"hysteria","settings":{"version":2,"address":"hy.example","port":443},"streamSettings":{"hysteriaSettings":{"version":2,"auth":"auth"},"finalmask":{"udp":[{"type":"salamander","settings":{"password":"one"}},{"type":"salamander","settings":{"password":"two"}}]}}}]}`
+	drafts, rejected, err := ProjectXrayJSONDrafts(raw)
+	if err != nil {
+		t.Fatalf("project XRAY-JSON: %v", err)
+	}
+	if len(drafts) != 0 || rejected != 1 {
+		t.Fatalf("drafts=%d rejected=%d, want no malformed projection and one rejection", len(drafts), rejected)
+	}
+}
+
 func TestValidateRealConfigURL(t *testing.T) {
 	if err := ValidateRealConfigURL("vless://uuid@example.com:443"); err != nil {
 		t.Fatalf("unexpected error for vless: %v", err)

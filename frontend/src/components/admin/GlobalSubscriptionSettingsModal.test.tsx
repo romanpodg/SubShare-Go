@@ -24,6 +24,7 @@ describe("GlobalSubscriptionSettingsModal", () => {
       extra_url: "",
       extra_status: "",
       subscription_format: "links",
+      show_subscription_expiration: false,
       time_zone: "UTC",
       language: "ru",
       provider_id: "A1B2C3D4",
@@ -41,6 +42,11 @@ describe("GlobalSubscriptionSettingsModal", () => {
     const providerInput = await screen.findByLabelText("Provider ID");
     expect(providerInput).toHaveAttribute("placeholder", "Например, A1B2C3D4");
     expect(screen.queryByText("No Limit Mode")).not.toBeInTheDocument();
+    const expirationCheckbox = screen.getByRole("checkbox", { name: /Показывать дату окончания подписки/ });
+    expect(expirationCheckbox).not.toBeChecked();
+    expect(screen.getByText(/Передаёт дату окончания подписки совместимым клиентам/)).toBeInTheDocument();
+
+    fireEvent.click(expirationCheckbox);
 
     fireEvent.change(screen.getByLabelText("Название подписки"), {
       target: { value: "Updated" },
@@ -51,6 +57,7 @@ describe("GlobalSubscriptionSettingsModal", () => {
       expect(mocks.update).toHaveBeenCalledWith(expect.objectContaining({
         title: "Updated",
         info_url: "https://example.test/info",
+        show_subscription_expiration: true,
         happ_no_limit_mode: true,
         happ_mandatory_hwid: true,
         happ_notify_expiration: true,

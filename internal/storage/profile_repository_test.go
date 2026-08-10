@@ -82,6 +82,7 @@ func setupTestDB(t *testing.T) *sql.DB {
 		CREATE TABLE vless_keys (
 			id INTEGER PRIMARY KEY AUTOINCREMENT,
 			label TEXT NOT NULL,
+			client_display_name TEXT,
 			url_blind_index TEXT,
 			category_id INTEGER,
 			category TEXT,
@@ -240,6 +241,9 @@ func TestProfileRepository_Create_Update_Clone(t *testing.T) {
 	if clonedURI != newURI {
 		t.Fatalf("clonedURI = %q, want %q", clonedURI, newURI)
 	}
+	if clonedKey.ClientDisplayName != "Node1Updated" || clonedKey.ClientDisplayNameOverridden {
+		t.Fatalf("local clone raw-name fallback changed: %#v", clonedKey)
+	}
 	var allAssignments, selectedAssignments int
 	if err := db.QueryRow(`SELECT COUNT(*) FROM user_keys WHERE user_id = 1`).Scan(&allAssignments); err != nil {
 		t.Fatalf("count all-mode assignments: %v", err)
@@ -377,6 +381,186 @@ func TestProfileRepository_BlindIndexKeySeparation(t *testing.T) {
 	_, decErr3WrongKey := profilestorage.Decrypt(cipherText3, krBase, key3.ID)
 	if decErr3WrongKey == nil {
 		t.Fatalf("expected decryption failure when decrypting cipherText3 with wrong encryption key (krBase)")
+	}
+}
+
+func TestProfileRepository_ClientDisplayNameMetadataDoesNotRewriteSecretAndClonePreservesIt(t *testing.T) {
+	ctx := context.Background()
+	db := setupTestDB(t)
+	defer db.Close()
+	repo := NewProfileRepository(db, newTestKeyringForRepo(t))
+	raw := "vless://11111111-1111-4111-8111-111111111111@example.com:443#Embedded"
+	created, _, err := repo.CreateLocal(ctx, profilepersistence.CreateProfileParams{
+		Label: "Panel", ClientDisplayName: "Subscriber", Status: "active", Kind: "real", Protocol: "vless", BuiltURI: raw,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var envelopeBefore string
+	if err := db.QueryRow(`SELECT encrypted_url FROM vless_key_secrets WHERE vless_key_id = ?`, created.ID).Scan(&envelopeBefore); err != nil {
+		t.Fatal(err)
+	}
+	clientName := "Subscriber renamed"
+	updated, updatedRaw, err := repo.UpdateLocal(ctx, profilepersistence.UpdateProfileParams{
+		ID: created.ID, ExpectedRevision: 1, Label: "Panel", ClientDisplayName: &clientName,
+		Status: "active", Kind: "real", Protocol: "vless", NewURI: raw,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var envelopeAfter string
+	if err := db.QueryRow(`SELECT encrypted_url FROM vless_key_secrets WHERE vless_key_id = ?`, created.ID).Scan(&envelopeAfter); err != nil {
+		t.Fatal(err)
+	}
+	if updatedRaw != raw || envelopeAfter != envelopeBefore || updated.ClientDisplayName != clientName {
+		t.Fatalf("metadata update raw=%q envelope_changed=%v client=%q", updatedRaw, envelopeAfter != envelopeBefore, updated.ClientDisplayName)
+	}
+	clone, cloneRaw, err := repo.CloneLocal(ctx, profilepersistence.CloneProfileParams{ID: created.ID, ExpectedRevision: 2, NewLabel: "Panel clone"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cloneRaw != raw || clone.ClientDisplayName != clientName || clone.Label != "Panel clone" {
+		t.Fatalf("clone=%#v raw=%q", clone, cloneRaw)
+	}
+}
+
+func TestProfileRepository_SourceClientDisplayNameOverrideResetAndCloneDoNotRewriteSecret(t *testing.T) {
+	ctx := context.Background()
+	db := setupTestDB(t)
+	defer db.Close()
+	repo := NewProfileRepository(db, newTestKeyringForRepo(t))
+	raw := "vless://11111111-1111-4111-8111-111111111111@example.com:443#Source%20name"
+	created, _, err := repo.CreateLocal(ctx, profilepersistence.CreateProfileParams{
+		Label: "Source name", Status: "active", Kind: "real", Protocol: "vless", BuiltURI: raw,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(`INSERT INTO external_subscription_sources(id, name) VALUES(77, 'Provider')`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(`UPDATE vless_keys SET external_source_id = 77 WHERE id = ?`, created.ID); err != nil {
+		t.Fatal(err)
+	}
+	var envelopeBefore string
+	if err := db.QueryRow(`SELECT encrypted_url FROM vless_key_secrets WHERE vless_key_id = ?`, created.ID).Scan(&envelopeBefore); err != nil {
+		t.Fatal(err)
+	}
+
+	override := "Subscriber override"
+	updated, updatedRaw, err := repo.UpdateClientDisplayName(ctx, profilepersistence.UpdateClientDisplayNameParams{
+		ID: created.ID, ExpectedRevision: 1, ClientDisplayName: &override,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if updatedRaw != raw || updated.ClientDisplayName != override || !updated.ClientDisplayNameOverridden || updated.ProfileRevision != 2 {
+		t.Fatalf("updated=%#v raw=%q", updated, updatedRaw)
+	}
+	var envelopeAfter string
+	if err := db.QueryRow(`SELECT encrypted_url FROM vless_key_secrets WHERE vless_key_id = ?`, created.ID).Scan(&envelopeAfter); err != nil {
+		t.Fatal(err)
+	}
+	if envelopeAfter != envelopeBefore {
+		t.Fatal("client display-name override rewrote encrypted configuration")
+	}
+
+	clone, cloneRaw, err := repo.CloneLocal(ctx, profilepersistence.CloneProfileParams{
+		ID: created.ID, ExpectedRevision: 2, NewLabel: "Local clone",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cloneRaw != raw || clone.ClientDisplayName != override || !clone.ClientDisplayNameOverridden {
+		t.Fatalf("clone=%#v raw=%q", clone, cloneRaw)
+	}
+
+	reset, resetRaw, err := repo.UpdateClientDisplayName(ctx, profilepersistence.UpdateClientDisplayNameParams{
+		ID: created.ID, ExpectedRevision: 2, ClientDisplayName: nil,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resetRaw != raw || reset.ClientDisplayName != "Source name" || reset.ClientDisplayNameOverridden {
+		t.Fatalf("reset=%#v raw=%q", reset, resetRaw)
+	}
+	var storedOverride sql.NullString
+	if err := db.QueryRow(`SELECT client_display_name FROM vless_keys WHERE id = ?`, created.ID).Scan(&storedOverride); err != nil {
+		t.Fatal(err)
+	}
+	if storedOverride.Valid {
+		t.Fatalf("reset stored override=%#v, want NULL", storedOverride)
+	}
+	if err := db.QueryRow(`SELECT encrypted_url FROM vless_key_secrets WHERE vless_key_id = ?`, created.ID).Scan(&envelopeAfter); err != nil || envelopeAfter != envelopeBefore {
+		t.Fatalf("reset envelope changed=%v err=%v", envelopeAfter != envelopeBefore, err)
+	}
+	fallbackClone, fallbackCloneRaw, err := repo.CloneLocal(ctx, profilepersistence.CloneProfileParams{
+		ID: created.ID, ExpectedRevision: 3, NewLabel: "Fallback clone",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if fallbackCloneRaw != raw || fallbackClone.ClientDisplayName != "Source name" || fallbackClone.ClientDisplayNameOverridden {
+		t.Fatalf("fallback clone=%#v raw=%q", fallbackClone, fallbackCloneRaw)
+	}
+	var clonedStoredOverride sql.NullString
+	if err := db.QueryRow(`SELECT client_display_name FROM vless_keys WHERE id = ?`, fallbackClone.ID).Scan(&clonedStoredOverride); err != nil || clonedStoredOverride.Valid {
+		t.Fatalf("fallback clone materialized override=%#v err=%v", clonedStoredOverride, err)
+	}
+}
+
+func TestProfileRepository_SourceXrayUsesLabelAndClonePreservesEffectiveName(t *testing.T) {
+	ctx := context.Background()
+	db := setupTestDB(t)
+	defer db.Close()
+	keyring := newTestKeyringForRepo(t)
+	repo := NewProfileRepository(db, keyring)
+	raw := `{"outbounds":[{"tag":"proxy","protocol":"trojan","settings":{"servers":[{"address":"edge.example","port":443,"password":"secret"}]}}]}`
+	created, _, err := repo.CreateLocal(ctx, profilepersistence.CreateProfileParams{
+		Label: "🌟 Human source name", Status: "active", Kind: "real", Protocol: "xray-json", BuiltURI: raw,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(`INSERT INTO external_subscription_sources(id, name) VALUES(88, 'Provider')`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(`UPDATE vless_keys SET external_source_id = 88 WHERE id = ?`, created.ID); err != nil {
+		t.Fatal(err)
+	}
+	var envelopeBefore string
+	if err := db.QueryRow(`SELECT encrypted_url FROM vless_key_secrets WHERE vless_key_id = ?`, created.ID).Scan(&envelopeBefore); err != nil {
+		t.Fatal(err)
+	}
+
+	loaded, loadedRaw, err := repo.GetByID(ctx, created.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if loadedRaw != raw || loaded.ClientDisplayName != "🌟 Human source name" || loaded.ClientDisplayNameOverridden {
+		t.Fatalf("source effective name=%q overridden=%v raw_changed=%v", loaded.ClientDisplayName, loaded.ClientDisplayNameOverridden, loadedRaw != raw)
+	}
+	list, err := NewKeyRepository(db, keyring).ListLegacy(ctx)
+	if err != nil || len(list) != 1 || list[0].ClientDisplayName != "🌟 Human source name" {
+		t.Fatalf("key list source name=%#v err=%v", list, err)
+	}
+
+	clone, cloneRaw, err := repo.CloneLocal(ctx, profilepersistence.CloneProfileParams{
+		ID: created.ID, ExpectedRevision: 1, NewLabel: "Local clone",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cloneRaw != raw || clone.ClientDisplayName != "🌟 Human source name" || !clone.ClientDisplayNameOverridden {
+		t.Fatalf("clone=%#v raw_changed=%v", clone, cloneRaw != raw)
+	}
+	var storedSourceName sql.NullString
+	if err := db.QueryRow(`SELECT client_display_name FROM vless_keys WHERE id = ?`, created.ID).Scan(&storedSourceName); err != nil || storedSourceName.Valid {
+		t.Fatalf("source fallback was persisted: %#v err=%v", storedSourceName, err)
+	}
+	var envelopeAfter string
+	if err := db.QueryRow(`SELECT encrypted_url FROM vless_key_secrets WHERE vless_key_id = ?`, created.ID).Scan(&envelopeAfter); err != nil || envelopeAfter != envelopeBefore {
+		t.Fatalf("source secret changed=%v err=%v", envelopeAfter != envelopeBefore, err)
 	}
 }
 

@@ -52,6 +52,7 @@ const (
 
 const (
 	ExternalImportStatusAccepted          = "accepted"
+	ExternalImportStatusAdded             = "added"
 	ExternalImportStatusRejected          = "rejected"
 	ExternalImportStatusDuplicate         = "duplicate"
 	ExternalImportStatusUpdated           = "updated"
@@ -158,36 +159,37 @@ type ConnectedDevice struct {
 
 // VLESSKey represents a VLESS server key.
 type VLESSKey struct {
-	ID                   int64     `json:"id"`
-	Label                string    `json:"label"`
-	URL                  string    `json:"url"`
-	CategoryID           int64     `json:"category_id"`
-	Category             string    `json:"category"`
-	Kind                 string    `json:"kind"`
-	TemplateText         string    `json:"template_text"`
-	URLShort             string    `json:"url_short"`
-	Status               string    `json:"status"`
-	StatusLabel          string    `json:"status_label"`
-	CheckStatus          string    `json:"check_status"`
-	CheckStatusLabel     string    `json:"check_status_label"`
-	CheckError           string    `json:"check_error"`
-	LastLatencyMS        int64     `json:"last_latency_ms"`
-	LastCheckedAtText    string    `json:"last_checked_at"`
-	EditUUID             string    `json:"edit_uuid"`
-	EditHost             string    `json:"edit_host"`
-	EditPort             string    `json:"edit_port"`
-	EditQuery            string    `json:"edit_query"`
-	EditFragment         string    `json:"edit_fragment"`
-	ExternalSourceID     int64     `json:"external_source_id"`
-	ExternalSourceName   string    `json:"external_source_name"`
-	ClientDisplayName    string    `json:"client_display_name"`
-	Protocol             string    `json:"protocol"`
-	ProfileSchemaVersion int       `json:"profile_schema_version"`
-	ProfileCompatibility string    `json:"profile_compatibility"`
-	ProfileWarnings      []string  `json:"profile_warnings"`
-	ProfileRevision      int64     `json:"profile_revision"`
-	UpdatedAt            time.Time `json:"updated_at"`
-	CreatedAt            time.Time `json:"created_at"`
+	ID                          int64     `json:"id"`
+	Label                       string    `json:"label"`
+	URL                         string    `json:"url"`
+	CategoryID                  int64     `json:"category_id"`
+	Category                    string    `json:"category"`
+	Kind                        string    `json:"kind"`
+	TemplateText                string    `json:"template_text"`
+	URLShort                    string    `json:"url_short"`
+	Status                      string    `json:"status"`
+	StatusLabel                 string    `json:"status_label"`
+	CheckStatus                 string    `json:"check_status"`
+	CheckStatusLabel            string    `json:"check_status_label"`
+	CheckError                  string    `json:"check_error"`
+	LastLatencyMS               int64     `json:"last_latency_ms"`
+	LastCheckedAtText           string    `json:"last_checked_at"`
+	EditUUID                    string    `json:"edit_uuid"`
+	EditHost                    string    `json:"edit_host"`
+	EditPort                    string    `json:"edit_port"`
+	EditQuery                   string    `json:"edit_query"`
+	EditFragment                string    `json:"edit_fragment"`
+	ExternalSourceID            int64     `json:"external_source_id"`
+	ExternalSourceName          string    `json:"external_source_name"`
+	ClientDisplayName           string    `json:"client_display_name"`
+	ClientDisplayNameOverridden bool      `json:"client_display_name_overridden"`
+	Protocol                    string    `json:"protocol"`
+	ProfileSchemaVersion        int       `json:"profile_schema_version"`
+	ProfileCompatibility        string    `json:"profile_compatibility"`
+	ProfileWarnings             []string  `json:"profile_warnings"`
+	ProfileRevision             int64     `json:"profile_revision"`
+	UpdatedAt                   time.Time `json:"updated_at"`
+	CreatedAt                   time.Time `json:"created_at"`
 }
 
 // LoginRequest is the payload for POST /api/auth/login.
@@ -367,40 +369,42 @@ type ActivateRequest struct {
 
 // SubscriptionSettings contains global subscription metadata shown to clients.
 type SubscriptionSettings struct {
-	Title                    string `json:"title"`
-	RefreshHours             int    `json:"refresh_hours"`
-	InfoURL                  string `json:"info_url"`
-	ExtraURL                 string `json:"extra_url"`
-	ExtraStatus              string `json:"extra_status"`
-	SubscriptionFormat       string `json:"subscription_format"`
-	TimeZone                 string `json:"time_zone"`
-	Language                 string `json:"language"`
-	ProviderID               string `json:"provider_id"`
-	HappNoLimitMode          bool   `json:"happ_no_limit_mode"`
-	HappNoLimitModeXHTTPOnly bool   `json:"happ_no_limit_mode_xhttp_only"`
-	HappMandatoryHWID        bool   `json:"happ_mandatory_hwid"`
-	HappNotifyExpiration     bool   `json:"happ_notify_expiration"`
-	HappHideServerSettings   bool   `json:"happ_hide_server_settings"`
-	HappSubscriptionBody     string `json:"happ_subscription_body"`
+	Title                      string `json:"title"`
+	RefreshHours               int    `json:"refresh_hours"`
+	InfoURL                    string `json:"info_url"`
+	ExtraURL                   string `json:"extra_url"`
+	ExtraStatus                string `json:"extra_status"`
+	SubscriptionFormat         string `json:"subscription_format"`
+	ShowSubscriptionExpiration bool   `json:"show_subscription_expiration"`
+	TimeZone                   string `json:"time_zone"`
+	Language                   string `json:"language"`
+	ProviderID                 string `json:"provider_id"`
+	HappNoLimitMode            bool   `json:"happ_no_limit_mode"`
+	HappNoLimitModeXHTTPOnly   bool   `json:"happ_no_limit_mode_xhttp_only"`
+	HappMandatoryHWID          bool   `json:"happ_mandatory_hwid"`
+	HappNotifyExpiration       bool   `json:"happ_notify_expiration"`
+	HappHideServerSettings     bool   `json:"happ_hide_server_settings"`
+	HappSubscriptionBody       string `json:"happ_subscription_body"`
 }
 
 // UpdateSubscriptionSettingsRequest is the payload for PUT /api/admin/subscription-settings.
 type UpdateSubscriptionSettingsRequest struct {
-	Title                    string `json:"title"`
-	RefreshHours             int    `json:"refresh_hours"`
-	InfoURL                  string `json:"info_url"`
-	ExtraURL                 string `json:"extra_url"`
-	ExtraStatus              string `json:"extra_status"`
-	SubscriptionFormat       string `json:"subscription_format"`
-	TimeZone                 string `json:"time_zone"`
-	Language                 string `json:"language"`
-	ProviderID               string `json:"provider_id"`
-	HappNoLimitMode          bool   `json:"happ_no_limit_mode"`
-	HappNoLimitModeXHTTPOnly bool   `json:"happ_no_limit_mode_xhttp_only"`
-	HappMandatoryHWID        bool   `json:"happ_mandatory_hwid"`
-	HappNotifyExpiration     bool   `json:"happ_notify_expiration"`
-	HappHideServerSettings   bool   `json:"happ_hide_server_settings"`
-	HappSubscriptionBody     string `json:"happ_subscription_body"`
+	Title                      string `json:"title"`
+	RefreshHours               int    `json:"refresh_hours"`
+	InfoURL                    string `json:"info_url"`
+	ExtraURL                   string `json:"extra_url"`
+	ExtraStatus                string `json:"extra_status"`
+	SubscriptionFormat         string `json:"subscription_format"`
+	ShowSubscriptionExpiration *bool  `json:"show_subscription_expiration"`
+	TimeZone                   string `json:"time_zone"`
+	Language                   string `json:"language"`
+	ProviderID                 string `json:"provider_id"`
+	HappNoLimitMode            bool   `json:"happ_no_limit_mode"`
+	HappNoLimitModeXHTTPOnly   bool   `json:"happ_no_limit_mode_xhttp_only"`
+	HappMandatoryHWID          bool   `json:"happ_mandatory_hwid"`
+	HappNotifyExpiration       bool   `json:"happ_notify_expiration"`
+	HappHideServerSettings     bool   `json:"happ_hide_server_settings"`
+	HappSubscriptionBody       string `json:"happ_subscription_body"`
 }
 
 type RoutingSettings struct {
@@ -790,30 +794,32 @@ type SanitizedCheckError struct {
 }
 
 type KeyProfileDetailResponse struct {
-	ID                     int64                     `json:"id"`
-	Label                  string                    `json:"label"`
-	CategoryID             *int64                    `json:"category_id"`
-	Category               string                    `json:"category"`
-	Kind                   string                    `json:"kind"`
-	Status                 string                    `json:"status"`
-	CheckStatus            string                    `json:"check_status"`
-	CheckError             SanitizedCheckError       `json:"check_error"`
-	LastLatencyMS          int64                     `json:"last_latency_ms"`
-	LastCheckedAt          string                    `json:"last_checked_at"`
-	TemplateText           string                    `json:"template_text"`
-	Ownership              KeyOwnership              `json:"ownership"`
-	ExternalSourceID       *int64                    `json:"external_source_id"`
-	ExternalSourceName     string                    `json:"external_source_name"`
-	Protocol               string                    `json:"protocol"`
-	ProfileSchemaVersion   int                       `json:"profile_schema_version"`
-	ProfileCompatibility   string                    `json:"profile_compatibility"`
-	ProfileWarnings        []string                  `json:"profile_warnings"`
-	ProfileRevision        int64                     `json:"profile_revision"`
-	CreatedAt              time.Time                 `json:"created_at"`
-	UpdatedAt              time.Time                 `json:"updated_at"`
-	SafeStructured         *SafeStructuredProfile    `json:"safe_structured,omitempty"`
-	UnknownQueryParameters []UnknownQueryParamDTO    `json:"unknown_query_parameters"`
-	Capabilities           map[string]map[string]any `json:"capabilities"`
+	ID                          int64                     `json:"id"`
+	Label                       string                    `json:"label"`
+	ClientDisplayName           string                    `json:"client_display_name"`
+	ClientDisplayNameOverridden bool                      `json:"client_display_name_overridden"`
+	CategoryID                  *int64                    `json:"category_id"`
+	Category                    string                    `json:"category"`
+	Kind                        string                    `json:"kind"`
+	Status                      string                    `json:"status"`
+	CheckStatus                 string                    `json:"check_status"`
+	CheckError                  SanitizedCheckError       `json:"check_error"`
+	LastLatencyMS               int64                     `json:"last_latency_ms"`
+	LastCheckedAt               string                    `json:"last_checked_at"`
+	TemplateText                string                    `json:"template_text"`
+	Ownership                   KeyOwnership              `json:"ownership"`
+	ExternalSourceID            *int64                    `json:"external_source_id"`
+	ExternalSourceName          string                    `json:"external_source_name"`
+	Protocol                    string                    `json:"protocol"`
+	ProfileSchemaVersion        int                       `json:"profile_schema_version"`
+	ProfileCompatibility        string                    `json:"profile_compatibility"`
+	ProfileWarnings             []string                  `json:"profile_warnings"`
+	ProfileRevision             int64                     `json:"profile_revision"`
+	CreatedAt                   time.Time                 `json:"created_at"`
+	UpdatedAt                   time.Time                 `json:"updated_at"`
+	SafeStructured              *SafeStructuredProfile    `json:"safe_structured,omitempty"`
+	UnknownQueryParameters      []UnknownQueryParamDTO    `json:"unknown_query_parameters"`
+	Capabilities                map[string]map[string]any `json:"capabilities"`
 }
 
 type KeySecretRevealRequest struct {
@@ -884,29 +890,31 @@ type StructuredProfilePatch struct {
 }
 
 type UpdateKeyProfileRequest struct {
-	Label           string                  `json:"label"`
-	CategoryID      *int64                  `json:"category_id"`
-	Category        string                  `json:"category"`
-	Status          string                  `json:"status"`
-	Kind            string                  `json:"kind"`
-	TemplateText    string                  `json:"template_text"`
-	ProfileRevision int64                   `json:"profile_revision"`
-	PatchMode       string                  `json:"patch_mode"` // "raw" | "structured"
-	RawURI          string                  `json:"raw_uri,omitempty"`
-	StructuredPatch *StructuredProfilePatch `json:"structured_patch,omitempty"`
+	Label             string                  `json:"label"`
+	ClientDisplayName *string                 `json:"client_display_name,omitempty"`
+	CategoryID        *int64                  `json:"category_id"`
+	Category          string                  `json:"category"`
+	Status            string                  `json:"status"`
+	Kind              string                  `json:"kind"`
+	TemplateText      string                  `json:"template_text"`
+	ProfileRevision   int64                   `json:"profile_revision"`
+	PatchMode         string                  `json:"patch_mode"` // "raw" | "structured"
+	RawURI            string                  `json:"raw_uri,omitempty"`
+	StructuredPatch   *StructuredProfilePatch `json:"structured_patch,omitempty"`
 }
 
 type CreateKeyProfileRequest struct {
-	Label        string                  `json:"label"`
-	CategoryID   *int64                  `json:"category_id"`
-	Category     string                  `json:"category"`
-	Status       string                  `json:"status"`
-	Kind         string                  `json:"kind"`
-	TemplateText string                  `json:"template_text"`
-	CreationMode string                  `json:"creation_mode"` // "raw" | "structured"
-	RawURI       string                  `json:"raw_uri,omitempty"`
-	Protocol     string                  `json:"protocol,omitempty"`
-	Structured   *StructuredProfilePatch `json:"structured,omitempty"`
+	Label             string                  `json:"label"`
+	ClientDisplayName *string                 `json:"client_display_name,omitempty"`
+	CategoryID        *int64                  `json:"category_id"`
+	Category          string                  `json:"category"`
+	Status            string                  `json:"status"`
+	Kind              string                  `json:"kind"`
+	TemplateText      string                  `json:"template_text"`
+	CreationMode      string                  `json:"creation_mode"` // "raw" | "structured"
+	RawURI            string                  `json:"raw_uri,omitempty"`
+	Protocol          string                  `json:"protocol,omitempty"`
+	Structured        *StructuredProfilePatch `json:"structured,omitempty"`
 }
 
 type KeyCloneRequest struct {

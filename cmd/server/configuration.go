@@ -47,6 +47,10 @@ func parseXrayJSONDrafts(raw string) ([]linkConfigurationDraft, error) {
 	return profileconfig.ParseXrayJSONDrafts(raw)
 }
 
+func projectXrayJSONDrafts(raw string) ([]linkConfigurationDraft, int, error) {
+	return profileconfig.ProjectXrayJSONDrafts(raw)
+}
+
 func validateXrayJSONConfiguration(raw string) error {
 	return profileconfig.ValidateXrayJSONConfiguration(raw)
 }

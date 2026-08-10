@@ -56,18 +56,14 @@ function nodeLen(n: Node): number {
   return l;
 }
 
-/** Save cursor position as a plain‑text offset */
-function saveCursor(root: HTMLElement): number {
-  const sel = window.getSelection();
-  if (!sel?.rangeCount || !root.contains(sel.anchorNode)) return -1;
-  const { startContainer, startOffset } = sel.getRangeAt(0);
+function boundaryOffset(root: HTMLElement, target: Node, targetOffset: number): number {
   let pos = 0;
   const walk = (node: Node): boolean => {
-    if (node === startContainer) {
+    if (node === target) {
       if (node.nodeType === Node.TEXT_NODE) {
-        pos += startOffset;
+        pos += targetOffset;
       } else {
-        for (let i = 0; i < startOffset; i++) {
+        for (let i = 0; i < targetOffset; i++) {
           pos += nodeLen(node.childNodes[i]);
         }
       }
@@ -86,8 +82,24 @@ function saveCursor(root: HTMLElement): number {
     }
     return false;
   };
-  walk(root);
-  return pos;
+  return walk(root) ? pos : -1;
+}
+
+interface PlainTextSelection {
+  start: number;
+  end: number;
+}
+
+/** Save the selection as plain-text UTF-16 offsets. */
+function saveSelection(root: HTMLElement): PlainTextSelection | null {
+  const selection = window.getSelection();
+  if (!selection?.rangeCount) return null;
+  const range = selection.getRangeAt(0);
+  if (!root.contains(range.startContainer) || !root.contains(range.endContainer)) return null;
+  const start = boundaryOffset(root, range.startContainer, range.startOffset);
+  const end = boundaryOffset(root, range.endContainer, range.endOffset);
+  if (start < 0 || end < 0) return null;
+  return { start: Math.min(start, end), end: Math.max(start, end) };
 }
 
 /** Restore cursor to a plain‑text offset after innerHTML replacement */
@@ -158,6 +170,24 @@ export interface AppleEmojiInputHandle {
   focus: () => void;
 }
 
+const graphemeSegmenter = typeof Intl.Segmenter === "function"
+  ? new Intl.Segmenter(undefined, { granularity: "grapheme" })
+  : null;
+
+function textGraphemes(text: string): string[] {
+  if (graphemeSegmenter) return Array.from(graphemeSegmenter.segment(text), (item) => item.segment);
+  return Array.from(text);
+}
+
+function truncateText(text: string, maxLength?: number): string {
+  if (typeof maxLength !== "number") return text;
+  return textGraphemes(text).slice(0, maxLength).join("");
+}
+
+function textLength(text: string): number {
+  return textGraphemes(text).length;
+}
+
 export const AppleEmojiInput = forwardRef<AppleEmojiInputHandle, AppleEmojiInputProps>(function AppleEmojiInput({
   label,
   error,
@@ -174,7 +204,7 @@ export const AppleEmojiInput = forwardRef<AppleEmojiInputHandle, AppleEmojiInput
 }, forwardedRef) {
   const ref = useRef<HTMLDivElement>(null);
   const lastVal = useRef(value);
-  const savedCursorPosRef = useRef<number>(value.length);
+  const savedSelectionRef = useRef<PlainTextSelection>({ start: value.length, end: value.length });
   const pendingCursorPosRef = useRef<number | null>(null);
   const inputId = id || label?.toLowerCase().replace(/\s+/g, "-");
   const labelId = label && inputId ? `${inputId}-label` : undefined;
@@ -182,19 +212,18 @@ export const AppleEmojiInput = forwardRef<AppleEmojiInputHandle, AppleEmojiInput
   const syncSelection = useCallback(() => {
     const el = ref.current;
     if (!el) return;
-    const nextPos = saveCursor(el);
-    if (nextPos >= 0) {
-      savedCursorPosRef.current = nextPos;
+    const nextSelection = saveSelection(el);
+    if (nextSelection) {
+      savedSelectionRef.current = nextSelection;
     }
   }, []);
 
   const emitNextValue = useCallback((nextValue: string, nextCursorPos?: number) => {
-    const limitedValue =
-      typeof maxLength === "number" ? nextValue.slice(0, maxLength) : nextValue;
+    const limitedValue = truncateText(nextValue, maxLength);
     lastVal.current = limitedValue;
     if (typeof nextCursorPos === "number") {
       pendingCursorPosRef.current = Math.min(nextCursorPos, limitedValue.length);
-      savedCursorPosRef.current = pendingCursorPosRef.current;
+      savedSelectionRef.current = { start: pendingCursorPosRef.current, end: pendingCursorPosRef.current };
     }
     onChange?.({ target: { value: limitedValue } });
   }, [maxLength, onChange]);
@@ -203,13 +232,13 @@ export const AppleEmojiInput = forwardRef<AppleEmojiInputHandle, AppleEmojiInput
     const insertText = (text: string) => {
       const el = ref.current;
       const baseValue = lastVal.current;
-      const insertionPoint = el && document.activeElement === el
-        ? Math.max(0, saveCursor(el))
-        : savedCursorPosRef.current;
-      const normalizedPoint = Math.min(Math.max(insertionPoint, 0), baseValue.length);
+      const activeSelection = el && document.activeElement === el ? saveSelection(el) : null;
+      const selection = activeSelection ?? savedSelectionRef.current;
+      const start = Math.min(Math.max(selection.start, 0), baseValue.length);
+      const end = Math.min(Math.max(selection.end, start), baseValue.length);
       emitNextValue(
-        `${baseValue.slice(0, normalizedPoint)}${text}${baseValue.slice(normalizedPoint)}`,
-        normalizedPoint + text.length
+        `${baseValue.slice(0, start)}${text}${baseValue.slice(end)}`,
+        start + text.length
       );
     };
 
@@ -235,11 +264,11 @@ export const AppleEmojiInput = forwardRef<AppleEmojiInputHandle, AppleEmojiInput
       if (restorePos !== null) {
         el.focus();
         restoreCursor(el, restorePos);
-        savedCursorPosRef.current = restorePos;
+        savedSelectionRef.current = { start: restorePos, end: restorePos };
         pendingCursorPosRef.current = null;
       } else {
         restoreCursor(el, value.length);
-        savedCursorPosRef.current = value.length;
+        savedSelectionRef.current = { start: value.length, end: value.length };
       }
     }
   }, [value]);
@@ -250,7 +279,7 @@ export const AppleEmojiInput = forwardRef<AppleEmojiInputHandle, AppleEmojiInput
     if (!el) return;
     el.innerHTML = toHtml(value);
     lastVal.current = value;
-    savedCursorPosRef.current = value.length;
+    savedSelectionRef.current = { start: value.length, end: value.length };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -260,18 +289,18 @@ export const AppleEmojiInput = forwardRef<AppleEmojiInputHandle, AppleEmojiInput
     if (!el) return;
 
     const text = getText(el).replace(/\u00a0/g, " ").replace(/\n{3,}/g, "\n\n");
-    const nextValue = typeof maxLength === "number" ? text.slice(0, maxLength) : text;
+    const nextValue = truncateText(text, maxLength);
     lastVal.current = nextValue;
 
     if (nextValue !== text) {
-      const pos = saveCursor(el);
+      const pos = saveSelection(el)?.start ?? nextValue.length;
       el.innerHTML = toHtml(nextValue);
       restoreCursor(el, pos);
-      savedCursorPosRef.current = Math.min(pos, nextValue.length);
+      savedSelectionRef.current = { start: Math.min(pos, nextValue.length), end: Math.min(pos, nextValue.length) };
     } else {
-      const pos = saveCursor(el);
-      if (pos >= 0) {
-        savedCursorPosRef.current = Math.min(pos, nextValue.length);
+      const selection = saveSelection(el);
+      if (selection) {
+        savedSelectionRef.current = selection;
       }
     }
 
@@ -279,7 +308,7 @@ export const AppleEmojiInput = forwardRef<AppleEmojiInputHandle, AppleEmojiInput
   }, [maxLength, onChange]);
 
   const hasValue = value.length > 0;
-  const currentLength = value.length;
+  const currentLength = textLength(value);
   const hasRightSlot = Boolean(rightSlot);
   const inputPaddingRight = hasRightSlot ? `${rightSlotWidth + 12}px` : undefined;
 
@@ -332,7 +361,7 @@ export const AppleEmojiInput = forwardRef<AppleEmojiInputHandle, AppleEmojiInput
             const normalized = multiline ? text.replace(/\r\n/g, "\n") : text.replace(/[\r\n]+/g, " ");
             const truncated =
               typeof maxLength === "number"
-                ? normalized.slice(0, Math.max(0, maxLength - getText(ref.current ?? document.createElement("div")).length))
+                ? truncateText(normalized, Math.max(0, maxLength - textLength(getText(ref.current ?? document.createElement("div")))))
                 : normalized;
             document.execCommand(
               multiline ? "insertHTML" : "insertText",

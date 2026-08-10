@@ -16,6 +16,7 @@ import { EditKeyModal } from "./EditKeyModal";
 import { CreateKeyCategoryModal } from "./CreateKeyCategoryModal";
 import { KeyCategoryEditorModal } from "./KeyCategoryEditorModal";
 import { EmojiText } from "@/components/ui/EmojiText";
+import { KeyHealthBadge } from "./KeyHealthBadge";
 import {
   DEFAULT_KEY_CATEGORY_COLOR,
   alphaHexColor,
@@ -39,35 +40,6 @@ import {
 } from "lucide-react";
 
 const UNCATEGORIZED_LABEL = "Без категории";
-
-const formatDateTime = (value: string | null) => {
-  if (!value) {
-    return null;
-  }
-
-  const isoMatch = value.match(/^(\d{4}-\d{2}-\d{2})(?:[T\s](\d{2}:\d{2})(?::\d{2})?)?/);
-  if (isoMatch) {
-    const parsed = new Date(value.replace(/-/g, "/"));
-    if (!Number.isNaN(parsed.getTime())) {
-      return parsed
-        .toLocaleString("en-GB", {
-          day: "2-digit",
-          month: "2-digit",
-          year: "numeric",
-          hour: isoMatch[2] ? "2-digit" : undefined,
-          minute: isoMatch[2] ? "2-digit" : undefined,
-        })
-        .replace(",", "");
-    }
-  }
-
-  const slashMatch = value.match(/^(\d{2})\/(\d{2})\/(\d{4})\s+(\d{2}):(\d{2})$/);
-  if (slashMatch) {
-    return `${slashMatch[1]}/${slashMatch[2]}/${slashMatch[3]} ${slashMatch[4]}:${slashMatch[5]}`;
-  }
-
-  return value;
-};
 
 function normalizeCategory(value: string | null | undefined): string {
   return (value || "").trim();
@@ -262,6 +234,10 @@ export function alignKeysBySubscriptionOrder(keys: KeySummary[]): AlignedKeyRow[
     informational: key.kind === "informational" ? key : null,
     real: key.kind === "informational" ? null : key,
   }));
+}
+
+export function keyCardClientDisplayName(key: KeySummary): string {
+  return key.client_display_name.trim() || key.label;
 }
 
 export function KeysSection({ keys, subscriptionFormat, onRefresh }: Props) {
@@ -764,49 +740,14 @@ export function KeysSection({ keys, subscriptionFormat, onRefresh }: Props) {
     await refreshKeysData();
   };
 
-  function checkStatusLabel(status: string): string {
-    switch (status) {
-      case "up":
-        return "Доступен";
-      case "down":
-        return "Недоступен";
-      default:
-        return "Не проверен";
-    }
-  }
-
-  const healthDot = (status: string, label: string) => {
-    const colors: Record<string, string> = {
-      up: "bg-green-500",
-      down: "bg-red-500",
-      unknown: "bg-zinc-500",
-    };
-    const pulseClass = status === "up" ? "status-pulse" : "";
-    return (
-      <span
-        className={`inline-block h-2 w-2 rounded-full ${colors[status] || colors.unknown} ${pulseClass}`}
-        title={label}
-      />
-    );
-  };
-
   const renderKeyCard = (key: KeySummary) => {
     const isReal = key.kind !== "informational";
     const isInactiveJSON =
       isReal && subscriptionFormat === "links" && (key.protocol === "vless" || key.protocol === "vmess" || key.protocol === "trojan" || key.protocol === "legacy");
     const isDragging = dragging?.id === key.id;
     const isSelected = selectedKeyIDs.includes(key.id);
-    const lastChecked = formatDateTime(key.last_checked_at);
-    const statusParts = [checkStatusLabel(key.check_status)];
     const isExternalKey = key.external_source_id > 0;
     const globalIndex = keyIndexByID.get(key.id) ?? 0;
-
-    if (key.last_latency_ms > 0) {
-      statusParts.push(`${key.last_latency_ms}ms`);
-    }
-    if (lastChecked) {
-      statusParts.push(`последняя проверка ${lastChecked}`);
-    }
 
     return (
       <div
@@ -919,19 +860,17 @@ export function KeysSection({ keys, subscriptionFormat, onRefresh }: Props) {
             <div className={`mb-2 flex min-w-0 items-baseline gap-1 text-sm leading-5 ${isInactiveJSON ? "text-zinc-500" : "text-zinc-400"}`}>
               <span className="shrink-0">Название в клиенте:</span>
               <EmojiText
-                text={key.label}
+                text={keyCardClientDisplayName(key)}
                 truncate
                 className="ui-key-card-client-name min-w-0 flex-1 text-zinc-300"
               />
             </div>
-            <div className="mb-2 flex items-center gap-2">
-              {healthDot(key.check_status, checkStatusLabel(key.check_status))}
-              <span className={`text-[13px] leading-5 ${isInactiveJSON ? "text-zinc-500" : "text-zinc-400"}`}>
-                {isInactiveJSON
-                  ? "JSON-конфиг отключен для ссылочного формата подписки"
-                  : statusParts.join(" · ")}
-              </span>
-            </div>
+            {isInactiveJSON ? (
+              <div className="mb-2 text-[13px] leading-5 text-zinc-500">
+                JSON-конфиг отключен для ссылочного формата подписки
+              </div>
+            ) : null}
+            <KeyHealthBadge healthKey={key} />
             <div className="flex flex-nowrap gap-1.5 overflow-x-auto">
               <Button variant="ghost" className="text-xs" onClick={() => handleCheck(key.id)}>
                 Проверить

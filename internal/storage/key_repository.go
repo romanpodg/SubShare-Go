@@ -150,7 +150,7 @@ func (r *KeyRepository) GetHealthCheckTarget(ctx context.Context, id int64) (key
 
 func (r *KeyRepository) ListHealthCheckTargets(ctx context.Context) ([]keypersistence.HealthCheckTarget, error) {
 	rows, err := r.db.QueryContext(ctx, `
-		SELECT k.id, s.encrypted_url, k.key_kind
+		SELECT k.id, s.encrypted_url, k.key_kind, k.status
 		FROM vless_keys k
 		LEFT JOIN vless_key_secrets s ON k.id = s.vless_key_id
 		ORDER BY CASE WHEN k.key_kind = 'real' THEN 0 ELSE 1 END, k.sort_order, k.id
@@ -164,18 +164,24 @@ func (r *KeyRepository) ListHealthCheckTargets(ctx context.Context) ([]keypersis
 	for rows.Next() {
 		var id int64
 		var envelope sql.NullString
-		var kind string
-		if err := rows.Scan(&id, &envelope, &kind); err != nil {
+		var kind, status string
+		if err := rows.Scan(&id, &envelope, &kind, &status); err != nil {
 			return nil, fmt.Errorf("failed to scan key health target: %w", err)
 		}
-		if normalized, _ := model.NormalizeKeyKind(kind); normalized == model.KeyKindInformational {
+		target := keypersistence.HealthCheckTarget{ID: id, Status: status, Kind: kind}
+		normalizedStatus, _ := model.NormalizeKeyStatus(status)
+		if normalized, _ := model.NormalizeKeyKind(kind); normalized == model.KeyKindInformational || normalizedStatus != model.KeyStatusActive {
+			targets = append(targets, target)
 			continue
 		}
 		rawURL, decryptErr := r.credentials.decrypt(envelope.String, id)
 		if decryptErr != nil {
+			target.Unreadable = true
+			targets = append(targets, target)
 			continue
 		}
-		targets = append(targets, keypersistence.HealthCheckTarget{ID: id, URL: rawURL})
+		target.URL = rawURL
+		targets = append(targets, target)
 	}
 	if err := rows.Err(); err != nil {
 		return nil, fmt.Errorf("failed to iterate key health targets: %w", err)

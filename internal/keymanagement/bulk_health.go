@@ -17,8 +17,11 @@ type BulkUpdateKeysParams struct {
 }
 
 type HealthCheckTarget struct {
-	ID  int64
-	URL string
+	ID         int64
+	URL        string
+	Status     string
+	Kind       string
+	Unreadable bool
 }
 
 type HealthCheckResult struct {
@@ -98,7 +101,7 @@ func (s *Service) GetHealthCheckTarget(ctx context.Context, id int64) (HealthChe
 	if target.URL == "" {
 		return HealthCheckTarget{}, ErrInformationalHealthCheck
 	}
-	return HealthCheckTarget{ID: target.ID, URL: target.URL}, nil
+	return HealthCheckTarget{ID: target.ID, URL: target.URL, Status: target.Status, Kind: target.Kind, Unreadable: target.Unreadable}, nil
 }
 
 func (s *Service) ListHealthCheckTargets(ctx context.Context) ([]HealthCheckTarget, error) {
@@ -108,7 +111,9 @@ func (s *Service) ListHealthCheckTargets(ctx context.Context) ([]HealthCheckTarg
 	}
 	result := make([]HealthCheckTarget, 0, len(targets))
 	for _, target := range targets {
-		result = append(result, HealthCheckTarget{ID: target.ID, URL: target.URL})
+		result = append(result, HealthCheckTarget{
+			ID: target.ID, URL: target.URL, Status: target.Status, Kind: target.Kind, Unreadable: target.Unreadable,
+		})
 	}
 	return result, nil
 }

@@ -17,7 +17,10 @@ vi.mock("emoji-mart", () => ({
       select.addEventListener("click", () => {
         (options.onEmojiSelect as (emoji: { native: string }) => void)({ native: "😀" });
       });
-      shadow.append(search, select);
+      const scroll = document.createElement("div");
+      scroll.className = "scroll";
+      scroll.append(select);
+      shadow.append(search, scroll);
       return picker;
     }
   },
@@ -100,6 +103,25 @@ describe("EmojiPickerButton", () => {
 
     expect(onSelect).toHaveBeenCalledWith("😀");
     await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
-    await waitFor(() => expect(trigger).toHaveFocus());
+    expect(trigger).not.toHaveFocus();
+  });
+
+  it("contains wheel scrolling inside the picker surface", async () => {
+    const bodyWheel = vi.fn();
+    document.body.addEventListener("wheel", bodyWheel);
+    render(<EmojiPickerButton iconOnly onSelect={vi.fn()} />);
+    const trigger = screen.getByRole("button", { name: "Показать эмодзи" });
+    trigger.getBoundingClientRect = () => rect(60, 120, 104, 76);
+    fireEvent.click(trigger);
+    const dialog = await screen.findByRole("dialog");
+    const picker = await waitFor(() => {
+      const element = dialog.querySelector<HTMLElement>("em-emoji-picker");
+      expect(element).not.toBeNull();
+      return element!;
+    });
+    const scroll = picker.shadowRoot?.querySelector(".scroll") as HTMLElement;
+    fireEvent.wheel(scroll, { deltaY: 120 });
+    expect(bodyWheel).not.toHaveBeenCalled();
+    document.body.removeEventListener("wheel", bodyWheel);
   });
 });

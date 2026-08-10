@@ -28,10 +28,13 @@ describe("SourceCreateDrawer", () => {
       source_url: "https://provider.example/sub",
       suggested_name: "Provider",
       detected_format: "links",
-      key_count: 1,
+      key_count: 2,
       metadata: {},
-      warnings: [],
-      keys: [{ label: "Edge", scheme: "vless", url_short: "vless://•••" }],
+      warnings: ["partial_import"],
+      keys: [
+        { label: "Edge", protocol: "vless", scheme: "vless", status: "accepted", host: "edge.example", port: "443", url_short: "edge.example:443" },
+        { label: "Legacy HY", display_name: "Legacy HY", protocol: "hysteria", scheme: "xray-json", status: "unsupported", error_code: "unsupported_hysteria_v1", host: "hy.example", port: "8443", url_short: "hy.example:8443" },
+      ],
     });
     mocks.create.mockResolvedValue({
       data: {
@@ -74,6 +77,11 @@ describe("SourceCreateDrawer", () => {
 
     fireEvent.click(screen.getByRole("button", { name: /Проверить параметры/i }));
     expect(await screen.findByText("Edge")).toBeInTheDocument();
+    expect(screen.getByText(/Часть профилей не будет импортирована/i)).toBeInTheDocument();
+    expect(screen.getByText("Legacy HY")).toBeInTheDocument();
+    expect(screen.getByText("Hysteria v1 пока не поддерживается.")).toBeInTheDocument();
+    expect(screen.getByText(/hy\.example:8443/)).toBeInTheDocument();
+    expect(screen.queryByText("partial_import")).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: /Добавить источник/i }));
 
     await waitFor(() => {

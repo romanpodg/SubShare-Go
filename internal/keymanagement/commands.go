@@ -17,30 +17,32 @@ type RevealResult struct {
 }
 
 type CreateLocalParams struct {
-	Label        string
-	Status       string
-	Kind         string
-	Category     string
-	CategoryID   *int64
-	TemplateText string
-	CreationMode string
-	RawURI       string
-	Protocol     string
-	Structured   *model.StructuredProfilePatch
+	Label             string
+	ClientDisplayName *string
+	Status            string
+	Kind              string
+	Category          string
+	CategoryID        *int64
+	TemplateText      string
+	CreationMode      string
+	RawURI            string
+	Protocol          string
+	Structured        *model.StructuredProfilePatch
 }
 
 type UpdateLocalParams struct {
-	ID              int64
-	ProfileRevision int64
-	Label           string
-	Status          string
-	Kind            string
-	Category        string
-	CategoryID      *int64
-	TemplateText    string
-	PatchMode       string
-	RawURI          string
-	StructuredPatch *model.StructuredProfilePatch
+	ID                int64
+	ProfileRevision   int64
+	Label             string
+	ClientDisplayName *string
+	Status            string
+	Kind              string
+	Category          string
+	CategoryID        *int64
+	TemplateText      string
+	PatchMode         string
+	RawURI            string
+	StructuredPatch   *model.StructuredProfilePatch
 }
 
 type CloneParams struct {

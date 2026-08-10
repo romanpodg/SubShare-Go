@@ -1,12 +1,13 @@
 import { describe, expect, it } from "vitest";
 import type { KeySummary } from "@/lib/types";
-import { alignKeysBySubscriptionOrder, dragAutoScrollVelocity } from "./KeysSection";
+import { alignKeysBySubscriptionOrder, dragAutoScrollVelocity, keyCardClientDisplayName } from "./KeysSection";
 
 function key(id: number, kind: KeySummary["kind"]): KeySummary {
   return {
     id,
     kind,
     label: `key-${id}`,
+    client_display_name: "",
     category: "",
     template_text: "",
     status: "active",
@@ -61,5 +62,16 @@ describe("dragAutoScrollVelocity", () => {
     expect(dragAutoScrollVelocity(205, 200, 300)).toBeLessThan(0);
     expect(dragAutoScrollVelocity(250, 200, 300)).toBe(0);
     expect(dragAutoScrollVelocity(295, 200, 300)).toBeGreaterThan(0);
+  });
+});
+
+describe("keyCardClientDisplayName", () => {
+  it("shows the effective source label supplied by the backend", () => {
+    const sourceKey = key(7, "real");
+    sourceKey.label = "🌟 Human source name";
+    sourceKey.client_display_name = "🌟 Human source name";
+    sourceKey.external_source_id = 88;
+
+    expect(keyCardClientDisplayName(sourceKey)).toBe("🌟 Human source name");
   });
 });

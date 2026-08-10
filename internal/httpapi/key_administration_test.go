@@ -145,7 +145,7 @@ func TestKeyAdministrationHandler_ContractsAndSecretSafety(t *testing.T) {
 	checkedMu.Unlock()
 	recorder = httptest.NewRecorder()
 	handler.CheckAllKeys(recorder, httptest.NewRequest(http.MethodPost, "/api/admin/keys/check-all", nil))
-	if recorder.Code != http.StatusOK || !strings.Contains(recorder.Body.String(), `"checked":2`) {
+	if recorder.Code != http.StatusOK || !strings.Contains(recorder.Body.String(), `"checked":0`) {
 		t.Fatalf("check all: status=%d body=%s", recorder.Code, recorder.Body.String())
 	}
 	if startedJobs != 1 || finishedJobs != 1 || len(auditLog) != 2 || auditLog[1].eventName != "keys.health_check" {
