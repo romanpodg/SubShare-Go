@@ -306,11 +306,11 @@ export function GlobalSubscriptionSettingsModal({ open, onClose, onSaved }: Prop
       open={open}
       onClose={onClose}
       title="Настройки сервиса"
-      className="w-[96vw] max-w-[96rem] max-h-[92dvh]"
+      className="max-h-[calc(100dvh-1.5rem)] w-[96vw] max-w-[96rem]"
     >
       <form onSubmit={handleSubmit} className="flex flex-col gap-4">
         <div className="ui-joined-grid grid xl:grid-cols-[minmax(0,1fr)_minmax(26rem,1fr)]">
-          <div className="grid content-start gap-3 rounded-xl border border-border bg-surface-2/20 p-4">
+          <div data-testid="settings-primary-column" className="grid content-start gap-3 rounded-xl border border-border bg-surface-2/20 p-4">
             <div className="text-sm font-semibold text-zinc-200">Редактор подписки</div>
             <Input
               label="Название подписки"
@@ -365,37 +365,6 @@ export function GlobalSubscriptionSettingsModal({ open, onClose, onSaved }: Prop
               }
             />
             <div className="border-t border-border" />
-            <div className="text-sm font-semibold text-zinc-200">Локализация сервиса</div>
-            <Select
-              label="Часовой пояс"
-              value={timeZoneChoice}
-              onChange={(e) => {
-                markFieldChange();
-                setTimeZoneChoice(e.target.value);
-              }}
-              options={[
-                ...POPULAR_TIMEZONES.map((zone) => ({ value: zone, label: zone })),
-                { value: CUSTOM_TIMEZONE_VALUE, label: "Другой (ввести вручную)" },
-              ]}
-            />
-            {timeZoneChoice === CUSTOM_TIMEZONE_VALUE && (
-              <Input
-                label="Часовой пояс вручную (IANA)"
-                value={customTimeZone}
-                onChange={(e) => {
-                  markFieldChange();
-                  setCustomTimeZone(e.target.value);
-                }}
-                placeholder="Europe/Moscow"
-              />
-            )}
-            <div className="flex flex-col gap-1.5">
-              <label className="text-sm text-zinc-400">Язык интерфейса</label>
-              <div className="bg-surface-2 border border-border rounded-lg px-3 py-2 text-sm text-zinc-500 cursor-not-allowed">
-                Недоступно
-              </div>
-            </div>
-            <div className="border-t border-border" />
             <SegmentedSelector
               label="Формат всей подписки"
               value={subscriptionFormat}
@@ -425,7 +394,7 @@ export function GlobalSubscriptionSettingsModal({ open, onClose, onSaved }: Prop
             </label>
           </div>
 
-          <div className="grid content-start gap-4 rounded-xl border border-border bg-surface-2/20 p-4">
+          <div data-testid="settings-secondary-column" className="grid content-start gap-4 rounded-xl border border-border bg-surface-2/20 p-4">
             <div>
               <div className="text-sm font-semibold text-zinc-200">Настройки для Happ</div>
               <div className="mt-1 text-xs text-zinc-500">
@@ -445,6 +414,38 @@ export function GlobalSubscriptionSettingsModal({ open, onClose, onSaved }: Prop
             <div className={`rounded-lg border px-3 py-2 text-xs ${validProviderID ? "border-border bg-surface-2/50 text-zinc-500" : "border-red-500/40 bg-red-500/10 text-red-300"}`}>
               Provider ID должен состоять ровно из 8 латинских букв или цифр. Неподтверждённые Happ-параметры скрыты; их прежние значения сохраняются.
             </div>
+            <section data-testid="settings-localization" className="grid gap-3 border-t border-border pt-4">
+              <div className="text-sm font-semibold text-zinc-200">Локализация сервиса</div>
+              <Select
+                label="Часовой пояс"
+                value={timeZoneChoice}
+                onChange={(e) => {
+                  markFieldChange();
+                  setTimeZoneChoice(e.target.value);
+                }}
+                options={[
+                  ...POPULAR_TIMEZONES.map((zone) => ({ value: zone, label: zone })),
+                  { value: CUSTOM_TIMEZONE_VALUE, label: "Другой (ввести вручную)" },
+                ]}
+              />
+              {timeZoneChoice === CUSTOM_TIMEZONE_VALUE && (
+                <Input
+                  label="Часовой пояс вручную (IANA)"
+                  value={customTimeZone}
+                  onChange={(e) => {
+                    markFieldChange();
+                    setCustomTimeZone(e.target.value);
+                  }}
+                  placeholder="Europe/Moscow"
+                />
+              )}
+              <div className="flex flex-col gap-1.5">
+                <label className="text-sm text-zinc-400">Язык интерфейса</label>
+                <div className="cursor-not-allowed rounded-lg border border-border bg-surface-2 px-3 py-2 text-sm text-zinc-500">
+                  Недоступно
+                </div>
+              </div>
+            </section>
           </div>
         </div>
         <Button type="submit" loading={loading} disabled={!canSubmit}>

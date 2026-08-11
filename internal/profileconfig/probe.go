@@ -9,89 +9,122 @@ import (
 	"github.com/romanpodg/SubShare-Go/internal/profiles"
 )
 
+const (
+	CheckStatusUp          = "up"
+	CheckStatusDown        = "down"
+	CheckStatusUnknown     = "unknown"
+	CheckStatusUnsupported = "unsupported_check"
+)
+
+const configurationProbeTimeout = 4 * time.Second
+
 // HostResolver resolves host string to allowed IP addresses or returns an error.
 type HostResolver func(ctx context.Context, host string) ([]netip.Addr, error)
 
-// CheckConfigurationAvailabilityWithResolver probes TCP reachability or DNS resolution using the provided resolver.
+type hysteria2Handshaker func(ctx context.Context, profile *profiles.Profile, addresses []netip.Addr) error
+
+// CheckConfigurationAvailabilityWithResolver performs the strongest bounded
+// check currently implemented for the parsed protocol. It retains the legacy
+// entry point for callers that do not yet supply a cancellation context.
 func CheckConfigurationAvailabilityWithResolver(raw string, resolver HostResolver) (string, string, int64) {
+	return CheckConfigurationAvailabilityContext(context.Background(), raw, resolver)
+}
+
+// CheckConfigurationAvailabilityContext performs a cancellable health check.
+func CheckConfigurationAvailabilityContext(parent context.Context, raw string, resolver HostResolver) (string, string, int64) {
+	return checkConfigurationAvailability(parent, raw, resolver, performHysteria2Handshake)
+}
+
+func checkConfigurationAvailability(
+	parent context.Context,
+	raw string,
+	resolver HostResolver,
+	hy2Handshake hysteria2Handshaker,
+) (string, string, int64) {
 	scheme := SupportedConfigScheme(raw)
-	if scheme == "hysteria2" || scheme == "hy2" || scheme == "tuic" {
+	if scheme == "hysteria" || scheme == "tuic" {
+		return CheckStatusUnsupported, "protocol_health_check_unsupported", 0
+	}
+	if scheme == "hysteria2" || scheme == "hy2" {
 		profile, parseErr := profiles.Parse(raw)
 		if parseErr != nil {
-			return "down", "invalid_configuration", 0
+			return CheckStatusDown, "invalid_configuration", 0
 		}
-		ctx, cancel := context.WithTimeout(context.Background(), 4*time.Second)
+		ctx, cancel := context.WithTimeout(parent, configurationProbeTimeout)
 		defer cancel()
-		if resolver != nil {
-			if _, resolveErr := resolver(ctx, profile.Server); resolveErr != nil {
-				return "down", "destination_not_permitted", 0
-			}
+		addresses, detail, ok := resolveProbeAddresses(ctx, resolver, profile.Server)
+		if !ok {
+			return CheckStatusDown, detail, 0
 		}
-		return "unknown", "dns_resolved_udp_quic_probe_unsupported", 0
+		start := time.Now()
+		if err := hy2Handshake(ctx, profile, addresses); err != nil {
+			return CheckStatusDown, classifyHysteria2ProbeError(ctx, err), 0
+		}
+		return CheckStatusUp, "", elapsedMilliseconds(start)
 	}
 	if scheme == "ss" {
 		profile, parseErr := profiles.Parse(raw)
 		if parseErr != nil {
-			return "down", "invalid_configuration", 0
+			return CheckStatusDown, "invalid_configuration", 0
 		}
-		ctx, cancel := context.WithTimeout(context.Background(), 4*time.Second)
+		ctx, cancel := context.WithTimeout(parent, configurationProbeTimeout)
 		defer cancel()
-		var addresses []netip.Addr
-		var resolveErr error
-		if resolver != nil {
-			addresses, resolveErr = resolver(ctx, profile.Server)
-			if resolveErr != nil {
-				return "down", "destination_not_permitted", 0
-			}
+		addresses, detail, ok := resolveProbeAddresses(ctx, resolver, profile.Server)
+		if !ok {
+			return CheckStatusDown, detail, 0
 		}
-		dialer := &net.Dialer{Timeout: 4 * time.Second}
-		start := time.Now()
-		var connection net.Conn
-		for _, address := range addresses {
-			connection, parseErr = dialer.DialContext(ctx, "tcp", net.JoinHostPort(address.String(), profile.Port.Expression))
-			if parseErr == nil {
-				break
-			}
+		if err := probeTCPAddresses(ctx, addresses, profile.Port.Expression); err != nil {
+			return CheckStatusDown, "tcp_unreachable", 0
 		}
-		if parseErr != nil {
-			return "down", "tcp_unreachable", 0
-		}
-		_ = connection.Close()
-		return "unknown", "tcp_reachable_authentication_not_performed", time.Since(start).Milliseconds()
+		return CheckStatusUnsupported, "tcp_reachable_authentication_not_performed", 0
 	}
+
 	host, port, err := ParseConfigTarget(raw)
 	if err != nil {
-		return "down", "invalid configuration", 0
+		return CheckStatusDown, "invalid_configuration", 0
 	}
-
-	ctx, cancel := context.WithTimeout(context.Background(), 4*time.Second)
+	ctx, cancel := context.WithTimeout(parent, configurationProbeTimeout)
 	defer cancel()
-	var addresses []netip.Addr
-	if resolver != nil {
-		addresses, err = resolver(ctx, host)
-		if err != nil {
-			return "down", "destination is not a permitted public address", 0
-		}
+	addresses, detail, ok := resolveProbeAddresses(ctx, resolver, host)
+	if !ok {
+		return CheckStatusDown, detail, 0
 	}
-
-	dialer := &net.Dialer{Timeout: 4 * time.Second}
 	start := time.Now()
-	var conn net.Conn
+	if err := probeTCPAddresses(ctx, addresses, port); err != nil {
+		return CheckStatusDown, "tcp_unreachable", 0
+	}
+	return CheckStatusUp, "", elapsedMilliseconds(start)
+}
+
+func resolveProbeAddresses(ctx context.Context, resolver HostResolver, host string) ([]netip.Addr, string, bool) {
+	if resolver == nil {
+		return nil, "probe_resolver_unavailable", false
+	}
+	addresses, err := resolver(ctx, host)
+	if err != nil || len(addresses) == 0 {
+		return nil, "destination_not_permitted", false
+	}
+	return addresses, "", true
+}
+
+func probeTCPAddresses(ctx context.Context, addresses []netip.Addr, port string) error {
+	dialer := &net.Dialer{Timeout: configurationProbeTimeout}
 	var lastErr error
 	for _, address := range addresses {
-		conn, lastErr = dialer.DialContext(ctx, "tcp", net.JoinHostPort(address.String(), port))
-		if lastErr == nil {
-			break
+		connection, err := dialer.DialContext(ctx, "tcp", net.JoinHostPort(address.String(), port))
+		if err == nil {
+			_ = connection.Close()
+			return nil
 		}
+		lastErr = err
 	}
-	if lastErr != nil {
-		return "down", lastErr.Error(), 0
-	}
-	_ = conn.Close()
+	return lastErr
+}
 
+func elapsedMilliseconds(start time.Time) int64 {
 	latency := time.Since(start).Milliseconds()
 	if latency < 0 {
-		latency = 0
+		return 0
 	}
-	return "up", "", latency
+	return latency
 }

@@ -6,8 +6,10 @@ import (
 	"encoding/json"
 	"errors"
 	"path/filepath"
+	"strings"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/romanpodg/SubShare-Go/internal/keymanagement"
 )
@@ -24,7 +26,7 @@ func TestExecuteKeyHealthCheckBatchAggregatesOutcomes(t *testing.T) {
 		{ID: 4, Status: "active", Kind: "informational"},
 		{ID: 5, Status: "active", Kind: "real", Unreadable: true},
 	}
-	summary := executeKeyHealthCheckBatch(targets, func(rawURL string) (string, string, int64, error) {
+	summary := executeKeyHealthCheckBatch(targets, func(_ context.Context, rawURL string) (string, string, int64, error) {
 		if rawURL == "down" {
 			return "down", "connection refused", 0, nil
 		}
@@ -45,7 +47,7 @@ func TestExecuteKeyHealthCheckBatchAggregatesOutcomes(t *testing.T) {
 
 func TestExecuteKeyHealthCheckBatchPersistenceFailuresAreWarnings(t *testing.T) {
 	targets := []keymanagement.HealthCheckTarget{healthTarget(1, "up"), healthTarget(2, "down")}
-	summary := executeKeyHealthCheckBatch(targets, func(rawURL string) (string, string, int64, error) {
+	summary := executeKeyHealthCheckBatch(targets, func(_ context.Context, rawURL string) (string, string, int64, error) {
 		return rawURL, "", 5, nil
 	}, func(keyID int64, _ string, _ string, _ int64) error {
 		if keyID == 2 {
@@ -63,20 +65,53 @@ func TestExecuteKeyHealthCheckBatchPersistenceFailuresAreWarnings(t *testing.T) 
 }
 
 func TestExecuteKeyHealthCheckBatchSuccessfulPersistenceSucceeds(t *testing.T) {
-	targets := []keymanagement.HealthCheckTarget{healthTarget(1, "up"), healthTarget(2, "down")}
-	summary := executeKeyHealthCheckBatch(targets, func(rawURL string) (string, string, int64, error) {
-		return rawURL, "", 1, nil
+	targets := []keymanagement.HealthCheckTarget{
+		healthTarget(1, "up"),
+		healthTarget(2, "connection-refused"),
+		healthTarget(3, "tls-error"),
+	}
+	summary := executeKeyHealthCheckBatch(targets, func(_ context.Context, rawURL string) (string, string, int64, error) {
+		if rawURL == "up" {
+			return "up", "", 24, nil
+		}
+		return "down", rawURL, 0, nil
 	}, func(_ int64, _ string, _ string, _ int64) error { return nil }, 2)
 
+	if summary.Healthy != 1 || summary.Unhealthy != 2 || summary.PersistedOK != 3 || summary.PersistFailed != 0 {
+		t.Fatalf("unexpected successfully persisted summary: %#v", summary)
+	}
 	if status := keyHealthCheckJobStatus(summary, nil); status != "succeeded" {
 		t.Fatalf("status = %q, want succeeded", status)
+	}
+}
+
+func TestExecuteKeyHealthCheckBatchSerializesPersistence(t *testing.T) {
+	targets := make([]keymanagement.HealthCheckTarget, 20)
+	for index := range targets {
+		targets[index] = healthTarget(int64(index+1), "up")
+	}
+	var activePersisters atomic.Int32
+	summary := executeKeyHealthCheckBatch(targets, func(context.Context, string) (string, string, int64, error) {
+		return "up", "", 3, nil
+	}, func(_ int64, _ string, _ string, _ int64) error {
+		inFlight := activePersisters.Add(1)
+		defer activePersisters.Add(-1)
+		if inFlight > 1 {
+			return errors.New("simulated SQLite writer contention")
+		}
+		time.Sleep(time.Millisecond)
+		return nil
+	}, 10)
+
+	if summary.PersistFailed != 0 || summary.PersistedOK != len(targets) {
+		t.Fatalf("concurrent persistence caused false failures: %#v", summary)
 	}
 }
 
 func TestExecuteKeyHealthCheckBatchCheckFailuresAreWarnings(t *testing.T) {
 	targets := []keymanagement.HealthCheckTarget{healthTarget(1, "one"), healthTarget(2, "two")}
 	var persistCalls atomic.Int32
-	summary := executeKeyHealthCheckBatch(targets, func(string) (string, string, int64, error) {
+	summary := executeKeyHealthCheckBatch(targets, func(context.Context, string) (string, string, int64, error) {
 		return "", "", 0, errors.New("checker unavailable")
 	}, func(_ int64, _ string, _ string, _ int64) error {
 		persistCalls.Add(1)
@@ -94,7 +129,7 @@ func TestExecuteKeyHealthCheckBatchCheckFailuresAreWarnings(t *testing.T) {
 func TestExecuteKeyHealthCheckBatchDisabledTargetsAreSuccessfulSkips(t *testing.T) {
 	summary := executeKeyHealthCheckBatch([]keymanagement.HealthCheckTarget{{
 		ID: 1, Status: "non-active", Kind: "real",
-	}}, func(string) (string, string, int64, error) {
+	}}, func(context.Context, string) (string, string, int64, error) {
 		t.Fatal("disabled target must not be checked")
 		return "", "", 0, nil
 	}, func(_ int64, _ string, _ string, _ int64) error {
@@ -112,11 +147,11 @@ func TestExecuteKeyHealthCheckBatchDisabledTargetsAreSuccessfulSkips(t *testing.
 
 func TestExecuteKeyHealthCheckBatchPreservesUnsupportedProbeResult(t *testing.T) {
 	var persistCalls atomic.Int32
-	summary := executeKeyHealthCheckBatch([]keymanagement.HealthCheckTarget{healthTarget(1, "hy2")}, func(string) (string, string, int64, error) {
-		return "unknown", "dns_resolved_udp_quic_probe_unsupported", 0, nil
+	summary := executeKeyHealthCheckBatch([]keymanagement.HealthCheckTarget{healthTarget(1, "hysteria-v1")}, func(context.Context, string) (string, string, int64, error) {
+		return "unsupported_check", "protocol_health_check_unsupported", 0, nil
 	}, func(_ int64, status string, detail string, _ int64) error {
 		persistCalls.Add(1)
-		if status != "unknown" || detail != "dns_resolved_udp_quic_probe_unsupported" {
+		if status != "unsupported_check" || detail != "protocol_health_check_unsupported" {
 			return errors.New("unsupported probe result changed")
 		}
 		return nil
@@ -133,6 +168,51 @@ func TestExecuteKeyHealthCheckBatchPreservesUnsupportedProbeResult(t *testing.T)
 func TestKeyHealthCheckJobStatusFatalInitializationFailure(t *testing.T) {
 	if status := keyHealthCheckJobStatus(keyHealthCheckJobSummary{}, errors.New("load failed")); status != "failed" {
 		t.Fatalf("status = %q, want failed", status)
+	}
+}
+
+func TestExecuteKeyHealthCheckBatchPersistsTheStatesReportedByTheSummary(t *testing.T) {
+	app := newIntegrationApp(t)
+	service := app.keyService()
+	upID, _, err := service.CreateLegacy(t.Context(), keymanagement.CreateLegacyParams{
+		Label: "reachable", URL: "vless://11111111-1111-1111-1111-111111111111@up.example:443", Kind: "real", Status: "active",
+	})
+	if err != nil {
+		t.Fatalf("create reachable profile: %v", err)
+	}
+	downID, _, err := service.CreateLegacy(t.Context(), keymanagement.CreateLegacyParams{
+		Label: "unreachable", URL: "vless://22222222-2222-2222-2222-222222222222@down.example:443", Kind: "real", Status: "active",
+	})
+	if err != nil {
+		t.Fatalf("create unreachable profile: %v", err)
+	}
+	targets, err := service.ListHealthCheckTargets(t.Context())
+	if err != nil {
+		t.Fatalf("list health targets: %v", err)
+	}
+
+	summary := executeKeyHealthCheckBatch(targets, func(_ context.Context, rawURL string) (string, string, int64, error) {
+		if strings.Contains(rawURL, "up.example") {
+			return "up", "", 18, nil
+		}
+		return "down", "connection refused", 0, nil
+	}, func(keyID int64, status string, detail string, latency int64) error {
+		return service.SaveHealthCheckResult(t.Context(), keyID, status, detail, latency)
+	}, 10)
+
+	if summary.Healthy != 1 || summary.Unhealthy != 1 || summary.PersistedOK != 2 || summary.PersistFailed != 0 {
+		t.Fatalf("summary does not match persisted results: %#v", summary)
+	}
+	if status := keyHealthCheckJobStatus(summary, nil); status != "succeeded" {
+		t.Fatalf("status = %q, want succeeded", status)
+	}
+	upResult, err := service.GetHealthCheckResult(t.Context(), upID)
+	if err != nil || upResult.Status != "up" || upResult.Latency != 18 || upResult.LastCheckedAt == nil {
+		t.Fatalf("reachable card state = %#v, err=%v", upResult, err)
+	}
+	downResult, err := service.GetHealthCheckResult(t.Context(), downID)
+	if err != nil || downResult.Status != "down" || downResult.Error != "connection refused" || downResult.LastCheckedAt == nil {
+		t.Fatalf("unreachable card state = %#v, err=%v", downResult, err)
 	}
 }
 

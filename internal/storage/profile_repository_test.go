@@ -424,7 +424,7 @@ func TestProfileRepository_ClientDisplayNameMetadataDoesNotRewriteSecretAndClone
 	}
 }
 
-func TestProfileRepository_SourceClientDisplayNameOverrideResetAndCloneDoNotRewriteSecret(t *testing.T) {
+func TestProfileRepository_SourceLocalMetadataDoesNotRewriteSecret(t *testing.T) {
 	ctx := context.Background()
 	db := setupTestDB(t)
 	defer db.Close()
@@ -448,13 +448,13 @@ func TestProfileRepository_SourceClientDisplayNameOverrideResetAndCloneDoNotRewr
 	}
 
 	override := "Subscriber override"
-	updated, updatedRaw, err := repo.UpdateClientDisplayName(ctx, profilepersistence.UpdateClientDisplayNameParams{
-		ID: created.ID, ExpectedRevision: 1, ClientDisplayName: &override,
+	updated, updatedRaw, err := repo.UpdateSourceOwnedMetadata(ctx, profilepersistence.UpdateSourceOwnedMetadataParams{
+		ID: created.ID, ExpectedRevision: 1, Status: "non-active", ClientDisplayName: &override,
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if updatedRaw != raw || updated.ClientDisplayName != override || !updated.ClientDisplayNameOverridden || updated.ProfileRevision != 2 {
+	if updatedRaw != raw || updated.Status != "non-active" || updated.ClientDisplayName != override || !updated.ClientDisplayNameOverridden || updated.ProfileRevision != 2 {
 		t.Fatalf("updated=%#v raw=%q", updated, updatedRaw)
 	}
 	var envelopeAfter string
@@ -475,13 +475,14 @@ func TestProfileRepository_SourceClientDisplayNameOverrideResetAndCloneDoNotRewr
 		t.Fatalf("clone=%#v raw=%q", clone, cloneRaw)
 	}
 
-	reset, resetRaw, err := repo.UpdateClientDisplayName(ctx, profilepersistence.UpdateClientDisplayNameParams{
-		ID: created.ID, ExpectedRevision: 2, ClientDisplayName: nil,
+	empty := ""
+	reset, resetRaw, err := repo.UpdateSourceOwnedMetadata(ctx, profilepersistence.UpdateSourceOwnedMetadataParams{
+		ID: created.ID, ExpectedRevision: 2, Status: "active", ClientDisplayName: &empty,
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if resetRaw != raw || reset.ClientDisplayName != "Source name" || reset.ClientDisplayNameOverridden {
+	if resetRaw != raw || reset.Status != "active" || reset.ClientDisplayName != "Source name" || reset.ClientDisplayNameOverridden {
 		t.Fatalf("reset=%#v raw=%q", reset, resetRaw)
 	}
 	var storedOverride sql.NullString

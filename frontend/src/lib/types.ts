@@ -54,7 +54,7 @@ export interface VLESSKey {
   url_short: string;
   status: "active" | "non-active";
   status_label: string;
-  check_status: "up" | "down" | "unknown";
+  check_status: "up" | "down" | "unknown" | "unsupported_check";
   check_status_label: string;
   check_error: string;
   last_latency_ms: number;
@@ -244,6 +244,22 @@ export interface ExternalImportResultCounts {
   removed?: number;
 }
 
+export type RoutingDeliveryMode = "disabled" | "add" | "onadd";
+
+export interface RoutingSettings {
+  config_json: string;
+  delivery_mode: RoutingDeliveryMode;
+  add_url: string;
+  onadd_url: string;
+  off_url: string;
+  message?: string;
+}
+
+export interface RoutingSettingsUpdate {
+  config_json: string;
+  delivery_mode: RoutingDeliveryMode;
+}
+
 export interface ExternalSourcePreview {
   source_url: string;
   suggested_name: string;
@@ -303,7 +319,7 @@ export interface KeySummary {
   kind: "real" | "informational";
   template_text?: string;
   status: "active" | "non-active";
-  check_status: "up" | "down" | "unknown";
+  check_status: "up" | "down" | "unknown" | "unsupported_check";
   check_error: string;
   last_latency_ms: number;
   last_checked_at: string;
@@ -431,7 +447,6 @@ export interface SourceSyncRun {
 
 export interface SubscriptionDeliverySettingsUpdate {
   response_headers: Array<{ key: string; value: string }>;
-  announcement: string;
   remarks: Record<"expired" | "paused" | "blocked" | "limited" | "empty", string[]>;
 }
 
@@ -576,7 +591,7 @@ export interface KeyProfileDetailResponse {
   category: string;
   kind: "real" | "informational";
   status: "active" | "non-active";
-  check_status: "up" | "down" | "unknown";
+  check_status: "up" | "down" | "unknown" | "unsupported_check";
   check_error: SanitizedCheckError;
   last_latency_ms: number;
   last_checked_at: string;

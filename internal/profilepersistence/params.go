@@ -26,9 +26,10 @@ type UpdateProfileParams struct {
 	NewURI            string
 }
 
-type UpdateClientDisplayNameParams struct {
+type UpdateSourceOwnedMetadataParams struct {
 	ID                int64
 	ExpectedRevision  int64
+	Status            string
 	ClientDisplayName *string
 }
 

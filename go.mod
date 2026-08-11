@@ -3,6 +3,8 @@ module github.com/romanpodg/SubShare-Go
 go 1.24.0
 
 require (
+	github.com/apernet/hysteria/core/v2 v2.9.2
+	github.com/apernet/hysteria/extras/v2 v2.9.2
 	golang.org/x/crypto v0.48.0
 	golang.org/x/sys v0.41.0
 	gopkg.in/yaml.v3 v3.0.1
@@ -10,12 +12,21 @@ require (
 )
 
 require (
+	github.com/apernet/quic-go v0.59.1-0.20260425001925-6c6cc9bcb716 // indirect
+	github.com/davecgh/go-spew v1.1.1 // indirect
 	github.com/dustin/go-humanize v1.0.1 // indirect
 	github.com/google/uuid v1.6.0 // indirect
 	github.com/hashicorp/golang-lru/v2 v2.0.7 // indirect
 	github.com/mattn/go-isatty v0.0.20 // indirect
 	github.com/ncruces/go-strftime v0.1.9 // indirect
+	github.com/pmezard/go-difflib v1.0.0 // indirect
+	github.com/quic-go/qpack v0.6.0 // indirect
 	github.com/remyoudompheng/bigfft v0.0.0-20230129092748-24d4a6f8daec // indirect
+	github.com/stretchr/objx v0.5.2 // indirect
+	github.com/stretchr/testify v1.11.1 // indirect
+	golang.org/x/exp v0.0.0-20240506185415-9bf2ced13842 // indirect
+	golang.org/x/net v0.49.0 // indirect
+	golang.org/x/text v0.34.0 // indirect
 	modernc.org/gc/v3 v3.0.0-20240107210532-573471604cb6 // indirect
 	modernc.org/libc v1.55.3 // indirect
 	modernc.org/mathutil v1.6.0 // indirect

@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"fmt"
 	"log"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -18,7 +19,7 @@ func InitializeSQLiteWithJournalMode(
 	keyring *profilestorage.Keyring,
 	migrator func(*sql.DB, *profilestorage.Keyring) error,
 ) (*sql.DB, error) {
-	db, err := sql.Open("sqlite", filepath.ToSlash(dbPath))
+	db, err := sql.Open("sqlite", sqliteDataSourceName(dbPath))
 	if err != nil {
 		return nil, fmt.Errorf("open db: %w", err)
 	}
@@ -40,6 +41,18 @@ func InitializeSQLiteWithJournalMode(
 	}
 
 	return db, nil
+}
+
+func sqliteDataSourceName(dbPath string) string {
+	dataSourceName := filepath.ToSlash(dbPath)
+	separator := "?"
+	if strings.Contains(dataSourceName, "?") {
+		separator = "&"
+	}
+	pragmas := url.Values{}
+	pragmas.Add("_pragma", "busy_timeout=5000")
+	pragmas.Add("_pragma", "foreign_keys=ON")
+	return dataSourceName + separator + pragmas.Encode()
 }
 
 func ConfigureSQLitePragmas(db *sql.DB, journalMode string) error {

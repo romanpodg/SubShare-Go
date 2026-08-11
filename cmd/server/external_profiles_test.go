@@ -40,6 +40,36 @@ func parseExternalTestBody(t *testing.T, body string) externalSubscriptionParseR
 	return parsed
 }
 
+func TestExternalProviderAnnouncementMetadataRemainsIndependent(t *testing.T) {
+	providerAnnouncement := "Сообщение внешнего провайдера"
+	encoded := "base64:" + base64.StdEncoding.EncodeToString([]byte(providerAnnouncement))
+	if got := decodeSubscriptionHeaderValue(encoded); got != providerAnnouncement {
+		t.Fatalf("decoded provider announcement=%q", got)
+	}
+
+	app := newIntegrationApp(t)
+	if _, err := app.db.Exec(`
+		INSERT INTO external_subscription_sources(name, source_url, meta_announce)
+		VALUES('Provider', 'https://provider.example/subscription', ?)
+	`, providerAnnouncement); err != nil {
+		t.Fatal(err)
+	}
+	sources, err := app.listExternalSources()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(sources) != 1 || sources[0].MetaAnnounce != providerAnnouncement {
+		t.Fatalf("external meta_announce was not preserved: %#v", sources)
+	}
+	settings, err := app.getSubscriptionSettings()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if settings.ExtraStatus != "" {
+		t.Fatalf("external announcement was promoted globally: %q", settings.ExtraStatus)
+	}
+}
+
 func TestExternalProfileInputRecognitionAndMixedPartialSuccess(t *testing.T) {
 	body := strings.Join([]string{
 		externalTestVLESS,
@@ -643,7 +673,7 @@ func TestExternalProfileSyncRepairsHistoricalDuplicatesAndMergesAssignments(t *t
 	}
 }
 
-func TestExternalProfileSyncPreservesAndThenFollowsResetClientDisplayName(t *testing.T) {
+func TestExternalProfileSyncPreservesLocalStatusAndClientDisplayName(t *testing.T) {
 	app := newIntegrationApp(t)
 	sourceID := seedExternalProfileSource(t, app, "https://provider.example/client-name-override")
 	initialRaw := strings.Replace(externalTestVLESS, "#VLESS", "#Source A", 1)
@@ -654,7 +684,7 @@ func TestExternalProfileSyncPreservesAndThenFollowsResetClientDisplayName(t *tes
 	if err := app.db.QueryRow(`SELECT id FROM vless_keys WHERE external_source_id = ?`, sourceID).Scan(&keyID); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := app.db.Exec(`UPDATE vless_keys SET client_display_name = 'CUSTOM' WHERE id = ?`, keyID); err != nil {
+	if _, err := app.db.Exec(`UPDATE vless_keys SET status = 'non-active', client_display_name = 'CUSTOM' WHERE id = ?`, keyID); err != nil {
 		t.Fatal(err)
 	}
 
@@ -662,27 +692,45 @@ func TestExternalProfileSyncPreservesAndThenFollowsResetClientDisplayName(t *tes
 	if _, err := app.syncExternalSource(sourceID, parseExternalTestBody(t, renamedRaw)); err != nil {
 		t.Fatalf("renamed sync: %v", err)
 	}
-	var label string
+	var label, status string
 	var override sql.NullString
-	if err := app.db.QueryRow(`SELECT label, client_display_name FROM vless_keys WHERE id = ?`, keyID).Scan(&label, &override); err != nil {
+	if err := app.db.QueryRow(`SELECT label, status, client_display_name FROM vless_keys WHERE id = ?`, keyID).Scan(&label, &status, &override); err != nil {
 		t.Fatal(err)
 	}
-	if label != "Source B" || !override.Valid || override.String != "CUSTOM" {
-		t.Fatalf("after rename label=%q override=%#v", label, override)
+	if label != "Source B" || status != "non-active" || !override.Valid || override.String != "CUSTOM" {
+		t.Fatalf("after source update label=%q status=%q override=%#v", label, status, override)
+	}
+	connectionUpdatedRaw := strings.Replace(renamedRaw, "vless.example", "rotated-vless.example", 1)
+	if _, err := app.syncExternalSource(sourceID, parseExternalTestBody(t, connectionUpdatedRaw)); err != nil {
+		t.Fatalf("connection update sync: %v", err)
+	}
+	var updatedEnvelope string
+	if err := app.db.QueryRow(`SELECT encrypted_url FROM vless_key_secrets WHERE vless_key_id = ?`, keyID).Scan(&updatedEnvelope); err != nil {
+		t.Fatal(err)
+	}
+	updatedSecret, err := profilestorage.Decrypt(updatedEnvelope, app.profileKeyring, keyID)
+	if err != nil || updatedSecret.Reveal() != connectionUpdatedRaw {
+		t.Fatalf("source-controlled configuration was not updated: err=%v raw=%q", err, updatedSecret.Reveal())
+	}
+	if err := app.db.QueryRow(`SELECT status, client_display_name FROM vless_keys WHERE id = ?`, keyID).Scan(&status, &override); err != nil {
+		t.Fatal(err)
+	}
+	if status != "non-active" || !override.Valid || override.String != "CUSTOM" {
+		t.Fatalf("connection update lost local metadata: status=%q override=%#v", status, override)
 	}
 
 	if _, err := app.db.Exec(`UPDATE vless_keys SET client_display_name = NULL WHERE id = ?`, keyID); err != nil {
 		t.Fatal(err)
 	}
-	latestRaw := strings.Replace(externalTestVLESS, "#VLESS", "#Source C", 1)
+	latestRaw := strings.Replace(connectionUpdatedRaw, "#Source B", "#Source C", 1)
 	if _, err := app.syncExternalSource(sourceID, parseExternalTestBody(t, latestRaw)); err != nil {
 		t.Fatalf("post-reset sync: %v", err)
 	}
-	if err := app.db.QueryRow(`SELECT label, client_display_name FROM vless_keys WHERE id = ?`, keyID).Scan(&label, &override); err != nil {
+	if err := app.db.QueryRow(`SELECT label, status, client_display_name FROM vless_keys WHERE id = ?`, keyID).Scan(&label, &status, &override); err != nil {
 		t.Fatal(err)
 	}
-	if label != "Source C" || override.Valid {
-		t.Fatalf("after reset rename label=%q override=%#v", label, override)
+	if label != "Source C" || status != "non-active" || override.Valid {
+		t.Fatalf("after reset sync label=%q status=%q override=%#v", label, status, override)
 	}
 	var envelope string
 	if err := app.db.QueryRow(`SELECT encrypted_url FROM vless_key_secrets WHERE vless_key_id = ?`, keyID).Scan(&envelope); err != nil {
@@ -694,6 +742,18 @@ func TestExternalProfileSyncPreservesAndThenFollowsResetClientDisplayName(t *tes
 	}
 	if effective := profileconfig.EffectiveClientDisplayName("", secret.Reveal(), label, true); effective != "Source C" {
 		t.Fatalf("post-reset effective client name=%q", effective)
+	}
+
+	userID := seedSubscriptionUser(t, app, "active")
+	if _, err := app.db.Exec(`INSERT INTO user_keys(user_id, key_id) VALUES(?, ?)`, userID, keyID); err != nil {
+		t.Fatal(err)
+	}
+	generated, _, _, _, err := app.generateSelectedSubscription("subscription-token", "plain")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(generated.Body, "vless.example") {
+		t.Fatalf("inactive source profile was delivered: %q", generated.Body)
 	}
 }
 
@@ -1342,7 +1402,7 @@ func TestExternalProfileSynchronizationRollsBackOnPersistenceFailure(t *testing.
 	if err := app.db.QueryRow(`SELECT id FROM vless_keys WHERE external_source_id = ?`, sourceID).Scan(&originalID); err != nil {
 		t.Fatalf("read original row: %v", err)
 	}
-	if _, err := app.db.Exec(`CREATE TRIGGER reject_refresh_insert BEFORE INSERT ON vless_keys BEGIN SELECT RAISE(ABORT, 'synthetic refresh failure'); END`); err != nil {
+	if _, err := app.db.Exec(`CREATE TRIGGER reject_refresh_update BEFORE UPDATE ON vless_keys BEGIN SELECT RAISE(ABORT, 'synthetic refresh failure'); END`); err != nil {
 		t.Fatalf("create refresh trigger: %v", err)
 	}
 	changed := strings.Replace(externalTestSS, "c2hhZG93LXBhc3N3b3Jk", "bmV3LXBhc3N3b3Jk", 1)
@@ -1361,13 +1421,13 @@ func TestExternalProfileSynchronizationRollsBackOnPersistenceFailure(t *testing.
 	}
 }
 
-func TestExternalProfileProbePolicyDoesNotClaimQUICAuthentication(t *testing.T) {
+func TestExternalProfileProbePolicyMarksOnlyUnimplementedProtocolsUnsupported(t *testing.T) {
 	for _, raw := range []string{
-		"hy2://auth@192.0.2.10:443",
 		"tuic://33333333-3333-4333-8333-333333333333:password@192.0.2.11:443",
+		"hysteria://legacy-auth@192.0.2.12:443",
 	} {
 		status, detail, _ := checkConfigurationAvailability(raw)
-		if status != "unknown" || detail != "dns_resolved_udp_quic_probe_unsupported" {
+		if status != "unsupported_check" || detail != "protocol_health_check_unsupported" {
 			t.Fatalf("probe(%q) = %q %q", raw, status, detail)
 		}
 	}
@@ -1375,10 +1435,10 @@ func TestExternalProfileProbePolicyDoesNotClaimQUICAuthentication(t *testing.T) 
 
 func TestExternalProfileUnsupportedProbeDoesNotAccumulateHealthFailures(t *testing.T) {
 	app := newIntegrationApp(t)
-	raw := "hy2://auth@192.0.2.10:443"
+	raw := "hysteria://legacy-auth@192.0.2.10:443"
 	activeID, activeKey, _ := app.profileKeyring.GetActiveEncryptionKey()
 	_, bikKey, _ := app.profileKeyring.GetActiveBlindIndexKey()
-	result, err := app.db.Exec(`INSERT INTO vless_keys(label, url_blind_index, protocol, health_failure_count) VALUES('hy2', ?, 'hysteria2', 2)`, profilestorage.ComputeBlindIndex(bikKey, raw))
+	result, err := app.db.Exec(`INSERT INTO vless_keys(label, url_blind_index, protocol, health_failure_count) VALUES('legacy-hysteria', ?, 'hysteria', 2)`, profilestorage.ComputeBlindIndex(bikKey, raw))
 	if err != nil {
 		t.Fatalf("insert Hysteria profile: %v", err)
 	}
@@ -1387,7 +1447,7 @@ func TestExternalProfileUnsupportedProbeDoesNotAccumulateHealthFailures(t *testi
 	if _, err := app.db.Exec(`INSERT INTO vless_key_secrets(vless_key_id, encrypted_url) VALUES(?, ?)`, id, env); err != nil {
 		t.Fatalf("insert Hysteria secret: %v", err)
 	}
-	if err := app.checkAndPersistKey(id, raw); err != nil {
+	if err := app.checkAndPersistKey(t.Context(), id, raw); err != nil {
 		t.Fatalf("persist unsupported probe: %v", err)
 	}
 	var status, detail string
@@ -1395,7 +1455,7 @@ func TestExternalProfileUnsupportedProbeDoesNotAccumulateHealthFailures(t *testi
 	if err := app.db.QueryRow(`SELECT check_status, COALESCE(check_error, ''), health_failure_count FROM vless_keys WHERE id = ?`, id).Scan(&status, &detail, &failures); err != nil {
 		t.Fatalf("read probe result: %v", err)
 	}
-	if status != "unknown" || detail != "dns_resolved_udp_quic_probe_unsupported" || failures != 2 {
+	if status != "unsupported_check" || detail != "protocol_health_check_unsupported" || failures != 2 {
 		t.Fatalf("probe persistence = status=%q detail=%q failures=%d", status, detail, failures)
 	}
 }

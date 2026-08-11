@@ -181,9 +181,9 @@ func containsLegacySubscriptionBodyMarkers(body string) bool {
 	return false
 }
 
-func (a *App) checkAndPersistKey(keyID int64, rawURL string) error {
-	status, checkErr, latency := checkConfigurationAvailability(rawURL)
-	return a.keyService().SaveHealthCheckResult(context.Background(), keyID, status, checkErr, latency)
+func (a *App) checkAndPersistKey(ctx context.Context, keyID int64, rawURL string) error {
+	status, checkErr, latency := checkConfigurationAvailabilityContext(ctx, rawURL)
+	return a.keyService().SaveHealthCheckResult(ctx, keyID, status, checkErr, latency)
 }
 
 func (a *App) resolveBaseURL(r *http.Request) string {

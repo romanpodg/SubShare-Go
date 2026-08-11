@@ -117,6 +117,83 @@ func TestMigrateAppliesVersionedMigrationsIdempotently(t *testing.T) {
 	}
 }
 
+func TestMigrateCanonicalSubscriptionAnnouncementPreservesLegacyData(t *testing.T) {
+	tests := []struct {
+		name      string
+		canonical string
+		legacy    string
+		want      string
+	}{
+		{name: "promotes legacy when canonical is empty", legacy: "Legacy announcement", want: "Legacy announcement"},
+		{name: "canonical wins when both exist", canonical: "Canonical announcement", legacy: "Legacy announcement", want: "Canonical announcement"},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			app := newIntegrationApp(t)
+			if _, err := app.db.Exec(`UPDATE subscription_settings SET extra_status = ? WHERE id = 1`, nullStringValue(test.canonical)); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := app.db.Exec(`UPDATE subscription_delivery_settings SET announcement = ? WHERE id = 1`, test.legacy); err != nil {
+				t.Fatal(err)
+			}
+			conn, err := app.db.Conn(context.Background())
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer conn.Close()
+			if err := migrateCanonicalSubscriptionAnnouncement(context.Background(), conn, app.db, nil); err != nil {
+				t.Fatalf("migrate announcement: %v", err)
+			}
+
+			var canonical, retired string
+			if err := conn.QueryRowContext(context.Background(), `SELECT COALESCE(extra_status, '') FROM subscription_settings WHERE id = 1`).Scan(&canonical); err != nil {
+				t.Fatal(err)
+			}
+			if err := conn.QueryRowContext(context.Background(), `SELECT announcement FROM subscription_delivery_settings WHERE id = 1`).Scan(&retired); err != nil {
+				t.Fatal(err)
+			}
+			if canonical != test.want || retired != "" {
+				t.Fatalf("canonical=%q want=%q retired=%q", canonical, test.want, retired)
+			}
+		})
+	}
+}
+
+func TestMigrateHappRoutingDeliveryModePreservesConfigAndDefaultsDisabled(t *testing.T) {
+	db, err := sql.Open("sqlite", filepath.Join(t.TempDir(), "routing-mode.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	legacyConfig := "  {\n  \"Name\": \"Существующий профиль\",\n  \"FutureField\": true\n}  "
+	if _, err := db.Exec(`CREATE TABLE routing_settings (
+		id INTEGER PRIMARY KEY CHECK (id = 1),
+		config_json TEXT NOT NULL DEFAULT '',
+		updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+	); INSERT INTO routing_settings(id, config_json) VALUES(1, ?)`, legacyConfig); err != nil {
+		t.Fatal(err)
+	}
+	conn, err := db.Conn(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer conn.Close()
+	if err := migrateHappRoutingDeliveryMode(context.Background(), conn, db, nil); err != nil {
+		t.Fatalf("migrate routing delivery mode: %v", err)
+	}
+	if err := migrateHappRoutingDeliveryMode(context.Background(), conn, db, nil); err != nil {
+		t.Fatalf("repeat routing delivery mode migration: %v", err)
+	}
+	var config, mode string
+	if err := conn.QueryRowContext(context.Background(), `SELECT config_json, delivery_mode FROM routing_settings WHERE id = 1`).Scan(&config, &mode); err != nil {
+		t.Fatal(err)
+	}
+	if config != legacyConfig || mode != routingDeliveryModeDisabled {
+		t.Fatalf("config=%q mode=%q", config, mode)
+	}
+}
+
 func TestMigrateBackgroundJobWarningResultsPreservesExistingJobs(t *testing.T) {
 	db, err := sql.Open("sqlite", filepath.Join(t.TempDir(), "background-jobs.db"))
 	if err != nil {

@@ -472,6 +472,76 @@ var schemaMigrations = []schemaMigration{
 		name:    "add_background_job_warning_results",
 		runGo:   migrateBackgroundJobWarningResults,
 	},
+	{
+		version: 18,
+		name:    "canonical_subscription_announcement",
+		runGo:   migrateCanonicalSubscriptionAnnouncement,
+	},
+	{
+		version: 19,
+		name:    "add_happ_routing_delivery_mode",
+		runGo:   migrateHappRoutingDeliveryMode,
+	},
+}
+
+func migrateHappRoutingDeliveryMode(ctx context.Context, conn *sql.Conn, _ *sql.DB, _ *profilestorage.Keyring) error {
+	var tableExists, columnExists int
+	if err := conn.QueryRowContext(ctx, `SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = 'routing_settings'`).Scan(&tableExists); err != nil {
+		return fmt.Errorf("inspect routing settings table: %w", err)
+	}
+	if tableExists == 0 {
+		return nil
+	}
+	if err := conn.QueryRowContext(ctx, `SELECT COUNT(*) FROM pragma_table_info('routing_settings') WHERE name = 'delivery_mode'`).Scan(&columnExists); err != nil {
+		return fmt.Errorf("inspect routing delivery mode column: %w", err)
+	}
+	if columnExists > 0 {
+		return nil
+	}
+	if _, err := conn.ExecContext(ctx, `ALTER TABLE routing_settings ADD COLUMN delivery_mode TEXT NOT NULL DEFAULT 'disabled' CHECK (delivery_mode IN ('disabled', 'add', 'onadd'))`); err != nil {
+		return fmt.Errorf("add routing delivery mode: %w", err)
+	}
+	return nil
+}
+
+func migrateCanonicalSubscriptionAnnouncement(ctx context.Context, conn *sql.Conn, _ *sql.DB, _ *profilestorage.Keyring) error {
+	var deliveryAnnouncementColumn, canonicalAnnouncementColumn int
+	if err := conn.QueryRowContext(ctx, `SELECT COUNT(*) FROM pragma_table_info('subscription_delivery_settings') WHERE name = 'announcement'`).Scan(&deliveryAnnouncementColumn); err != nil {
+		return fmt.Errorf("inspect legacy delivery announcement column: %w", err)
+	}
+	if err := conn.QueryRowContext(ctx, `SELECT COUNT(*) FROM pragma_table_info('subscription_settings') WHERE name = 'extra_status'`).Scan(&canonicalAnnouncementColumn); err != nil {
+		return fmt.Errorf("inspect canonical announcement column: %w", err)
+	}
+	// Some very old or partially reconstructed schemas recorded historical
+	// migration versions without all corresponding tables. There is no legacy
+	// value to preserve when either side of this compatibility migration is absent.
+	if deliveryAnnouncementColumn == 0 || canonicalAnnouncementColumn == 0 {
+		return nil
+	}
+
+	tx, err := conn.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("begin announcement migration: %w", err)
+	}
+	defer tx.Rollback()
+
+	var legacyAnnouncement string
+	err = tx.QueryRowContext(ctx, `
+		SELECT announcement FROM subscription_delivery_settings WHERE id = 1
+	`).Scan(&legacyAnnouncement)
+	if err != nil && err != sql.ErrNoRows {
+		return fmt.Errorf("read legacy delivery announcement: %w", err)
+	}
+	if _, err := promoteLegacyDeliveryAnnouncement(ctx, tx, legacyAnnouncement); err != nil {
+		return fmt.Errorf("promote legacy delivery announcement: %w", err)
+	}
+	if _, err := tx.ExecContext(ctx, `UPDATE subscription_delivery_settings SET announcement = '' WHERE id = 1`); err != nil {
+		return fmt.Errorf("retire legacy delivery announcement: %w", err)
+	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("commit announcement migration: %w", err)
+	}
+	return nil
 }
 
 func migrateShowSubscriptionExpiration(_ context.Context, _ *sql.Conn, db *sql.DB, _ *profilestorage.Keyring) error {

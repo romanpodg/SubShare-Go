@@ -44,7 +44,7 @@ type backgroundJob struct {
 	CreatedAt    time.Time                 `json:"created_at"`
 }
 
-type keyHealthCheckExecutor func(rawURL string) (status string, detail string, latency int64, err error)
+type keyHealthCheckExecutor func(ctx context.Context, rawURL string) (status string, detail string, latency int64, err error)
 type keyHealthResultPersister func(keyID int64, status string, detail string, latency int64) error
 
 type keyHealthCheckItemResult struct {
@@ -67,6 +67,7 @@ func executeKeyHealthCheckBatch(
 	results := make(chan keyHealthCheckItemResult, len(targets))
 	semaphore := make(chan struct{}, concurrency)
 	var waitGroup sync.WaitGroup
+	var persistenceMu sync.Mutex
 
 	for _, target := range targets {
 		targetStatus, _ := model.NormalizeKeyStatus(target.Status)
@@ -96,17 +97,29 @@ func executeKeyHealthCheckBatch(
 				results <- result
 			}()
 
-			status, detail, latency, err := check(item.URL)
+			status, detail, latency, err := check(context.Background(), item.URL)
 			if err != nil {
 				result.checkFailed = true
 				return
 			}
 			result.status = model.NormalizeCheckStatus(status)
-			if result.status == "unknown" {
+			if result.status == "unsupported_check" {
 				result.unsupported = true
 			}
-			if err := persist(item.ID, result.status, detail, latency); err != nil {
-				log.Printf("background key check result persistence failed: key_id=%d err=%v", item.ID, err)
+			// SQLite has one writer. Keep probes concurrent, but serialize their
+			// short metadata updates so the batch does not contend with itself.
+			persistenceMu.Lock()
+			persistErr := persist(item.ID, result.status, detail, latency)
+			persistenceMu.Unlock()
+			if persistErr != nil {
+				log.Printf(
+					"background key check result persistence failed: key_id=%d health_state=%s latency_ms=%d error_type=%T err=%v",
+					item.ID,
+					result.status,
+					latency,
+					persistErr,
+					persistErr,
+				)
 				result.persistFailed = true
 			}
 		}(target)
@@ -120,17 +133,19 @@ func executeKeyHealthCheckBatch(
 			summary.CheckFailed++
 			continue
 		}
-		if result.unsupported {
-			summary.SkippedUnsupported++
-		} else if result.status == "up" {
-			summary.Healthy++
-		} else {
-			summary.Unhealthy++
-		}
 		if result.persistFailed {
 			summary.PersistFailed++
 		} else {
 			summary.PersistedOK++
+		}
+		if result.unsupported {
+			summary.SkippedUnsupported++
+		} else if result.status == "up" {
+			summary.Healthy++
+		} else if result.status == "down" {
+			summary.Unhealthy++
+		} else {
+			summary.CheckFailed++
 		}
 	}
 	return summary
@@ -435,8 +450,8 @@ func (a *App) runQueuedKeyHealthCheck(jobID, actorAdminID int64, requestID strin
 		a.finishKeyHealthCheckJob(jobID, keyHealthCheckJobSummary{}, err)
 		return
 	}
-	summary := executeKeyHealthCheckBatch(targets, func(rawURL string) (string, string, int64, error) {
-		status, detail, latency := checkConfigurationAvailability(rawURL)
+	summary := executeKeyHealthCheckBatch(targets, func(ctx context.Context, rawURL string) (string, string, int64, error) {
+		status, detail, latency := checkConfigurationAvailabilityContext(ctx, rawURL)
 		return status, detail, latency, nil
 	}, func(keyID int64, status string, detail string, latency int64) error {
 		return a.keyService().SaveHealthCheckResult(context.Background(), keyID, status, detail, latency)

@@ -203,9 +203,9 @@ export default function OverviewPage() {
               )}
               <div className="divide-y divide-border">
                 {!jobsError && jobs.map((job) => (
-                  <div key={job.id} className="grid gap-3 px-5 py-4 text-sm md:grid-cols-[180px_120px_1fr_auto] md:items-center">
+                  <div key={job.id} className="grid gap-3 px-5 py-4 text-sm lg:grid-cols-[180px_240px_minmax(0,1fr)_auto] lg:items-center">
                     <span className="font-medium text-zinc-300">{job.kind}</span>
-                    <span className={job.status === "succeeded" ? "text-success" : job.status === "failed" ? "text-danger" : "text-warning"}>{jobStatusLabel(job.status)}</span>
+                    <span className={`ui-background-job-status lg:whitespace-nowrap ${job.status === "succeeded" ? "text-success" : job.status === "failed" ? "text-danger" : "text-warning"}`}>{jobStatusLabel(job.status)}</span>
                     <span className="truncate text-xs text-zinc-600">{jobSummary(job)}</span>
                     {job.status === "failed" && <Button variant="outline" onClick={() => retryJob(job.id)}>Повторить</Button>}
                   </div>

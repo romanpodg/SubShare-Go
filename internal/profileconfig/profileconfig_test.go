@@ -2,11 +2,32 @@ package profileconfig
 
 import (
 	"context"
+	"crypto/rand"
+	"crypto/rsa"
+	"crypto/tls"
+	"crypto/x509"
+	"crypto/x509/pkix"
 	"encoding/base64"
+	"encoding/pem"
+	"errors"
+	"math/big"
+	"net"
 	"net/netip"
 	"strings"
 	"testing"
+	"time"
+
+	hyserver "github.com/apernet/hysteria/core/v2/server"
+	"github.com/romanpodg/SubShare-Go/internal/profiles"
 )
+
+type testHysteria2Authenticator struct {
+	expected string
+}
+
+func (authenticator testHysteria2Authenticator) Authenticate(_ net.Addr, auth string, _ uint64) (bool, string) {
+	return auth == authenticator.expected, "fixture"
+}
 
 func TestSupportedConfigScheme(t *testing.T) {
 	tests := []struct {
@@ -279,15 +300,136 @@ func TestCheckConfigurationAvailabilityWithResolver(t *testing.T) {
 		return []netip.Addr{netip.MustParseAddr("127.0.0.1")}, nil
 	}
 
-	// Hy2/TUIC returns unknown / dns_resolved_udp_quic_probe_unsupported
-	status, detail, _ := CheckConfigurationAvailabilityWithResolver("hy2://pass@hy2.example.com:443", mockResolver)
-	if status != "unknown" || detail != "dns_resolved_udp_quic_probe_unsupported" {
-		t.Fatalf("hy2 probe = (%q, %q), want (unknown, dns_resolved_udp_quic_probe_unsupported)", status, detail)
+	// TUIC and legacy Hysteria are explicit unsupported checks, not failures.
+	for _, raw := range []string{
+		"tuic://33333333-3333-4333-8333-333333333333:password@tuic.example:443",
+		"hysteria://legacy-auth@legacy.example:443",
+	} {
+		status, detail, latency := CheckConfigurationAvailabilityWithResolver(raw, mockResolver)
+		if status != CheckStatusUnsupported || detail != "protocol_health_check_unsupported" || latency != 0 {
+			t.Fatalf("unsupported probe = (%q, %q, %d)", status, detail, latency)
+		}
 	}
 
 	// Forbidden host
-	status, detail, _ = CheckConfigurationAvailabilityWithResolver("vless://user@forbidden.local:443", mockResolver)
-	if status != "down" || !strings.Contains(detail, "permitted") {
+	status, detail, _ := CheckConfigurationAvailabilityWithResolver("vless://user@forbidden.local:443", mockResolver)
+	if status != "down" || detail != "destination_not_permitted" {
 		t.Fatalf("forbidden host probe = (%q, %q), want down with permitted message", status, detail)
 	}
+}
+
+func TestHysteria2AvailabilityUsesAuthenticatedHandshake(t *testing.T) {
+	const secret = "fixture-auth-must-not-leak"
+	resolver := func(context.Context, string) ([]netip.Addr, error) {
+		return []netip.Addr{netip.MustParseAddr("192.0.2.10")}, nil
+	}
+	called := false
+	status, detail, latency := checkConfigurationAvailability(
+		t.Context(),
+		"hy2://"+secret+"@hy2.example:443?sni=tls.example",
+		resolver,
+		func(_ context.Context, profile *profiles.Profile, addresses []netip.Addr) error {
+			called = true
+			data, ok := profile.Data.(profiles.Hysteria2Data)
+			if !ok || profile.Protocol != profiles.ProtocolHysteria2 || data.Authentication.Reveal() != secret ||
+				profile.Server != "hy2.example" || data.SNI != "tls.example" || len(addresses) != 1 {
+				t.Fatalf("unexpected normalized Hysteria2 model: %#v", profile)
+			}
+			return nil
+		},
+	)
+	if !called || status != CheckStatusUp || detail != "" || latency < 0 {
+		t.Fatalf("Hysteria2 probe = called=%v status=%q detail=%q latency=%d", called, status, detail, latency)
+	}
+}
+
+func TestHysteria2AvailabilityPerformsRealAuthenticatedHandshake(t *testing.T) {
+	const secret = "loopback-hysteria2-auth"
+	certificate := newLoopbackTLSCertificate(t)
+	conn, err := net.ListenUDP("udp4", &net.UDPAddr{IP: net.IPv4(127, 0, 0, 1)})
+	if err != nil {
+		t.Fatalf("listen for Hysteria2 fixture: %v", err)
+	}
+	server, err := hyserver.NewServer(&hyserver.Config{
+		TLSConfig:     hyserver.TLSConfig{Certificates: []tls.Certificate{certificate}},
+		Conn:          conn,
+		Authenticator: testHysteria2Authenticator{expected: secret},
+		DisableUDP:    true,
+	})
+	if err != nil {
+		t.Fatalf("create Hysteria2 fixture: %v", err)
+	}
+	serverDone := make(chan error, 1)
+	go func() { serverDone <- server.Serve() }()
+	t.Cleanup(func() {
+		_ = server.Close()
+		select {
+		case <-serverDone:
+		case <-time.After(time.Second):
+			t.Error("Hysteria2 fixture did not stop")
+		}
+	})
+
+	port := conn.LocalAddr().(*net.UDPAddr).Port
+	resolver := func(context.Context, string) ([]netip.Addr, error) {
+		return []netip.Addr{netip.MustParseAddr("127.0.0.1")}, nil
+	}
+	status, detail, latency := checkConfigurationAvailability(
+		t.Context(),
+		"hy2://"+secret+"@fixture.invalid:"+big.NewInt(int64(port)).String()+"?sni=localhost&insecure=1",
+		resolver,
+		performHysteria2Handshake,
+	)
+	if status != CheckStatusUp || detail != "" || latency < 0 {
+		t.Fatalf("real Hysteria2 probe = (%q, %q, %d)", status, detail, latency)
+	}
+}
+
+func TestHysteria2UnreachableIsUnhealthyAndDiagnosticsAreRedacted(t *testing.T) {
+	const secret = "never-emit-this-auth"
+	resolver := func(context.Context, string) ([]netip.Addr, error) {
+		return []netip.Addr{netip.MustParseAddr("192.0.2.11")}, nil
+	}
+	status, detail, latency := checkConfigurationAvailability(
+		t.Context(),
+		"hysteria2://"+secret+"@hy2.example:443",
+		resolver,
+		func(context.Context, *profiles.Profile, []netip.Addr) error {
+			return errors.New("dial failed with credential " + secret)
+		},
+	)
+	if status != CheckStatusDown || detail != "hysteria2_connection_failed" || latency != 0 {
+		t.Fatalf("unreachable Hysteria2 probe = (%q, %q, %d)", status, detail, latency)
+	}
+	if strings.Contains(detail, secret) {
+		t.Fatalf("Hysteria2 diagnostic leaked credentials: %q", detail)
+	}
+}
+
+func newLoopbackTLSCertificate(t *testing.T) tls.Certificate {
+	t.Helper()
+	privateKey, err := rsa.GenerateKey(rand.Reader, 2048)
+	if err != nil {
+		t.Fatalf("generate Hysteria2 fixture key: %v", err)
+	}
+	template := x509.Certificate{
+		SerialNumber: big.NewInt(1),
+		Subject:      pkix.Name{CommonName: "localhost"},
+		DNSNames:     []string{"localhost"},
+		NotBefore:    time.Now().Add(-time.Hour),
+		NotAfter:     time.Now().Add(time.Hour),
+		KeyUsage:     x509.KeyUsageDigitalSignature | x509.KeyUsageKeyEncipherment,
+		ExtKeyUsage:  []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth},
+	}
+	certificateDER, err := x509.CreateCertificate(rand.Reader, &template, &template, &privateKey.PublicKey, privateKey)
+	if err != nil {
+		t.Fatalf("create Hysteria2 fixture certificate: %v", err)
+	}
+	certificatePEM := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: certificateDER})
+	privateKeyPEM := pem.EncodeToMemory(&pem.Block{Type: "RSA PRIVATE KEY", Bytes: x509.MarshalPKCS1PrivateKey(privateKey)})
+	certificate, err := tls.X509KeyPair(certificatePEM, privateKeyPEM)
+	if err != nil {
+		t.Fatalf("load Hysteria2 fixture certificate: %v", err)
+	}
+	return certificate
 }

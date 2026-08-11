@@ -316,10 +316,10 @@ func (r *ProfileRepository) UpdateLocal(ctx context.Context, params profilepersi
 	return r.GetByID(ctx, params.ID)
 }
 
-// UpdateClientDisplayName changes only subscriber-facing metadata. It is the
-// narrow mutation used for source-owned profiles; source-controlled fields and
-// the encrypted configuration are deliberately excluded from the UPDATE.
-func (r *ProfileRepository) UpdateClientDisplayName(ctx context.Context, params profilepersistence.UpdateClientDisplayNameParams) (*model.VLESSKey, string, error) {
+// UpdateSourceOwnedMetadata changes only locally administered delivery metadata.
+// Source-controlled fields and the encrypted configuration are deliberately
+// excluded from the UPDATE.
+func (r *ProfileRepository) UpdateSourceOwnedMetadata(ctx context.Context, params profilepersistence.UpdateSourceOwnedMetadataParams) (*model.VLESSKey, string, error) {
 	if err := r.credentials.encryptionAvailable(); err != nil {
 		return nil, "", fmt.Errorf("%w: %v", profilepersistence.ErrEncryptionUnavailable, err)
 	}
@@ -358,18 +358,21 @@ func (r *ProfileRepository) UpdateClientDisplayName(ctx context.Context, params 
 
 	result, err := tx.ExecContext(ctx, `
 		UPDATE vless_keys
-		SET client_display_name = ?, profile_revision = profile_revision + 1, updated_at = CURRENT_TIMESTAMP
-		WHERE id = ? AND profile_revision = ?
-	`, optionalNullStringValue(params.ClientDisplayName), params.ID, params.ExpectedRevision)
+		SET status = ?,
+		    client_display_name = CASE WHEN ? THEN ? ELSE client_display_name END,
+		    profile_revision = profile_revision + 1,
+		    updated_at = CURRENT_TIMESTAMP
+		WHERE id = ? AND profile_revision = ? AND external_source_id IS NOT NULL
+	`, params.Status, params.ClientDisplayName != nil, optionalNullStringValue(params.ClientDisplayName), params.ID, params.ExpectedRevision)
 	if err != nil {
-		return nil, "", fmt.Errorf("failed to update client display name: %w", err)
+		return nil, "", fmt.Errorf("failed to update source-owned metadata: %w", err)
 	}
 	affected, _ := result.RowsAffected()
 	if affected == 0 {
 		return nil, "", profilepersistence.ErrProfileRevisionConflict
 	}
 	if err := tx.Commit(); err != nil {
-		return nil, "", fmt.Errorf("failed to commit client display name: %w", err)
+		return nil, "", fmt.Errorf("failed to commit source-owned metadata: %w", err)
 	}
 	return r.GetByID(ctx, params.ID)
 }

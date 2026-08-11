@@ -94,7 +94,7 @@ func (f *fakeRepo) UpdateLocal(ctx context.Context, params profilepersistence.Up
 	return key, params.NewURI, nil
 }
 
-func (f *fakeRepo) UpdateClientDisplayName(ctx context.Context, params profilepersistence.UpdateClientDisplayNameParams) (*model.VLESSKey, string, error) {
+func (f *fakeRepo) UpdateSourceOwnedMetadata(ctx context.Context, params profilepersistence.UpdateSourceOwnedMetadataParams) (*model.VLESSKey, string, error) {
 	key, ok := f.keys[params.ID]
 	if !ok {
 		return nil, "", profilepersistence.ErrProfileNotFound
@@ -102,12 +102,15 @@ func (f *fakeRepo) UpdateClientDisplayName(ctx context.Context, params profilepe
 	if key.ProfileRevision != params.ExpectedRevision {
 		return nil, "", profilepersistence.ErrProfileRevisionConflict
 	}
-	if params.ClientDisplayName == nil {
-		key.ClientDisplayName = profileconfig.EffectiveClientDisplayName("", f.uris[params.ID], key.Label, key.ExternalSourceID > 0)
-		key.ClientDisplayNameOverridden = false
-	} else {
-		key.ClientDisplayName = *params.ClientDisplayName
-		key.ClientDisplayNameOverridden = true
+	key.Status = params.Status
+	if params.ClientDisplayName != nil {
+		if *params.ClientDisplayName == "" {
+			key.ClientDisplayName = profileconfig.EffectiveClientDisplayName("", f.uris[params.ID], key.Label, key.ExternalSourceID > 0)
+			key.ClientDisplayNameOverridden = false
+		} else {
+			key.ClientDisplayName = *params.ClientDisplayName
+			key.ClientDisplayNameOverridden = true
+		}
 	}
 	key.ProfileRevision++
 	return key, f.uris[params.ID], nil
@@ -153,7 +156,7 @@ func (f *fakeRepo) ListLegacy(ctx context.Context) ([]model.VLESSKey, error) {
 	return out, nil
 }
 
-func TestSourceOwnedProfileAllowsOnlyClientDisplayNameOverrideAndReset(t *testing.T) {
+func TestSourceOwnedProfileAllowsOnlyLocalStatusAndClientDisplayName(t *testing.T) {
 	ctx := context.Background()
 	repo := newFakeRepo()
 	repo.keys[1] = &model.VLESSKey{
@@ -175,9 +178,31 @@ func TestSourceOwnedProfileAllowsOnlyClientDisplayNameOverrideAndReset(t *testin
 		t.Fatalf("updated detail=%#v", updated)
 	}
 
+	statusOnly, err := service.UpdateLocal(ctx, UpdateLocalParams{
+		ID: 1, ProfileRevision: 2, Label: "Source A",
+		Status: "non-active", Kind: "real", Category: "Provider", PatchMode: "structured",
+	})
+	if err != nil {
+		t.Fatalf("status-only update: %v", err)
+	}
+	if statusOnly.Status != "non-active" || statusOnly.ClientDisplayName != override || statusOnly.ProfileRevision != 3 {
+		t.Fatalf("status-only detail=%#v", statusOnly)
+	}
+
+	reactivated, err := service.UpdateLocal(ctx, UpdateLocalParams{
+		ID: 1, ProfileRevision: 3, Label: "Source A",
+		Status: "active", Kind: "real", Category: "Provider", PatchMode: "structured",
+	})
+	if err != nil {
+		t.Fatalf("reactivate update: %v", err)
+	}
+	if reactivated.Status != "active" || reactivated.ClientDisplayName != override || reactivated.ProfileRevision != 4 {
+		t.Fatalf("reactivated detail=%#v", reactivated)
+	}
+
 	mutatedRaw := "vless://11111111-1111-4111-8111-111111111111@attacker.example:443#Changed"
 	if _, err := service.UpdateLocal(ctx, UpdateLocalParams{
-		ID: 1, ProfileRevision: 2, Label: "Source A", ClientDisplayName: &override,
+		ID: 1, ProfileRevision: 4, Label: "Source A", ClientDisplayName: &override,
 		Status: "active", Kind: "real", Category: "Provider", PatchMode: "raw", RawURI: mutatedRaw,
 	}); !errors.Is(err, ErrSourceOwnedReadOnly) {
 		t.Fatalf("source configuration mutation error=%v", err)
@@ -186,7 +211,7 @@ func TestSourceOwnedProfileAllowsOnlyClientDisplayNameOverrideAndReset(t *testin
 		t.Fatal("source configuration was mutated")
 	}
 	if _, err := service.UpdateLocal(ctx, UpdateLocalParams{
-		ID: 1, ProfileRevision: 2, Label: "Renamed panel label", ClientDisplayName: &override,
+		ID: 1, ProfileRevision: 4, Label: "Renamed panel label", ClientDisplayName: &override,
 		Status: "active", Kind: "real", Category: "Provider", PatchMode: "structured",
 	}); !errors.Is(err, ErrSourceOwnedReadOnly) {
 		t.Fatalf("source label mutation error=%v", err)
@@ -200,13 +225,13 @@ func TestSourceOwnedProfileAllowsOnlyClientDisplayNameOverrideAndReset(t *testin
 	}
 	empty := ""
 	reset, err := service.UpdateLocal(ctx, UpdateLocalParams{
-		ID: 1, ProfileRevision: 2, Label: "Source B", ClientDisplayName: &empty,
+		ID: 1, ProfileRevision: 4, Label: "Source B", ClientDisplayName: &empty,
 		Status: "active", Kind: "real", Category: "Provider", PatchMode: "structured",
 	})
 	if err != nil {
 		t.Fatalf("reset override: %v", err)
 	}
-	if reset.ClientDisplayName != "Source B" || reset.ClientDisplayNameOverridden || reset.ProfileRevision != 3 {
+	if reset.ClientDisplayName != "Source B" || reset.ClientDisplayNameOverridden || reset.ProfileRevision != 5 {
 		t.Fatalf("reset detail=%#v", reset)
 	}
 }

@@ -30,6 +30,8 @@ import type {
   CreateKeyProfileInput,
   UpdateKeyProfileInput,
   KeyEditorSchemaResponse,
+  RoutingSettings,
+  RoutingSettingsUpdate,
 } from "./types";
 
 let csrfToken: string | null = null;
@@ -269,7 +271,7 @@ export const keys = {
   delete: (id: number) => request<{ message: string }>("DELETE", `/api/v1/keys/${id}`),
   check: (id: number) => request<KeyCheckResult>("POST", `/api/v1/keys/${id}/check`),
   checkAll: () =>
-    request<{ checked: number; keys: KeyCheckResult[] }>("POST", "/api/v1/keys/check-all"),
+    request<{ job_id: number; status: "queued" }>("POST", "/api/v1/keys/check-all"),
   reorder: (ids: number[]) =>
     request<{ message: string }>("PUT", "/api/v1/keys/order", { ids }),
 };
@@ -291,9 +293,9 @@ export const subscriptionSettings = {
 };
 
 export const routingSettings = {
-  get: () => request<{ config_json: string }>("GET", "/api/v1/routing-settings"),
-  update: (config_json: string) =>
-    request<{ message: string }>("PUT", "/api/v1/routing-settings", { config_json }),
+	get: () => request<RoutingSettings>("GET", "/api/v1/routing-settings"),
+	update: (data: RoutingSettingsUpdate) =>
+		request<RoutingSettings>("PUT", "/api/v1/routing-settings", data),
 };
 
 export const subscriptionPageConfig = {

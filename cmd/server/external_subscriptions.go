@@ -2016,6 +2016,8 @@ func (a *App) syncExternalSourceTx(tx *sql.Tx, source externalSourceRow, parsed 
 
 	existingByRef := make(map[string]existingKey)
 	existingByFingerprint := make(map[string]existingKey)
+	existingByLabel := make(map[string]existingKey)
+	existingLabelCounts := make(map[string]int)
 	existingIDs := make(map[int64]struct{})
 	for _, key := range existingKeys {
 		if _, removed := removedDuplicateIDs[key.ID]; removed {
@@ -2044,7 +2046,23 @@ func (a *App) syncExternalSourceTx(tx *sql.Tx, source externalSourceRow, parsed 
 				}
 			}
 		}
+		label := strings.TrimSpace(key.Label)
+		if label != "" {
+			existingLabelCounts[label]++
+			existingByLabel[label] = key
+		}
 		existingIDs[key.ID] = struct{}{}
+	}
+	incomingLabelCounts := make(map[string]int)
+	for index, item := range parsed.Keys {
+		label := strings.TrimSpace(item.Label)
+		if label == "" {
+			label = fmt.Sprintf("Импорт %03d", index+1)
+		}
+		if len(label) > 255 {
+			label = label[:255]
+		}
+		incomingLabelCounts[label]++
 	}
 
 	seenRefs := make(map[string]struct{}, len(parsed.Keys))
@@ -2115,6 +2133,17 @@ func (a *App) syncExternalSourceTx(tx *sql.Tx, source externalSourceRow, parsed 
 				}
 			}
 		}
+		// A provider may rotate connection material while retaining the logical
+		// profile name. When both sides have exactly one such label, preserve the
+		// row (and its local metadata). Ambiguous labels deliberately remain on
+		// the conservative remove/add path.
+		if !matched && incomingLabelCounts[label] == 1 && existingLabelCounts[label] == 1 {
+			candidate := existingByLabel[label]
+			if _, available := existingIDs[candidate.ID]; available {
+				existing = candidate
+				matched = true
+			}
+		}
 		if matched {
 			stableRef := existing.Ref
 			if stableRef == "" {
@@ -2125,11 +2154,11 @@ func (a *App) syncExternalSourceTx(tx *sql.Tx, source externalSourceRow, parsed 
 				existing.Compatibility != item.Compatibility || existing.WarningsJSON != warningsJSON
 			if _, err := tx.Exec(
 				`UPDATE vless_keys
-				 SET label = ?, category_id = ?, category = ?, status = ?, key_kind = 'real', template_text = NULL,
+				 SET label = ?, category_id = ?, category = ?, key_kind = 'real', template_text = NULL,
 				     external_source_id = ?, external_key_ref = ?, sort_order = ?, protocol = ?, profile_fingerprint = ?,
 				     profile_schema_version = ?, profile_compatibility = ?, profile_warnings_json = ?
 				 WHERE id = ? AND external_source_id = ?`,
-				label, targetCategoryID, targetCategory, statusValue, sourceID, stableRef, nextSortOrder,
+				label, targetCategoryID, targetCategory, sourceID, stableRef, nextSortOrder,
 				item.Protocol, nullStringValue(item.Fingerprint), item.ProfileSchemaVersion, item.Compatibility, warningsJSON, existing.ID, sourceID,
 			); err != nil {
 				return result, err

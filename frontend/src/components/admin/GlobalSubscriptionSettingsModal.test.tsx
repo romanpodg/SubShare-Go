@@ -45,6 +45,12 @@ describe("GlobalSubscriptionSettingsModal", () => {
     const expirationCheckbox = screen.getByRole("checkbox", { name: /Показывать дату окончания подписки/ });
     expect(expirationCheckbox).not.toBeChecked();
     expect(screen.getByText(/Передаёт дату окончания подписки совместимым клиентам/)).toBeInTheDocument();
+    const localization = screen.getByTestId("settings-localization");
+    expect(screen.getByTestId("settings-secondary-column")).toContainElement(localization);
+    expect(screen.getByTestId("settings-primary-column")).not.toContainElement(localization);
+    expect(localization).toHaveTextContent("Локализация сервиса");
+    expect(localization).toHaveTextContent("Часовой пояс");
+    expect(localization).toHaveTextContent("Язык интерфейса");
 
     fireEvent.click(expirationCheckbox);
 

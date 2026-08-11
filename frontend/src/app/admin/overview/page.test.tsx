@@ -83,7 +83,9 @@ describe("OverviewPage", () => {
 
     render(<OverviewPage />);
 
-    expect(await screen.findByText("Завершено с предупреждениями")).toBeInTheDocument();
+    const status = await screen.findByText("Завершено с предупреждениями");
+    expect(status).toHaveClass("ui-background-job-status", "lg:whitespace-nowrap");
+    expect(status.parentElement).toHaveClass("lg:grid-cols-[180px_240px_minmax(0,1fr)_auto]");
     expect(screen.getByText("Не удалось сохранить результаты: 21")).toBeInTheDocument();
     expect(screen.queryByText("Ошибка")).not.toBeInTheDocument();
   });

@@ -59,10 +59,36 @@ func TestValidateResponseRuleInputRejectsUnsafeValues(t *testing.T) {
 	if _, err := validateResponseRuleInput(base); err == nil {
 		t.Fatal("unsafe response header was accepted")
 	}
+	for _, key := range []string{"announce", "Announce", "ANNOUNCE", "profile-title", "profile-update-interval", "profile-web-page-url", "support-url", "subscription-userinfo"} {
+		base.Headers = []responseHeader{{Key: key, Value: "override"}}
+		if _, err := validateResponseRuleInput(base); err == nil {
+			t.Errorf("reserved response header %q was accepted", key)
+		}
+	}
 
 	base.Headers = []responseHeader{{Key: "X-Provider-ID", Value: "provider"}}
 	if _, err := validateResponseRuleInput(base); err != nil {
 		t.Fatalf("valid response rule rejected: %v", err)
+	}
+}
+
+func TestApplyRuleHeadersProtectsCanonicalMetadataFromLegacyStoredRules(t *testing.T) {
+	t.Parallel()
+	recorder := httptest.NewRecorder()
+	recorder.Header().Set("announce", "base64:Y2Fub25pY2Fs")
+	applyRuleHeaders(recorder, []responseHeader{
+		{Key: "ANNOUNCE", Value: "custom"},
+		{Key: "Profile-Title", Value: "custom"},
+		{Key: "X-Safe-Custom", Value: "kept"},
+	})
+	if got := recorder.Header().Get("announce"); got != "base64:Y2Fub25pY2Fs" {
+		t.Fatalf("canonical announce was overwritten: %q", got)
+	}
+	if got := recorder.Header().Get("Profile-Title"); got != "" {
+		t.Fatalf("reserved profile title was applied: %q", got)
+	}
+	if got := recorder.Header().Get("X-Safe-Custom"); got != "kept" {
+		t.Fatalf("safe custom header=%q", got)
 	}
 }
 

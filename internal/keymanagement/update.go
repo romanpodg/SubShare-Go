@@ -190,7 +190,7 @@ func (s *Service) UpdateLocal(ctx context.Context, params UpdateLocalParams) (*m
 		return nil, ErrProfileRevisionConflict
 	}
 	if key.ExternalSourceID > 0 {
-		return s.updateSourceOwnedClientDisplayName(ctx, key, decryptedURI, params)
+		return s.updateSourceOwnedMetadata(ctx, key, decryptedURI, params)
 	}
 
 	label := strings.TrimSpace(params.Label)
@@ -282,7 +282,7 @@ func (s *Service) UpdateLocal(ctx context.Context, params UpdateLocalParams) (*m
 	return &detail, nil
 }
 
-func (s *Service) updateSourceOwnedClientDisplayName(ctx context.Context, key *model.VLESSKey, decryptedURI string, params UpdateLocalParams) (*model.KeyProfileDetailResponse, error) {
+func (s *Service) updateSourceOwnedMetadata(ctx context.Context, key *model.VLESSKey, decryptedURI string, params UpdateLocalParams) (*model.KeyProfileDetailResponse, error) {
 	status, statusOK := model.NormalizeKeyStatus(params.Status)
 	kind, kindOK := model.NormalizeKeyKind(params.Kind)
 	patchMode := strings.ToLower(strings.TrimSpace(params.PatchMode))
@@ -293,9 +293,8 @@ func (s *Service) updateSourceOwnedClientDisplayName(ctx context.Context, key *m
 	// metadata-only projection of the current source row. The persistence method
 	// below cannot mutate any source-controlled column, but these checks also
 	// reject crafted full-profile requests instead of silently ignoring them.
-	if params.ClientDisplayName == nil ||
-		strings.TrimSpace(params.Label) != strings.TrimSpace(key.Label) ||
-		!statusOK || status != key.Status ||
+	if strings.TrimSpace(params.Label) != strings.TrimSpace(key.Label) ||
+		!statusOK ||
 		!kindOK || kind != key.Kind ||
 		!categoryMatches || !categoryIDMatches ||
 		strings.TrimSpace(params.TemplateText) != strings.TrimSpace(key.TemplateText) ||
@@ -304,18 +303,19 @@ func (s *Service) updateSourceOwnedClientDisplayName(ctx context.Context, key *m
 		return nil, ErrSourceOwnedReadOnly
 	}
 
-	resolved := strings.TrimSpace(*params.ClientDisplayName)
-	if len(resolved) > 255 {
-		return nil, ErrLabelTooLong
+	var clientDisplayName *string
+	if params.ClientDisplayName != nil {
+		resolved := strings.TrimSpace(*params.ClientDisplayName)
+		if len(resolved) > 255 {
+			return nil, ErrLabelTooLong
+		}
+		clientDisplayName = &resolved
 	}
-	var override *string
-	if resolved != "" {
-		override = &resolved
-	}
-	updatedKey, updatedURI, err := s.profileRepo.UpdateClientDisplayName(ctx, profilepersistence.UpdateClientDisplayNameParams{
+	updatedKey, updatedURI, err := s.profileRepo.UpdateSourceOwnedMetadata(ctx, profilepersistence.UpdateSourceOwnedMetadataParams{
 		ID:                params.ID,
 		ExpectedRevision:  params.ProfileRevision,
-		ClientDisplayName: override,
+		Status:            status,
+		ClientDisplayName: clientDisplayName,
 	})
 	if err != nil {
 		return nil, err

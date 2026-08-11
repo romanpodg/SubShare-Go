@@ -193,7 +193,9 @@ func safeCustomResponseHeader(key, value string) bool {
 	}
 	switch strings.ToLower(key) {
 	case "set-cookie", "content-length", "transfer-encoding", "connection", "content-type",
-		"content-disposition", "strict-transport-security", "access-control-allow-origin":
+		"content-disposition", "strict-transport-security", "access-control-allow-origin",
+		"announce", "profile-title", "profile-update-interval", "profile-web-page-url",
+		"support-url", "subscription-userinfo", "routing":
 		return false
 	default:
 		return true

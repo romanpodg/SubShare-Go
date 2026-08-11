@@ -254,8 +254,26 @@ func TestKeyProfileHandler_FullSuite(t *testing.T) {
 		t.Fatalf("source metadata update rewrote secret=%v err=%v", sourceEnvelopeAfter != sourceEnvelopeBefore, err)
 	}
 
+	// Source-owned delivery status is local metadata and supports both directions.
+	bodySourceInactive := bytes.NewBufferString(`{"profile_revision":3,"label":"Updated SS","status":"non-active","kind":"real","category":"","template_text":"","patch_mode":"structured"}`)
+	reqSourceInactive := httptest.NewRequest("PUT", "/api/v1/keys/1", bodySourceInactive)
+	reqSourceInactive.SetPathValue("id", "1")
+	recSourceInactive := httptest.NewRecorder()
+	handler.UpdateKeyProfile(recSourceInactive, reqSourceInactive)
+	if recSourceInactive.Code != http.StatusOK || !strings.Contains(recSourceInactive.Body.String(), `"status":"non-active"`) || !strings.Contains(recSourceInactive.Body.String(), `"client_display_name":"Source override"`) {
+		t.Fatalf("source deactivate status=%d body=%s", recSourceInactive.Code, recSourceInactive.Body.String())
+	}
+	bodySourceActive := bytes.NewBufferString(`{"profile_revision":4,"label":"Updated SS","status":"active","kind":"real","category":"","template_text":"","patch_mode":"structured"}`)
+	reqSourceActive := httptest.NewRequest("PUT", "/api/v1/keys/1", bodySourceActive)
+	reqSourceActive.SetPathValue("id", "1")
+	recSourceActive := httptest.NewRecorder()
+	handler.UpdateKeyProfile(recSourceActive, reqSourceActive)
+	if recSourceActive.Code != http.StatusOK || !strings.Contains(recSourceActive.Body.String(), `"status":"active"`) {
+		t.Fatalf("source reactivate status=%d body=%s", recSourceActive.Code, recSourceActive.Body.String())
+	}
+
 	// Full configuration and source label mutations remain forbidden.
-	bodyUpdateExt := bytes.NewBufferString(`{"profile_revision":3,"label":"Updated SS","client_display_name":"Source override","status":"active","kind":"real","patch_mode":"raw","raw_uri":"` + ssURI + `"}`)
+	bodyUpdateExt := bytes.NewBufferString(`{"profile_revision":5,"label":"Updated SS","client_display_name":"Source override","status":"active","kind":"real","patch_mode":"raw","raw_uri":"` + ssURI + `"}`)
 	reqUpdateExt := httptest.NewRequest("PUT", "/api/v1/keys/1", bodyUpdateExt)
 	reqUpdateExt.SetPathValue("id", "1")
 	recUpdateExt := httptest.NewRecorder()
@@ -263,7 +281,7 @@ func TestKeyProfileHandler_FullSuite(t *testing.T) {
 	if recUpdateExt.Code != http.StatusForbidden {
 		t.Fatalf("expected 403 on source-owned update, got %d", recUpdateExt.Code)
 	}
-	bodyRenameExt := bytes.NewBufferString(`{"profile_revision":3,"label":"Update Ext","client_display_name":"Source override","status":"active","kind":"real","patch_mode":"structured"}`)
+	bodyRenameExt := bytes.NewBufferString(`{"profile_revision":5,"label":"Update Ext","client_display_name":"Source override","status":"active","kind":"real","patch_mode":"structured"}`)
 	reqRenameExt := httptest.NewRequest("PUT", "/api/v1/keys/1", bodyRenameExt)
 	reqRenameExt.SetPathValue("id", "1")
 	recRenameExt := httptest.NewRecorder()
@@ -272,7 +290,7 @@ func TestKeyProfileHandler_FullSuite(t *testing.T) {
 		t.Fatalf("expected 403 on source label update, got %d", recRenameExt.Code)
 	}
 
-	bodyResetSourceName := bytes.NewBufferString(`{"profile_revision":3,"label":"Updated SS","client_display_name":"","status":"active","kind":"real","category":"","template_text":"","patch_mode":"structured"}`)
+	bodyResetSourceName := bytes.NewBufferString(`{"profile_revision":5,"label":"Updated SS","client_display_name":"","status":"active","kind":"real","category":"","template_text":"","patch_mode":"structured"}`)
 	reqResetSourceName := httptest.NewRequest("PUT", "/api/v1/keys/1", bodyResetSourceName)
 	reqResetSourceName.SetPathValue("id", "1")
 	recResetSourceName := httptest.NewRecorder()
@@ -289,7 +307,7 @@ func TestKeyProfileHandler_FullSuite(t *testing.T) {
 	}
 
 	// 11. Clone Key Profile -> 201
-	bodyClone := bytes.NewBufferString(`{"expected_profile_revision":4,"new_label":"Cloned SS"}`)
+	bodyClone := bytes.NewBufferString(`{"expected_profile_revision":6,"new_label":"Cloned SS"}`)
 	reqClone := httptest.NewRequest("POST", "/api/v1/keys/1/clone", bodyClone)
 	reqClone.SetPathValue("id", "1")
 	recClone := httptest.NewRecorder()
@@ -302,7 +320,7 @@ func TestKeyProfileHandler_FullSuite(t *testing.T) {
 	if _, err := db.Exec(`DELETE FROM vless_key_secrets WHERE vless_key_id = 1`); err != nil {
 		t.Fatalf("delete secrets row: %v", err)
 	}
-	bodyCloneIntegrity := bytes.NewBufferString(`{"expected_profile_revision":4,"new_label":"Clone Fail"}`)
+	bodyCloneIntegrity := bytes.NewBufferString(`{"expected_profile_revision":6,"new_label":"Clone Fail"}`)
 	reqCloneIntegrity := httptest.NewRequest("POST", "/api/v1/keys/1/clone", bodyCloneIntegrity)
 	reqCloneIntegrity.SetPathValue("id", "1")
 	recCloneIntegrity := httptest.NewRecorder()
