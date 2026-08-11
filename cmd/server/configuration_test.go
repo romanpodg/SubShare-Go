@@ -262,7 +262,7 @@ func TestHealthCheckRejectsPrivateTargetsBeforeDial(t *testing.T) {
 	status, checkError, _ := checkConfigurationAvailability(
 		"vless://11111111-1111-1111-1111-111111111111@127.0.0.1:443?security=tls",
 	)
-	if status != "down" || !strings.Contains(checkError, "not a permitted public address") {
+	if status != "down" || checkError != "destination_not_permitted" {
 		t.Fatalf("private target was not rejected: status=%q error=%q", status, checkError)
 	}
 }

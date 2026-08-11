@@ -408,7 +408,19 @@ type UpdateSubscriptionSettingsRequest struct {
 }
 
 type RoutingSettings struct {
-	ConfigJSON string `json:"config_json"`
+	ConfigJSON   string `json:"config_json"`
+	DeliveryMode string `json:"delivery_mode"`
+	AddURL       string `json:"add_url"`
+	OnAddURL     string `json:"onadd_url"`
+	OffURL       string `json:"off_url"`
+	Message      string `json:"message,omitempty"`
+}
+
+// UpdateRoutingSettingsRequest keeps DeliveryMode optional so older clients
+// that only update config_json do not unexpectedly change automatic delivery.
+type UpdateRoutingSettingsRequest struct {
+	ConfigJSON   string  `json:"config_json"`
+	DeliveryMode *string `json:"delivery_mode,omitempty"`
 }
 
 // ExternalSubscriptionSource stores settings for a third-party subscription source.
@@ -641,7 +653,7 @@ func KeyStatusLabel(status string) string {
 func NormalizeCheckStatus(raw string) string {
 	status := strings.ToLower(strings.TrimSpace(raw))
 	switch status {
-	case "up", "down", "unknown":
+	case "up", "down", "unknown", "unsupported_check":
 		return status
 	default:
 		return "unknown"
@@ -693,6 +705,8 @@ func CheckStatusLabel(status string) string {
 		return "Доступен"
 	case "down":
 		return "Недоступен"
+	case "unsupported_check":
+		return "Проверка не поддерживается"
 	default:
 		return "Не проверен"
 	}

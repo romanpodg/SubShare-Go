@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"encoding/base64"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -16,7 +17,6 @@ import (
 func TestValidateSubscriptionDeliverySettings(t *testing.T) {
 	t.Parallel()
 	input := defaultSubscriptionDeliverySettings()
-	input.Announcement = "Maintenance"
 	input.ResponseHeaders = []responseHeader{{Key: "X-Provider", Value: "SubShare"}}
 	input.Remarks["expired"] = []string{"Subscription expired", "Contact support"}
 	if _, err := validateSubscriptionDeliverySettings(input); err != nil {
@@ -26,6 +26,152 @@ func TestValidateSubscriptionDeliverySettings(t *testing.T) {
 	input.ResponseHeaders = []responseHeader{{Key: "Set-Cookie", Value: "unsafe=true"}}
 	if _, err := validateSubscriptionDeliverySettings(input); err == nil {
 		t.Fatal("unsafe response header was accepted")
+	}
+
+	for _, key := range []string{
+		"announce", "Announce", "ANNOUNCE", "profile-title", "profile-update-interval",
+		"profile-web-page-url", "support-url", "subscription-userinfo", "routing", "Routing", "ROUTING",
+	} {
+		input.ResponseHeaders = []responseHeader{{Key: key, Value: "override"}}
+		if _, err := validateSubscriptionDeliverySettings(input); err == nil {
+			t.Errorf("reserved response header %q was accepted", key)
+		}
+	}
+}
+
+func TestSubscriptionAnnouncementUsesCanonicalMetadata(t *testing.T) {
+	tests := []struct {
+		name             string
+		global           string
+		userOverride     string
+		legacyDelivery   string
+		legacyHeaderName string
+		want             string
+	}{
+		{
+			name:             "global UTF-8 metadata",
+			global:           "Плановые работы сегодня",
+			legacyDelivery:   "deprecated delivery value",
+			legacyHeaderName: "ANNOUNCE",
+			want:             "Плановые работы сегодня",
+		},
+		{
+			name:             "user override wins",
+			global:           "Global announcement",
+			userOverride:     "Персональное объявление",
+			legacyDelivery:   "deprecated delivery value",
+			legacyHeaderName: "Announce",
+			want:             "Персональное объявление",
+		},
+		{
+			name:           "empty canonical value emits no header",
+			legacyDelivery: "deprecated delivery value",
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			app := newIntegrationApp(t)
+			userID := seedSubscriptionUser(t, app, model.UserStatusActive)
+			if _, err := app.db.Exec(`UPDATE subscription_settings SET extra_status = ? WHERE id = 1`, nullStringValue(test.global)); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := app.db.Exec(`UPDATE users SET subscription_extra_status = ? WHERE id = ?`, nullStringValue(test.userOverride), userID); err != nil {
+				t.Fatal(err)
+			}
+			headers := []responseHeader{{Key: "X-Provider", Value: "SubShare"}}
+			if test.legacyHeaderName != "" {
+				headers = append(headers, responseHeader{Key: test.legacyHeaderName, Value: "custom override"})
+			}
+			headersJSON, err := json.Marshal(headers)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if _, err := app.db.Exec(`UPDATE subscription_delivery_settings SET announcement = ?, response_headers_json = ? WHERE id = 1`, test.legacyDelivery, string(headersJSON)); err != nil {
+				t.Fatal(err)
+			}
+			insertAssignedDeliveryKey(t, app, userID, nil, "VLESS", externalTestVLESS, "vless", "full", 1)
+
+			request := httptest.NewRequest(http.MethodGet, "/sub/subscription-token", nil)
+			request.SetPathValue("subscription_id", "subscription-token")
+			recorder := httptest.NewRecorder()
+			app.handleSubscription(recorder, request)
+			if recorder.Code != http.StatusOK {
+				t.Fatalf("status=%d body=%q", recorder.Code, recorder.Body.String())
+			}
+			if got := recorder.Header().Get("X-Provider"); got != "SubShare" {
+				t.Fatalf("safe custom header=%q", got)
+			}
+			got := recorder.Header().Get("announce")
+			if test.want == "" {
+				if got != "" {
+					t.Fatalf("deprecated delivery setting emitted announce=%q", got)
+				}
+				return
+			}
+			want := "base64:" + base64.StdEncoding.EncodeToString([]byte(test.want))
+			if got != want {
+				t.Fatalf("announce=%q want=%q", got, want)
+			}
+			if values := recorder.Header().Values("announce"); len(values) != 1 {
+				t.Fatalf("announce values=%#v want exactly one", values)
+			}
+			decoded, err := base64.StdEncoding.DecodeString(strings.TrimPrefix(got, "base64:"))
+			if err != nil || string(decoded) != test.want {
+				t.Fatalf("decoded announce=%q err=%v", decoded, err)
+			}
+		})
+	}
+}
+
+func TestDeliverySettingsLegacyAnnouncementCompatibility(t *testing.T) {
+	app := newIntegrationApp(t)
+	currentPayload := `{"response_headers":[],"remarks":{"expired":[],"paused":[],"blocked":[],"limited":[],"empty":[]}}`
+	recorder := httptest.NewRecorder()
+	app.apiV1UpdateSubscriptionDeliverySettings(recorder, httptest.NewRequest(http.MethodPut, "/api/v1/subscription-delivery-settings", strings.NewReader(currentPayload)))
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("current update without announcement status=%d body=%q", recorder.Code, recorder.Body.String())
+	}
+
+	payload := `{"response_headers":[{"key":"X-Provider","value":"SubShare"}],"announcement":"Старое объявление","remarks":{"expired":["Expired"],"paused":[],"blocked":[],"limited":[],"empty":[]}}`
+	recorder = httptest.NewRecorder()
+	app.apiV1UpdateSubscriptionDeliverySettings(recorder, httptest.NewRequest(http.MethodPut, "/api/v1/subscription-delivery-settings", strings.NewReader(payload)))
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("legacy update status=%d body=%q", recorder.Code, recorder.Body.String())
+	}
+	var canonical, retired string
+	if err := app.db.QueryRow(`SELECT COALESCE(extra_status, '') FROM subscription_settings WHERE id = 1`).Scan(&canonical); err != nil {
+		t.Fatal(err)
+	}
+	if err := app.db.QueryRow(`SELECT announcement FROM subscription_delivery_settings WHERE id = 1`).Scan(&retired); err != nil {
+		t.Fatal(err)
+	}
+	if canonical != "Старое объявление" || retired != "" {
+		t.Fatalf("canonical=%q retired=%q", canonical, retired)
+	}
+	if got := app.subscriptionRemarkForStatus("expired", "fallback"); got != "Expired" {
+		t.Fatalf("remark=%q", got)
+	}
+
+	if _, err := app.db.Exec(`UPDATE subscription_settings SET extra_status = 'Canonical' WHERE id = 1`); err != nil {
+		t.Fatal(err)
+	}
+	recorder = httptest.NewRecorder()
+	app.apiV1UpdateSubscriptionDeliverySettings(recorder, httptest.NewRequest(http.MethodPut, "/api/v1/subscription-delivery-settings", strings.NewReader(strings.Replace(payload, "Старое объявление", "Other", 1))))
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("second legacy update status=%d body=%q", recorder.Code, recorder.Body.String())
+	}
+	if err := app.db.QueryRow(`SELECT COALESCE(extra_status, '') FROM subscription_settings WHERE id = 1`).Scan(&canonical); err != nil {
+		t.Fatal(err)
+	}
+	if canonical != "Canonical" {
+		t.Fatalf("legacy input overwrote canonical value: %q", canonical)
+	}
+
+	recorder = httptest.NewRecorder()
+	app.apiV1GetSubscriptionDeliverySettings(recorder, httptest.NewRequest(http.MethodGet, "/api/v1/subscription-delivery-settings", nil))
+	if recorder.Code != http.StatusOK || strings.Contains(recorder.Body.String(), `"announcement"`) {
+		t.Fatalf("delivery response still exposes announcement: status=%d body=%q", recorder.Code, recorder.Body.String())
 	}
 }
 
@@ -145,9 +291,6 @@ func TestSubscriptionExpirationMetadataDelivery(t *testing.T) {
 			if _, err := app.db.Exec(`UPDATE subscription_settings SET subscription_format = ?, show_subscription_expiration = ?, happ_notify_expiration = ? WHERE id = 1`, test.format, boolToInt(test.enabled), boolToInt(test.happEnabled)); err != nil {
 				t.Fatal(err)
 			}
-			if _, err := app.db.Exec(`UPDATE subscription_delivery_settings SET response_headers_json = ? WHERE id = 1`, `[{"key":"Subscription-Userinfo","value":"upload=10; download=20; total=30; expire=1"}]`); err != nil {
-				t.Fatal(err)
-			}
 			insertAssignedDeliveryKey(t, app, userID, nil, "VLESS", externalTestVLESS, "vless", "full", 1)
 
 			request := httptest.NewRequest(http.MethodGet, "/sub/subscription-token", nil)
@@ -163,11 +306,6 @@ func TestSubscriptionExpirationMetadataDelivery(t *testing.T) {
 					t.Fatalf("denied response exposed userinfo=%q", userinfo)
 				}
 				return
-			}
-			for _, field := range []string{"upload=10", "download=20", "total=30"} {
-				if !strings.Contains(userinfo, field) {
-					t.Fatalf("userinfo=%q missing %q", userinfo, field)
-				}
 			}
 			if test.enabled && test.expiresAt != nil {
 				expected := test.expiresAt.(time.Time).Unix()

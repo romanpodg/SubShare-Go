@@ -155,6 +155,7 @@ func TestNormalizeCheckStatus(t *testing.T) {
 		{"up stays up", "up", "up"},
 		{"down stays down", "down", "down"},
 		{"unknown stays unknown", "unknown", "unknown"},
+		{"unsupported check stays explicit", "unsupported_check", "unsupported_check"},
 		{"empty defaults to unknown", "", "unknown"},
 		{"invalid defaults to unknown", "invalid", "unknown"},
 		{"UP uppercase normalizes to up", "UP", "up"},
@@ -179,6 +180,7 @@ func TestCheckStatusLabel(t *testing.T) {
 	}{
 		{"up returns Доступен", "up", "Доступен"},
 		{"down returns Недоступен", "down", "Недоступен"},
+		{"unsupported returns neutral label", "unsupported_check", "Проверка не поддерживается"},
 		{"unknown returns Не проверен", "unknown", "Не проверен"},
 		{"empty returns Не проверен", "", "Не проверен"},
 		{"arbitrary string returns Не проверен", "foobar", "Не проверен"},

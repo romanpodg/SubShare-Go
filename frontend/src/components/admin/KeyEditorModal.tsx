@@ -40,7 +40,6 @@ import type {
 import { CreateKeyCategoryModal } from "./CreateKeyCategoryModal";
 import { KeyEditorConflictDialog } from "./KeyEditorConflictDialog";
 import { informationalTemplatePreviewParts, keyTemplateVariables } from "./keyTemplateVariables";
-import { OutputCapabilitiesMatrix } from "./OutputCapabilitiesMatrix";
 import {
   isLegacyEditorProtocol,
   PROTOCOL_EDITOR_CAPABILITIES,
@@ -496,17 +495,22 @@ export function KeyEditorModal({
       if (keyId && detail) {
         // Update existing key
         if (isSourceOwned) {
+          const currentClientDisplayNameOverride = detail.client_display_name_overridden
+            ? detail.client_display_name.trim()
+            : "";
           await keysApi.updateProfile(keyId, {
             label: detail.label,
-            client_display_name: displayName.trim(),
+            client_display_name: displayName.trim() !== currentClientDisplayNameOverride
+              ? displayName.trim()
+              : undefined,
             category: detail.category,
-            status: detail.status,
+            status,
             kind: detail.kind,
             template_text: detail.template_text,
             profile_revision: detail.profile_revision,
             patch_mode: "structured",
           });
-          toast("Название в клиенте обновлено", "success");
+          toast("Локальные параметры профиля обновлены", "success");
           await onRefresh();
           onClose();
           return;
@@ -708,46 +712,47 @@ export function KeyEditorModal({
         open={open}
         onClose={handleCloseAttempt}
         title={titleText}
-        className="flex h-[92dvh] max-h-[56rem] w-[96vw] max-w-6xl flex-col overflow-hidden"
-        contentClassName="flex min-h-0 flex-1 flex-col overflow-hidden"
+        className="max-h-[calc(100dvh-1.5rem)] w-[96vw] max-w-6xl overflow-hidden"
+        contentClassName="flex min-h-0 flex-col overflow-hidden"
       >
         {loading ? (
           <div className="flex min-h-64 items-center justify-center text-sm text-zinc-400">
             Загрузка профиля и схем...
           </div>
         ) : (
-          <form onSubmit={handleSubmit} className="flex min-h-0 flex-1 flex-col">
-            <div className="ui-key-editor-scroll-region min-h-0 flex-1 overflow-y-auto space-y-4 pr-1">
-              {/* Header Info & Source Banner */}
-              {isSourceOwned && (
-                <div className="flex items-center justify-between gap-3 rounded-sm border border-sky-500/30 bg-sky-500/10 p-3.5 text-xs text-sky-200">
-                  <div className="flex items-center gap-2">
-                    <Info className="h-4 w-4 shrink-0 text-sky-300" aria-hidden="true" />
-                    <span>
-                      Управляется источником <strong>{detail?.external_source_name}</strong>. Изменение параметров профиля заблокировано.
-                    </span>
-                  </div>
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    loading={cloning}
-                    onClick={handleClone}
-                    className="border-sky-500/40 text-sky-200 hover:bg-sky-500/20"
-                  >
-                    Клонировать как локальный
-                  </Button>
+          <form onSubmit={handleSubmit} className="flex min-h-0 flex-col overflow-hidden">
+            {/* Source ownership is fixed metadata, independent of the scrolling editor workspace. */}
+            {isSourceOwned && (
+              <div className="ui-key-editor-source-banner mb-3 flex shrink-0 items-center justify-between gap-3 rounded-sm border border-sky-500/30 bg-sky-500/10 p-3 text-xs text-sky-200">
+                <div className="flex items-center gap-2">
+                  <Info className="h-4 w-4 shrink-0 text-sky-300" aria-hidden="true" />
+                  <span>
+                    Управляется источником <strong>{detail?.external_source_name}</strong>. Подключение заблокировано; статус и название в клиенте задаются локально.
+                  </span>
                 </div>
-              )}
+                <Button
+                  type="button"
+                  variant="ghost"
+                  loading={cloning}
+                  onClick={handleClone}
+                  className="border-sky-500/40 text-sky-200 hover:bg-sky-500/20"
+                >
+                  Клонировать как локальный
+                </Button>
+              </div>
+            )}
+
+            <div className="ui-key-editor-scroll-region min-h-0 flex-[0_1_auto] space-y-3 overflow-y-auto pr-1">
 
               <div
                 data-testid="key-editor-workspace"
                 className={`ui-key-editor-workspace ui-joined-grid grid min-w-0 grid-cols-1 rounded-sm ${kind === "real" ? "lg:grid-cols-2" : ""}`}
               >
                 {/* Main Parameters */}
-                <section className="rounded-sm border border-border bg-surface-2/25 p-4">
+                <section className="rounded-sm border border-border bg-surface-2/25 p-3.5">
                   <div className="system-label mb-3">ОСНОВНЫЕ ПАРАМЕТРЫ</div>
-                  <div className="grid min-w-0 grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-4">
-                    <div className="min-w-0 md:col-span-2">
+                  <div className="grid min-w-0 grid-cols-1 gap-3 md:grid-cols-2">
+                    <div className={`min-w-0 ${kind === "real" ? "" : "md:col-span-2"}`}>
                       <Input
                         label="Название"
                         value={label}
@@ -759,7 +764,7 @@ export function KeyEditorModal({
                       <p className="mt-1 text-xs text-zinc-600">Используется только в панели управления.</p>
                     </div>
                     {kind === "real" && (
-                      <div className="min-w-0 md:col-span-2">
+                      <div className="min-w-0">
                         <Input
                           label="Название в клиенте"
                           value={displayName}
@@ -787,16 +792,17 @@ export function KeyEditorModal({
                         )}
                       </div>
                     )}
-                    <Select
-                      label="Статус"
-                      value={status}
-                      onChange={(e) => { setStatus(e.target.value as "active" | "non-active"); setIsDirty(true); }}
-                      options={[
-                        { value: "active", label: "Активен" },
-                        { value: "non-active", label: "Неактивен" },
-                      ]}
-                      disabled={Boolean(isSourceOwned)}
-                    />
+                    <div className="min-w-0">
+                      <Select
+                        label="Статус"
+                        value={status}
+                        onChange={(e) => { setStatus(e.target.value as "active" | "non-active"); setIsDirty(true); }}
+                        options={[
+                          { value: "active", label: "Активен" },
+                          { value: "non-active", label: "Неактивен" },
+                        ]}
+                      />
+                    </div>
                     <Select
                       label="Тип"
                       value={kind}
@@ -807,7 +813,7 @@ export function KeyEditorModal({
                       ]}
                       disabled={Boolean(isSourceOwned)}
                     />
-                    <div className="min-w-0 md:col-span-2 xl:col-span-4">
+                    <div className="min-w-0 md:col-span-2">
                       <div className="grid min-w-0 grid-cols-[minmax(0,1fr)_44px] items-end gap-2">
                         <Select
                           label="Категория"
@@ -833,7 +839,7 @@ export function KeyEditorModal({
                 </section>
 
                 {kind === "informational" && (
-                  <section className="space-y-4 rounded-sm border border-border bg-surface-1 p-4">
+                  <section className="space-y-3 rounded-sm border border-border bg-surface-1 p-3.5">
                     <div className="system-label">ИНФОРМАЦИОННЫЙ КЛЮЧ</div>
                     <label className="block space-y-2">
                       <span className="font-mono text-[10px] font-semibold uppercase tracking-[0.14em] text-zinc-500">
@@ -899,7 +905,7 @@ export function KeyEditorModal({
 
                 {/* Real Profile Workspace */}
                 {kind === "real" && (
-                  <section className="space-y-4 rounded-sm border border-border bg-surface-1 p-4">
+                  <section className="space-y-3 rounded-sm border border-border bg-surface-1 p-3.5">
                   <div className="flex flex-wrap items-center justify-between gap-3">
                     <div className="system-label">РЕДАКТОР ПРОФИЛЯ</div>
                     <div className="flex rounded-sm border border-border bg-surface-2 p-1">
@@ -1089,10 +1095,10 @@ export function KeyEditorModal({
                       aria-label="Raw-конфигурация"
                       onChange={(e) => changeRaw(e.target.value)}
                       placeholder="vless://... / vmess://... / trojan://... / ss://... / hysteria2://... / tuic://... / { XRAY-JSON }"
-                      rows={16}
+                      rows={12}
                       disabled={isSourceOwned || (keyId ? !revealedRaw : false)}
                       spellCheck={false}
-                      className="min-h-72 w-full resize-y overflow-auto whitespace-pre rounded-sm border border-border bg-surface-2 p-3 font-mono text-xs leading-5 text-zinc-200"
+                      className="min-h-64 w-full resize-y overflow-auto whitespace-pre rounded-sm border border-border bg-surface-2 p-3 font-mono text-xs leading-5 text-zinc-200"
                     />
 
                     {rawValidationError && (
@@ -1123,24 +1129,21 @@ export function KeyEditorModal({
                     )}
                   </div>
 
-                  {/* Capabilities Matrix */}
-                  <OutputCapabilitiesMatrix
-                    capabilities={detail?.capabilities}
-                    exclusionReasonsCatalog={schemaResponse?.exclusion_reason_codes}
-                  />
                 </section>
               )}
               </div>
             </div>
 
             {/* Modal Actions */}
-            <div className="-mx-5 -mb-5 mt-4 flex shrink-0 justify-end gap-2 border-t border-border bg-surface-1 px-5 py-4">
-              <Button type="button" variant="ghost" onClick={handleCloseAttempt} disabled={saving}>
-                Отмена
-              </Button>
-              <Button type="submit" loading={saving} disabled={Boolean(isSourceOwned && !isDirty)}>
-                {keyId ? "Сохранить" : "Добавить профиль"}
-              </Button>
+            <div className="ui-key-editor-footer mt-3 flex shrink-0 items-center justify-end border-t border-border bg-surface-1 py-4">
+              <div className="ui-key-editor-footer-actions grid w-full grid-cols-2 gap-3 sm:flex sm:w-auto">
+                <Button className="w-full sm:w-36" type="button" variant="outline" onClick={handleCloseAttempt} disabled={saving}>
+                  Отмена
+                </Button>
+                <Button className={`w-full ${keyId ? "sm:w-36" : "sm:w-48"}`} type="submit" loading={saving} disabled={Boolean(isSourceOwned && !isDirty)}>
+                  {keyId ? "Сохранить" : "Добавить профиль"}
+                </Button>
+              </div>
             </div>
           </form>
         )}

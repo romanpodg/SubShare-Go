@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/Button";
 import { useToast } from "@/components/ui/Toast";
 import { routingSettings as routingSettingsApi } from "@/lib/api";
 import { copyToClipboard } from "@/lib/clipboard";
+import type { RoutingDeliveryMode, RoutingSettings } from "@/lib/types";
 
 type RoutingTab = "main" | "dns" | "geo" | "rules" | "json";
 
@@ -37,7 +38,7 @@ interface RoutingConfig {
 }
 
 const DEFAULT_ROUTING_CONFIG: RoutingConfig = {
-  Name: "",
+	Name: "SubShare Routing",
   GlobalProxy: true,
   RouteOrder: "block-proxy-direct",
   DomainStrategy: "IPIfNonMatch",
@@ -71,15 +72,6 @@ const tabLabels: Record<RoutingTab, string> = {
   rules: "Исключения и правила",
   json: "JSON-редактор",
 };
-
-function encodeBase64(value: string) {
-  const bytes = new TextEncoder().encode(value);
-  let binary = "";
-  bytes.forEach((byte) => {
-    binary += String.fromCharCode(byte);
-  });
-  return btoa(binary);
-}
 
 function decodeBase64(value: string) {
   const normalized = value.replace(/-/g, "+").replace(/_/g, "/");
@@ -131,16 +123,6 @@ function buildConfigJSON(config: RoutingConfig) {
   return JSON.stringify(config, null, 2);
 }
 
-function buildRoutingLink(config: RoutingConfig, autoActivate: boolean) {
-  const payload = encodeURIComponent(encodeBase64(buildConfigJSON(config)));
-  return `happ://routing/${autoActivate ? "onadd" : "add"}/${payload}`;
-}
-
-function buildDisableLink(config: RoutingConfig) {
-  const payload = encodeURIComponent(encodeBase64(JSON.stringify({ Name: config.Name || "Routing" })));
-  return `happ://routing/disable/${payload}`;
-}
-
 function ListEditor({
   title,
   items,
@@ -164,19 +146,21 @@ function ListEditor({
     <div className="flex flex-col gap-2 rounded-xl border border-border bg-surface-2/40 p-3">
       <div className="text-sm font-medium text-zinc-200">{title}</div>
       {items.length === 0 && <div className="text-xs text-zinc-500">Список пуст</div>}
-      {items.slice(0, 4).map((item, index) => (
-        <div key={`${title}-${index}`} className="flex items-center gap-2">
-          <input
-            value={item}
-            onChange={(e) => updateItem(index, e.target.value)}
-            className="w-full rounded-lg border border-border bg-surface-2 px-3 py-2 text-sm text-zinc-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-bg"
-          />
-          <Button type="button" variant="danger" className="text-xs" onClick={() => removeItem(index)}>
-            Удалить
-          </Button>
-        </div>
-      ))}
-      {items.length > 4 && <div className="text-xs text-zinc-500">Показаны первые 4 элемента из {items.length}</div>}
+		<div className="flex max-h-64 flex-col gap-2 overflow-y-auto pr-1">
+			{items.map((item, index) => (
+				<div key={`${title}-${index}`} className="flex items-center gap-2">
+					<input
+						aria-label={`${title}, элемент ${index + 1}`}
+						value={item}
+						onChange={(e) => updateItem(index, e.target.value)}
+						className="w-full rounded-lg border border-border bg-surface-2 px-3 py-2 text-sm text-zinc-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-bg"
+					/>
+					<Button type="button" variant="danger" className="text-xs" onClick={() => removeItem(index)}>
+						Удалить
+					</Button>
+				</div>
+			))}
+		</div>
       <Button type="button" variant="ghost" className="text-xs self-start" onClick={() => onChange([...items, ""])}>
         Добавить элемент
       </Button>
@@ -184,11 +168,73 @@ function ListEditor({
   );
 }
 
-export function RoutingSettingsModal({ open, onClose }: { open: boolean; onClose: () => void }) {
-  const { toast } = useToast();
-  const [loading, setLoading] = useState(false);
-  const [tab, setTab] = useState<RoutingTab>("main");
-  const [autoActivate, setAutoActivate] = useState(false);
+const deliveryModes: Array<{
+  value: RoutingDeliveryMode;
+  label: string;
+  hint: string;
+  description: string;
+}> = [
+  {
+    value: "disabled",
+    label: "Не передавать",
+    hint: "Не управлять routing",
+    description: "SubShare сохранит профиль, но не будет включать его в ответы подписки.",
+  },
+  {
+    value: "add",
+    label: "Добавлять профиль",
+    hint: "happ://routing/add/...",
+    description: "Happ получит профиль при добавлении или обновлении подписки, не меняя активный профиль автоматически.",
+  },
+  {
+    value: "onadd",
+    label: "Добавлять и активировать",
+    hint: "happ://routing/onadd/...",
+    description: "Happ получит профиль при добавлении или обновлении подписки и сделает его активным.",
+  },
+];
+
+function ManualLinkRow({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-2 border-t border-border py-2.5 first:border-t-0 first:pt-0 last:pb-0">
+      <div className="min-w-0">
+        <div className="text-xs font-medium text-zinc-300">{label}</div>
+        <output
+          aria-label={`${label}, Happ-ссылка`}
+          title={value}
+          className="mt-1 block truncate font-mono text-xs text-zinc-600"
+        >
+          {value || "Ссылка появится после сохранения конфигурации"}
+        </output>
+      </div>
+      <Button
+        type="button"
+        variant="ghost"
+        className="shrink-0 px-2.5 text-xs"
+        aria-label={`Скопировать: ${label}`}
+        disabled={!value}
+        onClick={() => void copyToClipboard(value)}
+      >
+        Копировать
+      </Button>
+    </div>
+  );
+}
+
+interface RoutingSettingsModalProps {
+	open: boolean;
+	onClose: () => void;
+	onSaved?: (settings: RoutingSettings) => void;
+}
+
+export function RoutingSettingsModal({ open, onClose, onSaved }: RoutingSettingsModalProps) {
+	const { toast } = useToast();
+	const [loading, setLoading] = useState(false);
+	const [tab, setTab] = useState<RoutingTab>("main");
+	const [deliveryMode, setDeliveryMode] = useState<RoutingDeliveryMode>("disabled");
+	const [manualLinks, setManualLinks] = useState({ add: "", onadd: "", off: "happ://routing/off" });
+	const [initialState, setInitialState] = useState("");
+  const [initialConfigState, setInitialConfigState] = useState("");
   const [importValue, setImportValue] = useState("");
   const [dnsHostsText, setDnsHostsText] = useState(JSON.stringify(DEFAULT_ROUTING_CONFIG.DnsHosts, null, 2));
   const [jsonText, setJsonText] = useState(buildConfigJSON(DEFAULT_ROUTING_CONFIG));
@@ -209,16 +255,28 @@ export function RoutingSettingsModal({ open, onClose }: { open: boolean; onClose
 
     const load = async () => {
       setLoading(true);
-      try {
-        const response = await routingSettingsApi.get();
-        if (!response.config_json.trim()) {
-          syncConfig(DEFAULT_ROUTING_CONFIG);
-          return;
-        }
-
-        syncConfig(normalizeRoutingConfig(JSON.parse(response.config_json)));
-      } catch {
-        syncConfig(DEFAULT_ROUTING_CONFIG);
+		try {
+			const response = await routingSettingsApi.get();
+			const hasStoredConfig = response.config_json.trim() !== "";
+			const nextConfig = hasStoredConfig
+				? normalizeRoutingConfig(JSON.parse(response.config_json))
+				: DEFAULT_ROUTING_CONFIG;
+			const nextMode = response.delivery_mode ?? "disabled";
+			syncConfig(nextConfig);
+			setDeliveryMode(nextMode);
+			setManualLinks({
+				add: response.add_url ?? "",
+				onadd: response.onadd_url ?? "",
+				off: response.off_url || "happ://routing/off",
+			});
+			setInitialState(JSON.stringify({ config: hasStoredConfig ? nextConfig : null, deliveryMode: nextMode }));
+      setInitialConfigState(JSON.stringify(hasStoredConfig ? nextConfig : null));
+		} catch {
+			syncConfig(DEFAULT_ROUTING_CONFIG);
+			setDeliveryMode("disabled");
+			setManualLinks({ add: "", onadd: "", off: "happ://routing/off" });
+			setInitialState(JSON.stringify({ config: DEFAULT_ROUTING_CONFIG, deliveryMode: "disabled" }));
+      setInitialConfigState(JSON.stringify(DEFAULT_ROUTING_CONFIG));
       } finally {
         setLoading(false);
       }
@@ -259,12 +317,23 @@ export function RoutingSettingsModal({ open, onClose }: { open: boolean; onClose
     }
   };
 
-  const handleSave = async (e: FormEvent) => {
-    e.preventDefault();
-    setLoading(true);
-    try {
-      await routingSettingsApi.update(buildConfigJSON(config));
-      toast("Настройки роутинга сохранены", "success");
+	const handleSave = async (e: FormEvent) => {
+		e.preventDefault();
+		if (deliveryMode !== "disabled" && !config.Name.trim()) {
+			toast("Укажите Name профиля перед включением доставки с подпиской", "error");
+			return;
+		}
+		setLoading(true);
+		try {
+			const response = await routingSettingsApi.update({
+				config_json: buildConfigJSON(config),
+				delivery_mode: deliveryMode,
+			});
+			setManualLinks({ add: response.add_url, onadd: response.onadd_url, off: response.off_url });
+			setInitialState(JSON.stringify({ config, deliveryMode }));
+      setInitialConfigState(JSON.stringify(config));
+			onSaved?.(response);
+			toast("Настройки роутинга сохранены", "success");
       onClose();
     } catch (error: unknown) {
       toast(error instanceof Error ? error.message : "Не удалось сохранить настройки роутинга", "error");
@@ -273,101 +342,136 @@ export function RoutingSettingsModal({ open, onClose }: { open: boolean; onClose
     }
   };
 
-  const generatedLink = buildRoutingLink(config, autoActivate);
-  const disableLink = buildDisableLink(config);
+	const dirty = initialState !== "" && JSON.stringify({ config, deliveryMode }) !== initialState;
+  const manualLinksStale = initialConfigState !== "" && JSON.stringify(config) !== initialConfigState;
+  const selectedDeliveryMode = deliveryModes.find((mode) => mode.value === deliveryMode) ?? deliveryModes[0];
 
   return (
     <Modal
       open={open}
       onClose={onClose}
       title="Роутинг"
-      className="w-[96vw] max-w-[1660px] max-h-[94dvh]"
+      className="max-h-[calc(100dvh-1.5rem)] w-[96vw] max-w-[1660px]"
+      contentClassName="flex min-h-0 flex-1 flex-col overflow-hidden"
     >
-      <form onSubmit={handleSave} className="flex flex-col gap-4">
-        <div className="grid items-start gap-4 xl:grid-cols-[25rem_minmax(0,1fr)] 2xl:grid-cols-[28rem_minmax(0,1fr)]">
-          <div className="flex flex-col gap-4">
-            <div className="grid gap-3 rounded-xl border border-border bg-surface-2/30 p-4">
-              <div className="text-sm font-semibold text-zinc-200">Импорт конфигурации</div>
-              <textarea
-                value={importValue}
-                onChange={(e) => setImportValue(e.target.value)}
-                placeholder="Вставьте Happ-ссылку (happ://routing/add/...) или Base64/JSON конфигурации"
-                className="min-h-20 rounded-lg border border-border bg-surface-2 px-3 py-2 text-sm text-zinc-200 placeholder:text-zinc-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-bg"
-              />
-              <div className="flex justify-end">
-                <Button type="button" variant="ghost" className="text-xs" onClick={handleImport}>
-                  Импортировать
-                </Button>
-              </div>
-            </div>
-
-            <div className="grid gap-3 rounded-xl border border-border bg-surface-2/30 p-4">
-              <div className="text-sm font-semibold text-zinc-200">Ссылки</div>
-              <div className="flex flex-col gap-2 2xl:flex-row 2xl:items-start">
-                <Button
-                  type="button"
-                  variant={autoActivate ? "primary" : "ghost"}
-                  className="min-w-36 text-xs"
-                  onClick={() => setAutoActivate((prev) => !prev)}
+      <form onSubmit={handleSave} className="flex min-h-0 flex-1 flex-col overflow-hidden">
+        <div
+          data-testid="routing-scroll-area"
+          className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden overscroll-contain pr-1"
+        >
+          <fieldset
+            data-testid="routing-delivery-section"
+            className="grid gap-3 rounded-xl border border-border bg-surface-2/30 p-4"
+          >
+            <legend className="px-1 text-balance text-sm font-semibold text-zinc-200">Доставка с подпиской</legend>
+            <p className="text-pretty text-xs leading-5 text-zinc-500">
+              Автоматическая передача текущего routing-профиля при получении или обновлении подписки в Happ.
+            </p>
+            <div data-testid="routing-delivery-options" className="grid gap-2 lg:grid-cols-3">
+              {deliveryModes.map((mode) => (
+                <label
+                  key={mode.value}
+                  className={`min-w-0 cursor-pointer rounded-lg border px-3 py-2.5 transition-colors ${
+                    deliveryMode === mode.value
+                      ? "border-accent/50 bg-accent/8"
+                      : "border-border bg-zinc-950/20 hover:border-zinc-700"
+                  }`}
                 >
-                  Авто-активация ({autoActivate ? "onadd" : "add"})
-                </Button>
-                <span className="text-xs text-zinc-500 2xl:pt-1">
-                  Переключает тип happ-ссылки для добавления профиля.
-                </span>
-              </div>
-              <div className="grid gap-2">
-                <div className="text-xs font-medium text-zinc-300">Ссылка добавления</div>
-                <div className="flex flex-col gap-2 sm:flex-row">
-                  <input
-                    value={generatedLink}
-                    readOnly
-                    className="w-full rounded-lg border border-border bg-surface-2 px-3 py-2 text-xs text-zinc-300"
-                  />
-                  <Button type="button" variant="ghost" className="shrink-0 text-xs" onClick={() => void copyToClipboard(generatedLink)}>
-                    Скопировать
-                  </Button>
-                </div>
-              </div>
-              <div className="grid gap-2">
-                <div className="text-xs font-medium text-zinc-300">Ссылка отключения</div>
-                <div className="flex flex-col gap-2 sm:flex-row">
-                  <input
-                    value={disableLink}
-                    readOnly
-                    className="w-full rounded-lg border border-border bg-surface-2 px-3 py-2 text-xs text-zinc-300"
-                  />
-                  <Button type="button" variant="ghost" className="shrink-0 text-xs" onClick={() => void copyToClipboard(disableLink)}>
-                    Скопировать
-                  </Button>
-                </div>
-              </div>
+                  <span className="flex items-start gap-2.5">
+                    <input
+                      type="radio"
+                      name="routing-delivery-mode"
+                      value={mode.value}
+                      checked={deliveryMode === mode.value}
+                      onChange={() => setDeliveryMode(mode.value)}
+                      className="mt-0.5 size-4 accent-accent"
+                    />
+                    <span className="min-w-0">
+                      <span className="block text-sm font-medium text-zinc-200">{mode.label}</span>
+                      <span className="mt-0.5 block truncate font-mono text-xs text-zinc-600">{mode.hint}</span>
+                    </span>
+                  </span>
+                </label>
+              ))}
             </div>
+            <div className="rounded-lg border border-border/70 bg-zinc-950/20 px-3 py-2.5">
+              <div className="text-xs font-medium text-zinc-300">{selectedDeliveryMode.label}</div>
+              <p className="mt-1 text-pretty text-xs leading-5 text-zinc-500">{selectedDeliveryMode.description}</p>
+            </div>
+          </fieldset>
 
-          </div>
-
-          <div className="grid content-start self-start gap-4 rounded-xl border border-border bg-surface-2/30 p-4">
-            <div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
-              <div>
-                <div className="text-sm font-semibold text-zinc-200">Визуальный редактор</div>
-                <div className="mt-1 text-xs text-zinc-500">
-                  Основные параметры занимают всю ширину окна. Служебные ссылки и импорт вынесены в левую колонку.
+          <div
+            data-testid="routing-workspace"
+            className="mt-4 grid min-h-0 items-start gap-4 xl:grid-cols-[minmax(18.75rem,21.25rem)_minmax(0,1fr)]"
+          >
+            <aside className="grid min-w-0 gap-4" aria-label="Утилиты роутинга">
+              <div data-testid="routing-import-card" className="grid gap-3 rounded-xl border border-border bg-surface-2/30 p-4">
+                <div>
+                  <div className="text-balance text-sm font-semibold text-zinc-200">Импорт конфигурации</div>
+                  <p className="mt-1 text-pretty text-xs leading-5 text-zinc-500">Happ-ссылка, Base64 или JSON.</p>
+                </div>
+                <textarea
+                  aria-label="Импорт конфигурации"
+                  value={importValue}
+                  onChange={(e) => setImportValue(e.target.value)}
+                  placeholder="Вставьте Happ-ссылку (happ://routing/add/...) или Base64/JSON конфигурации"
+                  className="min-h-16 rounded-lg border border-border bg-surface-2 px-3 py-2 text-sm text-zinc-200 placeholder:text-zinc-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-bg"
+                />
+                <div className="flex justify-end">
+                  <Button type="button" variant="ghost" className="text-xs" onClick={handleImport}>
+                    Импортировать
+                  </Button>
                 </div>
               </div>
-              <div className="flex flex-wrap gap-2">
-                {(Object.keys(tabLabels) as RoutingTab[]).map((tabKey) => (
-                  <Button
-                    key={tabKey}
-                    type="button"
-                    variant={tab === tabKey ? "primary" : "ghost"}
-                    className="text-xs"
-                    onClick={() => setTab(tabKey)}
-                  >
-                    {tabLabels[tabKey]}
-                  </Button>
-                ))}
+
+              <div data-testid="routing-manual-card" className="grid gap-3 rounded-xl border border-border bg-surface-2/30 p-4">
+                <div className="flex flex-wrap items-start justify-between gap-2">
+                  <div>
+                    <div className="text-balance text-sm font-semibold text-zinc-200">Ручная установка</div>
+                    <p className="mt-1 text-pretty text-xs leading-5 text-zinc-500">
+                      Серверные ссылки для последней сохранённой конфигурации.
+                    </p>
+                  </div>
+                  {manualLinksStale && (
+                    <span
+                      data-testid="manual-links-stale"
+                      className="inline-flex items-center gap-1.5 rounded-sm border border-amber-400/20 bg-amber-400/5 px-2 py-1 text-xs text-amber-300"
+                    >
+                      <span className="size-1.5 rounded-full bg-amber-300" aria-hidden="true" />
+                      Требуется сохранение
+                    </span>
+                  )}
+                </div>
+                <div>
+                  <ManualLinkRow label="Добавить профиль" value={manualLinks.add} />
+                  <ManualLinkRow label="Добавить и активировать" value={manualLinks.onadd} />
+                  <ManualLinkRow label="Отключить роутинг" value={manualLinks.off} />
+                </div>
               </div>
-            </div>
+            </aside>
+
+            <div data-testid="routing-editor" className="grid min-w-0 content-start gap-4 rounded-xl border border-border bg-surface-2/30 p-4">
+              <div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
+                <div>
+                  <div className="text-sm font-semibold text-zinc-200">Визуальный редактор</div>
+                  <div className="mt-1 text-xs text-zinc-500">
+                    Основные параметры занимают всю ширину окна. Служебные ссылки и импорт вынесены в левую колонку.
+                  </div>
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  {(Object.keys(tabLabels) as RoutingTab[]).map((tabKey) => (
+                    <Button
+                      key={tabKey}
+                      type="button"
+                      variant={tab === tabKey ? "primary" : "ghost"}
+                      className="text-xs"
+                      onClick={() => setTab(tabKey)}
+                    >
+                      {tabLabels[tabKey]}
+                    </Button>
+                  ))}
+                </div>
+              </div>
 
             {tab === "main" && (
               <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">
@@ -474,21 +578,29 @@ export function RoutingSettingsModal({ open, onClose }: { open: boolean; onClose
                   Прямое редактирование JSON-конфигурации. Изменения сразу синхронизируются с визуальными вкладками.
                 </div>
                 <textarea
+                  aria-label="JSON-конфигурация роутинга"
                   value={jsonText}
                   onChange={(e) => handleJsonChange(e.target.value)}
-                  className="min-h-[56vh] w-full rounded-lg border border-border bg-surface-2 px-3 py-3 font-mono text-xs text-zinc-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-bg"
+                  className="min-h-96 w-full rounded-lg border border-border bg-surface-2 px-3 py-3 font-mono text-xs text-zinc-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-bg"
                 />
                 {jsonError && <div className="text-xs text-red-300">{jsonError}</div>}
               </div>
             )}
           </div>
         </div>
+        </div>
 
-        <div className="flex flex-col gap-2 sm:flex-row sm:justify-between">
-          <Button type="button" variant="ghost" onClick={() => syncConfig(DEFAULT_ROUTING_CONFIG)}>
+        <div
+          data-testid="routing-action-footer"
+          className="mt-3 flex shrink-0 flex-col gap-2 border-t border-border bg-surface-1 pt-3 sm:flex-row sm:items-center"
+        >
+          <Button type="button" variant="ghost" className="w-full sm:w-auto" onClick={() => syncConfig(DEFAULT_ROUTING_CONFIG)}>
             Сбросить
           </Button>
-          <Button type="submit" loading={loading}>
+          <span className={`text-center text-xs sm:mx-auto ${dirty ? "text-amber-300" : "text-zinc-600"}`}>
+            {dirty ? "Есть несохранённые изменения" : "Все изменения сохранены"}
+          </span>
+          <Button type="submit" className="w-full sm:w-auto" loading={loading} disabled={!dirty}>
             Применить
           </Button>
         </div>

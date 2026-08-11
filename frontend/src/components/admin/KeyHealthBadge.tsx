@@ -20,18 +20,20 @@ function formatHealthCheckTime(value: string): string {
 }
 
 export function KeyHealthBadge({ healthKey }: { healthKey: KeySummary }) {
-  if (
-    healthKey.status !== "active" ||
-    !healthKey.last_checked_at ||
-    (healthKey.check_status !== "up" && healthKey.check_status !== "down")
-  ) {
+  if (!healthKey.last_checked_at) {
     return null;
   }
 
   const healthy = healthKey.check_status === "up";
+  const unavailable = healthKey.check_status === "down";
+  const unsupported = healthKey.check_status === "unsupported_check";
   const label = healthy
     ? `ДОСТУПЕН${healthKey.last_latency_ms > 0 ? ` · ${healthKey.last_latency_ms} ms` : ""}`
-    : "НЕДОСТУПЕН";
+    : unavailable
+      ? "НЕДОСТУПЕН"
+      : unsupported
+        ? "ПРОВЕРКА НЕ ПОДДЕРЖИВАЕТСЯ"
+        : "ОШИБКА ПРОВЕРКИ";
   const checkedAt = formatHealthCheckTime(healthKey.last_checked_at);
 
   return (
@@ -39,6 +41,8 @@ export function KeyHealthBadge({ healthKey }: { healthKey: KeySummary }) {
       className={`mb-2 inline-flex w-fit items-center rounded-sm border px-2 py-0.5 text-[11px] font-semibold tracking-[0.04em] ${
         healthy
           ? "border-emerald-500/35 bg-emerald-500/10 text-emerald-300"
+          : unsupported
+            ? "border-slate-500/35 bg-slate-500/10 text-slate-300"
           : "border-red-500/35 bg-red-500/10 text-red-300"
       }`}
       title={`Последняя проверка: ${checkedAt}`}

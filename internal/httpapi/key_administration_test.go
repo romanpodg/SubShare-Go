@@ -2,6 +2,7 @@ package httpapi
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -54,14 +55,14 @@ func TestKeyAdministrationHandler_ContractsAndSecretSafety(t *testing.T) {
 	}
 	var checkedMu sync.Mutex
 	checked := make([]int64, 0)
-	checkKey := func(id int64, rawURL string) error {
+	checkKey := func(ctx context.Context, id int64, rawURL string) error {
 		checkedMu.Lock()
 		checked = append(checked, id)
 		checkedMu.Unlock()
 		if rawURL == "" {
 			t.Errorf("checker received an empty credential for key %d", id)
 		}
-		return service.SaveHealthCheckResult(t.Context(), id, "up", "", 12)
+		return service.SaveHealthCheckResult(ctx, id, "up", "", 12)
 	}
 	startedJobs := 0
 	finishedJobs := 0
@@ -116,11 +117,21 @@ func TestKeyAdministrationHandler_ContractsAndSecretSafety(t *testing.T) {
 	request := httptest.NewRequest(http.MethodPost, "/api/admin/keys/1/check", nil)
 	request.SetPathValue("id", jsonInt(firstID))
 	handler.CheckKey(recorder, request)
-	if recorder.Code != http.StatusOK || !strings.Contains(recorder.Body.String(), `"check_status":"up"`) {
+	if recorder.Code != http.StatusOK ||
+		!strings.Contains(recorder.Body.String(), `"check_status":"up"`) ||
+		!strings.Contains(recorder.Body.String(), `"last_latency_ms":12`) ||
+		!strings.Contains(recorder.Body.String(), `"last_checked_at":"`) {
 		t.Fatalf("single check: status=%d body=%s", recorder.Code, recorder.Body.String())
 	}
 	if strings.Contains(recorder.Body.String(), firstURL) {
 		t.Fatal("single-check response exposed the decrypted credential URL")
+	}
+	var firstStatus string
+	if err := db.QueryRow(`SELECT status FROM vless_keys WHERE id = ?`, firstID).Scan(&firstStatus); err != nil {
+		t.Fatalf("read manually checked key status: %v", err)
+	}
+	if firstStatus != "non-active" {
+		t.Fatalf("manual health check changed inactive key status to %q", firstStatus)
 	}
 
 	assertHealthFailure := func(id int64, wantMessage string) {

@@ -97,6 +97,40 @@ async function expectSingleDividerStructure(locator: Locator) {
   );
 }
 
+async function expectEditorFooterContained(dialog: Locator) {
+  const containment = await dialog.locator(".ui-key-editor-footer").evaluate((footer) => {
+    const footerRect = footer.getBoundingClientRect();
+    const modalRect = footer.closest<HTMLElement>('[role="dialog"]')!.getBoundingClientRect();
+    const buttons = Array.from(footer.querySelectorAll("button")).map((button) => {
+      const rect = button.getBoundingClientRect();
+      return {
+        insideFooter:
+          rect.top >= footerRect.top &&
+          rect.right <= footerRect.right &&
+          rect.bottom <= footerRect.bottom &&
+          rect.left >= footerRect.left,
+        insideModal:
+          rect.top >= modalRect.top &&
+          rect.right <= modalRect.right &&
+          rect.bottom <= modalRect.bottom &&
+          rect.left >= modalRect.left,
+      };
+    });
+    return {
+      footerInsideModal:
+        footerRect.top >= modalRect.top &&
+        footerRect.right <= modalRect.right &&
+        footerRect.bottom <= modalRect.bottom &&
+        footerRect.left >= modalRect.left,
+      buttons,
+    };
+  });
+
+  expect(containment.footerInsideModal).toBe(true);
+  expect(containment.buttons.length).toBe(2);
+  expect(containment.buttons.every(({ insideFooter, insideModal }) => insideFooter && insideModal)).toBe(true);
+}
+
 async function expectNoHorizontalOverflow(page: Page) {
   await expect.poll(() => page.evaluate(() => (
     document.documentElement.scrollWidth - document.documentElement.clientWidth
@@ -216,13 +250,13 @@ async function openKeysPage(page: Page) {
             category: "EXAMPLE VPN",
             kind: "real",
             template_text: "",
-            status: "active",
+            status: "non-active",
             check_status: "up",
             check_error: "",
             last_latency_ms: 38,
             last_checked_at: "2026-07-29T10:00:00Z",
-            external_source_id: 0,
-            external_source_name: "",
+            external_source_id: 7,
+            external_source_name: longSourceName,
             protocol: "vless",
             created_at: "2026-07-29T10:00:00Z",
           },
@@ -248,6 +282,13 @@ async function openKeysPage(page: Page) {
     });
   await page.route("**/api/v1/keys?*", handleKeysRoute);
   await page.route("**/api/v1/keys", handleKeysRoute);
+  await page.route("**/api/v1/keys/check-all", (route) =>
+    route.fulfill({
+      status: 202,
+      contentType: "application/json",
+      body: JSON.stringify({ job_id: 42, status: "queued" }),
+    })
+  );
   await page.route("**/api/v1/key-editor-schema", (route) =>
     route.fulfill({
       contentType: "application/json",
@@ -266,15 +307,15 @@ async function openKeysPage(page: Page) {
           category_id: 1,
           category: "EXAMPLE VPN",
           kind: "real",
-          status: "active",
+          status: "non-active",
           check_status: "up",
           check_error: { code: "", message: "" },
           last_latency_ms: 38,
           last_checked_at: "2026-07-29T10:00:00Z",
           template_text: "",
-          ownership: "local",
-          external_source_id: null,
-          external_source_name: "",
+          ownership: "external_source",
+          external_source_id: 7,
+          external_source_name: longSourceName,
           protocol: "vless",
           profile_schema_version: 1,
           profile_compatibility: "supported",
@@ -392,12 +433,40 @@ test("authenticated overview renders dashboard data without runtime errors", asy
   await page.route("**/api/v1/jobs**", (route) =>
     route.fulfill({
       contentType: "application/json",
-      body: JSON.stringify({ data: [], meta: { page: 1, page_size: 6, total: 0, total_pages: 0 } }),
+      body: JSON.stringify({
+        data: [{
+          id: 17,
+          kind: "keys_health_check",
+          status: "succeeded_with_warnings",
+          target_type: "key",
+          target_id: "all",
+          error_message: "",
+          result_counts: { total_selected: 100, checked: 100, healthy: 80, unhealthy: 20, persist_failed: 21 },
+          run_after: null,
+          started_at: "2026-08-10T23:00:00Z",
+          finished_at: "2026-08-10T23:01:00Z",
+          created_at: "2026-08-10T23:00:00Z",
+        }],
+        meta: { page: 1, page_size: 6, total: 1, total_pages: 1 },
+      }),
     })
   );
   await page.goto("/admin/overview");
   await expect(page.getByText("2/3")).toBeVisible();
   await expect(page.getByText("готова")).toBeVisible();
+  await page.setViewportSize({ width: 1920, height: 1080 });
+  const warningStatus = page.locator(".ui-background-job-status");
+  await expect(warningStatus).toHaveText("Завершено с предупреждениями");
+  const warningStatusMetrics = await warningStatus.evaluate((element) => ({
+    clientWidth: element.clientWidth,
+    scrollWidth: element.scrollWidth,
+    height: element.getBoundingClientRect().height,
+    lineHeight: Number.parseFloat(getComputedStyle(element).lineHeight),
+    whiteSpace: getComputedStyle(element).whiteSpace,
+  }));
+  expect(warningStatusMetrics.whiteSpace).toBe("nowrap");
+  expect(warningStatusMetrics.scrollWidth).toBeLessThanOrEqual(warningStatusMetrics.clientWidth);
+  expect(warningStatusMetrics.height).toBeLessThanOrEqual(warningStatusMetrics.lineHeight + 1);
   await expectSingleDividerStructure(page.locator(".ui-joined-grid").first());
   for (const viewport of [
     { width: 1920, height: 1080 },
@@ -568,6 +637,13 @@ test("sidebar keeps its item alignment and supports scrolling when collapsed or 
 
 test("key-list controls, alignment, and labels remain readable across viewports", async ({ page }) => {
   const { longKeyLabel, longSourceName, longClientDisplayName } = await openKeysPage(page);
+
+  const inactiveHealthyCard = page.locator(".ui-key-card").filter({ hasText: longClientDisplayName }).first();
+  await expect(inactiveHealthyCard.getByText("Неактивен", { exact: true })).toBeVisible();
+  await expect(inactiveHealthyCard.getByText("ДОСТУПЕН · 38 ms", { exact: true })).toBeVisible();
+  await page.getByRole("button", { name: "Проверить все" }).click();
+  await expect(page.getByText("Проверка конфигураций запущена", { exact: true })).toBeVisible();
+  await expect(page.getByText(/undefined/)).toHaveCount(0);
 
   const headerControls = page.locator(".ui-key-module-header").locator("button, a[role='button'], label.ui-icon-button");
   await expect(headerControls).toHaveCount(6);
@@ -960,6 +1036,7 @@ test("key-list controls, alignment, and labels remain readable across viewports"
 
 test("key editor remains usable and responsive", async ({ page }) => {
   const { longClientDisplayName } = await openKeysPage(page);
+  await page.setViewportSize({ width: 1920, height: 1080 });
 
   const informationalColumnTitle = page
     .locator(".ui-key-column-title")
@@ -1006,6 +1083,37 @@ test("key editor remains usable and responsive", async ({ page }) => {
   });
   expect(desktopEditorMetrics.width).toBeGreaterThan(900);
   expect(desktopEditorMetrics.scrollWidth).toBeLessThanOrEqual(desktopEditorMetrics.clientWidth);
+  const fullHDScrollMetrics = await configurationDialog.locator(".ui-key-editor-scroll-region").evaluate((element) => ({
+    clientHeight: element.clientHeight,
+    scrollHeight: element.scrollHeight,
+    overflowY: getComputedStyle(element).overflowY,
+  }));
+  expect(fullHDScrollMetrics.scrollHeight).toBeLessThanOrEqual(fullHDScrollMetrics.clientHeight + 1);
+  expect(Math.abs(fullHDScrollMetrics.clientHeight - fullHDScrollMetrics.scrollHeight)).toBeLessThanOrEqual(1);
+  expect(fullHDScrollMetrics.overflowY).toBe("auto");
+  const rawEditorHeight = await configurationDialog.locator("#key-editor-raw").evaluate((element) =>
+    Math.round(element.getBoundingClientRect().height)
+  );
+  expect(rawEditorHeight).toBeGreaterThanOrEqual(240);
+  expect(rawEditorHeight).toBeLessThanOrEqual(325);
+  await expectEditorFooterContained(configurationDialog);
+  const compactDesktopLayout = await configurationDialog.evaluate((dialog) => {
+    const dialogRect = dialog.getBoundingClientRect();
+    const scrollRect = dialog.querySelector(".ui-key-editor-scroll-region")!.getBoundingClientRect();
+    const footerRect = dialog.querySelector(".ui-key-editor-footer")!.getBoundingClientRect();
+    return {
+      dialogHeight: Math.round(dialogRect.height),
+      editorToFooterGap: Math.round(footerRect.top - scrollRect.bottom),
+    };
+  });
+  expect(compactDesktopLayout.dialogHeight).toBeLessThan(850);
+  expect(compactDesktopLayout.editorToFooterGap).toBeLessThanOrEqual(16);
+  const metadataSelectWidths = await Promise.all([
+    configurationDialog.getByLabel("Статус").evaluate((element) => Math.round(element.getBoundingClientRect().width)),
+    configurationDialog.getByLabel("Тип").evaluate((element) => Math.round(element.getBoundingClientRect().width)),
+  ]);
+  expect(metadataSelectWidths[0]).toBeGreaterThan(200);
+  expect(Math.abs(metadataSelectWidths[0] - metadataSelectWidths[1])).toBeLessThanOrEqual(2);
   const desktopWorkspaceColumns = await configurationDialog
     .locator(".ui-key-editor-workspace")
     .evaluate((element) => getComputedStyle(element).gridTemplateColumns.split(" ").length);
@@ -1020,6 +1128,26 @@ test("key editor remains usable and responsive", async ({ page }) => {
     Math.round(element.getBoundingClientRect().width)
   );
   expect(tabletDialogWidth).toBeLessThanOrEqual(768);
+  await page.setViewportSize({ width: 1366, height: 768 });
+  await expectEditorFooterContained(configurationDialog);
+  const mediumViewportDialog = await configurationDialog.evaluate((element) => {
+    const rect = element.getBoundingClientRect();
+    return { top: rect.top, bottom: rect.bottom, viewportHeight: window.innerHeight };
+  });
+  expect(mediumViewportDialog.top).toBeGreaterThanOrEqual(0);
+  expect(mediumViewportDialog.bottom).toBeLessThanOrEqual(mediumViewportDialog.viewportHeight);
+  await page.setViewportSize({ width: 1366, height: 520 });
+  const shortScrollRegion = configurationDialog.locator(".ui-key-editor-scroll-region");
+  const shortEditorMetrics = await shortScrollRegion.evaluate((element) => ({
+    clientHeight: element.clientHeight,
+    scrollHeight: element.scrollHeight,
+    overflowY: getComputedStyle(element).overflowY,
+  }));
+  expect(shortEditorMetrics.scrollHeight).toBeGreaterThan(shortEditorMetrics.clientHeight);
+  expect(shortEditorMetrics.overflowY).toBe("auto");
+  await expectEditorFooterContained(configurationDialog);
+  await shortScrollRegion.evaluate((element) => { element.scrollTop = element.scrollHeight; });
+  await expect(configurationDialog.getByRole("button", { name: "Добавить профиль" })).toBeVisible();
   await page.setViewportSize({ width: 1440, height: 900 });
 
   await configurationDialog.getByRole("button", { name: "Добавить категорию" }).click();
@@ -1057,6 +1185,7 @@ test("key editor remains usable and responsive", async ({ page }) => {
   expect(discardContentMetrics.scrollHeight).toBeLessThanOrEqual(discardContentMetrics.clientHeight);
   await discardDialog.getByRole("button", { name: "Закрыть" }).last().click();
 
+  await page.setViewportSize({ width: 1920, height: 1080 });
   const realKeyCard = page.locator(".ui-key-card").filter({ hasText: "Обход блокировок" });
   await realKeyCard.getByRole("button", { name: "Изменить" }).click();
   const editDialog = page.getByRole("dialog", {
@@ -1066,9 +1195,37 @@ test("key editor remains usable and responsive", async ({ page }) => {
   await expect(editDialog).toHaveClass(/max-w-6xl/);
   await expect(editDialog.getByLabel("Название", { exact: true })).toHaveValue(longClientDisplayName);
   await expect(editDialog.getByRole("button", { name: "XRAY-JSON" })).toHaveClass(/bg-accent/);
+  await expect(editDialog.locator(".ui-key-editor-source-banner")).toBeVisible();
   await expect(editDialog.locator(".ui-key-editor-workspace")).toHaveCount(1);
   await expect(editDialog.locator(".ui-key-editor-scroll-region")).toHaveCount(1);
   await expect(editDialog.getByRole("button", { name: "Сохранить" })).toBeVisible();
+  const footerMetrics = await editDialog.locator(".ui-key-editor-footer").evaluate((footer) => {
+    const styles = getComputedStyle(footer);
+    const buttons = Array.from(footer.querySelectorAll("button")).map((button) => button.getBoundingClientRect());
+    return {
+      alignItems: styles.alignItems,
+      justifyContent: styles.justifyContent,
+      paddingTop: styles.paddingTop,
+      paddingBottom: styles.paddingBottom,
+      buttonHeights: buttons.map((button) => Math.round(button.height)),
+      buttonWidths: buttons.map((button) => Math.round(button.width)),
+      buttonGap: buttons.length === 2 ? Math.round(buttons[1].left - buttons[0].right) : 0,
+    };
+  });
+  expect(footerMetrics.alignItems).toBe("center");
+  expect(footerMetrics.justifyContent).toBe("flex-end");
+  expect(footerMetrics.paddingTop).toBe("16px");
+  expect(footerMetrics.paddingBottom).toBe("16px");
+  expect(footerMetrics.buttonHeights).toEqual([44, 44]);
+  expect(footerMetrics.buttonWidths).toEqual([144, 144]);
+  expect(footerMetrics.buttonGap).toBe(12);
+  await expectEditorFooterContained(editDialog);
+  const sourceOwnedFullHDScrollMetrics = await editDialog.locator(".ui-key-editor-scroll-region").evaluate((element) => ({
+    clientHeight: element.clientHeight,
+    scrollHeight: element.scrollHeight,
+  }));
+  expect(sourceOwnedFullHDScrollMetrics.scrollHeight).toBeLessThanOrEqual(sourceOwnedFullHDScrollMetrics.clientHeight + 1);
+  expect(Math.abs(sourceOwnedFullHDScrollMetrics.clientHeight - sourceOwnedFullHDScrollMetrics.scrollHeight)).toBeLessThanOrEqual(1);
 
   const editDialogMetrics = await editDialog.evaluate((element) => {
     const rect = element.getBoundingClientRect();
@@ -1117,6 +1274,22 @@ test("key drag autoscrolls the page near the viewport edge", async ({ page }) =>
 
 test("subscription settings section icons stay square and responsive", async ({ page }) => {
   const runtimeErrors: string[] = [];
+  let routingDeliveryMode = "disabled";
+  const routingConfig = JSON.stringify({
+    Name: "SubShare Routing",
+    GlobalProxy: false,
+    RouteOrder: "block-proxy-direct",
+    DomainStrategy: "IPIfNonMatch",
+    FakeDNS: false,
+    UseChunkFiles: true,
+    DnsHosts: {},
+    DirectSites: ["one.test", "two.test", "three.test", "four.test", "five.test"],
+    DirectIp: [],
+    ProxySites: [],
+    ProxyIp: [],
+    BlockSites: [],
+    BlockIp: [],
+  });
   page.on("pageerror", (error) => runtimeErrors.push(error.message));
   await page.route("**/api/auth/me", (route) =>
     route.fulfill({
@@ -1162,15 +1335,37 @@ test("subscription settings section icons stay square and responsive", async ({ 
     route.fulfill({
       contentType: "application/json",
       body: JSON.stringify({
-        response_headers: [],
-        announcement: "",
-        remarks: { expired: [], paused: [], blocked: [], limited: [], empty: [] },
+        response_headers: [{ key: "X-Edge", value: "enabled" }],
+        remarks: { expired: ["Срок действия истёк"], paused: [], blocked: [], limited: [], empty: [] },
       }),
     })
   );
+  await page.route("**/api/v1/routing-settings", async (route) => {
+    if (route.request().method() === "PUT") {
+      const body = route.request().postDataJSON() as { delivery_mode: string };
+      routingDeliveryMode = body.delivery_mode;
+    }
+    await route.fulfill({
+      contentType: "application/json",
+      body: JSON.stringify({
+        config_json: routingConfig,
+        delivery_mode: routingDeliveryMode,
+        add_url: "happ://routing/add/server-add-payload",
+        onadd_url: "happ://routing/onadd/server-onadd-payload",
+        off_url: "happ://routing/off",
+      }),
+    });
+  });
 
   await page.goto("/admin/settings/subscription");
   await expect(page.getByRole("heading", { name: "Настройки подписки" })).toBeVisible();
+  const deliveryTabs = page.getByRole("tab");
+  await expect(deliveryTabs).toHaveCount(2);
+  await expect(deliveryTabs.first()).toHaveAttribute("aria-selected", "true");
+  await expect(page.getByLabel("Имя заголовка 1")).toHaveValue("X-Edge");
+  await expect(page.getByLabel("Значение заголовка 1")).toHaveValue("enabled");
+  await expect(page.getByRole("button", { name: "Удалить заголовок 1" })).toBeVisible();
+  await expect(page.getByText("Не передаётся", { exact: true }).first()).toBeVisible();
   const sectionIcons = page.locator(".ui-settings-section-icon");
   await expect(sectionIcons).toHaveCount(2);
 
@@ -1195,6 +1390,167 @@ test("subscription settings section icons stay square and responsive", async ({ 
     expect(iconMetrics.every(({ centerDeltaX, centerDeltaY }) => centerDeltaX <= 1 && centerDeltaY <= 1)).toBe(true);
     await expectNoHorizontalOverflow(page);
   }
+
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await deliveryTabs.filter({ hasText: "Ремарки" }).click();
+  await expect(page.locator("textarea")).toHaveCount(0);
+  await expect(page.locator('[data-testid^="remark-card-"]')).toHaveCount(5);
+  await expect(page.getByLabel("Ремарка 1: Подписка истекла")).toHaveValue("Срок действия истёк");
+  const remarkGrid = page.getByTestId("remark-grid");
+  expect(await remarkGrid.evaluate((element) => getComputedStyle(element).gridTemplateColumns.split(" ").length)).toBe(2);
+  await page.setViewportSize({ width: 768, height: 900 });
+  expect(await remarkGrid.evaluate((element) => getComputedStyle(element).gridTemplateColumns.split(" ").length)).toBe(1);
+  await expectNoHorizontalOverflow(page);
+
+  await page.setViewportSize({ width: 1920, height: 1080 });
+  await page.getByRole("button", { name: "Изменить" }).click();
+  const settingsDialog = page.getByRole("dialog", { name: "Настройки сервиса" });
+  await expect(settingsDialog).toBeVisible();
+  const settingsColumns = settingsDialog.locator(".ui-joined-grid").first();
+  expect(await settingsColumns.evaluate((element) => getComputedStyle(element).gridTemplateColumns.split(" ").length)).toBe(2);
+  const localization = settingsDialog.getByTestId("settings-localization");
+  await expect(settingsDialog.getByTestId("settings-secondary-column")).toContainText("Локализация сервиса");
+  await expect(localization.getByText("Часовой пояс", { exact: true })).toBeVisible();
+  await expect(localization.getByText("Язык интерфейса", { exact: true })).toBeVisible();
+  const fullHDSettingsOverflow = await settingsDialog.locator(".ui-modal-content").evaluate((element) => ({
+    clientHeight: element.clientHeight,
+    scrollHeight: element.scrollHeight,
+  }));
+  expect(fullHDSettingsOverflow.scrollHeight).toBeLessThanOrEqual(fullHDSettingsOverflow.clientHeight + 1);
+
+  await page.setViewportSize({ width: 900, height: 900 });
+  expect(await settingsColumns.evaluate((element) => getComputedStyle(element).gridTemplateColumns.split(" ").length)).toBe(1);
+  await expectNoHorizontalOverflow(page);
+
+  await page.setViewportSize({ width: 1366, height: 600 });
+  const shortSettingsMetrics = await settingsDialog.evaluate((element) => {
+    const rect = element.getBoundingClientRect();
+    return { top: rect.top, bottom: rect.bottom, viewportHeight: window.innerHeight };
+  });
+  expect(shortSettingsMetrics.top).toBeGreaterThanOrEqual(0);
+  expect(shortSettingsMetrics.bottom).toBeLessThanOrEqual(shortSettingsMetrics.viewportHeight);
+  const settingsContent = settingsDialog.locator(".ui-modal-content");
+  await settingsContent.evaluate((element) => { element.scrollTop = element.scrollHeight; });
+  await expect(settingsDialog.getByRole("button", { name: "Сохранить" })).toBeVisible();
+  await settingsDialog.getByRole("button", { name: "Закрыть" }).click();
+
+  await page.setViewportSize({ width: 1920, height: 1080 });
+  await page.getByRole("button", { name: "Открыть редактор" }).click();
+  const routingDialog = page.getByRole("dialog", { name: "Роутинг" });
+  await expect(routingDialog.getByRole("radio", { name: /Не передавать/ })).toBeChecked();
+  await expect(routingDialog.getByLabel("Добавить профиль, Happ-ссылка")).toContainText("happ://routing/add/server-add-payload");
+  await expect(routingDialog.getByLabel("Отключить роутинг, Happ-ссылка")).toContainText("happ://routing/off");
+  const routingDeliveryOptions = routingDialog.getByTestId("routing-delivery-options");
+  const routingWorkspace = routingDialog.getByTestId("routing-workspace");
+  const routingScrollArea = routingDialog.getByTestId("routing-scroll-area");
+  const routingFooter = routingDialog.getByTestId("routing-action-footer");
+  expect(await routingDeliveryOptions.evaluate((element) => getComputedStyle(element).gridTemplateColumns.split(" ").length)).toBe(3);
+  expect(await routingWorkspace.evaluate((element) => getComputedStyle(element).gridTemplateColumns.split(" ").length)).toBe(2);
+  const largeViewportGeometry = await routingDialog.evaluate((element) => {
+    const rect = element.getBoundingClientRect();
+    return {
+      left: rect.left,
+      right: rect.right,
+      top: rect.top,
+      bottom: rect.bottom,
+      viewportWidth: window.innerWidth,
+      viewportHeight: window.innerHeight,
+      scrollWidth: element.scrollWidth,
+      clientWidth: element.clientWidth,
+    };
+  });
+  expect(largeViewportGeometry.left).toBeGreaterThanOrEqual(0);
+  expect(largeViewportGeometry.right).toBeLessThanOrEqual(largeViewportGeometry.viewportWidth);
+  expect(largeViewportGeometry.top).toBeGreaterThanOrEqual(0);
+  expect(largeViewportGeometry.bottom).toBeLessThanOrEqual(largeViewportGeometry.viewportHeight);
+  expect(largeViewportGeometry.scrollWidth).toBeLessThanOrEqual(largeViewportGeometry.clientWidth);
+  const largeViewportOverflow = await routingScrollArea.evaluate((element) => ({
+    clientHeight: element.clientHeight,
+    scrollHeight: element.scrollHeight,
+  }));
+  expect(largeViewportOverflow.scrollHeight).toBeLessThanOrEqual(largeViewportOverflow.clientHeight + 1);
+  const alignedColumnTops = await Promise.all([
+    routingDialog.getByTestId("routing-import-card").evaluate((element) => element.getBoundingClientRect().top),
+    routingDialog.getByTestId("routing-editor").evaluate((element) => element.getBoundingClientRect().top),
+  ]);
+  expect(Math.abs(alignedColumnTops[0] - alignedColumnTops[1])).toBeLessThanOrEqual(1);
+
+  await page.setViewportSize({ width: 1440, height: 768 });
+  expect(await routingDeliveryOptions.evaluate((element) => getComputedStyle(element).gridTemplateColumns.split(" ").length)).toBe(3);
+  expect(await routingWorkspace.evaluate((element) => getComputedStyle(element).gridTemplateColumns.split(" ").length)).toBe(2);
+  const constrainedGeometry = await routingDialog.evaluate((element) => {
+    const rect = element.getBoundingClientRect();
+    return {
+      left: rect.left,
+      right: rect.right,
+      top: rect.top,
+      bottom: rect.bottom,
+      viewportWidth: window.innerWidth,
+      viewportHeight: window.innerHeight,
+      scrollWidth: element.scrollWidth,
+      clientWidth: element.clientWidth,
+    };
+  });
+  expect(constrainedGeometry.left).toBeGreaterThanOrEqual(0);
+  expect(constrainedGeometry.right).toBeLessThanOrEqual(constrainedGeometry.viewportWidth);
+  expect(constrainedGeometry.top).toBeGreaterThanOrEqual(0);
+  expect(constrainedGeometry.bottom).toBeLessThanOrEqual(constrainedGeometry.viewportHeight);
+  expect(constrainedGeometry.scrollWidth).toBeLessThanOrEqual(constrainedGeometry.clientWidth);
+  const constrainedOverflow = await routingScrollArea.evaluate((element) => ({
+    clientHeight: element.clientHeight,
+    scrollHeight: element.scrollHeight,
+    scrollTop: element.scrollTop,
+    overflowY: getComputedStyle(element).overflowY,
+  }));
+  expect(constrainedOverflow.scrollHeight).toBeGreaterThan(constrainedOverflow.clientHeight);
+  expect(constrainedOverflow.scrollTop).toBe(0);
+  expect(constrainedOverflow.overflowY).toBe("auto");
+  await routingScrollArea.hover();
+  await page.mouse.wheel(0, 600);
+  await expect.poll(() => routingScrollArea.evaluate((element) => element.scrollTop)).toBeGreaterThan(0);
+  await routingDialog.getByTestId("routing-manual-card").scrollIntoViewIfNeeded();
+  const manualCardReachability = await Promise.all([
+    routingDialog.getByTestId("routing-manual-card").evaluate((element) => element.getBoundingClientRect().bottom),
+    routingScrollArea.evaluate((element) => element.getBoundingClientRect().bottom),
+  ]);
+  expect(manualCardReachability[0]).toBeLessThanOrEqual(manualCardReachability[1] + 1);
+  await expect(routingDialog.getByLabel("Отключить роутинг, Happ-ссылка")).toBeVisible();
+  await expect(routingDialog.getByRole("button", { name: "Закрыть" })).toBeVisible();
+  await expect(routingFooter).toBeVisible();
+  await expect(routingDialog.getByRole("button", { name: "Применить" })).toBeVisible();
+  const fixedChromeGeometry = await Promise.all([
+    routingDialog.getByRole("button", { name: "Закрыть" }).evaluate((element) => {
+      const rect = element.getBoundingClientRect();
+      return { top: rect.top, bottom: rect.bottom };
+    }),
+    routingFooter.evaluate((element) => {
+      const rect = element.getBoundingClientRect();
+      return { top: rect.top, bottom: rect.bottom };
+    }),
+  ]);
+  expect(fixedChromeGeometry[0].top).toBeGreaterThanOrEqual(constrainedGeometry.top);
+  expect(fixedChromeGeometry[1].bottom).toBeLessThanOrEqual(constrainedGeometry.bottom);
+
+  await page.setViewportSize({ width: 900, height: 700 });
+  expect(await routingDeliveryOptions.evaluate((element) => getComputedStyle(element).gridTemplateColumns.split(" ").length)).toBe(1);
+  expect(await routingWorkspace.evaluate((element) => getComputedStyle(element).gridTemplateColumns.split(" ").length)).toBe(1);
+  await expect(routingDialog.getByRole("button", { name: "Сбросить" })).toBeVisible();
+  await expect(routingDialog.getByRole("button", { name: "Применить" })).toBeVisible();
+  expect(await routingDialog.evaluate((element) => element.scrollWidth <= element.clientWidth)).toBe(true);
+
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await routingScrollArea.evaluate((element) => { element.scrollTop = 0; });
+  await routingDialog.getByRole("button", { name: "Исключения и правила" }).click();
+  await expect(routingDialog.getByLabel("DirectSites, элемент 5")).toHaveValue("five.test");
+  await routingScrollArea.evaluate((element) => { element.scrollTop = element.scrollHeight; });
+  await expect(routingFooter).toBeVisible();
+  await expect(routingDialog.getByRole("button", { name: "Применить" })).toBeVisible();
+  await expect(routingDialog.getByRole("button", { name: "Закрыть" })).toBeVisible();
+  await routingDialog.getByRole("radio", { name: /Добавлять и активировать/ }).click();
+  await routingDialog.getByRole("button", { name: "Применить" }).click();
+  await expect(routingDialog).toBeHidden();
+  await expect(page.getByText("Передаётся с подпиской", { exact: true })).toBeVisible();
+  expect(routingDeliveryMode).toBe("onadd");
   expect(runtimeErrors).toEqual([]);
 });
 

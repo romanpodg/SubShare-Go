@@ -1,6 +1,7 @@
 package httpapi
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"log"
@@ -12,7 +13,7 @@ import (
 )
 
 type KeyAdministrationRuntime struct {
-	CheckKey       func(keyID int64, rawURL string) error
+	CheckKey       func(ctx context.Context, keyID int64, rawURL string) error
 	StartJob       func(kind, targetType, targetID string) int64
 	FinishJob      func(jobID int64, err error)
 	QueueHealthJob func(r *http.Request) int64
@@ -123,7 +124,7 @@ func (h *KeyAdministrationHandler) CheckKey(w http.ResponseWriter, r *http.Reque
 		writeError(w, http.StatusInternalServerError, "failed to check key")
 		return
 	}
-	if err := h.runtime.CheckKey(id, target.URL); err != nil {
+	if err := h.runtime.CheckKey(r.Context(), id, target.URL); err != nil {
 		log.Printf("CheckKey: %v", err)
 		writeError(w, http.StatusInternalServerError, "failed to check key")
 		return
@@ -160,7 +161,7 @@ func (h *KeyAdministrationHandler) CheckAllKeys(w http.ResponseWriter, r *http.R
 			defer waitGroup.Done()
 			defer func() { <-semaphore }()
 			if h.runtime.CheckKey != nil {
-				if checkErr := h.runtime.CheckKey(item.ID, item.URL); checkErr != nil {
+				if checkErr := h.runtime.CheckKey(r.Context(), item.ID, item.URL); checkErr != nil {
 					log.Printf("CheckAllKeys key_id=%d: %v", item.ID, checkErr)
 				}
 			}

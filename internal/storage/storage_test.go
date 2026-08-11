@@ -91,6 +91,41 @@ func TestInitializeSQLiteWithJournalMode(t *testing.T) {
 	}
 }
 
+func TestInitializeSQLiteAppliesConnectionPragmasAcrossThePool(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "pool-pragmas.db")
+	db, err := InitializeSQLiteWithJournalMode(dbPath, "WAL", newTestKeyring(t), nil)
+	if err != nil {
+		t.Fatalf("initialize sqlite: %v", err)
+	}
+	defer db.Close()
+
+	connections := make([]*sql.Conn, 0, 4)
+	defer func() {
+		for _, connection := range connections {
+			_ = connection.Close()
+		}
+	}()
+	for index := 0; index < 4; index++ {
+		connection, err := db.Conn(t.Context())
+		if err != nil {
+			t.Fatalf("acquire pooled connection %d: %v", index, err)
+		}
+		connections = append(connections, connection)
+	}
+	for index, connection := range connections {
+		var busyTimeout, foreignKeys int
+		if err := connection.QueryRowContext(t.Context(), "PRAGMA busy_timeout").Scan(&busyTimeout); err != nil {
+			t.Fatalf("read busy_timeout from connection %d: %v", index, err)
+		}
+		if err := connection.QueryRowContext(t.Context(), "PRAGMA foreign_keys").Scan(&foreignKeys); err != nil {
+			t.Fatalf("read foreign_keys from connection %d: %v", index, err)
+		}
+		if busyTimeout != 5000 || foreignKeys != 1 {
+			t.Fatalf("connection %d pragmas: busy_timeout=%d foreign_keys=%d", index, busyTimeout, foreignKeys)
+		}
+	}
+}
+
 func TestCleanupSQLiteSidecars(t *testing.T) {
 	dir := t.TempDir()
 	dbPath := filepath.Join(dir, "test.db")

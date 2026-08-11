@@ -85,6 +85,30 @@ describe("KeyEditorModal regression recovery", () => {
     expect(screen.getAllByRole("option").map((option) => option.textContent)).toEqual([
       "VLESS", "VMess", "Trojan", "Shadowsocks", "Hysteria 2", "TUIC v5",
     ]);
+    expect(screen.queryByRole("option", { name: /Hysteria v1/i })).not.toBeInTheDocument();
+  });
+
+  it("does not expose the developer capability matrix in the normal editor", async () => {
+    mocks.get.mockResolvedValue({
+      data: {
+        ...vlessDetail,
+        capabilities: {
+          "connectivity-probe": {
+            status: "conditionally_supported",
+            reason_code: "dns_only_udp_quic_probe_unavailable",
+            syntax_validation: "address_probe_only",
+            runtime_interoperability: "not_tested",
+          },
+        },
+      },
+    });
+    renderEditor({ keyId: 1 });
+
+    await screen.findByDisplayValue("VLESS profile");
+    expect(screen.queryByText(/Generator Capabilities/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/Совместимость выгрузки/i)).not.toBeInTheDocument();
+    expect(screen.queryByText("connectivity-probe")).not.toBeInTheDocument();
+    expect(screen.queryByText("dns_only_udp_quic_probe_unavailable")).not.toBeInTheDocument();
   });
 
   it("falls back the client display name to the panel name on create", async () => {
@@ -181,7 +205,7 @@ describe("KeyEditorModal regression recovery", () => {
     renderEditor({ keyId: 1 });
     fireEvent.click(await screen.findByRole("button", { name: "Раскрыть сырую ссылку" }));
     await waitFor(() => expect(screen.getByLabelText("Raw-конфигурация")).toHaveValue(duplicate));
-    expect(screen.getByRole("status")).toHaveTextContent(/повторяющиеся ключи/i);
+    expect(screen.getByText(/повторяющиеся ключи/i)).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Копировать raw" }));
     await waitFor(() => expect(copyToClipboard).toHaveBeenCalledWith(duplicate));
   });
@@ -256,15 +280,29 @@ describe("KeyEditorModal regression recovery", () => {
     expect(screen.getByTestId("informational-preview")).toHaveTextContent("Line 1 Иван + ivan_example + {unknown}");
   });
 
-  it("keeps source configuration locked while allowing only a client-name override", async () => {
+  it("keeps source configuration locked while allowing local status and client-name metadata", async () => {
     mocks.get.mockResolvedValue({ data: { ...vlessDetail, ownership: "external_source", external_source_name: "Provider" } });
-    renderEditor({ keyId: 1 });
+    const { container } = renderEditor({ keyId: 1 });
     expect(await screen.findByDisplayValue("vless.example")).toBeDisabled();
     expect(screen.getByLabelText("Название")).toBeDisabled();
-    expect(screen.getByLabelText("Статус")).toBeDisabled();
+    expect(screen.getByLabelText("Статус")).not.toBeDisabled();
     expect(screen.getByLabelText("Тип")).toBeDisabled();
     expect(screen.getByLabelText("Категория")).toBeDisabled();
     expect(screen.getByLabelText("Название в клиенте")).not.toBeDisabled();
+    expect(screen.queryByText(/Локальный статус доставки/)).not.toBeInTheDocument();
+    const form = container.querySelector("form");
+    const sourceBanner = container.querySelector(".ui-key-editor-source-banner");
+    const scrollRegion = container.querySelector(".ui-key-editor-scroll-region");
+    const footer = container.querySelector(".ui-key-editor-footer");
+    expect(sourceBanner?.parentElement).toBe(form);
+    expect(scrollRegion?.parentElement).toBe(form);
+    expect(footer?.parentElement).toBe(form);
+    expect(sourceBanner).toHaveClass("shrink-0");
+    expect(scrollRegion).toHaveClass("min-h-0", "flex-[0_1_auto]", "overflow-y-auto");
+    expect(footer).toHaveClass("shrink-0");
+    expect(footer).not.toHaveClass("-mb-5");
+    expect(screen.getByRole("dialog")).toHaveClass("max-h-[calc(100dvh-1.5rem)]");
+    expect(screen.getByRole("dialog")).not.toHaveClass("h-[calc(100dvh-1.5rem)]");
     expect(screen.getByRole("button", { name: "Сохранить" })).toBeDisabled();
     fireEvent.change(screen.getByLabelText("Название в клиенте"), { target: { value: "Local source override" } });
     expect(screen.getByRole("button", { name: "Сохранить" })).not.toBeDisabled();
@@ -280,6 +318,39 @@ describe("KeyEditorModal regression recovery", () => {
       patch_mode: "structured",
     }));
     expect(mocks.reveal).not.toHaveBeenCalled();
+  });
+
+  it("updates a source-owned status in both directions without sending a client-name change", async () => {
+    mocks.get.mockResolvedValue({
+      data: { ...vlessDetail, ownership: "external_source", external_source_name: "Provider" },
+    });
+    const first = renderEditor({ keyId: 1 });
+    const statusControl = await screen.findByLabelText("Статус");
+    fireEvent.click(statusControl);
+    fireEvent.click(screen.getByRole("option", { name: "Неактивен" }));
+    fireEvent.click(screen.getByRole("button", { name: "Сохранить" }));
+    await waitFor(() => expect(mocks.updateProfile).toHaveBeenCalledWith(1, expect.objectContaining({
+      status: "non-active",
+      client_display_name: undefined,
+      profile_revision: 7,
+    })));
+
+    first.unmount();
+    vi.clearAllMocks();
+    mocks.get.mockResolvedValue({
+      data: { ...vlessDetail, status: "non-active", ownership: "external_source", external_source_name: "Provider" },
+    });
+    mocks.updateProfile.mockResolvedValue({ data: { id: 1 } });
+    renderEditor({ keyId: 1 });
+    const inactiveStatusControl = await screen.findByLabelText("Статус");
+    fireEvent.click(inactiveStatusControl);
+    fireEvent.click(screen.getByRole("option", { name: "Активен" }));
+    fireEvent.click(screen.getByRole("button", { name: "Сохранить" }));
+    await waitFor(() => expect(mocks.updateProfile).toHaveBeenCalledWith(1, expect.objectContaining({
+      status: "active",
+      client_display_name: undefined,
+      profile_revision: 7,
+    })));
   });
 
   it("resets a source override to the derived source name and keeps cloning available", async () => {

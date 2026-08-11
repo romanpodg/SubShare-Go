@@ -111,6 +111,7 @@ func migrateWithKeyring(db *sql.DB, keyring *profilestorage.Keyring) error {
 		`CREATE TABLE IF NOT EXISTS routing_settings (
 				id INTEGER PRIMARY KEY CHECK (id = 1),
 				config_json TEXT NOT NULL DEFAULT '',
+				delivery_mode TEXT NOT NULL DEFAULT 'disabled' CHECK (delivery_mode IN ('disabled', 'add', 'onadd')),
 				updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
 			);`,
 		`CREATE TABLE IF NOT EXISTS external_subscription_sources (
@@ -881,16 +882,17 @@ func (a *App) getPanelSettings() (model.PanelSettings, error) {
 }
 
 func (a *App) getRoutingSettings() (model.RoutingSettings, error) {
-	var configJSON sql.NullString
-	if err := a.db.QueryRow(`SELECT config_json FROM routing_settings WHERE id = 1`).Scan(&configJSON); err != nil {
+	var configJSON, deliveryMode sql.NullString
+	if err := a.db.QueryRow(`SELECT config_json, delivery_mode FROM routing_settings WHERE id = 1`).Scan(&configJSON, &deliveryMode); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
-			return model.RoutingSettings{ConfigJSON: ""}, nil
+			return model.RoutingSettings{ConfigJSON: "", DeliveryMode: routingDeliveryModeDisabled}, nil
 		}
 		return model.RoutingSettings{}, err
 	}
 
 	return model.RoutingSettings{
-		ConfigJSON: strings.TrimSpace(configJSON.String),
+		ConfigJSON:   strings.TrimSpace(configJSON.String),
+		DeliveryMode: strings.TrimSpace(deliveryMode.String),
 	}, nil
 }
 
@@ -924,10 +926,13 @@ func (a *App) updateSubscriptionPageConfig(configJSON string) error {
 
 func (a *App) updateRoutingSettings(s model.RoutingSettings) error {
 	_, err := a.db.Exec(
-		`INSERT INTO routing_settings(id, config_json, updated_at)
-		 VALUES(1, ?, CURRENT_TIMESTAMP)
-		 ON CONFLICT(id) DO UPDATE SET config_json = excluded.config_json, updated_at = CURRENT_TIMESTAMP`,
-		strings.TrimSpace(s.ConfigJSON),
+		`INSERT INTO routing_settings(id, config_json, delivery_mode, updated_at)
+		 VALUES(1, ?, ?, CURRENT_TIMESTAMP)
+		 ON CONFLICT(id) DO UPDATE SET
+		   config_json = excluded.config_json,
+		   delivery_mode = excluded.delivery_mode,
+		   updated_at = CURRENT_TIMESTAMP`,
+		strings.TrimSpace(s.ConfigJSON), strings.TrimSpace(s.DeliveryMode),
 	)
 	return err
 }

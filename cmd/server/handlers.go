@@ -1015,32 +1015,52 @@ func (a *App) apiGetRoutingSettings(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "failed to load routing settings")
 		return
 	}
-	writeJSON(w, http.StatusOK, settings)
+	if !validRoutingDeliveryMode(settings.DeliveryMode) {
+		settings.DeliveryMode = routingDeliveryModeDisabled
+	}
+	writeJSON(w, http.StatusOK, routingSettingsWithLinks(settings))
 }
 
 func (a *App) apiUpdateRoutingSettings(w http.ResponseWriter, r *http.Request) {
-	var req model.RoutingSettings
+	var req model.UpdateRoutingSettingsRequest
 	if err := readJSON(r, &req); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid request body")
 		return
 	}
 
 	configJSON := strings.TrimSpace(req.ConfigJSON)
-	if configJSON != "" {
-		var parsed map[string]any
-		if err := json.Unmarshal([]byte(configJSON), &parsed); err != nil {
-			writeError(w, http.StatusBadRequest, "config_json must be a valid JSON object")
-			return
-		}
+	current, err := a.getRoutingSettings()
+	if err != nil {
+		log.Printf("apiUpdateRoutingSettings load current: %v", err)
+		writeError(w, http.StatusInternalServerError, "failed to update routing settings")
+		return
+	}
+	deliveryMode := current.DeliveryMode
+	if !validRoutingDeliveryMode(deliveryMode) {
+		deliveryMode = routingDeliveryModeDisabled
+	}
+	if req.DeliveryMode != nil {
+		deliveryMode = strings.TrimSpace(*req.DeliveryMode)
+	}
+	if !validRoutingDeliveryMode(deliveryMode) {
+		writeError(w, http.StatusBadRequest, "delivery_mode must be disabled, add, or onadd")
+		return
+	}
+	if err := validateHappRoutingConfig(configJSON, deliveryMode != routingDeliveryModeDisabled); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
 	}
 
-	if err := a.updateRoutingSettings(model.RoutingSettings{ConfigJSON: configJSON}); err != nil {
+	settings := model.RoutingSettings{ConfigJSON: configJSON, DeliveryMode: deliveryMode}
+	if err := a.updateRoutingSettings(settings); err != nil {
 		log.Printf("apiUpdateRoutingSettings: %v", err)
 		writeError(w, http.StatusInternalServerError, "failed to update routing settings")
 		return
 	}
 
-	writeMessage(w, "routing settings updated")
+	response := routingSettingsWithLinks(settings)
+	response.Message = "routing settings updated"
+	writeJSON(w, http.StatusOK, response)
 }
 
 func (a *App) apiUpdateUserHWID(w http.ResponseWriter, r *http.Request) {

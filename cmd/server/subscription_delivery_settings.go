@@ -1,7 +1,8 @@
 package main
 
 import (
-	"encoding/base64"
+	"context"
+	"database/sql"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -10,8 +11,15 @@ import (
 
 type subscriptionDeliverySettings struct {
 	ResponseHeaders []responseHeader    `json:"response_headers"`
-	Announcement    string              `json:"announcement"`
 	Remarks         map[string][]string `json:"remarks"`
+}
+
+type subscriptionDeliverySettingsUpdate struct {
+	subscriptionDeliverySettings
+	// LegacyAnnouncement is accepted only as an upgrade shim for old clients.
+	// It is promoted to subscription_settings.extra_status when that canonical
+	// value is empty and is never persisted as a delivery setting.
+	LegacyAnnouncement *string `json:"announcement,omitempty"`
 }
 
 type subscriptionDeliverySettingsResponse struct {
@@ -44,10 +52,6 @@ func validateSubscriptionDeliverySettings(input subscriptionDeliverySettings) (s
 			return input, fmt.Errorf("unsafe response header %q", header.Key)
 		}
 	}
-	input.Announcement = strings.TrimSpace(input.Announcement)
-	if len([]rune(input.Announcement)) > 200 {
-		return input, fmt.Errorf("announcement is too long")
-	}
 	normalized := make(map[string][]string, len(deliveryRemarkStatuses))
 	for _, status := range deliveryRemarkStatuses {
 		values := input.Remarks[status]
@@ -74,9 +78,9 @@ func (a *App) getSubscriptionDeliverySettings() (subscriptionDeliverySettings, e
 	settings := defaultSubscriptionDeliverySettings()
 	var headersJSON, remarksJSON string
 	err := a.db.QueryRow(`
-		SELECT response_headers_json, announcement, remarks_json
+		SELECT response_headers_json, remarks_json
 		FROM subscription_delivery_settings WHERE id = 1
-	`).Scan(&headersJSON, &settings.Announcement, &remarksJSON)
+	`).Scan(&headersJSON, &remarksJSON)
 	if err != nil {
 		return settings, err
 	}
@@ -108,47 +112,86 @@ func (a *App) apiV1GetSubscriptionDeliverySettings(w http.ResponseWriter, r *htt
 }
 
 func (a *App) apiV1UpdateSubscriptionDeliverySettings(w http.ResponseWriter, r *http.Request) {
-	var input subscriptionDeliverySettings
+	var input subscriptionDeliverySettingsUpdate
 	if err := readJSON(r, &input); err != nil {
 		writeV1Error(w, r, http.StatusBadRequest, "invalid_body", "invalid request body")
 		return
 	}
-	input, err := validateSubscriptionDeliverySettings(input)
+	settings, err := validateSubscriptionDeliverySettings(input.subscriptionDeliverySettings)
 	if err != nil {
 		writeV1Error(w, r, http.StatusBadRequest, "delivery_settings_invalid", err.Error())
 		return
 	}
-	headersJSON, _ := json.Marshal(input.ResponseHeaders)
-	remarksJSON, _ := json.Marshal(input.Remarks)
-	_, err = a.db.Exec(`
+	legacyAnnouncement := ""
+	if input.LegacyAnnouncement != nil {
+		legacyAnnouncement = strings.TrimSpace(*input.LegacyAnnouncement)
+		if len([]rune(legacyAnnouncement)) > 255 {
+			writeV1Error(w, r, http.StatusBadRequest, "delivery_settings_invalid", "deprecated announcement is too long")
+			return
+		}
+	}
+
+	headersJSON, _ := json.Marshal(settings.ResponseHeaders)
+	remarksJSON, _ := json.Marshal(settings.Remarks)
+	tx, err := a.db.BeginTx(r.Context(), nil)
+	if err != nil {
+		writeV1Error(w, r, http.StatusInternalServerError, "delivery_settings_update_failed", "failed to update subscription delivery settings")
+		return
+	}
+	defer tx.Rollback()
+	promoted, err := promoteLegacyDeliveryAnnouncement(r.Context(), tx, legacyAnnouncement)
+	if err == nil {
+		_, err = tx.ExecContext(r.Context(), `
 		INSERT INTO subscription_delivery_settings(id, response_headers_json, announcement, remarks_json, updated_at)
-		VALUES(1, ?, ?, ?, CURRENT_TIMESTAMP)
+		VALUES(1, ?, '', ?, CURRENT_TIMESTAMP)
 		ON CONFLICT(id) DO UPDATE SET
 		  response_headers_json = excluded.response_headers_json,
-		  announcement = excluded.announcement,
+		  announcement = '',
 		  remarks_json = excluded.remarks_json,
 		  updated_at = CURRENT_TIMESTAMP
-	`, string(headersJSON), input.Announcement, string(remarksJSON))
+		`, string(headersJSON), string(remarksJSON))
+	}
+	if err == nil {
+		err = tx.Commit()
+	}
 	if err != nil {
 		writeV1Error(w, r, http.StatusInternalServerError, "delivery_settings_update_failed", "failed to update subscription delivery settings")
 		return
 	}
 	a.recordAuditEvent(r, "subscription_delivery_settings.update", "settings", "subscription", map[string]any{
-		"response_header_count": len(input.ResponseHeaders),
-		"has_announcement":      input.Announcement != "",
+		"response_header_count":        len(settings.ResponseHeaders),
+		"legacy_announcement_promoted": promoted,
 	})
 	writeMessage(w, "subscription delivery settings updated")
 }
 
+type contextSQLExecutor interface {
+	ExecContext(context.Context, string, ...any) (sql.Result, error)
+}
+
+func promoteLegacyDeliveryAnnouncement(ctx context.Context, executor contextSQLExecutor, announcement string) (bool, error) {
+	announcement = strings.TrimSpace(announcement)
+	if announcement == "" {
+		return false, nil
+	}
+	result, err := executor.ExecContext(ctx, `
+		UPDATE subscription_settings
+		SET extra_status = ?, updated_at = CURRENT_TIMESTAMP
+		WHERE id = 1 AND TRIM(COALESCE(extra_status, '')) = ''
+	`, announcement)
+	if err != nil {
+		return false, err
+	}
+	rowsAffected, err := result.RowsAffected()
+	return rowsAffected > 0, err
+}
+
 func (a *App) applyGlobalDeliveryHeaders(w http.ResponseWriter) {
 	settings, err := a.getSubscriptionDeliverySettings()
-	if err != nil {
-		return
+	if err == nil {
+		applyRuleHeaders(w, settings.ResponseHeaders)
 	}
-	applyRuleHeaders(w, settings.ResponseHeaders)
-	if settings.Announcement != "" {
-		w.Header().Set("announce", "base64:"+base64.StdEncoding.EncodeToString([]byte(settings.Announcement)))
-	}
+	a.applyHappRoutingHeader(w.Header())
 }
 
 func remarkStatusFromReason(reason string) string {

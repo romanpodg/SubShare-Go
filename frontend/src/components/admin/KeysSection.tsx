@@ -651,9 +651,8 @@ export function KeysSection({ keys, subscriptionFormat, onRefresh }: Props) {
   const handleCheckAll = async () => {
     setCheckingAll(true);
     try {
-      const result = await keysApi.checkAll();
-      toast(`Проверено конфигураций: ${result.checked}`, "success");
-      await onRefresh();
+      await keysApi.checkAll();
+      toast("Проверка конфигураций запущена", "success");
     } catch {
       toast("Не удалось проверить конфигурации", "error");
     } finally {
@@ -832,14 +831,13 @@ export function KeysSection({ keys, subscriptionFormat, onRefresh }: Props) {
               isInactiveJSON ? "text-zinc-300" : "text-zinc-100"
             }`}
           />
-          <div className="flex shrink-0 items-center">
+          <div className="flex shrink-0 flex-wrap items-center justify-end gap-1.5">
+            <StatusBadge status={key.status} />
             {isInactiveJSON ? (
               <span className="border border-border bg-surface-1 px-2.5 py-1 text-[12px] text-zinc-300">
                 <EmojiText text="Неактивен JSON" />
               </span>
-            ) : (
-              <StatusBadge status={key.status} />
-            )}
+            ) : null}
           </div>
         </div>
 

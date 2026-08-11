@@ -698,23 +698,29 @@ paths:
         default: { $ref: "#/components/responses/Error" }
   /routing-settings:
     get:
-      deprecated: true
       tags: [Subscription]
-      summary: Get compatibility routing settings
+      summary: Get Happ routing configuration and delivery mode
       responses:
-        "200": { description: Routing settings }
+        "200":
+          description: Routing settings with canonical manual Happ links
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/RoutingSettings" }
         default: { $ref: "#/components/responses/Error" }
     put:
-      deprecated: true
       tags: [Subscription]
-      summary: Update compatibility routing settings
+      summary: Update Happ routing configuration and subscription delivery mode
       requestBody:
         required: true
         content:
           application/json:
-            schema: { type: object, additionalProperties: true }
+            schema: { $ref: "#/components/schemas/UpdateRoutingSettings" }
       responses:
-        "200": { description: Routing settings updated }
+        "200":
+          description: Updated routing settings with canonical manual Happ links
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/RoutingSettings" }
         default: { $ref: "#/components/responses/Error" }
   /panel-settings:
     get:
@@ -893,7 +899,7 @@ paths:
   /subscription-delivery-settings:
     get:
       tags: [Subscription]
-      summary: Get announcements, global headers and status remarks
+      summary: Get global headers and status remarks
       responses:
         "200":
           description: Delivery settings
@@ -903,7 +909,7 @@ paths:
         default: { $ref: "#/components/responses/Error" }
     put:
       tags: [Subscription]
-      summary: Update announcements, global headers and status remarks
+      summary: Update global headers and status remarks
       requestBody:
         required: true
         content:
@@ -1028,6 +1034,30 @@ components:
         application/json:
           schema: { $ref: "#/components/schemas/Error" }
   schemas:
+    RoutingDeliveryMode:
+      type: string
+      enum: [disabled, add, onadd]
+      description: disabled omits routing metadata; add and onadd deliver the corresponding Happ routing URI.
+    RoutingSettings:
+      type: object
+      additionalProperties: false
+      required: [config_json, delivery_mode, add_url, onadd_url, off_url]
+      properties:
+        config_json: { type: string, description: Happ routing profile JSON preserved as configured. }
+        delivery_mode: { $ref: "#/components/schemas/RoutingDeliveryMode" }
+        add_url: { type: string, description: Canonical manual happ://routing/add URI; empty until a valid profile is saved. }
+        onadd_url: { type: string, description: Canonical manual happ://routing/onadd URI; empty until a valid profile is saved. }
+        off_url: { type: string, const: "happ://routing/off" }
+        message: { type: string, description: Present on successful updates for legacy clients. }
+    UpdateRoutingSettings:
+      type: object
+      additionalProperties: false
+      required: [config_json]
+      properties:
+        config_json: { type: string }
+        delivery_mode:
+          allOf: [{ $ref: "#/components/schemas/RoutingDeliveryMode" }]
+          description: Optional for legacy clients; omission preserves the persisted mode.
     AdministratorPassword:
       type: string
       minLength: 15
@@ -1516,7 +1546,10 @@ components:
       type: object
       required: [key, value]
       properties:
-        key: { type: string, maxLength: 80 }
+        key:
+          type: string
+          maxLength: 80
+          description: Custom header name. Standard subscription metadata headers (announce, profile-title, profile-update-interval, profile-web-page-url, support-url, subscription-userinfo) are reserved case-insensitively.
         value: { type: string, maxLength: 1024 }
     ResponseRuleInput:
       type: object
@@ -1549,13 +1582,18 @@ components:
     SubscriptionDeliverySettingsUpdate:
       type: object
       additionalProperties: false
-      required: [response_headers, announcement, remarks]
+      required: [response_headers, remarks]
       properties:
         response_headers:
           type: array
           maxItems: 30
           items: { $ref: "#/components/schemas/RuleHeader" }
-        announcement: { type: string, maxLength: 200 }
+        announcement:
+          type: string
+          maxLength: 255
+          deprecated: true
+          writeOnly: true
+          description: Compatibility-only input for old clients. If non-empty and canonical subscription metadata extra_status is empty, it is promoted there; it is never stored or returned as a delivery setting.
         remarks:
           type: object
           additionalProperties: false
