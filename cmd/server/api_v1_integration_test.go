@@ -40,7 +40,7 @@ func seedIntegrationSession(t *testing.T, app *App, role string) (string, string
 	csrf := "csrf-" + role
 	if _, err := app.db.Exec(
 		`INSERT INTO admin_sessions(id, admin_id, csrf_token, expires_at) VALUES(?, ?, ?, ?)`,
-		sessionID,
+		hashSessionID(sessionID),
 		adminID,
 		csrf,
 		time.Now().Add(time.Hour),

@@ -33,6 +33,51 @@ func TestAPITokenAllows(t *testing.T) {
 	}
 }
 
+func TestAPITokenAllowsDeniesPrivilegeEscalation(t *testing.T) {
+	t.Parallel()
+	// Creating administrators and minting tokens is ownership itself. These
+	// paths previously fell through to the permissive default, so any token
+	// holding settings:write could mint an owner account or a "*" token.
+	for _, path := range []string{
+		"/api/v1/admins",
+		"/api/v1/admins/1",
+		"/api/admin/admins",
+		"/api/v1/api-tokens",
+		"/api/v1/api-tokens/1",
+	} {
+		for _, method := range []string{http.MethodPost, http.MethodPut, http.MethodDelete} {
+			for _, scopes := range [][]string{
+				{"settings:write"},
+				{"read", "settings:write"},
+				{"users:write", "keys:write", "settings:write"},
+			} {
+				if apiTokenAllows(scopes, method, path) {
+					t.Errorf("scopes %v must not allow %s %s", scopes, method, path)
+				}
+			}
+			if !apiTokenAllows([]string{"*"}, method, path) {
+				t.Errorf("unrestricted token should allow %s %s", method, path)
+			}
+		}
+	}
+}
+
+func TestAPITokenAllowsDeniesUnknownWritePaths(t *testing.T) {
+	t.Parallel()
+	// An unrecognized write endpoint is far more likely to be newly added and
+	// privileged than to be safe, so it is denied until mapped explicitly.
+	for _, scopes := range [][]string{
+		{"settings:write"},
+		{"users:write"},
+		{"keys:write"},
+		{"read"},
+	} {
+		if apiTokenAllows(scopes, http.MethodPost, "/api/v1/some-future-endpoint") {
+			t.Errorf("scopes %v must not allow an unmapped write path", scopes)
+		}
+	}
+}
+
 func TestAPITokenKeyScopeCoversSupportedAndCompatibilityRoutes(t *testing.T) {
 	t.Parallel()
 	keyScopes := []string{"keys:write"}
