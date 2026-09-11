@@ -8,6 +8,7 @@ import (
 	"encoding/binary"
 	"encoding/hex"
 	"fmt"
+	"strings"
 
 	"golang.org/x/crypto/chacha20poly1305"
 )
@@ -93,7 +94,7 @@ func ParseEnvelope(envelope string) (*ParsedEnvelope, error) {
 	if len(envelope) > 120000 {
 		return nil, fmt.Errorf("%w: envelope exceeds size limit", ErrMalformedEnvelope)
 	}
-	parts := splitExact(envelope, '$')
+	parts := strings.Split(envelope, "$")
 	if len(parts) != 7 || parts[0] != "" {
 		return nil, fmt.Errorf("%w: invalid envelope structure", ErrMalformedEnvelope)
 	}
@@ -218,23 +219,4 @@ func GenerateCloneBlindIndex(bik []byte, rawURL string) (string, error) {
 	_, _ = h.Write(context)
 	_, _ = h.Write([]byte(rawURL))
 	return hex.EncodeToString(h.Sum(nil)), nil
-}
-
-func splitExact(s string, sep byte) []string {
-	var n int
-	for i := 0; i < len(s); i++ {
-		if s[i] == sep {
-			n++
-		}
-	}
-	res := make([]string, 0, n+1)
-	start := 0
-	for i := 0; i < len(s); i++ {
-		if s[i] == sep {
-			res = append(res, s[start:i])
-			start = i + 1
-		}
-	}
-	res = append(res, s[start:])
-	return res
 }
