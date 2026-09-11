@@ -4,6 +4,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/netip"
+	"strings"
 	"testing"
 	"time"
 )
@@ -70,11 +71,17 @@ func TestRateLimiter_BoundsPeerMemory(t *testing.T) {
 	if !rl.Allow("203.0.113.1") || !rl.Allow("203.0.113.2") {
 		t.Fatal("initial peers should be allowed")
 	}
-	if rl.Allow("203.0.113.3") {
-		t.Fatal("new peer should be rejected after capacity is reached")
+	// A full table must not lock out unseen clients — that would let anyone able
+	// to fill it deny service to everyone else. The least recently active peer
+	// is evicted instead, so the map stays bounded either way.
+	if !rl.Allow("203.0.113.3") {
+		t.Fatal("new peer should be admitted by evicting the least recently active entry")
 	}
-	if len(rl.attempts) != 2 {
-		t.Fatalf("peer map size = %d, want 2", len(rl.attempts))
+	if len(rl.attempts) > 2 {
+		t.Fatalf("peer map size = %d, want at most 2", len(rl.attempts))
+	}
+	if _, tracked := rl.attempts["203.0.113.3"]; !tracked {
+		t.Fatal("new peer should be tracked after eviction")
 	}
 }
 
@@ -167,8 +174,23 @@ func TestClientIP(t *testing.T) {
 			want:       "203.0.113.50",
 		},
 		{
-			name:       "X-Forwarded-For multiple IPs returns first",
+			name:       "X-Forwarded-For multiple IPs returns rightmost untrusted hop",
 			xff:        "203.0.113.50, 70.41.3.18, 150.172.238.178",
+			remoteAddr: "127.0.0.1:8080",
+			want:       "150.172.238.178",
+		},
+		{
+			// The leftmost entries are whatever the caller sent. Reading them
+			// would let any client pick its own rate-limit bucket and so make
+			// the login limiter unenforceable.
+			name:       "client-supplied leading entries cannot spoof the client IP",
+			xff:        "1.2.3.4, 203.0.113.50",
+			remoteAddr: "127.0.0.1:8080",
+			want:       "203.0.113.50",
+		},
+		{
+			name:       "trusted hops are skipped to reach the real client",
+			xff:        "203.0.113.50, 127.0.0.1",
 			remoteAddr: "127.0.0.1:8080",
 			want:       "203.0.113.50",
 		},
@@ -367,6 +389,34 @@ func TestRequestID_ProvidedByClient(t *testing.T) {
 	}
 	if contextID != customID {
 		t.Errorf("context request ID = %q, want %q", contextID, customID)
+	}
+}
+
+func TestRequestID_RejectsUnsafeClientValues(t *testing.T) {
+	// The inbound value is echoed back and copied into every log line for the
+	// request, so an oversized or out-of-charset one is replaced rather than
+	// reflected.
+	for name, supplied := range map[string]string{
+		"too long":          strings.Repeat("a", 65),
+		"disallowed char":   "abc def",
+		"control character": "abc\ndef",
+	} {
+		t.Run(name, func(t *testing.T) {
+			req := httptest.NewRequest(http.MethodGet, "/", nil)
+			req.Header.Set("X-Request-ID", supplied)
+			rec := httptest.NewRecorder()
+			RequestID(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				w.WriteHeader(http.StatusOK)
+			})).ServeHTTP(rec, req)
+
+			got := rec.Header().Get("X-Request-ID")
+			if got == supplied {
+				t.Fatalf("unsafe client request ID was reflected: %q", got)
+			}
+			if len(got) != 32 {
+				t.Fatalf("replacement request ID length = %d, want 32 hex chars", len(got))
+			}
+		})
 	}
 }
 

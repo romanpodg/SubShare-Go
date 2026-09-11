@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"testing"
 )
 
@@ -149,7 +150,7 @@ func TestCrypto_RoundTrip_AAD_Tampering(t *testing.T) {
 	}
 
 	// Ciphertext tampering (must fail)
-	parts := splitExact(env, '$')
+	parts := strings.Split(env, "$")
 	tamperedCipher := parts[6][:len(parts[6])-4] + "AAAA"
 	tamperedEnv := fmt.Sprintf("$%s$%s$%s$%s$%s$%s", parts[1], parts[2], parts[3], parts[4], parts[5], tamperedCipher)
 	if _, err := Decrypt(tamperedEnv, kr, rowID); err == nil {
