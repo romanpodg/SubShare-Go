@@ -39,3 +39,6 @@ certs/
 *.key
 
 CLAUDE.md
+
+# Local agent tooling state
+.omc/
