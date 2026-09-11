@@ -266,6 +266,12 @@ func TestGeneralExpirationSettingDefaultsAndOmittedAdminFieldIsPreserved(t *test
 }
 
 func TestSubscriptionExpirationMetadataDelivery(t *testing.T) {
+	// Relative, never a calendar literal: handleSubscription compares expiry
+	// against the real clock, so a hardcoded future date quietly becomes a past
+	// one and the case starts asserting 200 against a genuine 410. The odd zone
+	// offset keeps a non-UTC origin in the fixture, since the response must
+	// report a UTC Unix timestamp either way.
+	futureExpiry := time.Now().Add(90 * 24 * time.Hour).In(time.FixedZone("sample", 5*60*60+30*60)).UTC()
 	tests := []struct {
 		name           string
 		format         string
@@ -275,8 +281,8 @@ func TestSubscriptionExpirationMetadataDelivery(t *testing.T) {
 		wantStatus     int
 		wantBaseFields bool
 	}{
-		{name: "finite link enabled independently of Happ", format: model.SubscriptionFormatLinks, enabled: true, happEnabled: false, expiresAt: time.Date(2026, 8, 25, 12, 30, 0, 0, time.FixedZone("sample", 5*60*60+30*60)).UTC(), wantStatus: http.StatusOK, wantBaseFields: true},
-		{name: "finite JSON enabled", format: model.SubscriptionFormatXrayJSON, enabled: true, expiresAt: time.Date(2026, 8, 25, 12, 30, 0, 0, time.FixedZone("sample", 5*60*60+30*60)).UTC(), wantStatus: http.StatusOK, wantBaseFields: true},
+		{name: "finite link enabled independently of Happ", format: model.SubscriptionFormatLinks, enabled: true, happEnabled: false, expiresAt: futureExpiry, wantStatus: http.StatusOK, wantBaseFields: true},
+		{name: "finite JSON enabled", format: model.SubscriptionFormatXrayJSON, enabled: true, expiresAt: futureExpiry, wantStatus: http.StatusOK, wantBaseFields: true},
 		{name: "legacy Happ enabled does not expose expiration", format: model.SubscriptionFormatLinks, enabled: false, happEnabled: true, expiresAt: time.Now().Add(24 * time.Hour).UTC(), wantStatus: http.StatusOK, wantBaseFields: true},
 		{name: "unlimited", format: model.SubscriptionFormatLinks, enabled: true, expiresAt: nil, wantStatus: http.StatusOK, wantBaseFields: true},
 		{name: "expired authorization remains enforced", format: model.SubscriptionFormatLinks, enabled: true, expiresAt: time.Now().Add(-time.Hour).UTC(), wantStatus: http.StatusGone, wantBaseFields: false},
