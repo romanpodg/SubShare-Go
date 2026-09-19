@@ -70,7 +70,7 @@ func (rl *RateLimiter) Allow(ip string) bool {
 
 	attempts := rl.attempts[ip]
 	if rl.maxPeers > 0 && len(attempts) == 0 && len(rl.attempts) >= rl.maxPeers {
-		return false
+		rl.evictLocked(cutoff)
 	}
 	valid := attempts[:0]
 	for _, t := range attempts {
@@ -86,6 +86,33 @@ func (rl *RateLimiter) Allow(ip string) bool {
 
 	rl.attempts[ip] = append(valid, now)
 	return true
+}
+
+// evictLocked frees a slot for an unseen peer: first every entry whose newest
+// attempt has aged out, then the least recently active one if the table is
+// still full. Rejecting the newcomer instead would let anyone able to fill the
+// table lock out every client it does not already contain until the periodic
+// cleanup runs. Callers must hold rl.mu.
+func (rl *RateLimiter) evictLocked(cutoff time.Time) {
+	oldestIP := ""
+	var oldest time.Time
+	for ip, attempts := range rl.attempts {
+		if len(attempts) == 0 {
+			delete(rl.attempts, ip)
+			continue
+		}
+		newest := attempts[len(attempts)-1]
+		if !newest.After(cutoff) {
+			delete(rl.attempts, ip)
+			continue
+		}
+		if oldestIP == "" || newest.Before(oldest) {
+			oldestIP, oldest = ip, newest
+		}
+	}
+	if rl.maxPeers > 0 && len(rl.attempts) >= rl.maxPeers && oldestIP != "" {
+		delete(rl.attempts, oldestIP)
+	}
 }
 
 // Wrap wraps an http.HandlerFunc with rate limiting. It uses writeErrorFunc to
@@ -171,11 +198,23 @@ func clientIP(r *http.Request, trustedNetworks []*net.IPNet) string {
 	}
 
 	if trusted {
+		// Walk X-Forwarded-For right-to-left. Each trusted proxy appends the
+		// peer it saw, so the rightmost entries are the ones we can vouch for
+		// and the first non-trusted hop is the real client. Anything further
+		// left was supplied by the client and is forgeable, so reading the
+		// leftmost entry would let a caller choose its own rate-limit bucket.
 		if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
-			if parts := strings.SplitN(xff, ",", 2); len(parts) > 0 {
-				if ip := strings.TrimSpace(parts[0]); net.ParseIP(ip) != nil {
-					return ip
+			parts := strings.Split(xff, ",")
+			for index := len(parts) - 1; index >= 0; index-- {
+				candidate := strings.TrimSpace(parts[index])
+				parsed := net.ParseIP(candidate)
+				if parsed == nil {
+					break
 				}
+				if ipInNetworks(parsed, trustedNetworks) {
+					continue
+				}
+				return candidate
 			}
 		}
 		if xri := strings.TrimSpace(r.Header.Get("X-Real-IP")); net.ParseIP(xri) != nil {
@@ -183,6 +222,15 @@ func clientIP(r *http.Request, trustedNetworks []*net.IPNet) string {
 		}
 	}
 	return strings.TrimSpace(remoteHost)
+}
+
+func ipInNetworks(ip net.IP, networks []*net.IPNet) bool {
+	for _, network := range networks {
+		if network.Contains(ip) {
+			return true
+		}
+	}
+	return false
 }
 
 func trustedProxy(r *http.Request, trustedNetworks []*net.IPNet) bool {
@@ -194,12 +242,7 @@ func trustedProxy(r *http.Request, trustedNetworks []*net.IPNet) bool {
 	if remoteIP == nil {
 		return false
 	}
-	for _, network := range trustedNetworks {
-		if network.Contains(remoteIP) {
-			return true
-		}
-	}
-	return false
+	return ipInNetworks(remoteIP, trustedNetworks)
 }
 
 // SecurityHeaders adds standard security headers to every response.
@@ -229,7 +272,7 @@ func (r *StatusRecorder) WriteHeader(code int) {
 func RequestID(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		id := strings.TrimSpace(r.Header.Get("X-Request-ID"))
-		if id == "" {
+		if !validRequestID(id) {
 			buf := make([]byte, 16)
 			_, _ = rand.Read(buf)
 			id = hex.EncodeToString(buf)
@@ -238,6 +281,28 @@ func RequestID(next http.Handler) http.Handler {
 		ctx := context.WithValue(r.Context(), CtxKeyRequestID, id)
 		next.ServeHTTP(w, r.WithContext(ctx))
 	})
+}
+
+// validRequestID reports whether an inbound X-Request-ID is safe to echo back
+// and to copy into every log line for the request. An unbounded caller-supplied
+// value is reflected and logged verbatim, so a large one turns a cheap request
+// into a large amount of log output.
+func validRequestID(id string) bool {
+	if id == "" || len(id) > 64 {
+		return false
+	}
+	for index := 0; index < len(id); index++ {
+		char := id[index]
+		switch {
+		case char >= 'a' && char <= 'z',
+			char >= 'A' && char <= 'Z',
+			char >= '0' && char <= '9',
+			char == '-', char == '_', char == '.':
+		default:
+			return false
+		}
+	}
+	return true
 }
 
 // LogRequest logs each request with its method, path, duration, client IP, and request ID.
@@ -279,6 +344,10 @@ func CorsMiddleware(allowedOrigins []string, next http.Handler) http.Handler {
 	}
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		origin := r.Header.Get("Origin")
+		// Set unconditionally: the response body and headers depend on Origin
+		// whether or not this particular origin matched, so a shared cache must
+		// key on it either way.
+		w.Header().Add("Vary", "Origin")
 		if _, ok := allowed[origin]; ok {
 			w.Header().Set("Access-Control-Allow-Origin", origin)
 			w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, PATCH, DELETE, OPTIONS")

@@ -124,7 +124,7 @@ func (a *App) apiLogin(w http.ResponseWriter, r *http.Request) {
 	}
 
 	expiresAt := time.Now().Add(24 * time.Hour)
-	_, err = a.db.Exec(`INSERT INTO admin_sessions(id, admin_id, csrf_token, expires_at) VALUES(?, ?, ?, ?)`, sessionID, adminID, csrfToken, expiresAt)
+	_, err = a.db.Exec(`INSERT INTO admin_sessions(id, admin_id, csrf_token, expires_at) VALUES(?, ?, ?, ?)`, hashSessionID(sessionID), adminID, csrfToken, expiresAt)
 	if err != nil {
 		log.Printf("apiLogin: failed to save session to database: %v", err)
 		writeError(w, http.StatusInternalServerError, "failed to create session")
@@ -146,7 +146,7 @@ func (a *App) apiLogin(w http.ResponseWriter, r *http.Request) {
 func (a *App) apiLogout(w http.ResponseWriter, r *http.Request) {
 	cookie, err := r.Cookie(model.AdminSessionCookieName)
 	if err == nil && cookie.Value != "" {
-		_, _ = a.db.Exec(`DELETE FROM admin_sessions WHERE id = ?`, cookie.Value)
+		_, _ = a.db.Exec(`DELETE FROM admin_sessions WHERE id = ?`, hashSessionID(cookie.Value))
 	}
 
 	http.SetCookie(w, &http.Cookie{
@@ -307,7 +307,7 @@ func (a *App) apiUpdateAdmin(w http.ResponseWriter, r *http.Request) {
 		// Invalidate all active sessions for this admin since password changed, except the current one
 		cookie, err := r.Cookie(model.AdminSessionCookieName)
 		if err == nil && cookie.Value != "" {
-			_, _ = a.db.Exec(`DELETE FROM admin_sessions WHERE admin_id = ? AND id != ?`, id, cookie.Value)
+			_, _ = a.db.Exec(`DELETE FROM admin_sessions WHERE admin_id = ? AND id != ?`, id, hashSessionID(cookie.Value))
 		} else {
 			_, _ = a.db.Exec(`DELETE FROM admin_sessions WHERE admin_id = ?`, id)
 		}

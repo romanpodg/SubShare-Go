@@ -99,16 +99,17 @@ func (a *App) adminSessionFromRequest(r *http.Request) (model.AdminSession, stri
 		return a.apiTokenSessionFromRequest(r)
 	}
 
+	storedID := hashSessionID(cookie.Value)
 	var adminID int64
 	var csrfToken string
 	var expiresAt time.Time
-	err = a.db.QueryRow(`SELECT admin_id, csrf_token, expires_at FROM admin_sessions WHERE id = ?`, cookie.Value).Scan(&adminID, &csrfToken, &expiresAt)
+	err = a.db.QueryRow(`SELECT admin_id, csrf_token, expires_at FROM admin_sessions WHERE id = ?`, storedID).Scan(&adminID, &csrfToken, &expiresAt)
 	if err != nil {
 		return model.AdminSession{}, "", false
 	}
 
 	if time.Now().After(expiresAt) {
-		_, _ = a.db.Exec(`DELETE FROM admin_sessions WHERE id = ?`, cookie.Value)
+		_, _ = a.db.Exec(`DELETE FROM admin_sessions WHERE id = ?`, storedID)
 		return model.AdminSession{}, "", false
 	}
 
@@ -181,6 +182,10 @@ func apiTokenAllows(scopes []string, method, path string) bool {
 		return has("read")
 	}
 	switch {
+	case strings.Contains(path, "/admins"), strings.Contains(path, "/api-tokens"):
+		// Creating administrators and minting tokens is ownership itself, so it
+		// stays reachable only from an explicitly unrestricted token.
+		return has("*")
 	case strings.Contains(path, "/users"):
 		return has("users:write")
 	case strings.Contains(path, "/keys"),
@@ -189,8 +194,21 @@ func apiTokenAllows(scopes []string, method, path string) bool {
 		strings.Contains(path, "/external-sources"),
 		strings.Contains(path, "/source-categories"):
 		return has("keys:write")
-	default:
+	case strings.Contains(path, "/templates"),
+		strings.Contains(path, "/response-rules"),
+		strings.Contains(path, "/routing-settings"),
+		strings.Contains(path, "/panel-settings"),
+		strings.Contains(path, "/subscription-settings"),
+		strings.Contains(path, "/subscription-delivery-settings"),
+		strings.Contains(path, "/subscription-page-config"),
+		strings.Contains(path, "/jobs"):
 		return has("settings:write")
+	default:
+		// Deny by default. An unrecognized write endpoint is far more likely to
+		// be newly added and privileged than to be safe, and the permissive
+		// default this replaces handed /admins and /api-tokens — account
+		// creation and token minting — to any token holding settings:write.
+		return false
 	}
 }
 
@@ -204,6 +222,17 @@ func (a *App) mustCSRFToken(r *http.Request) string {
 
 func isUnsafeHTTPMethod(method string) bool {
 	return method == http.MethodPost || method == http.MethodPut || method == http.MethodPatch || method == http.MethodDelete
+}
+
+// hashSessionID converts a session cookie into the value stored in
+// admin_sessions.id. Storing the raw cookie made every backup — runBackup
+// copies the whole database with VACUUM INTO — a file full of directly usable
+// admin credentials. API tokens were already hashed this way; sessions now
+// match. Changing this invalidates sessions issued before the upgrade, so
+// administrators sign in again once after deployment.
+func hashSessionID(raw string) string {
+	sum := sha256.Sum256([]byte(raw))
+	return hex.EncodeToString(sum[:])
 }
 
 func secureEqual(left, right string) bool {
