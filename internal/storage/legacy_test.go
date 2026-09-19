@@ -3,10 +3,10 @@ package storage
 import (
 	"context"
 	"errors"
+	"github.com/romanpodg/SubShare-Go/internal/keymanagement"
 	"strings"
 	"testing"
 
-	"github.com/romanpodg/SubShare-Go/internal/keypersistence"
 	"github.com/romanpodg/SubShare-Go/internal/security/profilestorage"
 )
 
@@ -19,13 +19,13 @@ func TestStorage_LegacyKeyCRUD(t *testing.T) {
 	}
 
 	kr := newTestKeyringForStorage(t)
-	repo := NewKeyRepository(db, kr)
+	repo := NewRepository(db, kr)
 
 	ctx := context.Background()
 	vlessURI := "vless://11111111-1111-1111-1111-111111111111@example.com:443?type=tcp#LegacyStorage"
 
 	// 1. Create Legacy Key
-	keyID, err := repo.CreateLegacy(ctx, keypersistence.CreateLegacyKeyParams{
+	keyID, err := repo.CreateLegacy(ctx, keymanagement.CreateLegacyKeyParams{
 		Label:        "Storage Legacy Key",
 		Status:       "active",
 		Kind:         "real",
@@ -82,7 +82,7 @@ func TestStorage_LegacyKeyCRUD(t *testing.T) {
 
 	// 3. Update Legacy Key
 	updatedURI := "vless://22222222-2222-2222-2222-222222222222@example.com:8443?type=tcp#UpdatedStorage"
-	err = repo.UpdateLegacy(ctx, keypersistence.UpdateLegacyKeyParams{
+	err = repo.UpdateLegacy(ctx, keymanagement.UpdateLegacyKeyParams{
 		ID:           keyID,
 		Label:        "Updated Storage Key",
 		Status:       "active",
@@ -123,12 +123,12 @@ func TestStorage_LegacyKeyUpdateOrdering(t *testing.T) {
 	db := setupTestDB(t)
 	defer db.Close()
 	kr := newTestKeyringForStorage(t)
-	repo := NewKeyRepository(db, kr)
+	repo := NewRepository(db, kr)
 	ctx := context.Background()
 
-	id1, _ := repo.CreateLegacy(ctx, keypersistence.CreateLegacyKeyParams{Label: "K1", Status: "active", Kind: "real", KeyURL: "vless://11111111-1111-1111-1111-111111111111@e.com:443#k1"})
-	id2, _ := repo.CreateLegacy(ctx, keypersistence.CreateLegacyKeyParams{Label: "K2", Status: "active", Kind: "real", KeyURL: "vless://22222222-2222-2222-2222-222222222222@e.com:443#k2"})
-	id3, _ := repo.CreateLegacy(ctx, keypersistence.CreateLegacyKeyParams{Label: "K3", Status: "active", Kind: "real", KeyURL: "vless://33333333-3333-3333-3333-333333333333@e.com:443#k3"})
+	id1, _ := repo.CreateLegacy(ctx, keymanagement.CreateLegacyKeyParams{Label: "K1", Status: "active", Kind: "real", KeyURL: "vless://11111111-1111-1111-1111-111111111111@e.com:443#k1"})
+	id2, _ := repo.CreateLegacy(ctx, keymanagement.CreateLegacyKeyParams{Label: "K2", Status: "active", Kind: "real", KeyURL: "vless://22222222-2222-2222-2222-222222222222@e.com:443#k2"})
+	id3, _ := repo.CreateLegacy(ctx, keymanagement.CreateLegacyKeyParams{Label: "K3", Status: "active", Kind: "real", KeyURL: "vless://33333333-3333-3333-3333-333333333333@e.com:443#k3"})
 
 	var s1, s2, s3 int64
 	_ = db.QueryRow(`SELECT sort_order FROM vless_keys WHERE id = ?`, id1).Scan(&s1)
@@ -139,7 +139,7 @@ func TestStorage_LegacyKeyUpdateOrdering(t *testing.T) {
 	}
 
 	// Update K2 without changing kind -> sort_order MUST stay 2
-	err := repo.UpdateLegacy(ctx, keypersistence.UpdateLegacyKeyParams{
+	err := repo.UpdateLegacy(ctx, keymanagement.UpdateLegacyKeyParams{
 		ID:       id2,
 		Label:    "K2 Updated",
 		Status:   "active",
@@ -158,7 +158,7 @@ func TestStorage_LegacyKeyUpdateOrdering(t *testing.T) {
 	}
 
 	// Update K2 changing kind from 'real' to 'informational' -> sort_order MUST become MAX + 1 = 4
-	err = repo.UpdateLegacy(ctx, keypersistence.UpdateLegacyKeyParams{
+	err = repo.UpdateLegacy(ctx, keymanagement.UpdateLegacyKeyParams{
 		ID:           id2,
 		Label:        "K2 Info",
 		Status:       "active",
@@ -182,11 +182,11 @@ func TestStorage_LegacySourceOwnedAccess(t *testing.T) {
 	db := setupTestDB(t)
 	defer db.Close()
 	kr := newTestKeyringForStorage(t)
-	repo := NewKeyRepository(db, kr)
+	repo := NewRepository(db, kr)
 	ctx := context.Background()
 
 	// Seed source-owned key directly in DB
-	keyID, err := repo.CreateLegacy(ctx, keypersistence.CreateLegacyKeyParams{
+	keyID, err := repo.CreateLegacy(ctx, keymanagement.CreateLegacyKeyParams{
 		Label:  "Ext Source Key",
 		Status: "active",
 		Kind:   "real",
@@ -200,7 +200,7 @@ func TestStorage_LegacySourceOwnedAccess(t *testing.T) {
 	}
 
 	// Legacy update on source-owned key MUST succeed
-	err = repo.UpdateLegacy(ctx, keypersistence.UpdateLegacyKeyParams{
+	err = repo.UpdateLegacy(ctx, keymanagement.UpdateLegacyKeyParams{
 		ID:       keyID,
 		Label:    "Updated Ext Source Key",
 		Status:   "active",
@@ -222,7 +222,7 @@ func TestStorage_LegacySecretLifecycleTransitions(t *testing.T) {
 	db := setupTestDB(t)
 	defer db.Close()
 	kr := newTestKeyringForStorage(t)
-	repo := NewKeyRepository(db, kr)
+	repo := NewRepository(db, kr)
 	ctx := context.Background()
 
 	realURL1 := "vless://11111111-1111-1111-1111-111111111111@e.com:443#r1"
@@ -230,10 +230,10 @@ func TestStorage_LegacySecretLifecycleTransitions(t *testing.T) {
 	infoURL1 := "info://abcdef123456"
 	infoURL2 := "info://789012abcdef"
 
-	keyID, _ := repo.CreateLegacy(ctx, keypersistence.CreateLegacyKeyParams{Label: "K", Status: "active", Kind: "real", KeyURL: realURL1})
+	keyID, _ := repo.CreateLegacy(ctx, keymanagement.CreateLegacyKeyParams{Label: "K", Status: "active", Kind: "real", KeyURL: realURL1})
 
 	// 1. real -> real
-	err := repo.UpdateLegacy(ctx, keypersistence.UpdateLegacyKeyParams{ID: keyID, Label: "K", Status: "active", Kind: "real", BuiltURL: realURL2})
+	err := repo.UpdateLegacy(ctx, keymanagement.UpdateLegacyKeyParams{ID: keyID, Label: "K", Status: "active", Kind: "real", BuiltURL: realURL2})
 	if err != nil {
 		t.Fatalf("real -> real failed: %v", err)
 	}
@@ -243,7 +243,7 @@ func TestStorage_LegacySecretLifecycleTransitions(t *testing.T) {
 	}
 
 	// 2. real -> informational
-	err = repo.UpdateLegacy(ctx, keypersistence.UpdateLegacyKeyParams{ID: keyID, Label: "K", Status: "active", Kind: "informational", TemplateText: "T1", BuiltURL: infoURL1})
+	err = repo.UpdateLegacy(ctx, keymanagement.UpdateLegacyKeyParams{ID: keyID, Label: "K", Status: "active", Kind: "informational", TemplateText: "T1", BuiltURL: infoURL1})
 	if err != nil {
 		t.Fatalf("real -> info failed: %v", err)
 	}
@@ -253,7 +253,7 @@ func TestStorage_LegacySecretLifecycleTransitions(t *testing.T) {
 	}
 
 	// 3. informational -> real
-	err = repo.UpdateLegacy(ctx, keypersistence.UpdateLegacyKeyParams{ID: keyID, Label: "K", Status: "active", Kind: "real", BuiltURL: realURL1})
+	err = repo.UpdateLegacy(ctx, keymanagement.UpdateLegacyKeyParams{ID: keyID, Label: "K", Status: "active", Kind: "real", BuiltURL: realURL1})
 	if err != nil {
 		t.Fatalf("info -> real failed: %v", err)
 	}
@@ -263,7 +263,7 @@ func TestStorage_LegacySecretLifecycleTransitions(t *testing.T) {
 	}
 
 	// 4. informational -> informational
-	err = repo.UpdateLegacy(ctx, keypersistence.UpdateLegacyKeyParams{ID: keyID, Label: "K", Status: "active", Kind: "informational", TemplateText: "T2", BuiltURL: infoURL2})
+	err = repo.UpdateLegacy(ctx, keymanagement.UpdateLegacyKeyParams{ID: keyID, Label: "K", Status: "active", Kind: "informational", TemplateText: "T2", BuiltURL: infoURL2})
 	if err != nil {
 		t.Fatalf("info -> info failed: %v", err)
 	}
@@ -276,7 +276,7 @@ func TestStorage_LegacySecretLifecycleTransitions(t *testing.T) {
 	if _, err := db.Exec(`DELETE FROM vless_key_secrets WHERE vless_key_id = ?`, keyID); err != nil {
 		t.Fatalf("delete secret row: %v", err)
 	}
-	err = repo.UpdateLegacy(ctx, keypersistence.UpdateLegacyKeyParams{ID: keyID, Label: "K Restored", Status: "active", Kind: "real", BuiltURL: realURL1})
+	err = repo.UpdateLegacy(ctx, keymanagement.UpdateLegacyKeyParams{ID: keyID, Label: "K Restored", Status: "active", Kind: "real", BuiltURL: realURL1})
 	if err != nil {
 		t.Fatalf("update on missing secret row failed: %v", err)
 	}
@@ -289,7 +289,7 @@ func TestStorage_LegacySecretLifecycleTransitions(t *testing.T) {
 	if _, err := db.Exec(`UPDATE vless_key_secrets SET encrypted_url = 'corrupt' WHERE vless_key_id = ?`, keyID); err != nil {
 		t.Fatalf("corrupt secret row: %v", err)
 	}
-	err = repo.UpdateLegacy(ctx, keypersistence.UpdateLegacyKeyParams{ID: keyID, Label: "K Corrupt Fixed", Status: "active", Kind: "real", BuiltURL: realURL2})
+	err = repo.UpdateLegacy(ctx, keymanagement.UpdateLegacyKeyParams{ID: keyID, Label: "K Corrupt Fixed", Status: "active", Kind: "real", BuiltURL: realURL2})
 	if err != nil {
 		t.Fatalf("update on corrupt secret row failed: %v", err)
 	}
@@ -299,8 +299,8 @@ func TestStorage_LegacySecretLifecycleTransitions(t *testing.T) {
 	}
 
 	// 7. Failed update rollback
-	err = repo.UpdateLegacy(ctx, keypersistence.UpdateLegacyKeyParams{ID: 9999, Label: "Fail", Status: "active", Kind: "real", BuiltURL: realURL1})
-	if !errors.Is(err, keypersistence.ErrKeyNotFound) {
+	err = repo.UpdateLegacy(ctx, keymanagement.UpdateLegacyKeyParams{ID: 9999, Label: "Fail", Status: "active", Kind: "real", BuiltURL: realURL1})
+	if !errors.Is(err, keymanagement.ErrKeyNotFound) {
 		t.Fatalf("expected ErrProfileNotFound on 9999, got %v", err)
 	}
 }
@@ -309,21 +309,21 @@ func TestStorage_CategoryManagementAndKeyReordering(t *testing.T) {
 	db := setupTestDB(t)
 	defer db.Close()
 	kr := newTestKeyringForStorage(t)
-	repo := NewKeyRepository(db, kr)
+	repo := NewRepository(db, kr)
 	ctx := context.Background()
 
 	// 1. Create Categories
-	cat1, err := repo.CreateKeyCategory(ctx, keypersistence.CreateCategoryParams{Name: "CatA", Color: "#FF0000"})
+	cat1, err := repo.CreateKeyCategory(ctx, keymanagement.CreateCategoryParams{Name: "CatA", Color: "#FF0000"})
 	if err != nil || cat1.Name != "CatA" || cat1.Color != "#FF0000" {
 		t.Fatalf("CreateKeyCategory CatA failed: err=%v, cat=%#v", err, cat1)
 	}
-	cat2, err := repo.CreateKeyCategory(ctx, keypersistence.CreateCategoryParams{Name: "CatB", Color: "#00FF00"})
+	cat2, err := repo.CreateKeyCategory(ctx, keymanagement.CreateCategoryParams{Name: "CatB", Color: "#00FF00"})
 	if err != nil || cat2.Name != "CatB" || cat2.Color != "#00FF00" {
 		t.Fatalf("CreateKeyCategory CatB failed: err=%v, cat=%#v", err, cat2)
 	}
 
 	// Create key assigned to CatA
-	k1, err := repo.CreateLegacy(ctx, keypersistence.CreateLegacyKeyParams{
+	k1, err := repo.CreateLegacy(ctx, keymanagement.CreateLegacyKeyParams{
 		Label:    "KeyA",
 		Status:   "active",
 		Kind:     "real",
@@ -333,7 +333,7 @@ func TestStorage_CategoryManagementAndKeyReordering(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CreateLegacy failed: %v", err)
 	}
-	k2, err := repo.CreateLegacy(ctx, keypersistence.CreateLegacyKeyParams{
+	k2, err := repo.CreateLegacy(ctx, keymanagement.CreateLegacyKeyParams{
 		Label:    "KeyB",
 		Status:   "active",
 		Kind:     "real",
@@ -351,7 +351,7 @@ func TestStorage_CategoryManagementAndKeyReordering(t *testing.T) {
 	}
 
 	// 3. Update Category (Rename CatA -> CatARenamed)
-	cat1Upd, err := repo.UpdateKeyCategory(ctx, keypersistence.UpdateCategoryParams{
+	cat1Upd, err := repo.UpdateKeyCategory(ctx, keymanagement.UpdateCategoryParams{
 		OldName: "CatA",
 		NewName: "CatARenamed",
 		Color:   "#0000FF",
@@ -385,7 +385,7 @@ func TestStorage_CategoryManagementAndKeyReordering(t *testing.T) {
 	}
 
 	// 6. Delete Category with keep_keys
-	err = repo.DeleteKeyCategory(ctx, keypersistence.DeleteCategoryParams{
+	err = repo.DeleteKeyCategory(ctx, keymanagement.DeleteCategoryParams{
 		Name: "CatARenamed",
 		Mode: "keep_keys",
 	})
@@ -399,7 +399,7 @@ func TestStorage_CategoryManagementAndKeyReordering(t *testing.T) {
 	}
 
 	// 7. Delete Category with delete_with_keys
-	err = repo.DeleteKeyCategory(ctx, keypersistence.DeleteCategoryParams{
+	err = repo.DeleteKeyCategory(ctx, keymanagement.DeleteCategoryParams{
 		Name: "CatB",
 		Mode: "delete_with_keys",
 	})
@@ -416,14 +416,14 @@ func TestStorage_CategoryManagementAndKeyReordering(t *testing.T) {
 func TestKeyRepository_CategoryCollisionsReferencesAndOrdering(t *testing.T) {
 	db := setupTestDB(t)
 	defer db.Close()
-	repo := NewKeyRepository(db, newTestKeyringForStorage(t))
+	repo := NewRepository(db, newTestKeyringForStorage(t))
 	ctx := context.Background()
 
-	source, err := repo.CreateKeyCategory(ctx, keypersistence.CreateCategoryParams{Name: "Source", Color: "#111111"})
+	source, err := repo.CreateKeyCategory(ctx, keymanagement.CreateCategoryParams{Name: "Source", Color: "#111111"})
 	if err != nil {
 		t.Fatalf("create source category: %v", err)
 	}
-	duplicate, err := repo.CreateKeyCategory(ctx, keypersistence.CreateCategoryParams{Name: "Source", Color: "#222222"})
+	duplicate, err := repo.CreateKeyCategory(ctx, keymanagement.CreateCategoryParams{Name: "Source", Color: "#222222"})
 	if err != nil {
 		t.Fatalf("upsert duplicate category: %v", err)
 	}
@@ -435,18 +435,18 @@ func TestKeyRepository_CategoryCollisionsReferencesAndOrdering(t *testing.T) {
 		t.Fatalf("duplicate category row count = %d, err=%v", sourceCount, err)
 	}
 
-	target, err := repo.CreateKeyCategory(ctx, keypersistence.CreateCategoryParams{Name: "Target", Color: "#333333"})
+	target, err := repo.CreateKeyCategory(ctx, keymanagement.CreateCategoryParams{Name: "Target", Color: "#333333"})
 	if err != nil {
 		t.Fatalf("create target category: %v", err)
 	}
-	localID, err := repo.CreateLegacy(ctx, keypersistence.CreateLegacyKeyParams{
+	localID, err := repo.CreateLegacy(ctx, keymanagement.CreateLegacyKeyParams{
 		Label: "Local", Status: "active", Kind: "real", Category: "Source",
 		KeyURL: "vless://aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa@example.com:443#local",
 	})
 	if err != nil {
 		t.Fatalf("create local key: %v", err)
 	}
-	importedID, err := repo.CreateLegacy(ctx, keypersistence.CreateLegacyKeyParams{
+	importedID, err := repo.CreateLegacy(ctx, keymanagement.CreateLegacyKeyParams{
 		Label: "Imported", Status: "active", Kind: "real", Category: "Source",
 		KeyURL: "vless://bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb@example.com:443#imported",
 	})
@@ -460,7 +460,7 @@ func TestKeyRepository_CategoryCollisionsReferencesAndOrdering(t *testing.T) {
 		t.Fatalf("mark imported key: %v", err)
 	}
 
-	merged, err := repo.UpdateKeyCategory(ctx, keypersistence.UpdateCategoryParams{
+	merged, err := repo.UpdateKeyCategory(ctx, keymanagement.UpdateCategoryParams{
 		OldName: "Source", NewName: "Target", Color: "#444444",
 	})
 	if err != nil {
@@ -491,13 +491,13 @@ func TestKeyRepository_CategoryCollisionsReferencesAndOrdering(t *testing.T) {
 		t.Fatalf("partial/unknown category reorder must remain accepted: %v", err)
 	}
 
-	if err := repo.ReorderKeys(ctx, []int64{localID}); !errors.Is(err, keypersistence.ErrInvalidKeyOrderCount) {
+	if err := repo.ReorderKeys(ctx, []int64{localID}); !errors.Is(err, keymanagement.ErrInvalidKeyOrderCount) {
 		t.Fatalf("partial key order error = %v", err)
 	}
-	if err := repo.ReorderKeys(ctx, []int64{localID, 999}); !errors.Is(err, keypersistence.ErrUnknownKeyInOrder) {
+	if err := repo.ReorderKeys(ctx, []int64{localID, 999}); !errors.Is(err, keymanagement.ErrUnknownKeyInOrder) {
 		t.Fatalf("unknown key order error = %v", err)
 	}
-	if err := repo.ReorderKeys(ctx, []int64{localID, localID}); !errors.Is(err, keypersistence.ErrDuplicateKeyInOrder) {
+	if err := repo.ReorderKeys(ctx, []int64{localID, localID}); !errors.Is(err, keymanagement.ErrDuplicateKeyInOrder) {
 		t.Fatalf("duplicate key order error = %v", err)
 	}
 	if err := repo.ReorderKeys(ctx, []int64{importedID, localID}); err != nil {
@@ -506,16 +506,16 @@ func TestKeyRepository_CategoryCollisionsReferencesAndOrdering(t *testing.T) {
 }
 
 func TestKeyRepository_CategoryDeletionModesIncludeSourceOwnedKeys(t *testing.T) {
-	newFixture := func(t *testing.T, category string) (*KeyRepository, int64, int64) {
+	newFixture := func(t *testing.T, category string) (*Repository, int64, int64) {
 		t.Helper()
 		db := setupTestDB(t)
 		t.Cleanup(func() { _ = db.Close() })
-		repo := NewKeyRepository(db, newTestKeyringForStorage(t))
-		cat, err := repo.CreateKeyCategory(context.Background(), keypersistence.CreateCategoryParams{Name: category, Color: "#123456"})
+		repo := NewRepository(db, newTestKeyringForStorage(t))
+		cat, err := repo.CreateKeyCategory(context.Background(), keymanagement.CreateCategoryParams{Name: category, Color: "#123456"})
 		if err != nil {
 			t.Fatalf("create category: %v", err)
 		}
-		id, err := repo.CreateLegacy(context.Background(), keypersistence.CreateLegacyKeyParams{
+		id, err := repo.CreateLegacy(context.Background(), keymanagement.CreateLegacyKeyParams{
 			Label: category, Status: "active", Kind: "real", Category: category,
 			KeyURL: "vless://cccccccc-cccc-cccc-cccc-cccccccccccc@example.com:443#owned",
 		})
@@ -530,7 +530,7 @@ func TestKeyRepository_CategoryDeletionModesIncludeSourceOwnedKeys(t *testing.T)
 
 	t.Run("keep_keys", func(t *testing.T) {
 		repo, _, id := newFixture(t, "Keep")
-		if err := repo.DeleteKeyCategory(context.Background(), keypersistence.DeleteCategoryParams{Name: "Keep", Mode: "keep_keys"}); err != nil {
+		if err := repo.DeleteKeyCategory(context.Background(), keymanagement.DeleteCategoryParams{Name: "Keep", Mode: "keep_keys"}); err != nil {
 			t.Fatalf("delete category keep_keys: %v", err)
 		}
 		var categoryID *int64
@@ -545,7 +545,7 @@ func TestKeyRepository_CategoryDeletionModesIncludeSourceOwnedKeys(t *testing.T)
 
 	t.Run("delete_with_keys", func(t *testing.T) {
 		repo, _, id := newFixture(t, "Delete")
-		if err := repo.DeleteKeyCategory(context.Background(), keypersistence.DeleteCategoryParams{Name: "Delete", Mode: "delete_with_keys"}); err != nil {
+		if err := repo.DeleteKeyCategory(context.Background(), keymanagement.DeleteCategoryParams{Name: "Delete", Mode: "delete_with_keys"}); err != nil {
 			t.Fatalf("delete category and keys: %v", err)
 		}
 		var count int
@@ -558,19 +558,19 @@ func TestKeyRepository_CategoryDeletionModesIncludeSourceOwnedKeys(t *testing.T)
 func TestKeyRepository_BulkMutationsRollbackOnMissingKey(t *testing.T) {
 	db := setupTestDB(t)
 	defer db.Close()
-	repo := NewKeyRepository(db, newTestKeyringForStorage(t))
+	repo := NewRepository(db, newTestKeyringForStorage(t))
 	ctx := context.Background()
-	first, err := repo.CreateLegacy(ctx, keypersistence.CreateLegacyKeyParams{Label: "First", Status: "active", Kind: "real", KeyURL: "vless://dddddddd-dddd-dddd-dddd-dddddddddddd@example.com:443#first"})
+	first, err := repo.CreateLegacy(ctx, keymanagement.CreateLegacyKeyParams{Label: "First", Status: "active", Kind: "real", KeyURL: "vless://dddddddd-dddd-dddd-dddd-dddddddddddd@example.com:443#first"})
 	if err != nil {
 		t.Fatalf("create first: %v", err)
 	}
-	second, err := repo.CreateLegacy(ctx, keypersistence.CreateLegacyKeyParams{Label: "Second", Status: "active", Kind: "real", KeyURL: "vless://eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee@example.com:443#second"})
+	second, err := repo.CreateLegacy(ctx, keymanagement.CreateLegacyKeyParams{Label: "Second", Status: "active", Kind: "real", KeyURL: "vless://eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee@example.com:443#second"})
 	if err != nil {
 		t.Fatalf("create second: %v", err)
 	}
 
-	err = repo.BulkUpdateKeys(ctx, keypersistence.BulkUpdateKeysParams{IDs: []int64{first, 999, second}, Status: "disabled"})
-	var missing keypersistence.KeyNotFoundError
+	err = repo.BulkUpdateKeys(ctx, keymanagement.BulkKeyUpdate{IDs: []int64{first, 999, second}, Status: "disabled"})
+	var missing keymanagement.KeyNotFoundError
 	if !errors.As(err, &missing) || missing.ID != 999 {
 		t.Fatalf("bulk update error = %v", err)
 	}
@@ -593,13 +593,13 @@ func TestKeyRepository_CredentialsFailClosedAndHealthBatchAccountsForUnreadable(
 	db := setupTestDB(t)
 	defer db.Close()
 	kr := newTestKeyringForStorage(t)
-	repo := NewKeyRepository(db, kr)
+	repo := NewRepository(db, kr)
 	ctx := context.Background()
-	one, err := repo.CreateLegacy(ctx, keypersistence.CreateLegacyKeyParams{Label: "One", Status: "active", Kind: "real", KeyURL: "vless://ffffffff-ffff-ffff-ffff-ffffffffffff@example.com:443#one"})
+	one, err := repo.CreateLegacy(ctx, keymanagement.CreateLegacyKeyParams{Label: "One", Status: "active", Kind: "real", KeyURL: "vless://ffffffff-ffff-ffff-ffff-ffffffffffff@example.com:443#one"})
 	if err != nil {
 		t.Fatalf("create one: %v", err)
 	}
-	two, err := repo.CreateLegacy(ctx, keypersistence.CreateLegacyKeyParams{Label: "Two", Status: "active", Kind: "real", KeyURL: "vless://11111111-2222-3333-4444-555555555555@example.com:443#two"})
+	two, err := repo.CreateLegacy(ctx, keymanagement.CreateLegacyKeyParams{Label: "Two", Status: "active", Kind: "real", KeyURL: "vless://11111111-2222-3333-4444-555555555555@example.com:443#two"})
 	if err != nil {
 		t.Fatalf("create two: %v", err)
 	}
@@ -616,16 +616,16 @@ func TestKeyRepository_CredentialsFailClosedAndHealthBatchAccountsForUnreadable(
 	if _, err := db.Exec(`UPDATE vless_key_secrets SET encrypted_url = ? WHERE vless_key_id = ?`, envelopeOne, two); err != nil {
 		t.Fatalf("swap AAD-bound envelope: %v", err)
 	}
-	if _, _, err := repo.GetLegacyByID(ctx, two); !errors.Is(err, keypersistence.ErrStorageIntegrity) {
+	if _, _, err := repo.GetLegacyByID(ctx, two); !errors.Is(err, keymanagement.ErrStorageIntegrity) {
 		t.Fatalf("row-bound envelope must fail closed: %v", err)
 	}
 	if _, err := db.Exec(`DELETE FROM vless_key_secrets WHERE vless_key_id = ?`, one); err != nil {
 		t.Fatalf("delete envelope: %v", err)
 	}
-	if _, _, err := repo.GetLegacyByID(ctx, one); !errors.Is(err, keypersistence.ErrCredentialMissing) || !errors.Is(err, keypersistence.ErrStorageIntegrity) {
+	if _, _, err := repo.GetLegacyByID(ctx, one); !errors.Is(err, keymanagement.ErrCredentialMissing) || !errors.Is(err, keymanagement.ErrStorageIntegrity) {
 		t.Fatalf("missing envelope must retain missing/integrity identities: %v", err)
 	}
-	if _, err := repo.ListLegacy(ctx); !errors.Is(err, keypersistence.ErrStorageIntegrity) {
+	if _, err := repo.ListLegacy(ctx); !errors.Is(err, keymanagement.ErrStorageIntegrity) {
 		t.Fatalf("legacy list must fail closed: %v", err)
 	}
 	targets, err := repo.ListHealthCheckTargets(ctx)
@@ -653,9 +653,9 @@ func TestKeyRepository_RetiredKeyReadsAndActiveKeyWrites(t *testing.T) {
 		ActiveKeyID: "old", Keys: map[string][]byte{"old": oldKey},
 		ActiveBlindIndexKeyID: "bik", BlindIndexKeys: map[string][]byte{"bik": bik},
 	}
-	oldRepo := NewKeyRepository(db, oldRing)
+	oldRepo := NewRepository(db, oldRing)
 	ctx := context.Background()
-	oldID, err := oldRepo.CreateLegacy(ctx, keypersistence.CreateLegacyKeyParams{Label: "Old", Status: "active", Kind: "real", KeyURL: "vless://12121212-1212-1212-1212-121212121212@example.com:443#old"})
+	oldID, err := oldRepo.CreateLegacy(ctx, keymanagement.CreateLegacyKeyParams{Label: "Old", Status: "active", Kind: "real", KeyURL: "vless://12121212-1212-1212-1212-121212121212@example.com:443#old"})
 	if err != nil {
 		t.Fatalf("create old envelope: %v", err)
 	}
@@ -663,11 +663,11 @@ func TestKeyRepository_RetiredKeyReadsAndActiveKeyWrites(t *testing.T) {
 		ActiveKeyID: "new", Keys: map[string][]byte{"old": oldKey, "new": newKey},
 		ActiveBlindIndexKeyID: "bik", BlindIndexKeys: map[string][]byte{"bik": bik},
 	}
-	rotatedRepo := NewKeyRepository(db, rotatedRing)
+	rotatedRepo := NewRepository(db, rotatedRing)
 	if _, raw, err := rotatedRepo.GetLegacyByID(ctx, oldID); err != nil || !strings.HasSuffix(raw, "#old") {
 		t.Fatalf("retired key could not decrypt existing envelope: raw=%q err=%v", raw, err)
 	}
-	newID, err := rotatedRepo.CreateLegacy(ctx, keypersistence.CreateLegacyKeyParams{Label: "New", Status: "active", Kind: "real", KeyURL: "vless://34343434-3434-3434-3434-343434343434@example.com:443#new"})
+	newID, err := rotatedRepo.CreateLegacy(ctx, keymanagement.CreateLegacyKeyParams{Label: "New", Status: "active", Kind: "real", KeyURL: "vless://34343434-3434-3434-3434-343434343434@example.com:443#new"})
 	if err != nil {
 		t.Fatalf("create with active key: %v", err)
 	}
@@ -686,8 +686,8 @@ func TestKeyRepository_CreateRollbackAfterParentWrite(t *testing.T) {
 	if _, err := db.Exec(`CREATE TRIGGER reject_secret BEFORE INSERT ON vless_key_secrets BEGIN SELECT RAISE(ABORT, 'forced secret failure'); END`); err != nil {
 		t.Fatalf("create trigger: %v", err)
 	}
-	repo := NewKeyRepository(db, newTestKeyringForStorage(t))
-	_, err := repo.CreateLegacy(context.Background(), keypersistence.CreateLegacyKeyParams{
+	repo := NewRepository(db, newTestKeyringForStorage(t))
+	_, err := repo.CreateLegacy(context.Background(), keymanagement.CreateLegacyKeyParams{
 		Label: "Rollback", Status: "active", Kind: "real", Category: "RollbackCategory",
 		KeyURL: "vless://56565656-5656-5656-5656-565656565656@example.com:443#rollback",
 	})

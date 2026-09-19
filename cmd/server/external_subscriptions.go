@@ -215,7 +215,7 @@ func decodeSubscriptionHeaderValue(raw string) string {
 		return ""
 	}
 	if strings.HasPrefix(strings.ToLower(value), "base64:") {
-		decoded := decodeBase64String(value)
+		decoded := profileconfig.DecodeBase64String(value)
 		if decoded != "" {
 			return strings.TrimSpace(decoded)
 		}
@@ -599,9 +599,9 @@ func parseExternalLinkBody(body string, fingerprintKeys [][]byte) ([]externalPar
 
 func isSIP008ProfileObject(object map[string]any) bool {
 	_, passwordPresent := object["password"]
-	return anyToString(object["server"]) != "" &&
-		anyToString(object["server_port"]) != "" &&
-		anyToString(object["method"]) != "" &&
+	return profileconfig.AnyToString(object["server"]) != "" &&
+		profileconfig.AnyToString(object["server_port"]) != "" &&
+		profileconfig.AnyToString(object["method"]) != "" &&
 		passwordPresent
 }
 
@@ -614,38 +614,38 @@ type xrayJSONIdentity struct {
 
 func firstXrayJSONIdentity(object map[string]any) (xrayJSONIdentity, bool) {
 	label := strings.TrimSpace(extractJSONSubscriptionLabel(object, ""))
-	for _, outboundRaw := range asArray(object["outbounds"]) {
-		outbound, ok := asObject(outboundRaw)
+	for _, outboundRaw := range profileconfig.AsArray(object["outbounds"]) {
+		outbound, ok := profileconfig.AsObject(outboundRaw)
 		if !ok {
 			continue
 		}
-		protocol := strings.ToLower(anyToString(outbound["protocol"]))
+		protocol := strings.ToLower(profileconfig.AnyToString(outbound["protocol"]))
 		if protocol == "" {
 			continue
 		}
 		identity := xrayJSONIdentity{Protocol: protocol, Label: label}
 		if identity.Label == "" {
-			identity.Label = anyToString(outbound["tag"])
+			identity.Label = profileconfig.AnyToString(outbound["tag"])
 		}
-		settings, _ := asObject(outbound["settings"])
+		settings, _ := profileconfig.AsObject(outbound["settings"])
 		switch protocol {
 		case "vless", "vmess":
-			if nodes := asArray(settings["vnext"]); len(nodes) > 0 {
-				if node, nodeOK := asObject(nodes[0]); nodeOK {
-					identity.Host = anyToString(node["address"])
-					identity.Port = anyToString(node["port"])
+			if nodes := profileconfig.AsArray(settings["vnext"]); len(nodes) > 0 {
+				if node, nodeOK := profileconfig.AsObject(nodes[0]); nodeOK {
+					identity.Host = profileconfig.AnyToString(node["address"])
+					identity.Port = profileconfig.AnyToString(node["port"])
 				}
 			}
 		case "trojan":
-			if servers := asArray(settings["servers"]); len(servers) > 0 {
-				if server, serverOK := asObject(servers[0]); serverOK {
-					identity.Host = anyToString(server["address"])
-					identity.Port = anyToString(server["port"])
+			if servers := profileconfig.AsArray(settings["servers"]); len(servers) > 0 {
+				if server, serverOK := profileconfig.AsObject(servers[0]); serverOK {
+					identity.Host = profileconfig.AnyToString(server["address"])
+					identity.Port = profileconfig.AnyToString(server["port"])
 				}
 			}
 		case "hysteria":
-			identity.Host = anyToString(settings["address"])
-			identity.Port = anyToString(settings["port"])
+			identity.Host = profileconfig.AnyToString(settings["address"])
+			identity.Port = profileconfig.AnyToString(settings["port"])
 		}
 		return identity, true
 	}
@@ -670,7 +670,7 @@ func safeRejectedXrayJSONItem(raw string, lineIndex int, identity xrayJSONIdenti
 }
 
 func xrayVersionValue(value any) (int, bool) {
-	raw := anyToString(value)
+	raw := profileconfig.AnyToString(value)
 	if raw == "" {
 		return 0, false
 	}
@@ -696,7 +696,7 @@ func xrayStringArray(object map[string]any, key string) ([]string, bool) {
 	if !present {
 		return nil, true
 	}
-	values := asArray(raw)
+	values := profileconfig.AsArray(raw)
 	if values == nil {
 		return nil, false
 	}
@@ -714,12 +714,12 @@ func xrayStringArray(object map[string]any, key string) ([]string, bool) {
 
 func singleXrayHysteriaOutbound(object map[string]any) (map[string]any, bool) {
 	var hysteriaOutbound map[string]any
-	for _, outboundRaw := range asArray(object["outbounds"]) {
-		outbound, ok := asObject(outboundRaw)
+	for _, outboundRaw := range profileconfig.AsArray(object["outbounds"]) {
+		outbound, ok := profileconfig.AsObject(outboundRaw)
 		if !ok {
 			return nil, false
 		}
-		switch strings.ToLower(anyToString(outbound["protocol"])) {
+		switch strings.ToLower(profileconfig.AnyToString(outbound["protocol"])) {
 		case "hysteria":
 			if hysteriaOutbound != nil {
 				return nil, false
@@ -743,18 +743,18 @@ func parseXrayHysteria2Object(object map[string]any, raw string, lineIndex int, 
 	if !singleProfile {
 		return nil, nil, false, nil
 	}
-	settings, _ := asObject(outbound["settings"])
+	settings, _ := profileconfig.AsObject(outbound["settings"])
 	identity := xrayJSONIdentity{
 		Protocol: "hysteria",
 		Label:    strings.TrimSpace(extractJSONSubscriptionLabel(object, "")),
-		Host:     anyToString(settings["address"]),
-		Port:     anyToString(settings["port"]),
+		Host:     profileconfig.AnyToString(settings["address"]),
+		Port:     profileconfig.AnyToString(settings["port"]),
 	}
 	if identity.Label == "" {
-		identity.Label = anyToString(outbound["tag"])
+		identity.Label = profileconfig.AnyToString(outbound["tag"])
 	}
-	stream, _ := asObject(outbound["streamSettings"])
-	hysteriaSettings, _ := asObject(stream["hysteriaSettings"])
+	stream, _ := profileconfig.AsObject(outbound["streamSettings"])
+	hysteriaSettings, _ := profileconfig.AsObject(stream["hysteriaSettings"])
 
 	settingsVersionRaw, settingsMarkerPresent := settings["version"]
 	streamVersionRaw, streamMarkerPresent := hysteriaSettings["version"]
@@ -792,13 +792,13 @@ func parseXrayHysteria2Object(object map[string]any, raw string, lineIndex int, 
 	port := strings.TrimSpace(identity.Port)
 	auth, authOK := hysteriaSettings["auth"].(string)
 	auth = strings.TrimSpace(auth)
-	method := strings.ToLower(anyToString(stream["method"]))
-	network := strings.ToLower(anyToString(stream["network"]))
+	method := strings.ToLower(profileconfig.AnyToString(stream["method"]))
+	network := strings.ToLower(profileconfig.AnyToString(stream["network"]))
 	if !hostOK || !authOK || host == "" || port == "" || auth == "" ||
 		(method == "" && network == "") ||
 		(method != "" && method != "hysteria") ||
 		(network != "" && network != "hysteria") ||
-		!strings.EqualFold(anyToString(stream["security"]), "tls") ||
+		!strings.EqualFold(profileconfig.AnyToString(stream["security"]), "tls") ||
 		!onlyObjectKeys(outbound, "tag", "protocol", "settings", "streamSettings") ||
 		!onlyObjectKeys(settings, "version", "address", "port") ||
 		!onlyObjectKeys(hysteriaSettings, "version", "auth") ||
@@ -808,7 +808,7 @@ func parseXrayHysteria2Object(object map[string]any, raw string, lineIndex int, 
 	}
 
 	query := url.Values{}
-	tlsSettings, tlsSettingsOK := asObject(stream["tlsSettings"])
+	tlsSettings, tlsSettingsOK := profileconfig.AsObject(stream["tlsSettings"])
 	if _, present := stream["tlsSettings"]; present && !tlsSettingsOK {
 		item, err := safeRejectedXrayJSONItem(raw, lineIndex, identity, externalStatusRejected, "invalid_hysteria2_json", fingerprintKeys)
 		return nil, &item, true, err
@@ -865,7 +865,7 @@ func parseXrayHysteria2Object(object map[string]any, raw string, lineIndex int, 
 		query.Set("fp", fingerprint)
 	}
 
-	finalMask, finalMaskOK := asObject(stream["finalmask"])
+	finalMask, finalMaskOK := profileconfig.AsObject(stream["finalmask"])
 	if _, present := stream["finalmask"]; present && !finalMaskOK {
 		item, err := safeRejectedXrayJSONItem(raw, lineIndex, identity, externalStatusRejected, "invalid_hysteria2_json", fingerprintKeys)
 		return nil, &item, true, err
@@ -874,17 +874,17 @@ func parseXrayHysteria2Object(object map[string]any, raw string, lineIndex int, 
 		item, err := safeRejectedXrayJSONItem(raw, lineIndex, identity, externalStatusRejected, "invalid_hysteria2_json", fingerprintKeys)
 		return nil, &item, true, err
 	}
-	if quicParams, ok := asObject(finalMask["quicParams"]); ok {
+	if quicParams, ok := profileconfig.AsObject(finalMask["quicParams"]); ok {
 		if !onlyObjectKeys(quicParams, "udpHop") {
 			item, err := safeRejectedXrayJSONItem(raw, lineIndex, identity, externalStatusRejected, "invalid_hysteria2_json", fingerprintKeys)
 			return nil, &item, true, err
 		}
-		if udpHop, hopOK := asObject(quicParams["udpHop"]); hopOK {
-			if !onlyObjectKeys(udpHop, "ports") || anyToString(udpHop["ports"]) == "" {
+		if udpHop, hopOK := profileconfig.AsObject(quicParams["udpHop"]); hopOK {
+			if !onlyObjectKeys(udpHop, "ports") || profileconfig.AnyToString(udpHop["ports"]) == "" {
 				item, err := safeRejectedXrayJSONItem(raw, lineIndex, identity, externalStatusRejected, "invalid_hysteria2_json", fingerprintKeys)
 				return nil, &item, true, err
 			}
-			port = anyToString(udpHop["ports"])
+			port = profileconfig.AnyToString(udpHop["ports"])
 		} else if _, present := quicParams["udpHop"]; present {
 			item, err := safeRejectedXrayJSONItem(raw, lineIndex, identity, externalStatusRejected, "invalid_hysteria2_json", fingerprintKeys)
 			return nil, &item, true, err
@@ -893,7 +893,7 @@ func parseXrayHysteria2Object(object map[string]any, raw string, lineIndex int, 
 		item, err := safeRejectedXrayJSONItem(raw, lineIndex, identity, externalStatusRejected, "invalid_hysteria2_json", fingerprintKeys)
 		return nil, &item, true, err
 	}
-	masks := asArray(finalMask["udp"])
+	masks := profileconfig.AsArray(finalMask["udp"])
 	if _, present := finalMask["udp"]; present && masks == nil {
 		item, err := safeRejectedXrayJSONItem(raw, lineIndex, identity, externalStatusRejected, "invalid_hysteria2_json", fingerprintKeys)
 		return nil, &item, true, err
@@ -903,14 +903,14 @@ func parseXrayHysteria2Object(object map[string]any, raw string, lineIndex int, 
 			item, err := safeRejectedXrayJSONItem(raw, lineIndex, identity, externalStatusRejected, "invalid_hysteria2_json", fingerprintKeys)
 			return nil, &item, true, err
 		}
-		mask, ok := asObject(masks[0])
-		maskSettings, settingsOK := asObject(mask["settings"])
-		if !ok || !settingsOK || anyToString(mask["type"]) != "salamander" || !onlyObjectKeys(mask, "type", "settings") || !onlyObjectKeys(maskSettings, "password") {
+		mask, ok := profileconfig.AsObject(masks[0])
+		maskSettings, settingsOK := profileconfig.AsObject(mask["settings"])
+		if !ok || !settingsOK || profileconfig.AnyToString(mask["type"]) != "salamander" || !onlyObjectKeys(mask, "type", "settings") || !onlyObjectKeys(maskSettings, "password") {
 			item, err := safeRejectedXrayJSONItem(raw, lineIndex, identity, externalStatusRejected, "invalid_hysteria2_json", fingerprintKeys)
 			return nil, &item, true, err
 		}
 		query.Set("obfs", "salamander")
-		query.Set("obfs-password", anyToString(maskSettings["password"]))
+		query.Set("obfs-password", profileconfig.AnyToString(maskSettings["password"]))
 	}
 
 	authorityHost := host
@@ -1001,7 +1001,7 @@ func parseExternalJSONBody(body string, firstItemIndex int, fingerprintKeys [][]
 			appendExternalParsedItem(&keys, &items, seen, *hysteriaKey)
 			return nil
 		}
-		drafts, parseErr := parseXrayJSONDrafts(raw)
+		drafts, parseErr := profileconfig.ParseXrayJSONDrafts(raw)
 		if parseErr != nil || len(drafts) == 0 {
 			if identity, identified := firstXrayJSONIdentity(obj); identified {
 				status := externalStatusUnsupported
@@ -1024,7 +1024,7 @@ func parseExternalJSONBody(body string, firstItemIndex int, fingerprintKeys [][]
 		if label == "" {
 			label = fmt.Sprintf("JSON %03d", lineIndex)
 		}
-		host, port, _ := parseXrayJSONTarget(raw)
+		host, port, _ := profileconfig.ParseXrayJSONTarget(raw)
 		key := externalParsedKey{Label: label, URL: raw, Scheme: "xray-json", Protocol: "xray-json", Host: host, Port: port, Ref: buildExternalKeyRef(raw), ItemRef: itemRef, LineIndex: lineIndex, Compatibility: "legacy", InitialStatus: externalStatusAccepted}
 		appendExternalParsedItem(&keys, &items, seen, key)
 		return nil

@@ -14,9 +14,7 @@ func TestLegacyKeyHandler_FullSuite(t *testing.T) {
 	db := setupTestDB(t)
 	defer db.Close()
 	kr := newTestKeyringForHTTPAPI(t)
-	profileRepo := storage.NewProfileRepository(db, kr)
-	keyRepo := storage.NewKeyRepository(db, kr)
-	svc := keymanagement.NewService(profileRepo, keyRepo, nil)
+	svc := keymanagement.NewService(storage.NewRepository(db, kr), nil)
 
 	var auditLog []auditRecord
 	recordAudit := func(r *http.Request, eventName, entityType, entityID string, metadata map[string]any) {

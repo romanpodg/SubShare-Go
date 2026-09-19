@@ -5,7 +5,6 @@ import (
 	"strings"
 
 	"github.com/romanpodg/SubShare-Go/internal/model"
-	"github.com/romanpodg/SubShare-Go/internal/profilepersistence"
 )
 
 func (s *Service) CloneAsLocal(ctx context.Context, params CloneParams) (*model.KeyProfileDetailResponse, error) {
@@ -14,7 +13,7 @@ func (s *Service) CloneAsLocal(ctx context.Context, params CloneParams) (*model.
 		return nil, ErrLabelTooLong
 	}
 
-	clonedKey, clonedURI, err := s.profileRepo.CloneLocal(ctx, profilepersistence.CloneProfileParams{
+	clonedKey, clonedURI, err := s.repo.CloneLocal(ctx, CloneProfileParams{
 		ID:               params.ID,
 		ExpectedRevision: params.ExpectedProfileRevision,
 		NewLabel:         newLabel,

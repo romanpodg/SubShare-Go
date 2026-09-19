@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/romanpodg/SubShare-Go/internal/profileconfig"
 	"net/http"
 	"net/url"
 	"regexp"
@@ -685,19 +686,19 @@ func splitSubscriptionEntries(raw string) []string {
 	return entries
 }
 
-func subscriptionDrafts(raw string) ([]linkConfigurationDraft, error) {
+func subscriptionDrafts(raw string) ([]profileconfig.LinkConfigurationDraft, error) {
 	entries := splitSubscriptionEntries(raw)
-	drafts := make([]linkConfigurationDraft, 0, len(entries))
+	drafts := make([]profileconfig.LinkConfigurationDraft, 0, len(entries))
 	for _, entry := range entries {
-		var parsed []linkConfigurationDraft
+		var parsed []profileconfig.LinkConfigurationDraft
 		var err error
-		if supportedConfigScheme(entry) == model.SubscriptionFormatXrayJSON {
-			parsed, err = parseXrayJSONDrafts(entry)
+		if profileconfig.SupportedConfigScheme(entry) == model.SubscriptionFormatXrayJSON {
+			parsed, err = profileconfig.ParseXrayJSONDrafts(entry)
 		} else {
-			var draft linkConfigurationDraft
-			draft, err = parseLinkConfiguration(entry)
+			var draft profileconfig.LinkConfigurationDraft
+			draft, err = profileconfig.ParseLinkConfiguration(entry)
 			if err == nil {
-				parsed = []linkConfigurationDraft{draft}
+				parsed = []profileconfig.LinkConfigurationDraft{draft}
 			}
 		}
 		if err != nil {
@@ -711,7 +712,7 @@ func subscriptionDrafts(raw string) ([]linkConfigurationDraft, error) {
 	return drafts, nil
 }
 
-func draftDisplayName(draft linkConfigurationDraft, index int) string {
+func draftDisplayName(draft profileconfig.LinkConfigurationDraft, index int) string {
 	if name := strings.TrimSpace(draft.Remark); name != "" {
 		return name
 	}
@@ -721,7 +722,7 @@ func draftDisplayName(draft linkConfigurationDraft, index int) string {
 	return fmt.Sprintf("%s-%d", draft.Server, index+1)
 }
 
-func applyMihomoTransport(proxy map[string]any, draft linkConfigurationDraft) {
+func applyMihomoTransport(proxy map[string]any, draft profileconfig.LinkConfigurationDraft) {
 	network := strings.TrimSpace(draft.Network)
 	if network == "" {
 		network = "tcp"

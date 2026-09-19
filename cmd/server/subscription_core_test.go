@@ -110,7 +110,7 @@ func TestKeyAssignmentModesControlFutureKeys(t *testing.T) {
 
 	body := `{"label":"new","url":"vless://11111111-1111-1111-1111-111111111111@example.com:443?security=tls","status":"active","kind":"real"}`
 	recorder := httptest.NewRecorder()
-	app.apiCreateKey(recorder, httptest.NewRequest(http.MethodPost, "/api/v1/keys", strings.NewReader(body)))
+	app.keys().legacy.CreateKey(recorder, httptest.NewRequest(http.MethodPost, "/api/v1/keys", strings.NewReader(body)))
 	if recorder.Code != http.StatusOK {
 		t.Fatalf("create key status=%d body=%s", recorder.Code, recorder.Body.String())
 	}

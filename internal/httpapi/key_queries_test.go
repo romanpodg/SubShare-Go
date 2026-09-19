@@ -15,7 +15,7 @@ func TestKeyQueryHandler_V1ProjectionFilteringAndIntegrityFailure(t *testing.T) 
 	db := setupTestDB(t)
 	defer db.Close()
 	kr := newTestKeyringForHTTPAPI(t)
-	service := keymanagement.NewService(storage.NewProfileRepository(db, kr), storage.NewKeyRepository(db, kr), nil)
+	service := keymanagement.NewService(storage.NewRepository(db, kr), nil)
 	alphaURL := "vless://aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa@example.com:443#alpha-secret"
 	betaURL := "vless://bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb@example.com:443#beta-secret"
 	alphaID, _, err := service.CreateLegacy(t.Context(), keymanagement.CreateLegacyParams{

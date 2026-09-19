@@ -209,7 +209,7 @@ func hasUnsafeSubscriptionControl(raw string) bool {
 }
 
 func hasUnsafeStoredControl(raw string) bool {
-	if supportedConfigScheme(raw) != model.SubscriptionFormatXrayJSON {
+	if profileconfig.SupportedConfigScheme(raw) != model.SubscriptionFormatXrayJSON {
 		return hasUnsafeSubscriptionControl(raw)
 	}
 	for _, char := range raw {
@@ -221,7 +221,7 @@ func hasUnsafeStoredControl(raw string) bool {
 }
 
 func safeProtocolName(raw, fallback string) string {
-	scheme := supportedConfigScheme(raw)
+	scheme := profileconfig.SupportedConfigScheme(raw)
 	if scheme == "" {
 		scheme = strings.ToLower(strings.TrimSpace(fallback))
 	}
@@ -358,18 +358,18 @@ func (a *App) selectSubscriptionEntries(subscriptionID, responseType string) (de
 }
 
 func validateStoredDeliveryEntry(raw string) error {
-	switch supportedConfigScheme(raw) {
+	switch profileconfig.SupportedConfigScheme(raw) {
 	case "vless", "vmess", "trojan", "ss", "hysteria2", "hy2", "tuic":
 		if _, err := profiles.Parse(raw); err == nil {
 			return nil
 		}
-		if _, err := parseLinkConfiguration(raw); err == nil {
+		if _, err := profileconfig.ParseLinkConfiguration(raw); err == nil {
 			return nil
 		}
 		return errors.New(generationReasonInvalidStored)
 	case model.SubscriptionFormatXrayJSON:
 		var root map[string]any
-		if err := json.Unmarshal([]byte(raw), &root); err != nil || len(asArray(root["outbounds"])) == 0 {
+		if err := json.Unmarshal([]byte(raw), &root); err != nil || len(profileconfig.AsArray(root["outbounds"])) == 0 {
 			return errors.New(generationReasonInvalidStored)
 		}
 		return nil
@@ -542,8 +542,8 @@ func renderPlainEntries(entries []deliveryEntry, settings model.SubscriptionSett
 }
 
 func projectEntryShareLinks(entry deliveryEntry, names *uniqueNames) ([]string, []generationExclusion) {
-	if supportedConfigScheme(entry.Raw) == model.SubscriptionFormatXrayJSON {
-		drafts, rejected, err := projectXrayJSONDrafts(entry.Raw)
+	if profileconfig.SupportedConfigScheme(entry.Raw) == model.SubscriptionFormatXrayJSON {
+		drafts, rejected, err := profileconfig.ProjectXrayJSONDrafts(entry.Raw)
 		if err != nil {
 			return nil, []generationExclusion{{entry.safeRef(), "xray-json", "plain", generationReasonInvalidStored}}
 		}
@@ -555,8 +555,8 @@ func projectEntryShareLinks(entry deliveryEntry, names *uniqueNames) ([]string, 
 				fallback = entry.ClientDisplayName
 			}
 			draft.Remark = names.next(fallback, firstNonEmpty(entry.Label, fmt.Sprintf("proxy-%d", index+1)))
-			link, buildErr := buildShareLinkFromDraft(draft)
-			if buildErr != nil || supportedConfigScheme(link) == "" || supportedConfigScheme(link) == model.SubscriptionFormatXrayJSON {
+			link, buildErr := profileconfig.BuildShareLinkFromDraft(draft)
+			if buildErr != nil || profileconfig.SupportedConfigScheme(link) == "" || profileconfig.SupportedConfigScheme(link) == model.SubscriptionFormatXrayJSON {
 				exclusions = append(exclusions, generationExclusion{entry.safeRef(), draft.Protocol, "plain", generationReasonUnrepresentable})
 				continue
 			}
@@ -572,7 +572,7 @@ func projectEntryShareLinks(entry deliveryEntry, names *uniqueNames) ([]string, 
 	}
 
 	link, err := shareURIWithDisplayName(entry.Raw, entry.ClientDisplayName)
-	if err != nil || supportedConfigScheme(link) == "" || supportedConfigScheme(link) == model.SubscriptionFormatXrayJSON {
+	if err != nil || profileconfig.SupportedConfigScheme(link) == "" || profileconfig.SupportedConfigScheme(link) == model.SubscriptionFormatXrayJSON {
 		return nil, []generationExclusion{{entry.safeRef(), safeProtocolName(entry.Raw, entry.StoredProtocol), "plain", generationReasonUnrepresentable}}
 	}
 	return []string{link}, nil
@@ -592,12 +592,12 @@ func shareURIWithDisplayName(raw, displayName string) (string, error) {
 		}
 		return serialized.URI.Reveal(), nil
 	}
-	draft, err := parseLinkConfiguration(raw)
+	draft, err := profileconfig.ParseLinkConfiguration(raw)
 	if err != nil {
 		return "", err
 	}
 	draft.Remark = displayName
-	return buildShareLinkFromDraft(draft)
+	return profileconfig.BuildShareLinkFromDraft(draft)
 }
 
 func structuredProfile(entry deliveryEntry, format string) (*profiles.Profile, *generationExclusion) {
@@ -668,7 +668,7 @@ func renderMihomoEntries(entries []deliveryEntry) (generatedSubscription, error)
 		if entry.Kind == model.KeyKindInformational {
 			continue
 		}
-		scheme := supportedConfigScheme(entry.Raw)
+		scheme := profileconfig.SupportedConfigScheme(entry.Raw)
 		if scheme == "ss" || scheme == "hysteria2" || scheme == "hy2" || scheme == "tuic" {
 			profile, exclusion := structuredProfile(entry, "mihomo")
 			if exclusion != nil {
@@ -710,7 +710,7 @@ func renderSingBoxEntries(entries []deliveryEntry) (generatedSubscription, error
 		if entry.Kind == model.KeyKindInformational {
 			continue
 		}
-		scheme := supportedConfigScheme(entry.Raw)
+		scheme := profileconfig.SupportedConfigScheme(entry.Raw)
 		if scheme == "ss" || scheme == "hysteria2" || scheme == "hy2" || scheme == "tuic" {
 			profile, exclusion := structuredProfile(entry, "sing-box")
 			if exclusion != nil {
@@ -773,18 +773,18 @@ func renderXrayEntries(entries []deliveryEntry) (generatedSubscription, error) {
 	return result, nil
 }
 
-func entryDrafts(raw string) ([]linkConfigurationDraft, error) {
-	if supportedConfigScheme(raw) == model.SubscriptionFormatXrayJSON {
-		return parseXrayJSONDrafts(raw)
+func entryDrafts(raw string) ([]profileconfig.LinkConfigurationDraft, error) {
+	if profileconfig.SupportedConfigScheme(raw) == model.SubscriptionFormatXrayJSON {
+		return profileconfig.ParseXrayJSONDrafts(raw)
 	}
-	draft, err := parseLinkConfiguration(raw)
+	draft, err := profileconfig.ParseLinkConfiguration(raw)
 	if err != nil {
 		return nil, err
 	}
-	return []linkConfigurationDraft{draft}, nil
+	return []profileconfig.LinkConfigurationDraft{draft}, nil
 }
 
-func mihomoLegacyProxy(draft linkConfigurationDraft, name string) map[string]any {
+func mihomoLegacyProxy(draft profileconfig.LinkConfigurationDraft, name string) map[string]any {
 	proxy := map[string]any{"name": name, "type": draft.Protocol, "server": draft.Server, "port": draft.Port, "udp": true}
 	switch draft.Protocol {
 	case "vless":
@@ -827,7 +827,7 @@ func mihomoLegacyProxy(draft linkConfigurationDraft, name string) map[string]any
 	return proxy
 }
 
-func singBoxLegacyOutbound(draft linkConfigurationDraft, name string) map[string]any {
+func singBoxLegacyOutbound(draft profileconfig.LinkConfigurationDraft, name string) map[string]any {
 	outbound := map[string]any{"type": draft.Protocol, "tag": name, "server": draft.Server, "server_port": draft.Port}
 	switch draft.Protocol {
 	case "vless":
@@ -1191,7 +1191,7 @@ func mihomoShadowsocksPlugin(plugin *profiles.ShadowsocksPlugin) (string, map[st
 }
 
 func xrayJSONForEntryWithNames(entry deliveryEntry, names *uniqueNames) ([]string, *generationExclusion) {
-	scheme := supportedConfigScheme(entry.Raw)
+	scheme := profileconfig.SupportedConfigScheme(entry.Raw)
 	if scheme == "ss" {
 		profile, exclusion := structuredProfile(entry, "xray-json")
 		if exclusion != nil {

@@ -239,10 +239,6 @@ func (a *App) apiV1GetUser(w http.ResponseWriter, r *http.Request) {
 	writeV1Error(w, r, http.StatusNotFound, "user_not_found", "user not found")
 }
 
-func (a *App) apiV1ListKeys(w http.ResponseWriter, r *http.Request) {
-	a.keyQueryHTTPHandler().ListKeys(w, r)
-}
-
 type auditEvent struct {
 	ID           int64           `json:"id"`
 	ActorAdminID sql.NullInt64   `json:"-"`

@@ -6,26 +6,26 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/romanpodg/SubShare-Go/internal/keymanagement"
 	"regexp"
 	"strings"
 	"time"
 
-	"github.com/romanpodg/SubShare-Go/internal/keypersistence"
 	"github.com/romanpodg/SubShare-Go/internal/model"
 	"github.com/romanpodg/SubShare-Go/internal/profileconfig"
-	"github.com/romanpodg/SubShare-Go/internal/profilepersistence"
 	"github.com/romanpodg/SubShare-Go/internal/security/profilestorage"
 	"github.com/romanpodg/SubShare-Go/internal/vless"
 )
 
-type ProfileRepository struct {
+// Repository is the SQLite adapter for keymanagement.Repository.
+type Repository struct {
 	db          *sql.DB
 	credentials *credentialStore
 	categories  *categoryStore
 }
 
-func NewProfileRepository(db *sql.DB, keyring *profilestorage.Keyring) *ProfileRepository {
-	return &ProfileRepository{
+func NewRepository(db *sql.DB, keyring *profilestorage.Keyring) *Repository {
+	return &Repository{
 		db:          db,
 		credentials: newCredentialStore(keyring),
 		categories:  newCategoryStore(db),
@@ -53,7 +53,7 @@ func nullInt64Value(id int64) any {
 	return id
 }
 
-func (r *ProfileRepository) GetByID(ctx context.Context, id int64) (*model.VLESSKey, string, error) {
+func (r *Repository) GetByID(ctx context.Context, id int64) (*model.VLESSKey, string, error) {
 	return loadKeyByID(ctx, r.db, r.credentials, id)
 }
 
@@ -95,7 +95,7 @@ func loadKeyByID(ctx context.Context, db *sql.DB, credentials *credentialStore, 
 		&warningsJSON, &revision, &updatedAt,
 	)
 	if errors.Is(err, sql.ErrNoRows) {
-		return nil, "", profilepersistence.ErrProfileNotFound
+		return nil, "", keymanagement.ErrKeyNotFound
 	}
 	if err != nil {
 		return nil, "", err
@@ -104,9 +104,9 @@ func loadKeyByID(ctx context.Context, db *sql.DB, credentials *credentialStore, 
 	decryptedURI, err := credentials.decrypt(encURL.String, key.ID)
 	if err != nil {
 		if credentialKeyUnavailable(err) {
-			return nil, "", fmt.Errorf("%w: %v", profilepersistence.ErrEncryptionUnavailable, err)
+			return nil, "", fmt.Errorf("%w: %v", keymanagement.ErrEncryptionUnavailable, err)
 		}
-		return nil, "", fmt.Errorf("%w: %w", profilepersistence.ErrStorageIntegrity, err)
+		return nil, "", fmt.Errorf("%w: %w", keymanagement.ErrStorageIntegrity, err)
 	}
 	if err := json.Unmarshal([]byte(warningsJSON), &key.ProfileWarnings); err != nil || key.ProfileWarnings == nil {
 		key.ProfileWarnings = []string{}
@@ -159,13 +159,13 @@ func loadKeyByID(ctx context.Context, db *sql.DB, credentials *credentialStore, 
 	return &key, decryptedURI, nil
 }
 
-func (r *ProfileRepository) CreateLocal(ctx context.Context, params profilepersistence.CreateProfileParams) (*model.VLESSKey, string, error) {
+func (r *Repository) CreateLocal(ctx context.Context, params keymanagement.CreateProfileParams) (*model.VLESSKey, string, error) {
 	if err := r.credentials.encryptionAvailable(); err != nil {
-		return nil, "", fmt.Errorf("%w: %v", profilepersistence.ErrEncryptionUnavailable, err)
+		return nil, "", fmt.Errorf("%w: %v", keymanagement.ErrEncryptionUnavailable, err)
 	}
 	blindIndex, err := r.credentials.blindIndex(params.BuiltURI)
 	if err != nil {
-		return nil, "", fmt.Errorf("%w: %v", profilepersistence.ErrBlindIndexUnavailable, err)
+		return nil, "", fmt.Errorf("%w: %v", keymanagement.ErrBlindIndexUnavailable, err)
 	}
 
 	tx, err := r.db.BeginTx(ctx, nil)
@@ -193,7 +193,7 @@ func (r *ProfileRepository) CreateLocal(ctx context.Context, params profilepersi
 		) VALUES(?, ?, ?, ?, ?, ?, 'unknown', ?, ?, ?, ?, 1, 'full', '[]', 1, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
 	`, params.Label, nullStringValue(params.ClientDisplayName), blindIndex, categoryIDVal, params.Category, params.Status, params.Kind, nullStringValue(params.TemplateText), nextSort, params.Protocol)
 	if err != nil {
-		return nil, "", fmt.Errorf("%w: %v", profilepersistence.ErrProfileCreateConflict, err)
+		return nil, "", fmt.Errorf("%w: %v", keymanagement.ErrProfileCreateConflict, err)
 	}
 
 	keyID, err := res.LastInsertId()
@@ -222,13 +222,13 @@ func (r *ProfileRepository) CreateLocal(ctx context.Context, params profilepersi
 	return r.GetByID(ctx, keyID)
 }
 
-func (r *ProfileRepository) UpdateLocal(ctx context.Context, params profilepersistence.UpdateProfileParams) (*model.VLESSKey, string, error) {
+func (r *Repository) UpdateLocal(ctx context.Context, params keymanagement.UpdateProfileParams) (*model.VLESSKey, string, error) {
 	if err := r.credentials.encryptionAvailable(); err != nil {
-		return nil, "", fmt.Errorf("%w: %v", profilepersistence.ErrEncryptionUnavailable, err)
+		return nil, "", fmt.Errorf("%w: %v", keymanagement.ErrEncryptionUnavailable, err)
 	}
 	blindIndex, err := r.credentials.blindIndex(params.NewURI)
 	if err != nil {
-		return nil, "", fmt.Errorf("%w: %v", profilepersistence.ErrBlindIndexUnavailable, err)
+		return nil, "", fmt.Errorf("%w: %v", keymanagement.ErrBlindIndexUnavailable, err)
 	}
 	tx, err := r.db.BeginTx(ctx, nil)
 	if err != nil {
@@ -252,26 +252,26 @@ func (r *ProfileRepository) UpdateLocal(ctx context.Context, params profilepersi
 		WHERE k.id = ?
 	`, params.ID).Scan(&extSourceID, &storedRev, &storedBlindIndex, &storedEncryptedURL)
 	if errors.Is(err, sql.ErrNoRows) {
-		return nil, "", profilepersistence.ErrProfileNotFound
+		return nil, "", keymanagement.ErrKeyNotFound
 	}
 	if err != nil {
 		return nil, "", fmt.Errorf("failed to load key ownership: %w", err)
 	}
 	if extSourceID.Valid && extSourceID.Int64 > 0 {
-		return nil, "", profilepersistence.ErrSourceOwnedProfile
+		return nil, "", keymanagement.ErrSourceOwnedReadOnly
 	}
 	if storedRev.Int64 != params.ExpectedRevision {
-		return nil, "", profilepersistence.ErrProfileRevisionConflict
+		return nil, "", keymanagement.ErrProfileRevisionConflict
 	}
 	if !storedEncryptedURL.Valid || storedEncryptedURL.String == "" {
-		return nil, "", profilepersistence.ErrStorageIntegrity
+		return nil, "", keymanagement.ErrStorageIntegrity
 	}
 	storedURI, decryptErr := r.credentials.decrypt(storedEncryptedURL.String, params.ID)
 	if decryptErr != nil {
 		if credentialKeyUnavailable(decryptErr) {
-			return nil, "", fmt.Errorf("%w: %v", profilepersistence.ErrEncryptionUnavailable, decryptErr)
+			return nil, "", fmt.Errorf("%w: %v", keymanagement.ErrEncryptionUnavailable, decryptErr)
 		}
-		return nil, "", fmt.Errorf("%w: %v", profilepersistence.ErrStorageIntegrity, decryptErr)
+		return nil, "", fmt.Errorf("%w: %v", keymanagement.ErrStorageIntegrity, decryptErr)
 	}
 	if storedURI == params.NewURI {
 		blindIndex = storedBlindIndex
@@ -293,7 +293,7 @@ func (r *ProfileRepository) UpdateLocal(ctx context.Context, params profilepersi
 
 	affected, _ := res.RowsAffected()
 	if affected == 0 {
-		return nil, "", profilepersistence.ErrProfileRevisionConflict
+		return nil, "", keymanagement.ErrProfileRevisionConflict
 	}
 
 	if uriChanged {
@@ -319,9 +319,9 @@ func (r *ProfileRepository) UpdateLocal(ctx context.Context, params profilepersi
 // UpdateSourceOwnedMetadata changes only locally administered delivery metadata.
 // Source-controlled fields and the encrypted configuration are deliberately
 // excluded from the UPDATE.
-func (r *ProfileRepository) UpdateSourceOwnedMetadata(ctx context.Context, params profilepersistence.UpdateSourceOwnedMetadataParams) (*model.VLESSKey, string, error) {
+func (r *Repository) UpdateSourceOwnedMetadata(ctx context.Context, params keymanagement.UpdateSourceOwnedMetadataParams) (*model.VLESSKey, string, error) {
 	if err := r.credentials.encryptionAvailable(); err != nil {
-		return nil, "", fmt.Errorf("%w: %v", profilepersistence.ErrEncryptionUnavailable, err)
+		return nil, "", fmt.Errorf("%w: %v", keymanagement.ErrEncryptionUnavailable, err)
 	}
 	tx, err := r.db.BeginTx(ctx, nil)
 	if err != nil {
@@ -338,22 +338,22 @@ func (r *ProfileRepository) UpdateSourceOwnedMetadata(ctx context.Context, param
 		WHERE k.id = ?
 	`, params.ID).Scan(&storedRevision, &storedEncryptedURL)
 	if errors.Is(err, sql.ErrNoRows) {
-		return nil, "", profilepersistence.ErrProfileNotFound
+		return nil, "", keymanagement.ErrKeyNotFound
 	}
 	if err != nil {
 		return nil, "", fmt.Errorf("failed to load key metadata: %w", err)
 	}
 	if storedRevision != params.ExpectedRevision {
-		return nil, "", profilepersistence.ErrProfileRevisionConflict
+		return nil, "", keymanagement.ErrProfileRevisionConflict
 	}
 	if !storedEncryptedURL.Valid || storedEncryptedURL.String == "" {
-		return nil, "", profilepersistence.ErrStorageIntegrity
+		return nil, "", keymanagement.ErrStorageIntegrity
 	}
 	if _, decryptErr := r.credentials.decrypt(storedEncryptedURL.String, params.ID); decryptErr != nil {
 		if credentialKeyUnavailable(decryptErr) {
-			return nil, "", fmt.Errorf("%w: %v", profilepersistence.ErrEncryptionUnavailable, decryptErr)
+			return nil, "", fmt.Errorf("%w: %v", keymanagement.ErrEncryptionUnavailable, decryptErr)
 		}
-		return nil, "", fmt.Errorf("%w: %v", profilepersistence.ErrStorageIntegrity, decryptErr)
+		return nil, "", fmt.Errorf("%w: %v", keymanagement.ErrStorageIntegrity, decryptErr)
 	}
 
 	result, err := tx.ExecContext(ctx, `
@@ -369,7 +369,7 @@ func (r *ProfileRepository) UpdateSourceOwnedMetadata(ctx context.Context, param
 	}
 	affected, _ := result.RowsAffected()
 	if affected == 0 {
-		return nil, "", profilepersistence.ErrProfileRevisionConflict
+		return nil, "", keymanagement.ErrProfileRevisionConflict
 	}
 	if err := tx.Commit(); err != nil {
 		return nil, "", fmt.Errorf("failed to commit source-owned metadata: %w", err)
@@ -377,12 +377,12 @@ func (r *ProfileRepository) UpdateSourceOwnedMetadata(ctx context.Context, param
 	return r.GetByID(ctx, params.ID)
 }
 
-func (r *ProfileRepository) CloneLocal(ctx context.Context, params profilepersistence.CloneProfileParams) (*model.VLESSKey, string, error) {
+func (r *Repository) CloneLocal(ctx context.Context, params keymanagement.CloneProfileParams) (*model.VLESSKey, string, error) {
 	if err := r.credentials.encryptionAvailable(); err != nil {
-		return nil, "", fmt.Errorf("%w: %v", profilepersistence.ErrEncryptionUnavailable, err)
+		return nil, "", fmt.Errorf("%w: %v", keymanagement.ErrEncryptionUnavailable, err)
 	}
 	if _, err := r.credentials.blindIndex(""); err != nil {
-		return nil, "", fmt.Errorf("%w: %v", profilepersistence.ErrBlindIndexUnavailable, err)
+		return nil, "", fmt.Errorf("%w: %v", keymanagement.ErrBlindIndexUnavailable, err)
 	}
 	tx, err := r.db.BeginTx(ctx, nil)
 	if err != nil {
@@ -407,26 +407,26 @@ func (r *ProfileRepository) CloneLocal(ctx context.Context, params profilepersis
 		&sourceProtocol, &sourceSchemaVer, &sourceWarnings, &sourceEncURL, &sourceCategoryID, &sourceExternalSourceID, &sourceRevision,
 	)
 	if errors.Is(err, sql.ErrNoRows) {
-		return nil, "", profilepersistence.ErrProfileNotFound
+		return nil, "", keymanagement.ErrKeyNotFound
 	}
 	if err != nil {
 		return nil, "", fmt.Errorf("failed to load source key: %w", err)
 	}
 
 	if sourceRevision != params.ExpectedRevision {
-		return nil, "", profilepersistence.ErrProfileRevisionConflict
+		return nil, "", keymanagement.ErrProfileRevisionConflict
 	}
 
 	if !sourceEncURL.Valid || sourceEncURL.String == "" {
-		return nil, "", profilepersistence.ErrStorageIntegrity
+		return nil, "", keymanagement.ErrStorageIntegrity
 	}
 
 	decryptedURI, decErr := r.credentials.decrypt(sourceEncURL.String, params.ID)
 	if decErr != nil {
 		if credentialKeyUnavailable(decErr) {
-			return nil, "", fmt.Errorf("%w: %v", profilepersistence.ErrEncryptionUnavailable, decErr)
+			return nil, "", fmt.Errorf("%w: %v", keymanagement.ErrEncryptionUnavailable, decErr)
 		}
-		return nil, "", fmt.Errorf("%w: %v", profilepersistence.ErrStorageIntegrity, decErr)
+		return nil, "", fmt.Errorf("%w: %v", keymanagement.ErrStorageIntegrity, decErr)
 	}
 
 	newLabel := strings.TrimSpace(params.NewLabel)
@@ -449,7 +449,7 @@ func (r *ProfileRepository) CloneLocal(ctx context.Context, params profilepersis
 
 	blindIndex, err := r.credentials.cloneBlindIndex(decryptedURI)
 	if err != nil {
-		return nil, "", fmt.Errorf("%w: %v", profilepersistence.ErrBlindIndexUnavailable, err)
+		return nil, "", fmt.Errorf("%w: %v", keymanagement.ErrBlindIndexUnavailable, err)
 	}
 	res, err := tx.ExecContext(ctx, `
 		INSERT INTO vless_keys(
@@ -491,7 +491,7 @@ func (r *ProfileRepository) CloneLocal(ctx context.Context, params profilepersis
 	return r.GetByID(ctx, newID)
 }
 
-func (r *KeyRepository) ListLegacy(ctx context.Context) ([]model.VLESSKey, error) {
+func (r *Repository) ListLegacy(ctx context.Context) ([]model.VLESSKey, error) {
 	rows, err := r.db.QueryContext(ctx, `
 		SELECT k.id, k.label, k.client_display_name, s.encrypted_url, k.category_id, COALESCE(kc.name, k.category), k.key_kind, k.template_text, k.status, k.check_status, k.check_error, k.last_checked_at, k.last_latency_ms, k.created_at, k.external_source_id, COALESCE(es.name, ''), k.protocol, k.profile_schema_version, k.profile_compatibility, k.profile_warnings_json, COALESCE(k.profile_revision, 1), COALESCE(k.updated_at, k.created_at)
 		FROM vless_keys k
@@ -592,13 +592,13 @@ func (r *KeyRepository) ListLegacy(ctx context.Context) ([]model.VLESSKey, error
 	return out, rows.Err()
 }
 
-func (r *KeyRepository) CreateLegacy(ctx context.Context, params keypersistence.CreateLegacyKeyParams) (int64, error) {
+func (r *Repository) CreateLegacy(ctx context.Context, params keymanagement.CreateLegacyKeyParams) (int64, error) {
 	if err := r.credentials.encryptionAvailable(); err != nil {
-		return 0, fmt.Errorf("%w: %v", keypersistence.ErrEncryptionUnavailable, err)
+		return 0, fmt.Errorf("%w: %v", keymanagement.ErrEncryptionUnavailable, err)
 	}
 	blindIndex, err := r.credentials.blindIndex(params.KeyURL)
 	if err != nil {
-		return 0, fmt.Errorf("%w: %v", keypersistence.ErrBlindIndexUnavailable, err)
+		return 0, fmt.Errorf("%w: %v", keymanagement.ErrBlindIndexUnavailable, err)
 	}
 
 	tx, err := r.db.BeginTx(ctx, nil)
@@ -609,12 +609,12 @@ func (r *KeyRepository) CreateLegacy(ctx context.Context, params keypersistence.
 
 	categoryIDVal, err := r.categories.upsertTx(ctx, tx, params.Category, "#4B5563")
 	if err != nil {
-		return 0, fmt.Errorf("%w: %v", keypersistence.ErrCategoryPersistence, err)
+		return 0, fmt.Errorf("%w: %v", keymanagement.ErrCategoryPersistence, err)
 	}
 
 	var nextSortOrder int64
 	if err := tx.QueryRowContext(ctx, `SELECT COALESCE(MAX(sort_order), 0) + 1 FROM vless_keys`).Scan(&nextSortOrder); err != nil {
-		return 0, fmt.Errorf("%w: %v", keypersistence.ErrKeyOrderPersistence, err)
+		return 0, fmt.Errorf("%w: %v", keymanagement.ErrKeyOrderPersistence, err)
 	}
 
 	res, err := tx.ExecContext(ctx, `
@@ -622,7 +622,7 @@ func (r *KeyRepository) CreateLegacy(ctx context.Context, params keypersistence.
 		VALUES(?, ?, ?, ?, ?, 'unknown', ?, ?, ?)
 	`, params.Label, blindIndex, categoryIDVal, params.Category, params.Status, params.Kind, nullStringValue(params.TemplateText), nextSortOrder)
 	if err != nil {
-		return 0, fmt.Errorf("%w: %v", keypersistence.ErrKeyCreateConflict, err)
+		return 0, fmt.Errorf("%w: %v", keymanagement.ErrKeyCreateConflict, err)
 	}
 
 	keyID, err := res.LastInsertId()
@@ -632,7 +632,7 @@ func (r *KeyRepository) CreateLegacy(ctx context.Context, params keypersistence.
 
 	env, err := r.credentials.encrypt(params.KeyURL, keyID)
 	if err != nil {
-		return 0, fmt.Errorf("%w: %v", keypersistence.ErrCredentialEncryption, err)
+		return 0, fmt.Errorf("%w: %v", keymanagement.ErrCredentialEncryption, err)
 	}
 
 	if _, err := tx.ExecContext(ctx, `INSERT INTO vless_key_secrets(vless_key_id, encrypted_url) VALUES(?, ?)`, keyID, env); err != nil {
@@ -653,13 +653,13 @@ func (r *KeyRepository) CreateLegacy(ctx context.Context, params keypersistence.
 	return keyID, nil
 }
 
-func (r *KeyRepository) UpdateLegacy(ctx context.Context, params keypersistence.UpdateLegacyKeyParams) error {
+func (r *Repository) UpdateLegacy(ctx context.Context, params keymanagement.UpdateLegacyKeyParams) error {
 	if err := r.credentials.encryptionAvailable(); err != nil {
-		return fmt.Errorf("%w: %v", keypersistence.ErrEncryptionUnavailable, err)
+		return fmt.Errorf("%w: %v", keymanagement.ErrEncryptionUnavailable, err)
 	}
 	blindIndex, err := r.credentials.blindIndex(params.BuiltURL)
 	if err != nil {
-		return fmt.Errorf("%w: %v", keypersistence.ErrBlindIndexUnavailable, err)
+		return fmt.Errorf("%w: %v", keymanagement.ErrBlindIndexUnavailable, err)
 	}
 
 	tx, err := r.db.BeginTx(ctx, nil)
@@ -673,7 +673,7 @@ func (r *KeyRepository) UpdateLegacy(ctx context.Context, params keypersistence.
 	var extSourceID sql.NullInt64
 	err = tx.QueryRowContext(ctx, `SELECT key_kind, sort_order, external_source_id FROM vless_keys WHERE id = ?`, params.ID).Scan(&existingKind, &existingSort, &extSourceID)
 	if errors.Is(err, sql.ErrNoRows) {
-		return keypersistence.ErrKeyNotFound
+		return keymanagement.ErrKeyNotFound
 	}
 	if err != nil {
 		return fmt.Errorf("failed to query existing key: %w", err)
@@ -687,18 +687,18 @@ func (r *KeyRepository) UpdateLegacy(ctx context.Context, params keypersistence.
 	sortOrder := existingSort.Int64
 	if !existingSort.Valid || sortOrder <= 0 || existingKindNormalized != params.Kind {
 		if err := tx.QueryRowContext(ctx, `SELECT COALESCE(MAX(sort_order), 0) + 1 FROM vless_keys`).Scan(&sortOrder); err != nil {
-			return fmt.Errorf("%w: %v", keypersistence.ErrKeyOrderPersistence, err)
+			return fmt.Errorf("%w: %v", keymanagement.ErrKeyOrderPersistence, err)
 		}
 	}
 
 	categoryIDVal, err := r.categories.upsertTx(ctx, tx, params.Category, "#4B5563")
 	if err != nil {
-		return fmt.Errorf("%w: %v", keypersistence.ErrCategoryPersistence, err)
+		return fmt.Errorf("%w: %v", keymanagement.ErrCategoryPersistence, err)
 	}
 
 	env, err := r.credentials.encrypt(params.BuiltURL, params.ID)
 	if err != nil {
-		return fmt.Errorf("%w: %v", keypersistence.ErrCredentialEncryption, err)
+		return fmt.Errorf("%w: %v", keymanagement.ErrCredentialEncryption, err)
 	}
 
 	if _, err := tx.ExecContext(ctx, `
@@ -719,7 +719,7 @@ func (r *KeyRepository) UpdateLegacy(ctx context.Context, params keypersistence.
 	return tx.Commit()
 }
 
-func (r *KeyRepository) DeleteLegacy(ctx context.Context, id int64) error {
+func (r *Repository) DeleteLegacy(ctx context.Context, id int64) error {
 	tx, err := r.db.BeginTx(ctx, nil)
 	if err != nil {
 		return fmt.Errorf("failed to start transaction: %w", err)
@@ -732,7 +732,7 @@ func (r *KeyRepository) DeleteLegacy(ctx context.Context, id int64) error {
 	}
 	n, _ := res.RowsAffected()
 	if n == 0 {
-		return keypersistence.ErrKeyNotFound
+		return keymanagement.ErrKeyNotFound
 	}
 
 	_, _ = tx.ExecContext(ctx, `DELETE FROM vless_key_secrets WHERE vless_key_id = ?`, id)
@@ -762,7 +762,7 @@ func normalizeCategoryName(raw string) string {
 	return val
 }
 
-func (r *KeyRepository) ListKeyCategories(ctx context.Context) ([]model.KeyCategory, error) {
+func (r *Repository) ListKeyCategories(ctx context.Context) ([]model.KeyCategory, error) {
 	rows, err := r.db.QueryContext(ctx, `SELECT id, name, color FROM key_categories ORDER BY sort_order, id`)
 	if err != nil {
 		return nil, fmt.Errorf("failed to load key categories: %w", err)
@@ -834,13 +834,13 @@ func (r *KeyRepository) ListKeyCategories(ctx context.Context) ([]model.KeyCateg
 	return categories, nil
 }
 
-func (r *KeyRepository) GetCategoryColor(ctx context.Context, name string) (string, error) {
+func (r *Repository) GetCategoryColor(ctx context.Context, name string) (string, error) {
 	var currentColor sql.NullString
 	_ = r.db.QueryRowContext(ctx, `SELECT color FROM key_categories WHERE name = ?`, normalizeCategoryName(name)).Scan(&currentColor)
 	return currentColor.String, nil
 }
 
-func (r *KeyRepository) CreateKeyCategory(ctx context.Context, params keypersistence.CreateCategoryParams) (model.KeyCategory, error) {
+func (r *Repository) CreateKeyCategory(ctx context.Context, params keymanagement.CreateCategoryParams) (model.KeyCategory, error) {
 	name := normalizeCategoryName(params.Name)
 	color := params.Color
 
@@ -867,7 +867,7 @@ func (r *KeyRepository) CreateKeyCategory(ctx context.Context, params keypersist
 	}, nil
 }
 
-func (r *KeyRepository) UpdateKeyCategory(ctx context.Context, params keypersistence.UpdateCategoryParams) (model.KeyCategory, error) {
+func (r *Repository) UpdateKeyCategory(ctx context.Context, params keymanagement.UpdateCategoryParams) (model.KeyCategory, error) {
 	oldName := normalizeCategoryName(params.OldName)
 	newName := normalizeCategoryName(params.NewName)
 	color := params.Color
@@ -889,7 +889,7 @@ func (r *KeyRepository) UpdateKeyCategory(ctx context.Context, params keypersist
 	_ = r.db.QueryRowContext(ctx, `SELECT COALESCE(sort_order, 0) FROM key_categories WHERE name = ?`, oldName).Scan(&existingSortOrder)
 
 	if keyCount == 0 && categoryCount == 0 {
-		return model.KeyCategory{}, keypersistence.ErrCategoryNotFound
+		return model.KeyCategory{}, keymanagement.ErrCategoryNotFound
 	}
 
 	tx, err := r.db.BeginTx(ctx, nil)
@@ -950,7 +950,7 @@ func (r *KeyRepository) UpdateKeyCategory(ctx context.Context, params keypersist
 	}, nil
 }
 
-func (r *KeyRepository) DeleteKeyCategory(ctx context.Context, params keypersistence.DeleteCategoryParams) error {
+func (r *Repository) DeleteKeyCategory(ctx context.Context, params keymanagement.DeleteCategoryParams) error {
 	name := normalizeCategoryName(params.Name)
 	mode := strings.TrimSpace(params.Mode)
 
@@ -988,7 +988,7 @@ func (r *KeyRepository) DeleteKeyCategory(ctx context.Context, params keypersist
 	return tx.Commit()
 }
 
-func (r *KeyRepository) ReorderKeyCategories(ctx context.Context, names []string) error {
+func (r *Repository) ReorderKeyCategories(ctx context.Context, names []string) error {
 	tx, err := r.db.BeginTx(ctx, nil)
 	if err != nil {
 		return fmt.Errorf("failed to start transaction: %w", err)
@@ -1010,7 +1010,7 @@ func (r *KeyRepository) ReorderKeyCategories(ctx context.Context, names []string
 	return tx.Commit()
 }
 
-func (r *KeyRepository) ReorderKeys(ctx context.Context, ids []int64) error {
+func (r *Repository) ReorderKeys(ctx context.Context, ids []int64) error {
 	rows, err := r.db.QueryContext(ctx, `SELECT id FROM vless_keys ORDER BY sort_order, id`)
 	if err != nil {
 		return fmt.Errorf("failed to load keys for reorder: %w", err)
@@ -1030,7 +1030,7 @@ func (r *KeyRepository) ReorderKeys(ctx context.Context, ids []int64) error {
 	}
 
 	if len(existingIDs) != len(ids) {
-		return keypersistence.ErrInvalidKeyOrderCount
+		return keymanagement.ErrInvalidKeyOrderCount
 	}
 
 	allowed := make(map[int64]struct{}, len(existingIDs))
@@ -1040,10 +1040,10 @@ func (r *KeyRepository) ReorderKeys(ctx context.Context, ids []int64) error {
 	seen := make(map[int64]struct{}, len(ids))
 	for _, id := range ids {
 		if _, ok := allowed[id]; !ok {
-			return keypersistence.ErrUnknownKeyInOrder
+			return keymanagement.ErrUnknownKeyInOrder
 		}
 		if _, ok := seen[id]; ok {
-			return keypersistence.ErrDuplicateKeyInOrder
+			return keymanagement.ErrDuplicateKeyInOrder
 		}
 		seen[id] = struct{}{}
 	}

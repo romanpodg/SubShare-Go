@@ -5,10 +5,8 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/romanpodg/SubShare-Go/internal/keypersistence"
 	"github.com/romanpodg/SubShare-Go/internal/model"
 	"github.com/romanpodg/SubShare-Go/internal/profileconfig"
-	"github.com/romanpodg/SubShare-Go/internal/profilepersistence"
 )
 
 type fakeRepo struct {
@@ -29,15 +27,8 @@ func newFakeRepo() *fakeRepo {
 	}
 }
 
-type fakeProfileRepository struct{ ProfileRepository }
-type fakeKeyRepository struct{ KeyRepository }
-
 func newFakeService(repo *fakeRepo) *Service {
-	return NewService(
-		fakeProfileRepository{ProfileRepository: repo},
-		fakeKeyRepository{KeyRepository: repo},
-		nil,
-	)
+	return NewService(repo, nil)
 }
 
 func (f *fakeRepo) GetByID(ctx context.Context, id int64) (*model.VLESSKey, string, error) {
@@ -46,12 +37,12 @@ func (f *fakeRepo) GetByID(ctx context.Context, id int64) (*model.VLESSKey, stri
 	}
 	key, ok := f.keys[id]
 	if !ok {
-		return nil, "", profilepersistence.ErrProfileNotFound
+		return nil, "", ErrKeyNotFound
 	}
 	return key, f.uris[id], nil
 }
 
-func (f *fakeRepo) CreateLocal(ctx context.Context, params profilepersistence.CreateProfileParams) (*model.VLESSKey, string, error) {
+func (f *fakeRepo) CreateLocal(ctx context.Context, params CreateProfileParams) (*model.VLESSKey, string, error) {
 	id := int64(len(f.keys) + 1)
 	key := &model.VLESSKey{
 		ID:                          id,
@@ -69,16 +60,16 @@ func (f *fakeRepo) CreateLocal(ctx context.Context, params profilepersistence.Cr
 	return key, params.BuiltURI, nil
 }
 
-func (f *fakeRepo) UpdateLocal(ctx context.Context, params profilepersistence.UpdateProfileParams) (*model.VLESSKey, string, error) {
+func (f *fakeRepo) UpdateLocal(ctx context.Context, params UpdateProfileParams) (*model.VLESSKey, string, error) {
 	key, ok := f.keys[params.ID]
 	if !ok {
-		return nil, "", profilepersistence.ErrProfileNotFound
+		return nil, "", ErrKeyNotFound
 	}
 	if key.ExternalSourceID > 0 {
-		return nil, "", profilepersistence.ErrSourceOwnedProfile
+		return nil, "", ErrSourceOwnedReadOnly
 	}
 	if key.ProfileRevision != params.ExpectedRevision {
-		return nil, "", profilepersistence.ErrProfileRevisionConflict
+		return nil, "", ErrProfileRevisionConflict
 	}
 	key.Label = params.Label
 	if params.ClientDisplayName != nil {
@@ -94,13 +85,13 @@ func (f *fakeRepo) UpdateLocal(ctx context.Context, params profilepersistence.Up
 	return key, params.NewURI, nil
 }
 
-func (f *fakeRepo) UpdateSourceOwnedMetadata(ctx context.Context, params profilepersistence.UpdateSourceOwnedMetadataParams) (*model.VLESSKey, string, error) {
+func (f *fakeRepo) UpdateSourceOwnedMetadata(ctx context.Context, params UpdateSourceOwnedMetadataParams) (*model.VLESSKey, string, error) {
 	key, ok := f.keys[params.ID]
 	if !ok {
-		return nil, "", profilepersistence.ErrProfileNotFound
+		return nil, "", ErrKeyNotFound
 	}
 	if key.ProfileRevision != params.ExpectedRevision {
-		return nil, "", profilepersistence.ErrProfileRevisionConflict
+		return nil, "", ErrProfileRevisionConflict
 	}
 	key.Status = params.Status
 	if params.ClientDisplayName != nil {
@@ -116,16 +107,16 @@ func (f *fakeRepo) UpdateSourceOwnedMetadata(ctx context.Context, params profile
 	return key, f.uris[params.ID], nil
 }
 
-func (f *fakeRepo) CloneLocal(ctx context.Context, params profilepersistence.CloneProfileParams) (*model.VLESSKey, string, error) {
+func (f *fakeRepo) CloneLocal(ctx context.Context, params CloneProfileParams) (*model.VLESSKey, string, error) {
 	if f.profileCloneErr != nil {
 		return nil, "", f.profileCloneErr
 	}
 	source, ok := f.keys[params.ID]
 	if !ok {
-		return nil, "", profilepersistence.ErrProfileNotFound
+		return nil, "", ErrKeyNotFound
 	}
 	if source.ProfileRevision != params.ExpectedRevision {
-		return nil, "", profilepersistence.ErrProfileRevisionConflict
+		return nil, "", ErrProfileRevisionConflict
 	}
 	newID := int64(len(f.keys) + 1)
 	label := params.NewLabel
@@ -243,7 +234,7 @@ func (f *fakeRepo) GetLegacyByID(ctx context.Context, id int64) (*model.VLESSKey
 	return f.GetByID(ctx, id)
 }
 
-func (f *fakeRepo) CreateLegacy(ctx context.Context, params keypersistence.CreateLegacyKeyParams) (int64, error) {
+func (f *fakeRepo) CreateLegacy(ctx context.Context, params CreateLegacyKeyParams) (int64, error) {
 	id := int64(len(f.keys) + 1)
 	key := &model.VLESSKey{
 		ID:       id,
@@ -258,10 +249,10 @@ func (f *fakeRepo) CreateLegacy(ctx context.Context, params keypersistence.Creat
 	return id, nil
 }
 
-func (f *fakeRepo) UpdateLegacy(ctx context.Context, params keypersistence.UpdateLegacyKeyParams) error {
+func (f *fakeRepo) UpdateLegacy(ctx context.Context, params UpdateLegacyKeyParams) error {
 	key, ok := f.keys[params.ID]
 	if !ok {
-		return profilepersistence.ErrProfileNotFound
+		return ErrKeyNotFound
 	}
 	key.Label = params.Label
 	key.Status = params.Status
@@ -274,7 +265,7 @@ func (f *fakeRepo) UpdateLegacy(ctx context.Context, params keypersistence.Updat
 
 func (f *fakeRepo) DeleteLegacy(ctx context.Context, id int64) error {
 	if _, ok := f.keys[id]; !ok {
-		return profilepersistence.ErrProfileNotFound
+		return ErrKeyNotFound
 	}
 	delete(f.keys, id)
 	delete(f.uris, id)
@@ -285,18 +276,18 @@ func (f *fakeRepo) ListKeyCategories(ctx context.Context) ([]model.KeyCategory, 
 	return []model.KeyCategory{}, nil
 }
 
-func (f *fakeRepo) CreateKeyCategory(ctx context.Context, params keypersistence.CreateCategoryParams) (model.KeyCategory, error) {
+func (f *fakeRepo) CreateKeyCategory(ctx context.Context, params CreateCategoryParams) (model.KeyCategory, error) {
 	return model.KeyCategory{ID: 1, Name: params.Name, Color: params.Color}, nil
 }
 
-func (f *fakeRepo) UpdateKeyCategory(ctx context.Context, params keypersistence.UpdateCategoryParams) (model.KeyCategory, error) {
+func (f *fakeRepo) UpdateKeyCategory(ctx context.Context, params UpdateCategoryParams) (model.KeyCategory, error) {
 	if params.OldName == "notfound" {
-		return model.KeyCategory{}, profilepersistence.ErrProfileNotFound
+		return model.KeyCategory{}, ErrKeyNotFound
 	}
 	return model.KeyCategory{ID: 1, Name: params.NewName, Color: params.Color}, nil
 }
 
-func (f *fakeRepo) DeleteKeyCategory(ctx context.Context, params keypersistence.DeleteCategoryParams) error {
+func (f *fakeRepo) DeleteKeyCategory(ctx context.Context, params DeleteCategoryParams) error {
 	return nil
 }
 
@@ -316,7 +307,7 @@ func (f *fakeRepo) EnsureKeyCategory(ctx context.Context, name string) (int64, e
 	return 1, f.ensureErr
 }
 
-func (f *fakeRepo) BulkUpdateKeys(ctx context.Context, params keypersistence.BulkUpdateKeysParams) error {
+func (f *fakeRepo) BulkUpdateKeys(ctx context.Context, params BulkKeyUpdate) error {
 	return f.bulkUpdateErr
 }
 
@@ -324,24 +315,24 @@ func (f *fakeRepo) BulkDeleteKeys(ctx context.Context, ids []int64) error {
 	return f.bulkDeleteErr
 }
 
-func (f *fakeRepo) GetHealthCheckTarget(ctx context.Context, id int64) (keypersistence.HealthCheckTarget, error) {
-	return keypersistence.HealthCheckTarget{ID: id, URL: f.uris[id]}, nil
+func (f *fakeRepo) GetHealthCheckTarget(ctx context.Context, id int64) (HealthCheckTarget, error) {
+	return HealthCheckTarget{ID: id, URL: f.uris[id]}, nil
 }
 
-func (f *fakeRepo) ListHealthCheckTargets(ctx context.Context) ([]keypersistence.HealthCheckTarget, error) {
-	return []keypersistence.HealthCheckTarget{}, nil
+func (f *fakeRepo) ListHealthCheckTargets(ctx context.Context) ([]HealthCheckTarget, error) {
+	return []HealthCheckTarget{}, nil
 }
 
-func (f *fakeRepo) SaveHealthCheckResult(ctx context.Context, params keypersistence.SaveHealthCheckResultParams) error {
+func (f *fakeRepo) SaveHealthCheckResult(ctx context.Context, params SaveHealthCheckResultParams) error {
 	return nil
 }
 
-func (f *fakeRepo) GetHealthCheckResult(ctx context.Context, id int64) (keypersistence.HealthCheckResult, error) {
-	return keypersistence.HealthCheckResult{ID: id}, nil
+func (f *fakeRepo) GetHealthCheckResult(ctx context.Context, id int64) (HealthCheckResult, error) {
+	return HealthCheckResult{ID: id}, nil
 }
 
-func (f *fakeRepo) ListHealthCheckResults(ctx context.Context) ([]keypersistence.HealthCheckResult, error) {
-	return []keypersistence.HealthCheckResult{}, nil
+func (f *fakeRepo) ListHealthCheckResults(ctx context.Context) ([]HealthCheckResult, error) {
+	return []HealthCheckResult{}, nil
 }
 
 func TestKeyManagementService_Create_Reveal_Update_Clone(t *testing.T) {

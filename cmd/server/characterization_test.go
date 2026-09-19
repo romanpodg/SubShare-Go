@@ -5,6 +5,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"github.com/romanpodg/SubShare-Go/internal/storage"
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
@@ -65,7 +66,7 @@ func TestCharacterization_RepresentativeStatusCodes(t *testing.T) {
 	t.Run("401 Unauthorized", func(t *testing.T) {
 		req := httptest.NewRequest(http.MethodGet, "/api/v1/keys", nil)
 		rec := httptest.NewRecorder()
-		app.requireAdmin(http.HandlerFunc(app.apiV1ListKeys)).ServeHTTP(rec, req)
+		app.requireAdmin(http.HandlerFunc(app.keys().queries.ListKeys)).ServeHTTP(rec, req)
 		if rec.Code != http.StatusUnauthorized {
 			t.Fatalf("status = %d, want 401", rec.Code)
 		}
@@ -75,7 +76,7 @@ func TestCharacterization_RepresentativeStatusCodes(t *testing.T) {
 		req := httptest.NewRequest(http.MethodPost, "/api/v1/keys/1/reveal", bytes.NewReader([]byte(`{"target":"raw","profile_revision":1}`)))
 		req.SetPathValue("id", "1")
 		rec := httptest.NewRecorder()
-		app.requireAdmin(http.HandlerFunc(app.apiV1RevealKey)).ServeHTTP(rec, req)
+		app.requireAdmin(http.HandlerFunc(app.keys().profiles.RevealKey)).ServeHTTP(rec, req)
 		if rec.Code != http.StatusUnauthorized {
 			t.Fatalf("status = %d, want 401", rec.Code)
 		}
@@ -87,7 +88,7 @@ func TestCharacterization_RepresentativeStatusCodes(t *testing.T) {
 		req.AddCookie(&http.Cookie{Name: "subshare_admin_session", Value: sessionID})
 		req.Header.Set("X-CSRF-Token", csrf)
 		rec := httptest.NewRecorder()
-		app.requireAdmin(http.HandlerFunc(app.apiV1CreateKeyProfile)).ServeHTTP(rec, req)
+		app.requireAdmin(http.HandlerFunc(app.keys().profiles.CreateKeyProfile)).ServeHTTP(rec, req)
 		if rec.Code != http.StatusBadRequest {
 			t.Fatalf("status = %d, want 400", rec.Code)
 		}
@@ -98,7 +99,7 @@ func TestCharacterization_RepresentativeStatusCodes(t *testing.T) {
 		req.SetPathValue("id", "999999")
 		req.AddCookie(&http.Cookie{Name: "subshare_admin_session", Value: sessionID})
 		rec := httptest.NewRecorder()
-		app.requireAdmin(http.HandlerFunc(app.apiV1GetKey)).ServeHTTP(rec, req)
+		app.requireAdmin(http.HandlerFunc(app.keys().profiles.GetKey)).ServeHTTP(rec, req)
 		if rec.Code != http.StatusNotFound {
 			t.Fatalf("status = %d, want 404", rec.Code)
 		}
@@ -138,7 +139,7 @@ func TestCharacterization_CacheControlAndPragmaHeaders(t *testing.T) {
 	createReq.AddCookie(&http.Cookie{Name: "subshare_admin_session", Value: sessionID})
 	createReq.Header.Set("X-CSRF-Token", csrf)
 	createRec := httptest.NewRecorder()
-	app.requireAdmin(http.HandlerFunc(app.apiV1CreateKeyProfile)).ServeHTTP(createRec, createReq)
+	app.requireAdmin(http.HandlerFunc(app.keys().profiles.CreateKeyProfile)).ServeHTTP(createRec, createReq)
 	if createRec.Code != http.StatusCreated {
 		t.Fatalf("create key failed: status=%d body=%s", createRec.Code, createRec.Body.String())
 	}
@@ -150,7 +151,7 @@ func TestCharacterization_CacheControlAndPragmaHeaders(t *testing.T) {
 		req.SetPathValue("id", strconv.FormatInt(keyID, 10))
 		req.AddCookie(&http.Cookie{Name: "subshare_admin_session", Value: sessionID})
 		rec := httptest.NewRecorder()
-		app.requireAdmin(http.HandlerFunc(app.apiV1GetKey)).ServeHTTP(rec, req)
+		app.requireAdmin(http.HandlerFunc(app.keys().profiles.GetKey)).ServeHTTP(rec, req)
 		if rec.Code != http.StatusOK {
 			t.Fatalf("status = %d, want 200", rec.Code)
 		}
@@ -176,7 +177,7 @@ func TestCharacterization_CacheControlAndPragmaHeaders(t *testing.T) {
 		req.AddCookie(&http.Cookie{Name: "subshare_admin_session", Value: sessionID})
 		req.Header.Set("X-CSRF-Token", csrf)
 		rec := httptest.NewRecorder()
-		app.requireAdmin(http.HandlerFunc(app.apiV1RevealKey)).ServeHTTP(rec, req)
+		app.requireAdmin(http.HandlerFunc(app.keys().profiles.RevealKey)).ServeHTTP(rec, req)
 		if rec.Code != http.StatusOK {
 			t.Fatalf("status = %d, want 200; body=%s", rec.Code, rec.Body.String())
 		}
@@ -211,7 +212,7 @@ func TestCharacterization_StartupInvariantFailures(t *testing.T) {
 			t.Fatalf("seed schema: %v", err)
 		}
 
-		err = verifyStartupEnvelopesAndInvariants(ctx, db, nil)
+		err = storage.VerifyStartupEnvelopesAndInvariants(ctx, db, nil)
 		if err != profilestorage.ErrMissingKeyring {
 			t.Fatalf("verifyStartupEnvelopesAndInvariants = %v, want ErrMissingKeyring", err)
 		}
@@ -238,7 +239,7 @@ func TestCharacterization_StartupInvariantFailures(t *testing.T) {
 			t.Fatalf("seed schema: %v", err)
 		}
 
-		err = verifyStartupEnvelopesAndInvariants(ctx, db, kr)
+		err = storage.VerifyStartupEnvelopesAndInvariants(ctx, db, kr)
 		if err == nil || !strings.Contains(err.Error(), "parents without secrets") {
 			t.Fatalf("expected parents without secrets error, got %v", err)
 		}

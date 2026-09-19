@@ -21,6 +21,8 @@ type App struct {
 	profileFingerprintOldKeys [][]byte
 	profileKeyring            *profilestorage.Keyring
 	mu                        sync.RWMutex
+	keysOnce                  sync.Once
+	keyHandlers               *keyHandlers
 }
 
 func cloneByteSlices(values [][]byte) [][]byte {

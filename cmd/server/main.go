@@ -64,12 +64,12 @@ func runConfigured(config configuration.Config) error {
 
 	db, err := initializeSQLiteWithJournalMode(dbPath, config.SQLiteJournalMode, config.ProfileKeyring)
 	if err != nil {
-		if !isRecoverableSQLiteIO(err) {
+		if !storage.IsRecoverableSQLiteIO(err) {
 			return err
 		}
 
 		log.Printf("SQLite startup failed (%v). Cleaning up WAL sidecars and retrying once...", err)
-		if cleanupErr := cleanupSQLiteSidecars(dbPath); cleanupErr != nil {
+		if cleanupErr := storage.CleanupSQLiteSidecars(dbPath); cleanupErr != nil {
 			return fmt.Errorf("recover sqlite sidecars: %w", cleanupErr)
 		}
 
@@ -80,7 +80,7 @@ func runConfigured(config configuration.Config) error {
 	}
 	defer db.Close()
 
-	if err := verifyStartupEnvelopesAndInvariants(context.Background(), db, config.ProfileKeyring); err != nil {
+	if err := storage.VerifyStartupEnvelopesAndInvariants(context.Background(), db, config.ProfileKeyring); err != nil {
 		return fmt.Errorf("startup verification: %w", err)
 	}
 
@@ -310,22 +310,6 @@ func initializeSQLite(dbPath string) (*sql.DB, error) {
 
 func initializeSQLiteWithJournalMode(dbPath, journalMode string, keyring *profilestorage.Keyring) (*sql.DB, error) {
 	return storage.InitializeSQLiteWithJournalMode(dbPath, journalMode, keyring, migrateWithKeyring)
-}
-
-func configureSQLitePragmas(db *sql.DB, journalMode string) error {
-	return storage.ConfigureSQLitePragmas(db, journalMode)
-}
-
-func cleanupSQLiteSidecars(dbPath string) error {
-	return storage.CleanupSQLiteSidecars(dbPath)
-}
-
-func isRecoverableSQLiteIO(err error) bool {
-	return storage.IsRecoverableSQLiteIO(err)
-}
-
-func verifyStartupEnvelopesAndInvariants(ctx context.Context, db *sql.DB, keyring *profilestorage.Keyring) error {
-	return storage.VerifyStartupEnvelopesAndInvariants(ctx, db, keyring)
 }
 
 func handleCLI(args []string) (bool, error) {

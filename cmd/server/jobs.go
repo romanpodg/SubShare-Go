@@ -429,10 +429,6 @@ func (a *App) apiV1QueueSourceSync(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusAccepted, map[string]any{"job_id": jobID, "status": "queued"})
 }
 
-func (a *App) apiV1QueueKeyHealthCheck(w http.ResponseWriter, r *http.Request) {
-	a.keyAdministrationHTTPHandler().QueueHealthCheck(w, r)
-}
-
 func (a *App) queueKeyHealthCheck(r *http.Request) int64 {
 	session, _, _ := a.adminSessionFromRequest(r)
 	jobID := a.queueTrackedJob("keys_health_check", "key", "all")

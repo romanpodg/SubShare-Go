@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"github.com/romanpodg/SubShare-Go/internal/profileconfig"
 	"net/http"
 	"net/url"
 	"strings"
@@ -302,7 +303,7 @@ func (a *App) buildSubscriptionTemplateData(subscriptionID string, subscriptionF
 			continue
 		}
 		rawURL := sec.Reveal()
-		if format == model.SubscriptionFormatLinks && supportedConfigScheme(rawURL) == model.SubscriptionFormatXrayJSON {
+		if format == model.SubscriptionFormatLinks && profileconfig.SupportedConfigScheme(rawURL) == model.SubscriptionFormatXrayJSON {
 			continue
 		}
 		realCount++

@@ -3,6 +3,7 @@ package main
 import (
 	"encoding/base64"
 	"encoding/json"
+	"github.com/romanpodg/SubShare-Go/internal/profileconfig"
 	"strings"
 	"testing"
 )
@@ -269,11 +270,11 @@ func TestHealthCheckRejectsPrivateTargetsBeforeDial(t *testing.T) {
 
 func TestXrayOutboundCanRenderAsCanonicalShareLink(t *testing.T) {
 	raw := `{"outbounds":[{"protocol":"trojan","tag":"edge","settings":{"servers":[{"address":"edge.example","port":443,"password":"secret"}]},"streamSettings":{"network":"grpc","security":"tls","tlsSettings":{"serverName":"edge.example"},"grpcSettings":{"serviceName":"proxy"}}}]}`
-	drafts, err := parseXrayJSONDrafts(raw)
+	drafts, err := profileconfig.ParseXrayJSONDrafts(raw)
 	if err != nil || len(drafts) != 1 {
 		t.Fatalf("parse drafts: count=%d err=%v", len(drafts), err)
 	}
-	link, err := buildShareLinkFromDraft(drafts[0])
+	link, err := profileconfig.BuildShareLinkFromDraft(drafts[0])
 	if err != nil {
 		t.Fatalf("build link: %v", err)
 	}
@@ -295,7 +296,7 @@ func TestParseXrayJSONDraftsRejectsPartiallyInvalidSupportedOutbound(t *testing.
 		}]
 	}`
 
-	if _, err := parseXrayJSONDrafts(raw); err == nil {
+	if _, err := profileconfig.ParseXrayJSONDrafts(raw); err == nil {
 		t.Fatal("expected the invalid supported vnext entry to reject the complete Xray document")
 	}
 }

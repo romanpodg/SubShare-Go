@@ -1347,7 +1347,7 @@ func TestExternalProfilePreviewAndAuditNeverExposeSecrets(t *testing.T) {
 	}
 	listRequest := httptest.NewRequest(http.MethodGet, "/api/v1/keys", nil)
 	listRecorder := httptest.NewRecorder()
-	app.apiV1ListKeys(listRecorder, listRequest)
+	app.keys().queries.ListKeys(listRecorder, listRequest)
 	if listRecorder.Code != http.StatusOK || !strings.Contains(listRecorder.Body.String(), `"protocol":"shadowsocks"`) {
 		t.Fatalf("safe key listing status=%d body=%s", listRecorder.Code, listRecorder.Body.String())
 	}

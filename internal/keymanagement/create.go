@@ -8,7 +8,6 @@ import (
 	"strings"
 
 	"github.com/romanpodg/SubShare-Go/internal/model"
-	"github.com/romanpodg/SubShare-Go/internal/profilepersistence"
 )
 
 func generateToken(nBytes int) (string, error) {
@@ -235,7 +234,7 @@ func (s *Service) CreateLocal(ctx context.Context, params CreateLocalParams) (*m
 		storedProtocol = protocol
 	}
 
-	createdKey, decryptedURI, err := s.profileRepo.CreateLocal(ctx, profilepersistence.CreateProfileParams{
+	createdKey, decryptedURI, err := s.repo.CreateLocal(ctx, CreateProfileParams{
 		Label:             label,
 		ClientDisplayName: clientDisplayName,
 		Status:            status,

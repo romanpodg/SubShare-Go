@@ -553,7 +553,3 @@ func (a *App) apiV1ListSourceCategories(w http.ResponseWriter, r *http.Request) 
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"data": categories})
 }
-
-func (a *App) apiV1ListKeyCategories(w http.ResponseWriter, r *http.Request) {
-	a.keyQueryHTTPHandler().ListCategories(w, r)
-}

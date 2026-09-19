@@ -6,7 +6,6 @@ import (
 	"strings"
 
 	"github.com/romanpodg/SubShare-Go/internal/model"
-	"github.com/romanpodg/SubShare-Go/internal/profilepersistence"
 	"github.com/romanpodg/SubShare-Go/internal/profiles"
 )
 
@@ -181,7 +180,7 @@ func ApplyStructuredPatchToURI(protocol, currentURI, label string, patch *model.
 }
 
 func (s *Service) UpdateLocal(ctx context.Context, params UpdateLocalParams) (*model.KeyProfileDetailResponse, error) {
-	key, decryptedURI, fetchErr := s.profileRepo.GetByID(ctx, params.ID)
+	key, decryptedURI, fetchErr := s.repo.GetByID(ctx, params.ID)
 	if fetchErr != nil {
 		return nil, fetchErr
 	}
@@ -261,7 +260,7 @@ func (s *Service) UpdateLocal(ctx context.Context, params UpdateLocalParams) (*m
 		storedProtocol = protocol
 	}
 
-	updatedKey, updatedURI, err := s.profileRepo.UpdateLocal(ctx, profilepersistence.UpdateProfileParams{
+	updatedKey, updatedURI, err := s.repo.UpdateLocal(ctx, UpdateProfileParams{
 		ID:                params.ID,
 		ExpectedRevision:  params.ProfileRevision,
 		Label:             label,
@@ -311,7 +310,7 @@ func (s *Service) updateSourceOwnedMetadata(ctx context.Context, key *model.VLES
 		}
 		clientDisplayName = &resolved
 	}
-	updatedKey, updatedURI, err := s.profileRepo.UpdateSourceOwnedMetadata(ctx, profilepersistence.UpdateSourceOwnedMetadataParams{
+	updatedKey, updatedURI, err := s.repo.UpdateSourceOwnedMetadata(ctx, UpdateSourceOwnedMetadataParams{
 		ID:                params.ID,
 		ExpectedRevision:  params.ProfileRevision,
 		Status:            status,

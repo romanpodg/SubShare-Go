@@ -16,7 +16,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/romanpodg/SubShare-Go/internal/httpapi"
 	"github.com/romanpodg/SubShare-Go/internal/keymanagement"
 	"github.com/romanpodg/SubShare-Go/internal/middleware"
 	"github.com/romanpodg/SubShare-Go/internal/model"
@@ -1113,72 +1112,6 @@ func (a *App) apiDeleteUserHWID(w http.ResponseWriter, r *http.Request) {
 	}
 	a.recordAuditEvent(r, "user.hwid.delete", "user", strconv.FormatInt(id, 10), nil)
 	writeMessage(w, "hwid removed")
-}
-
-// --- Keys API ---
-
-func (a *App) legacyKeyHandler() *httpapi.LegacyKeyHandler {
-	return httpapi.NewLegacyKeyHandler(a.keyService(), a.recordAuditEvent)
-}
-
-func (a *App) keyCategoryHandler() *httpapi.KeyCategoryHandler {
-	return httpapi.NewKeyCategoryHandler(a.keyService(), a.recordAuditEvent)
-}
-
-func (a *App) apiListKeyCategories(w http.ResponseWriter, r *http.Request) {
-	a.keyCategoryHandler().ListCategories(w, r)
-}
-
-func (a *App) apiCreateKeyCategory(w http.ResponseWriter, r *http.Request) {
-	a.keyCategoryHandler().CreateCategory(w, r)
-}
-
-func (a *App) apiUpdateKeyCategory(w http.ResponseWriter, r *http.Request) {
-	a.keyCategoryHandler().UpdateCategory(w, r)
-}
-
-func (a *App) apiRenameKeyCategory(w http.ResponseWriter, r *http.Request) {
-	a.keyCategoryHandler().RenameCategory(w, r)
-}
-
-func (a *App) apiDeleteKeyCategory(w http.ResponseWriter, r *http.Request) {
-	a.keyCategoryHandler().DeleteCategory(w, r)
-}
-
-func (a *App) apiReorderKeyCategories(w http.ResponseWriter, r *http.Request) {
-	a.keyCategoryHandler().ReorderCategories(w, r)
-}
-
-func (a *App) apiCreateKey(w http.ResponseWriter, r *http.Request) {
-	a.legacyKeyHandler().CreateKey(w, r)
-}
-
-func (a *App) apiUpdateKey(w http.ResponseWriter, r *http.Request) {
-	a.legacyKeyHandler().UpdateKey(w, r)
-}
-
-func (a *App) apiBulkUpdateKeyStatus(w http.ResponseWriter, r *http.Request) {
-	a.keyAdministrationHTTPHandler().BulkUpdateKeys(w, r)
-}
-
-func (a *App) apiBulkDeleteKeys(w http.ResponseWriter, r *http.Request) {
-	a.keyAdministrationHTTPHandler().BulkDeleteKeys(w, r)
-}
-
-func (a *App) apiReorderKeys(w http.ResponseWriter, r *http.Request) {
-	a.keyCategoryHandler().ReorderKeys(w, r)
-}
-
-func (a *App) apiDeleteKey(w http.ResponseWriter, r *http.Request) {
-	a.legacyKeyHandler().DeleteKey(w, r)
-}
-
-func (a *App) apiCheckKey(w http.ResponseWriter, r *http.Request) {
-	a.keyAdministrationHTTPHandler().CheckKey(w, r)
-}
-
-func (a *App) apiCheckAllKeys(w http.ResponseWriter, r *http.Request) {
-	a.keyAdministrationHTTPHandler().CheckAllKeys(w, r)
 }
 
 // --- Subscription API ---

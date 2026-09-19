@@ -35,10 +35,10 @@ func TestShareURIWithDisplayNameCoversAllSupportedProtocols(t *testing.T) {
 	for _, raw := range items {
 		link, err := shareURIWithDisplayName(raw, "Subscriber name")
 		if err != nil {
-			t.Fatalf("rename %s: %v", supportedConfigScheme(raw), err)
+			t.Fatalf("rename %s: %v", profileconfig.SupportedConfigScheme(raw), err)
 		}
 		if got := profileconfig.ClientDisplayNameFromKeyURL(link, ""); got != "Subscriber name" {
-			t.Fatalf("%s client name=%q link=%q", supportedConfigScheme(raw), got, link)
+			t.Fatalf("%s client name=%q link=%q", profileconfig.SupportedConfigScheme(raw), got, link)
 		}
 	}
 }
@@ -377,7 +377,7 @@ func TestLinkModeProjectsRawXrayJSONAtResolverBoundaryWithoutMutatingProfiles(t 
 		t.Fatalf("link lines=%d body=%q exclusions=%#v", len(lines), generated.Body, generated.Exclusions)
 	}
 	for _, line := range lines {
-		scheme := supportedConfigScheme(line)
+		scheme := profileconfig.SupportedConfigScheme(line)
 		if scheme == model.SubscriptionFormatXrayJSON || scheme == "" {
 			t.Fatalf("non-link entry reached link output: %q", line)
 		}
