@@ -11,7 +11,6 @@ import (
 	"github.com/romanpodg/SubShare-Go/internal/keymanagement"
 	"github.com/romanpodg/SubShare-Go/internal/model"
 	"github.com/romanpodg/SubShare-Go/internal/profiles"
-	"github.com/romanpodg/SubShare-Go/internal/storage"
 )
 
 // keyHandlers is the key-management object graph, built once per App.
@@ -26,7 +25,7 @@ type keyHandlers struct {
 
 func (a *App) keys() *keyHandlers {
 	a.keysOnce.Do(func() {
-		service := keymanagement.NewService(storage.NewRepository(a.db, a.profileKeyring), a.buildCapabilitiesMap)
+		service := keymanagement.NewService(a.store(), a.buildCapabilitiesMap)
 		a.keyHandlers = &keyHandlers{
 			service:  service,
 			profiles: httpapi.NewKeyProfileHandler(service, a.recordAuditEvent),

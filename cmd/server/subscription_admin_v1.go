@@ -1,9 +1,11 @@
 package main
 
 import (
+	"context"
 	"database/sql"
 	"errors"
 	"fmt"
+	"github.com/romanpodg/SubShare-Go/internal/storage"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -225,19 +227,16 @@ func (a *App) updateUserKeyAssignment(userID int64, mode string, keyIDs []int64)
 		return err
 	}
 	if mode == model.KeyAssignmentModeAll {
-		if _, err := tx.Exec(`INSERT INTO user_keys(user_id, key_id) SELECT ?, id FROM vless_keys`, userID); err != nil {
+		if err := storage.AssignAllKeysToUser(context.Background(), tx, userID); err != nil {
 			return err
 		}
 	} else {
 		for _, keyID := range normalizedIDs {
-			result, err := tx.Exec(`
-				INSERT INTO user_keys(user_id, key_id)
-				SELECT ?, id FROM vless_keys WHERE id = ?
-			`, userID, keyID)
+			assigned, err := storage.AssignKeyToUser(context.Background(), tx, userID, keyID)
 			if err != nil {
 				return err
 			}
-			if affected, _ := result.RowsAffected(); affected == 0 {
+			if !assigned {
 				return fmt.Errorf("%w: %d", errAssignmentKeyNotFound, keyID)
 			}
 		}

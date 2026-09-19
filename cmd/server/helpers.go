@@ -13,7 +13,6 @@ import (
 
 	"github.com/romanpodg/SubShare-Go/internal/middleware"
 	"github.com/romanpodg/SubShare-Go/internal/model"
-	"github.com/romanpodg/SubShare-Go/internal/security/profilestorage"
 )
 
 type deviceMeta struct {
@@ -271,45 +270,19 @@ func (a *App) buildSubscriptionTemplateData(subscriptionID string, subscriptionF
 		out.ExpiryDateTime = local.Format("02/01/2006 15:04")
 	}
 
-	rows, err := a.db.Query(
-		`SELECT k.id, s.encrypted_url
-		 FROM users u
-		 JOIN user_keys uk ON uk.user_id = u.id
-		 JOIN vless_keys k ON k.id = uk.key_id
-		 LEFT JOIN vless_key_secrets s ON k.id = s.vless_key_id
-		 WHERE u.subscription_id = ?
-		   AND k.status = 'active'
-		   AND k.key_kind = 'real'
-		   AND COALESCE(k.health_failure_count, 0) < 3`,
-		subscriptionID,
-	)
+	entries, err := a.store().ListDeliveryEntries(context.Background(), subscriptionID)
 	if err != nil {
 		return out, err
 	}
-	defer rows.Close()
-
 	realCount := 0
-	for rows.Next() {
-		var id int64
-		var encURL sql.NullString
-		if err := rows.Scan(&id, &encURL); err != nil {
-			return out, err
-		}
-		if !encURL.Valid || encURL.String == "" {
+	for _, entry := range entries {
+		if entry.Kind != model.KeyKindReal || entry.SecretError != nil {
 			continue
 		}
-		sec, err := profilestorage.Decrypt(encURL.String, a.profileKeyring, id)
-		if err != nil {
-			continue
-		}
-		rawURL := sec.Reveal()
-		if format == model.SubscriptionFormatLinks && profileconfig.SupportedConfigScheme(rawURL) == model.SubscriptionFormatXrayJSON {
+		if format == model.SubscriptionFormatLinks && profileconfig.SupportedConfigScheme(entry.Raw) == model.SubscriptionFormatXrayJSON {
 			continue
 		}
 		realCount++
-	}
-	if err := rows.Err(); err != nil {
-		return out, err
 	}
 	out.RealKeysCount = realCount
 

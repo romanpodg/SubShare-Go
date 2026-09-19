@@ -1,8 +1,10 @@
 package main
 
 import (
+	"context"
 	"database/sql"
 	"encoding/json"
+	"github.com/romanpodg/SubShare-Go/internal/storage"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -117,14 +119,8 @@ func (a *App) apiV1Dashboard(w http.ResponseWriter, r *http.Request) {
 		"paused": userPaused, "blocked": userBlocked, "limited": userLimited,
 	}
 
-	var keyTotal, keyUp, keyDown, keyUnknown int
-	if err := a.db.QueryRow(`
-		SELECT COUNT(*),
-		       COALESCE(SUM(CASE WHEN check_status = 'up' THEN 1 ELSE 0 END), 0),
-		       COALESCE(SUM(CASE WHEN check_status = 'down' THEN 1 ELSE 0 END), 0),
-		       COALESCE(SUM(CASE WHEN check_status IS NULL OR check_status = '' OR check_status = 'unknown' THEN 1 ELSE 0 END), 0)
-		FROM vless_keys
-	`).Scan(&keyTotal, &keyUp, &keyDown, &keyUnknown); err != nil {
+	keyCounts, err := storage.LoadKeyHealthCounts(context.Background(), a.db)
+	if err != nil {
 		writeV1Error(w, r, http.StatusInternalServerError, "dashboard_keys_failed", "failed to load dashboard keys")
 		return
 	}
@@ -159,7 +155,7 @@ func (a *App) apiV1Dashboard(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{
 		"users": userCounts,
 		"keys": map[string]int{
-			"total": keyTotal, "up": keyUp, "down": keyDown, "unknown": keyUnknown,
+			"total": keyCounts.Total, "up": keyCounts.Up, "down": keyCounts.Down, "unknown": keyCounts.Unknown,
 		},
 		"sources":             map[string]int{"total": sourceTotal, "errors": sourceErrors},
 		"devices":             devices,

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"crypto/hmac"
 	"crypto/sha256"
 	"database/sql"
@@ -9,6 +10,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/romanpodg/SubShare-Go/internal/keymanagement"
 	"log"
 	"net/http"
 	"strconv"
@@ -19,7 +21,6 @@ import (
 	"github.com/romanpodg/SubShare-Go/internal/model"
 	"github.com/romanpodg/SubShare-Go/internal/profileconfig"
 	"github.com/romanpodg/SubShare-Go/internal/profiles"
-	"github.com/romanpodg/SubShare-Go/internal/security/profilestorage"
 	"gopkg.in/yaml.v3"
 )
 
@@ -263,37 +264,17 @@ func (a *App) selectSubscriptionEntries(subscriptionID, responseType string) (de
 		settings.SubscriptionFormat = model.SubscriptionFormatLinks
 	}
 
-	rows, err := a.db.Query(`
-		SELECT k.id, k.external_source_id, s.encrypted_url, k.key_kind, COALESCE(k.template_text, ''),
-		       COALESCE(k.label, ''), COALESCE(k.client_display_name, ''),
-		       COALESCE(k.protocol, 'legacy'), COALESCE(k.profile_compatibility, 'legacy')
-		FROM users u
-		JOIN user_keys uk ON uk.user_id = u.id
-		JOIN vless_keys k ON k.id = uk.key_id
-		LEFT JOIN vless_key_secrets s ON k.id = s.vless_key_id
-		LEFT JOIN key_categories kc ON kc.id = k.category_id
-		WHERE u.subscription_id = ?
-		  AND k.status = 'active'
-		  AND (k.key_kind = 'informational' OR COALESCE(k.health_failure_count, 0) < 3)
-		ORDER BY
-		  CASE WHEN k.category_id IS NULL THEN 0 ELSE 1 END,
-		  COALESCE(kc.sort_order, 2147483647),
-		  k.sort_order,
-		  COALESCE(k.external_source_id, 0),
-		  k.id
-	`, subscriptionID)
+	stored, err := a.store().ListDeliveryEntries(context.Background(), subscriptionID)
 	if err != nil {
 		return deliverySelection{}, 0, "", err
 	}
-	defer rows.Close()
 
 	selection := deliverySelection{Settings: settings, Entries: []deliveryEntry{}, Exclusions: []generationExclusion{}}
 	seen := make(map[string]struct{})
-	for rows.Next() {
-		var entry deliveryEntry
-		var encURL sql.NullString
-		if err := rows.Scan(&entry.ID, &entry.SourceID, &encURL, &entry.Kind, &entry.TemplateText, &entry.Label, &entry.ClientDisplayName, &entry.StoredProtocol, &entry.Compatibility); err != nil {
-			return deliverySelection{}, 0, "", err
+	for _, row := range stored {
+		entry := deliveryEntry{
+			ID: row.ID, SourceID: row.SourceID, Raw: row.Raw, Kind: row.Kind, TemplateText: row.TemplateText,
+			Label: row.Label, ClientDisplayName: row.ClientDisplayName, StoredProtocol: row.StoredProtocol, Compatibility: row.Compatibility,
 		}
 		kind, _ := model.NormalizeKeyKind(entry.Kind)
 		entry.Kind = kind
@@ -302,18 +283,15 @@ func (a *App) selectSubscriptionEntries(subscriptionID, responseType string) (de
 			selection.Entries = append(selection.Entries, entry)
 			continue
 		}
-		if !encURL.Valid || encURL.String == "" {
-			log.Printf("operator_event: row_id=%d source_id=%v reason=profile_storage_integrity_error error=missing_secret", entry.ID, entry.SourceID)
+		if row.SecretError != nil {
+			cause := "decryption_failed"
+			if errors.Is(row.SecretError, keymanagement.ErrCredentialMissing) {
+				cause = "missing_secret"
+			}
+			log.Printf("operator_event: row_id=%d source_id=%v reason=profile_storage_integrity_error error=%s", entry.ID, entry.SourceID, cause)
 			selection.Exclusions = append(selection.Exclusions, generationExclusion{entry.safeRef(), "unknown", responseType, "profile_storage_integrity_error"})
 			continue
 		}
-		sec, err := profilestorage.Decrypt(encURL.String, a.profileKeyring, entry.ID)
-		if err != nil {
-			log.Printf("operator_event: row_id=%d source_id=%v reason=profile_storage_integrity_error error=decryption_failed", entry.ID, entry.SourceID)
-			selection.Exclusions = append(selection.Exclusions, generationExclusion{entry.safeRef(), "unknown", responseType, "profile_storage_integrity_error"})
-			continue
-		}
-		entry.Raw = sec.Reveal()
 		entry.ClientDisplayName = profileconfig.EffectiveClientDisplayName(
 			entry.ClientDisplayName, entry.Raw, entry.Label, entry.SourceID.Valid && entry.SourceID.Int64 > 0,
 		)
@@ -335,9 +313,6 @@ func (a *App) selectSubscriptionEntries(subscriptionID, responseType string) (de
 		}
 		seen[identity] = struct{}{}
 		selection.Entries = append(selection.Entries, entry)
-	}
-	if err := rows.Err(); err != nil {
-		return deliverySelection{}, 0, "", err
 	}
 	if selection.EligibleCount == 0 {
 		return selection, 503, "subscription has no available keys", nil

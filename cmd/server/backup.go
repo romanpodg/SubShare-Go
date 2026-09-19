@@ -1,8 +1,10 @@
 package main
 
 import (
+	"context"
 	"database/sql"
 	"fmt"
+	"github.com/romanpodg/SubShare-Go/internal/storage"
 	"log"
 	"os"
 	"path/filepath"
@@ -172,38 +174,9 @@ func runValidateBackup(backupPath string, keyring *profilestorage.Keyring) error
 		return nil
 	}
 
-	lastID := int64(0)
-	totalScanned := 0
-	for {
-		rows, err := db.Query(`SELECT vless_key_id, encrypted_url FROM vless_key_secrets WHERE vless_key_id > ? ORDER BY vless_key_id ASC LIMIT 1000`, lastID)
-		if err != nil {
-			return fmt.Errorf("query backup secrets: %w", err)
-		}
-		count := 0
-		for rows.Next() {
-			count++
-			totalScanned++
-			var id int64
-			var env string
-			if err := rows.Scan(&id, &env); err != nil {
-				rows.Close()
-				return fmt.Errorf("scan backup secret: %w", err)
-			}
-			lastID = id
-			sec, err := profilestorage.Decrypt(env, keyring, id)
-			if err != nil {
-				rows.Close()
-				return fmt.Errorf("backup row %d decryption failure: %w", id, err)
-			}
-			if sec.IsZero() {
-				rows.Close()
-				return fmt.Errorf("backup row %d decrypted to zero bytes", id)
-			}
-		}
-		rows.Close()
-		if count == 0 {
-			break
-		}
+	totalScanned, err := storage.NewRepository(db, keyring).VerifySecrets(context.Background())
+	if err != nil {
+		return fmt.Errorf("backup %w", err)
 	}
 
 	log.Printf("Backup validation succeeded: scanned %d encrypted profile secret(s).", totalScanned)

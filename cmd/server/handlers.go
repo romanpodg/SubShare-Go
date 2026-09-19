@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/romanpodg/SubShare-Go/internal/storage"
 	"io"
 	"log"
 	"net/http"
@@ -554,10 +555,7 @@ func (a *App) apiCreateUser(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if _, err := tx.Exec(
-		`INSERT OR IGNORE INTO user_keys(user_id, key_id) SELECT ?, id FROM vless_keys`,
-		userID,
-	); err != nil {
+	if err := storage.AssignAllKeysToUser(context.Background(), tx, userID); err != nil {
 		log.Printf("apiCreateUser: failed to assign keys to user %d: %v", userID, err)
 		writeError(w, http.StatusInternalServerError, "failed to create user")
 		return

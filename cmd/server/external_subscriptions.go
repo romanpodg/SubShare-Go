@@ -11,6 +11,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/romanpodg/SubShare-Go/internal/storage"
 	"io"
 	"log"
 	"net"
@@ -25,7 +26,6 @@ import (
 	"github.com/romanpodg/SubShare-Go/internal/model"
 	"github.com/romanpodg/SubShare-Go/internal/profileconfig"
 	"github.com/romanpodg/SubShare-Go/internal/profiles"
-	"github.com/romanpodg/SubShare-Go/internal/security/profilestorage"
 )
 
 const (
@@ -1812,23 +1812,23 @@ func (a *App) syncExternalSource(sourceID int64, parsed externalSubscriptionPars
 		return externalSyncResult{}, err
 	}
 
-	tx, err := a.db.Begin()
+	sync, err := a.store().BeginSourceSync(context.Background())
 	if err != nil {
 		return externalSyncResult{}, err
 	}
-	defer tx.Rollback()
+	defer sync.Rollback()
 
-	result, err := a.syncExternalSourceTx(tx, source, parsed)
+	result, err := a.syncExternalSourceTx(sync, source, parsed)
 	if err != nil {
 		return result, err
 	}
-	if err := tx.Commit(); err != nil {
+	if err := sync.Commit(); err != nil {
 		return result, err
 	}
 	return result, nil
 }
 
-func (a *App) syncExternalSourceTx(tx *sql.Tx, source externalSourceRow, parsed externalSubscriptionParseResult) (externalSyncResult, error) {
+func (a *App) syncExternalSourceTx(sync *storage.SourceSync, source externalSourceRow, parsed externalSubscriptionParseResult) (externalSyncResult, error) {
 	result := externalSyncResult{Items: append([]externalSafeImportItem(nil), parsed.Items...)}
 	result.Skipped = parsed.Counts.Rejected + parsed.Counts.Unsupported + parsed.Counts.Duplicate
 	if len(parsed.Keys) == 0 {
@@ -1850,78 +1850,16 @@ func (a *App) syncExternalSourceTx(tx *sql.Tx, source externalSourceRow, parsed 
 		statusValue = model.KeyStatusNonActive
 	}
 	targetCategory := normalizeKeyCategory(source.KeyCategory)
-	var targetCategoryID any
-	if targetCategory != "" {
-		var nextCategoryOrder int64
-		if err := tx.QueryRow(`SELECT COALESCE(MAX(sort_order), 0) + 1 FROM key_categories`).Scan(&nextCategoryOrder); err != nil {
-			return result, err
-		}
-		if _, err := tx.Exec(`
-			INSERT INTO key_categories(name, color, sort_order, updated_at)
-			VALUES(?, '#d8b33d', ?, CURRENT_TIMESTAMP)
-			ON CONFLICT(name) DO NOTHING
-		`, targetCategory, nextCategoryOrder); err != nil {
-			return result, err
-		}
-		var categoryID int64
-		if err := tx.QueryRow(`SELECT id FROM key_categories WHERE name = ?`, targetCategory).Scan(&categoryID); err != nil {
-			return result, err
-		}
-		targetCategoryID = categoryID
+	targetCategoryID, err := sync.EnsureCategory(targetCategory)
+	if err != nil {
+		return result, err
 	}
 	insertMode := normalizeKeyInsertMode(source.KeyInsertMode)
 
-	type existingKey struct {
-		ID                   int64
-		Ref                  string
-		Fingerprint          string
-		Label                string
-		ClientDisplayName    string
-		URL                  string
-		Protocol             string
-		ProfileSchemaVersion int
-		Compatibility        string
-		WarningsJSON         string
-	}
-	activeID, activeKey, err := a.profileKeyring.GetActiveEncryptionKey()
+	existingKeys, err := sync.ListSourceKeys(sourceID)
 	if err != nil {
 		return result, err
 	}
-
-	existingRows, err := tx.Query(`
-		SELECT k.id, k.external_key_ref, COALESCE(k.profile_fingerprint, ''), k.label,
-		       COALESCE(k.client_display_name, ''), s.encrypted_url,
-		       k.protocol, k.profile_schema_version, k.profile_compatibility, k.profile_warnings_json
-		FROM vless_keys k
-		LEFT JOIN vless_key_secrets s ON k.id = s.vless_key_id
-		WHERE k.external_source_id = ?
-		ORDER BY k.id
-	`, sourceID)
-	if err != nil {
-		return result, err
-	}
-	existingKeys := make([]existingKey, 0)
-	for existingRows.Next() {
-		var key existingKey
-		var encURL sql.NullString
-		if err := existingRows.Scan(&key.ID, &key.Ref, &key.Fingerprint, &key.Label, &key.ClientDisplayName, &encURL, &key.Protocol, &key.ProfileSchemaVersion, &key.Compatibility, &key.WarningsJSON); err != nil {
-			_ = existingRows.Close()
-			return result, err
-		}
-		if encURL.Valid && encURL.String != "" {
-			if dec, err := profilestorage.Decrypt(encURL.String, a.profileKeyring, key.ID); err == nil {
-				key.URL = dec.Reveal()
-			}
-		}
-		key.Ref = strings.TrimSpace(key.Ref)
-		key.Fingerprint = strings.TrimSpace(key.Fingerprint)
-		existingKeys = append(existingKeys, key)
-	}
-	if err := existingRows.Err(); err != nil {
-		_ = existingRows.Close()
-		return result, err
-	}
-	_ = existingRows.Close()
 
 	// Historical synchronizers could create multiple source-owned rows for the
 	// same URI profile. Repair those groups before normal matching so assigning
@@ -1970,12 +1908,7 @@ func (a *App) syncExternalSourceTx(tx *sql.Tx, source externalSourceRow, parsed 
 				if override == "" {
 					continue
 				}
-				if _, err := tx.Exec(
-					`UPDATE vless_keys SET client_display_name = ? WHERE id = ? AND external_source_id = ?`,
-					override,
-					survivorID,
-					sourceID,
-				); err != nil {
+				if err := sync.SetClientDisplayName(sourceID, survivorID, override); err != nil {
 					return result, err
 				}
 				existingKeys[survivorIndex].ClientDisplayName = override
@@ -1987,36 +1920,26 @@ func (a *App) syncExternalSourceTx(tx *sql.Tx, source externalSourceRow, parsed 
 			if duplicateID == survivorID {
 				continue
 			}
-			if _, err := tx.Exec(
-				`INSERT OR IGNORE INTO user_keys(user_id, key_id)
-				 SELECT user_id, ? FROM user_keys WHERE key_id = ?`,
-				survivorID,
-				duplicateID,
-			); err != nil {
+			if err := sync.MergeUserAssignments(survivorID, duplicateID); err != nil {
 				return result, err
 			}
-			if _, err := tx.Exec(`DELETE FROM vless_keys WHERE id = ? AND external_source_id = ?`, duplicateID, sourceID); err != nil {
+			if err := sync.DeleteSourceKey(sourceID, duplicateID); err != nil {
 				return result, err
 			}
 			removedDuplicateIDs[duplicateID] = struct{}{}
 			result.Counts.Removed++
 		}
 		if existingKeys[survivorIndex].Fingerprint != fingerprint {
-			if _, err := tx.Exec(
-				`UPDATE vless_keys SET profile_fingerprint = ? WHERE id = ? AND external_source_id = ?`,
-				fingerprint,
-				survivorID,
-				sourceID,
-			); err != nil {
+			if err := sync.SetFingerprint(sourceID, survivorID, fingerprint); err != nil {
 				return result, err
 			}
 			existingKeys[survivorIndex].Fingerprint = fingerprint
 		}
 	}
 
-	existingByRef := make(map[string]existingKey)
-	existingByFingerprint := make(map[string]existingKey)
-	existingByLabel := make(map[string]existingKey)
+	existingByRef := make(map[string]storage.SourceKey)
+	existingByFingerprint := make(map[string]storage.SourceKey)
+	existingByLabel := make(map[string]storage.SourceKey)
 	existingLabelCounts := make(map[string]int)
 	existingIDs := make(map[int64]struct{})
 	for _, key := range existingKeys {
@@ -2066,24 +1989,9 @@ func (a *App) syncExternalSourceTx(tx *sql.Tx, source externalSourceRow, parsed 
 	}
 
 	seenRefs := make(map[string]struct{}, len(parsed.Keys))
-	var nextSortOrder int64
-	if insertMode == "top" {
-		if err := tx.QueryRow(
-			`SELECT COALESCE(MIN(sort_order), 1) - ? FROM vless_keys WHERE category_id IS ? AND external_source_id != ?`,
-			len(parsed.Keys)+8,
-			targetCategoryID,
-			sourceID,
-		).Scan(&nextSortOrder); err != nil {
-			return result, err
-		}
-	} else {
-		if err := tx.QueryRow(
-			`SELECT COALESCE(MAX(sort_order), 0) + 1 FROM vless_keys WHERE category_id IS ? AND external_source_id != ?`,
-			targetCategoryID,
-			sourceID,
-		).Scan(&nextSortOrder); err != nil {
-			return result, err
-		}
+	nextSortOrder, err := sync.NextSortOrder(targetCategoryID, sourceID, insertMode == "top", len(parsed.Keys))
+	if err != nil {
+		return result, err
 	}
 
 	for index, item := range parsed.Keys {
@@ -2152,22 +2060,11 @@ func (a *App) syncExternalSourceTx(tx *sql.Tx, source externalSourceRow, parsed 
 			changed := existing.Label != label || existing.URL != urlValue || existing.Protocol != item.Protocol ||
 				existing.Fingerprint != item.Fingerprint || existing.ProfileSchemaVersion != item.ProfileSchemaVersion ||
 				existing.Compatibility != item.Compatibility || existing.WarningsJSON != warningsJSON
-			if _, err := tx.Exec(
-				`UPDATE vless_keys
-				 SET label = ?, category_id = ?, category = ?, key_kind = 'real', template_text = NULL,
-				     external_source_id = ?, external_key_ref = ?, sort_order = ?, protocol = ?, profile_fingerprint = ?,
-				     profile_schema_version = ?, profile_compatibility = ?, profile_warnings_json = ?
-				 WHERE id = ? AND external_source_id = ?`,
-				label, targetCategoryID, targetCategory, sourceID, stableRef, nextSortOrder,
-				item.Protocol, nullStringValue(item.Fingerprint), item.ProfileSchemaVersion, item.Compatibility, warningsJSON, existing.ID, sourceID,
-			); err != nil {
-				return result, err
-			}
-			env, err := profilestorage.Encrypt([]byte(urlValue), activeID, activeKey, existing.ID)
-			if err != nil {
-				return result, err
-			}
-			if _, err := tx.Exec(`INSERT INTO vless_key_secrets(vless_key_id, encrypted_url) VALUES(?, ?) ON CONFLICT(vless_key_id) DO UPDATE SET encrypted_url = excluded.encrypted_url`, existing.ID, env); err != nil {
+			if err := sync.UpdateSourceKey(existing.ID, storage.SourceKeyWrite{
+				SourceID: sourceID, Ref: stableRef, Label: label, CategoryID: targetCategoryID, Category: targetCategory,
+				SortOrder: nextSortOrder, Protocol: item.Protocol, Fingerprint: item.Fingerprint,
+				ProfileSchemaVersion: item.ProfileSchemaVersion, Compatibility: item.Compatibility, WarningsJSON: warningsJSON, URL: urlValue,
+			}); err != nil {
 				return result, err
 			}
 			delete(existingIDs, existing.ID)
@@ -2181,43 +2078,20 @@ func (a *App) syncExternalSourceTx(tx *sql.Tx, source externalSourceRow, parsed 
 			continue
 		}
 
-		insertResult, err := tx.Exec(
-			`INSERT INTO vless_keys(
-				label, category_id, category, status, check_status, key_kind, template_text, sort_order,
-				external_source_id, external_key_ref, protocol, profile_fingerprint, profile_schema_version,
-				profile_compatibility, profile_warnings_json
-			) VALUES(?, ?, ?, ?, 'unknown', 'real', NULL, ?, ?, ?, ?, ?, ?, ?, ?)`,
-			label, targetCategoryID, targetCategory, statusValue, nextSortOrder, sourceID, ref,
-			item.Protocol, nullStringValue(item.Fingerprint), item.ProfileSchemaVersion, item.Compatibility, warningsJSON,
-		)
+		_, err = sync.InsertSourceKey(storage.SourceKeyWrite{
+			SourceID: sourceID, Ref: ref, Label: label, CategoryID: targetCategoryID, Category: targetCategory, Status: statusValue,
+			SortOrder: nextSortOrder, Protocol: item.Protocol, Fingerprint: item.Fingerprint,
+			ProfileSchemaVersion: item.ProfileSchemaVersion, Compatibility: item.Compatibility, WarningsJSON: warningsJSON, URL: urlValue,
+		})
+		if errors.Is(err, storage.ErrDuplicateSourceKey) {
+			result.Skipped++
+			setItemStatus(item.ItemRef, externalStatusDuplicate)
+			continue
+		}
 		if err != nil {
-			errText := strings.ToLower(err.Error())
-			if strings.Contains(errText, "unique") {
-				result.Skipped++
-				setItemStatus(item.ItemRef, externalStatusDuplicate)
-				continue
-			}
 			return result, err
 		}
 		setItemStatus(item.ItemRef, externalStatusAdded)
-		keyID, err := insertResult.LastInsertId()
-		if err != nil {
-			return result, err
-		}
-		env, err := profilestorage.Encrypt([]byte(urlValue), activeID, activeKey, keyID)
-		if err != nil {
-			return result, err
-		}
-		if _, err := tx.Exec(`INSERT INTO vless_key_secrets(vless_key_id, encrypted_url) VALUES(?, ?)`, keyID, env); err != nil {
-			return result, err
-		}
-		if _, err := tx.Exec(
-			`INSERT OR IGNORE INTO user_keys(user_id, key_id)
-			 SELECT id, ? FROM users WHERE key_assignment_mode = 'all'`,
-			keyID,
-		); err != nil {
-			return result, err
-		}
 		nextSortOrder++
 		result.Imported++
 	}
@@ -2226,7 +2100,7 @@ func (a *App) syncExternalSourceTx(tx *sql.Tx, source externalSourceRow, parsed 
 	// unmatched rows until a fully parsed refresh confirms they are missing.
 	if parsed.Counts.Rejected == 0 && parsed.Counts.Unsupported == 0 {
 		for keyID := range existingIDs {
-			if _, err := tx.Exec(`DELETE FROM vless_keys WHERE id = ? AND external_source_id = ?`, keyID, sourceID); err != nil {
+			if err := sync.DeleteSourceKey(sourceID, keyID); err != nil {
 				return result, err
 			}
 			result.Counts.Removed++
@@ -2236,27 +2110,10 @@ func (a *App) syncExternalSourceTx(tx *sql.Tx, source externalSourceRow, parsed 
 	result.Counts = countExternalItems(result.Items)
 	result.Counts.Removed = removed
 
-	if _, err := tx.Exec(
-		`UPDATE external_subscription_sources
-		 SET import_status = 'ok',
-		     last_error = NULL,
-		     last_synced_at = CURRENT_TIMESTAMP,
-		     last_import_count = ?,
-		     meta_title = ?,
-		     meta_refresh_hours = ?,
-		     meta_support_url = ?,
-		     meta_web_page_url = ?,
-		     meta_announce = ?,
-		     updated_at = CURRENT_TIMESTAMP
-		 WHERE id = ?`,
-		result.Imported,
-		nullStringValue(parsed.Metadata.Title),
-		nullInt64Value(int64(parsed.Metadata.RefreshHours)),
-		nullStringValue(parsed.Metadata.SupportURL),
-		nullStringValue(parsed.Metadata.WebPageURL),
-		nullStringValue(parsed.Metadata.Announce),
-		sourceID,
-	); err != nil {
+	if err := sync.MarkSourceSynced(sourceID, result.Imported, storage.SourceSyncMetadata{
+		Title: parsed.Metadata.Title, RefreshHours: parsed.Metadata.RefreshHours, SupportURL: parsed.Metadata.SupportURL,
+		WebPageURL: parsed.Metadata.WebPageURL, Announce: parsed.Metadata.Announce,
+	}); err != nil {
 		return result, err
 	}
 
@@ -2531,7 +2388,7 @@ func (a *App) apiImportExternalSourceTransactional(w http.ResponseWriter, r *htt
 		return
 	}
 	source := externalSourceRow{ID: sourceID, Name: name, Category: category, KeyCategory: keyCategory, KeyInsertMode: normalizeKeyInsertMode(req.KeyInsertMode), SourceURL: sourceURL, Enabled: req.Enabled, PassHWID: hwidProfile.PassHWID, HWIDVersion: hwidProfile.Version, HWIDModelName: hwidProfile.ModelName, HWIDValue: hwidProfile.HWID, ImportStatus: "syncing"}
-	syncResult, err := a.syncExternalSourceTx(tx, source, parsed)
+	syncResult, err := a.syncExternalSourceTx(a.store().SourceSyncOn(context.Background(), tx), source, parsed)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
@@ -2623,7 +2480,7 @@ func (a *App) apiUpdateExternalSource(w http.ResponseWriter, r *http.Request) {
 	if !req.Enabled {
 		keyStatus = model.KeyStatusNonActive
 	}
-	if _, err := a.db.Exec(`UPDATE vless_keys SET status = ? WHERE external_source_id = ?`, keyStatus, id); err != nil {
+	if err := storage.SetSourceKeysStatus(context.Background(), a.db, id, keyStatus); err != nil {
 		log.Printf("apiUpdateExternalSource: update key statuses: %v", err)
 	}
 
@@ -2643,7 +2500,7 @@ func (a *App) apiDeleteExternalSource(w http.ResponseWriter, r *http.Request) {
 	}
 	defer tx.Rollback()
 
-	if _, err := tx.Exec(`DELETE FROM vless_keys WHERE external_source_id = ?`, id); err != nil {
+	if _, err := storage.DeleteSourceKeys(context.Background(), tx, id); err != nil {
 		log.Printf("apiDeleteExternalSource: delete keys: %v", err)
 		writeError(w, http.StatusInternalServerError, "failed to delete source keys")
 		return

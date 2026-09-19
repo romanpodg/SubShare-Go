@@ -1,8 +1,10 @@
 package main
 
 import (
+	"context"
 	"database/sql"
 	"errors"
+	"github.com/romanpodg/SubShare-Go/internal/storage"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -225,8 +227,8 @@ func (a *App) apiV1GetSource(w http.ResponseWriter, r *http.Request) {
 		writeV1Error(w, r, http.StatusInternalServerError, "source_load_failed", "failed to load source")
 		return
 	}
-	var importedKeys int
-	if err := a.db.QueryRow(`SELECT COUNT(*) FROM vless_keys WHERE external_source_id = ?`, id).Scan(&importedKeys); err != nil {
+	importedKeys, err := storage.CountSourceKeys(context.Background(), a.db, id)
+	if err != nil {
 		writeV1Error(w, r, http.StatusInternalServerError, "source_load_failed", "failed to load source")
 		return
 	}
@@ -392,7 +394,7 @@ func (a *App) apiV1CreateSource(w http.ResponseWriter, r *http.Request) {
 		HWIDValue:           hwidProfile.HWID,
 		ImportStatus:        "syncing",
 	}
-	syncResult, err := a.syncExternalSourceTx(tx, source, parsed)
+	syncResult, err := a.syncExternalSourceTx(a.store().SourceSyncOn(context.Background(), tx), source, parsed)
 	if err != nil {
 		writeV1Error(w, r, http.StatusInternalServerError, "source_create_failed", "failed to save imported source")
 		return
@@ -495,7 +497,7 @@ func (a *App) apiV1UpdateSource(w http.ResponseWriter, r *http.Request) {
 	if !req.Enabled {
 		keyStatus = model.KeyStatusNonActive
 	}
-	if _, err := tx.Exec(`UPDATE vless_keys SET status = ? WHERE external_source_id = ?`, keyStatus, id); err != nil {
+	if err := storage.SetSourceKeysStatus(context.Background(), tx, id, keyStatus); err != nil {
 		writeV1Error(w, r, http.StatusInternalServerError, "source_update_failed", "failed to update source keys")
 		return
 	}
@@ -518,12 +520,8 @@ func (a *App) apiV1DeleteSource(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer tx.Rollback()
-	var deletedKeys int
-	if err := tx.QueryRow(`SELECT COUNT(*) FROM vless_keys WHERE external_source_id = ?`, id).Scan(&deletedKeys); err != nil {
-		writeV1Error(w, r, http.StatusInternalServerError, "source_delete_failed", "failed to delete source")
-		return
-	}
-	if _, err := tx.Exec(`DELETE FROM vless_keys WHERE external_source_id = ?`, id); err != nil {
+	deletedKeys, err := storage.DeleteSourceKeys(context.Background(), tx, id)
+	if err != nil {
 		writeV1Error(w, r, http.StatusInternalServerError, "source_delete_failed", "failed to delete source keys")
 		return
 	}
