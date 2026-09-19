@@ -2,6 +2,7 @@ package main
 
 import (
 	"database/sql"
+	"github.com/romanpodg/SubShare-Go/internal/storage"
 	"os"
 	"path/filepath"
 	"testing"
@@ -55,7 +56,7 @@ func TestExistingDatabaseSnapshotMigration(t *testing.T) {
 	if err := migrated.QueryRow(`SELECT COALESCE(MAX(version), 0) FROM schema_migrations`).Scan(&version); err != nil {
 		t.Fatalf("read schema version: %v", err)
 	}
-	if version != schemaMigrations[len(schemaMigrations)-1].version {
-		t.Fatalf("schema version = %d, want %d", version, schemaMigrations[len(schemaMigrations)-1].version)
+	if version != storage.SchemaMigrations[len(storage.SchemaMigrations)-1].Version {
+		t.Fatalf("schema version = %d, want %d", version, storage.SchemaMigrations[len(storage.SchemaMigrations)-1].Version)
 	}
 }

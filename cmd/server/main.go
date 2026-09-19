@@ -309,7 +309,7 @@ func initializeSQLite(dbPath string) (*sql.DB, error) {
 }
 
 func initializeSQLiteWithJournalMode(dbPath, journalMode string, keyring *profilestorage.Keyring) (*sql.DB, error) {
-	return storage.InitializeSQLiteWithJournalMode(dbPath, journalMode, keyring, migrateWithKeyring)
+	return storage.InitializeSQLiteWithJournalMode(dbPath, journalMode, keyring)
 }
 
 func handleCLI(args []string) (bool, error) {

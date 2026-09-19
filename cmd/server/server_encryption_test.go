@@ -147,3 +147,16 @@ func TestStage7ValidateBackup(t *testing.T) {
 		t.Fatalf("validate backup: %v", err)
 	}
 }
+
+func testKeyring(t *testing.T) *profilestorage.Keyring {
+	t.Helper()
+	data, err := profilestorage.GenerateKeyringJSON("key-1", "bik-1")
+	if err != nil {
+		t.Fatalf("generate keyring: %v", err)
+	}
+	kr, err := profilestorage.LoadKeyringJSON(data)
+	if err != nil {
+		t.Fatalf("parse keyring: %v", err)
+	}
+	return kr
+}

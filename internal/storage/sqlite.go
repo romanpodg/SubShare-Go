@@ -17,7 +17,6 @@ import (
 func InitializeSQLiteWithJournalMode(
 	dbPath, journalMode string,
 	keyring *profilestorage.Keyring,
-	migrator func(*sql.DB, *profilestorage.Keyring) error,
 ) (*sql.DB, error) {
 	db, err := sql.Open("sqlite", sqliteDataSourceName(dbPath))
 	if err != nil {
@@ -33,11 +32,9 @@ func InitializeSQLiteWithJournalMode(
 		return nil, err
 	}
 
-	if migrator != nil {
-		if err := migrator(db, keyring); err != nil {
-			_ = db.Close()
-			return nil, fmt.Errorf("migrate db: %w", err)
-		}
+	if err := MigrateWithKeyring(db, keyring); err != nil {
+		_ = db.Close()
+		return nil, fmt.Errorf("migrate db: %w", err)
 	}
 
 	return db, nil

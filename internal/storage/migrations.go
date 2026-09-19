@@ -1,26 +1,40 @@
-package main
+package storage
 
 import (
 	"context"
 	"database/sql"
 	"fmt"
+	"regexp"
+	"strings"
 
 	"github.com/romanpodg/SubShare-Go/internal/security/profilestorage"
 )
 
+var validSQLIdentifier = regexp.MustCompile(`^[a-zA-Z_][a-zA-Z0-9_]*$`)
+
 type schemaMigration struct {
-	version            int
-	name               string
+	Version            int
+	Name               string
+	baseline           bool
 	statements         []string
 	disableForeignKeys bool
 	verifyForeignKeys  bool
 	runGo              func(ctx context.Context, conn *sql.Conn, db *sql.DB, keyring *profilestorage.Keyring) error
 }
 
-var schemaMigrations = []schemaMigration{
+// SchemaMigrations is the single ordered definition of the database schema.
+// Version 0 is the pre-versioned baseline: it runs only for databases that have
+// no schema_migrations table yet (fresh databases and legacy installs).
+var SchemaMigrations = []schemaMigration{
 	{
-		version: 1,
-		name:    "subscription_hub_foundation",
+		Version:  0,
+		Name:     "baseline_schema",
+		baseline: true,
+		runGo:    applyBaselineSchema,
+	},
+	{
+		Version: 1,
+		Name:    "subscription_hub_foundation",
 		statements: []string{
 			`CREATE TABLE IF NOT EXISTS audit_events (
 				id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -112,8 +126,8 @@ var schemaMigrations = []schemaMigration{
 		},
 	},
 	{
-		version: 2,
-		name:    "seed_default_templates_and_rules",
+		Version: 2,
+		Name:    "seed_default_templates_and_rules",
 		statements: []string{
 			`INSERT OR IGNORE INTO subscription_templates(slug, name, format, content, enabled, is_system)
 			 VALUES ('default-base64', 'Base64 fallback', 'base64', '', 1, 1)`,
@@ -140,16 +154,16 @@ var schemaMigrations = []schemaMigration{
 		},
 	},
 	{
-		version: 3,
-		name:    "owner_operator_viewer_roles",
+		Version: 3,
+		Name:    "owner_operator_viewer_roles",
 		statements: []string{
 			`UPDATE admins SET role = 'owner' WHERE role = 'super_admin'`,
 			`UPDATE admins SET role = 'operator' WHERE role = 'support_admin'`,
 		},
 	},
 	{
-		version: 4,
-		name:    "category_foreign_keys",
+		Version: 4,
+		Name:    "category_foreign_keys",
 		statements: []string{
 			`ALTER TABLE vless_keys ADD COLUMN category_id INTEGER REFERENCES key_categories(id) ON DELETE SET NULL`,
 			`UPDATE vless_keys
@@ -197,8 +211,8 @@ var schemaMigrations = []schemaMigration{
 		},
 	},
 	{
-		version: 5,
-		name:    "client_format_system_rules",
+		Version: 5,
+		Name:    "client_format_system_rules",
 		statements: []string{
 			`INSERT OR IGNORE INTO subscription_templates(slug, name, format, content, enabled, is_system)
 			 VALUES ('default-mihomo', 'Mihomo', 'mihomo', '', 1, 1)`,
@@ -228,8 +242,8 @@ var schemaMigrations = []schemaMigration{
 		},
 	},
 	{
-		version: 6,
-		name:    "subscription_delivery_settings",
+		Version: 6,
+		Name:    "subscription_delivery_settings",
 		statements: []string{
 			`CREATE TABLE IF NOT EXISTS subscription_delivery_settings (
 				id INTEGER PRIMARY KEY CHECK (id = 1),
@@ -243,8 +257,8 @@ var schemaMigrations = []schemaMigration{
 		},
 	},
 	{
-		version: 7,
-		name:    "subscription_entitlements_and_health_policy",
+		Version: 7,
+		Name:    "subscription_entitlements_and_health_policy",
 		statements: []string{
 			`ALTER TABLE users ADD COLUMN key_assignment_mode TEXT NOT NULL DEFAULT 'all'
 			 CHECK (key_assignment_mode IN ('all','selected'))`,
@@ -276,8 +290,8 @@ var schemaMigrations = []schemaMigration{
 		},
 	},
 	{
-		version: 8,
-		name:    "category_ids_as_canonical_source",
+		Version: 8,
+		Name:    "category_ids_as_canonical_source",
 		statements: []string{
 			`UPDATE vless_keys
 			    SET category_id = (SELECT id FROM key_categories WHERE name = vless_keys.category)
@@ -316,8 +330,8 @@ var schemaMigrations = []schemaMigration{
 		},
 	},
 	{
-		version: 9,
-		name:    "external_protocol_profile_persistence",
+		Version: 9,
+		Name:    "external_protocol_profile_persistence",
 		statements: []string{
 			`ALTER TABLE vless_keys ADD COLUMN protocol TEXT NOT NULL DEFAULT 'legacy'`,
 			`ALTER TABLE vless_keys ADD COLUMN profile_fingerprint TEXT`,
@@ -330,8 +344,8 @@ var schemaMigrations = []schemaMigration{
 		},
 	},
 	{
-		version:            10,
-		name:               "source_owned_profile_urls",
+		Version:            10,
+		Name:               "source_owned_profile_urls",
 		disableForeignKeys: true,
 		verifyForeignKeys:  true,
 		statements: []string{
@@ -424,8 +438,8 @@ var schemaMigrations = []schemaMigration{
 		},
 	},
 	{
-		version: 11,
-		name:    "vless_key_secrets_and_blind_index",
+		Version: 11,
+		Name:    "vless_key_secrets_and_blind_index",
 		statements: []string{
 			`CREATE TABLE IF NOT EXISTS vless_key_secrets (
 				vless_key_id INTEGER PRIMARY KEY REFERENCES vless_keys(id) ON DELETE CASCADE,
@@ -439,18 +453,18 @@ var schemaMigrations = []schemaMigration{
 		},
 	},
 	{
-		version: 12,
-		name:    "encrypt_vless_keys_data",
+		Version: 12,
+		Name:    "encrypt_vless_keys_data",
 		runGo:   migrateVlessKeysData,
 	},
 	{
-		version: 13,
-		name:    "remove_plaintext_url_column",
+		Version: 13,
+		Name:    "remove_plaintext_url_column",
 		runGo:   applyMigration13Rebuild,
 	},
 	{
-		version: 14,
-		name:    "add_profile_revision_and_updated_at_to_vless_keys",
+		Version: 14,
+		Name:    "add_profile_revision_and_updated_at_to_vless_keys",
 		statements: []string{
 			`ALTER TABLE vless_keys ADD COLUMN profile_revision INTEGER NOT NULL DEFAULT 1`,
 			`ALTER TABLE vless_keys ADD COLUMN updated_at DATETIME`,
@@ -458,28 +472,28 @@ var schemaMigrations = []schemaMigration{
 		},
 	},
 	{
-		version: 15,
-		name:    "add_general_subscription_expiration_setting",
+		Version: 15,
+		Name:    "add_general_subscription_expiration_setting",
 		runGo:   migrateShowSubscriptionExpiration,
 	},
 	{
-		version: 16,
-		name:    "add_client_display_name_to_vless_keys",
+		Version: 16,
+		Name:    "add_client_display_name_to_vless_keys",
 		runGo:   migrateClientDisplayName,
 	},
 	{
-		version: 17,
-		name:    "add_background_job_warning_results",
+		Version: 17,
+		Name:    "add_background_job_warning_results",
 		runGo:   migrateBackgroundJobWarningResults,
 	},
 	{
-		version: 18,
-		name:    "canonical_subscription_announcement",
+		Version: 18,
+		Name:    "canonical_subscription_announcement",
 		runGo:   migrateCanonicalSubscriptionAnnouncement,
 	},
 	{
-		version: 19,
-		name:    "add_happ_routing_delivery_mode",
+		Version: 19,
+		Name:    "add_happ_routing_delivery_mode",
 		runGo:   migrateHappRoutingDeliveryMode,
 	},
 }
@@ -532,7 +546,7 @@ func migrateCanonicalSubscriptionAnnouncement(ctx context.Context, conn *sql.Con
 	if err != nil && err != sql.ErrNoRows {
 		return fmt.Errorf("read legacy delivery announcement: %w", err)
 	}
-	if _, err := promoteLegacyDeliveryAnnouncement(ctx, tx, legacyAnnouncement); err != nil {
+	if _, err := PromoteLegacyDeliveryAnnouncement(ctx, tx, legacyAnnouncement); err != nil {
 		return fmt.Errorf("promote legacy delivery announcement: %w", err)
 	}
 	if _, err := tx.ExecContext(ctx, `UPDATE subscription_delivery_settings SET announcement = '' WHERE id = 1`); err != nil {
@@ -642,11 +656,19 @@ func migrateBackgroundJobWarningResults(ctx context.Context, conn *sql.Conn, _ *
 	return nil
 }
 
-func runVersionedMigrations(db *sql.DB) error {
-	return runVersionedMigrationsWithKeyring(db, nil)
+// Migrate applies every pending schema migration without a keyring.
+func Migrate(db *sql.DB) error {
+	return MigrateWithKeyring(db, nil)
 }
 
-func runVersionedMigrationsWithKeyring(db *sql.DB, keyring *profilestorage.Keyring) error {
+// MigrateWithKeyring applies every pending schema migration, including the
+// baseline for databases that predate versioned migrations.
+func MigrateWithKeyring(db *sql.DB, keyring *profilestorage.Keyring) error {
+	var versionTables int
+	if err := db.QueryRow(`SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = 'schema_migrations'`).Scan(&versionTables); err != nil {
+		return err
+	}
+	hadVersionTable := versionTables > 0
 	if _, err := db.Exec(`CREATE TABLE IF NOT EXISTS schema_migrations (
 		version INTEGER PRIMARY KEY,
 		name TEXT NOT NULL,
@@ -662,21 +684,29 @@ func runVersionedMigrationsWithKeyring(db *sql.DB, keyring *profilestorage.Keyri
 	}
 	defer conn.Close()
 
-	for _, migration := range schemaMigrations {
+	for _, migration := range SchemaMigrations {
 		var applied int
-		if err := conn.QueryRowContext(ctx, `SELECT COUNT(*) FROM schema_migrations WHERE version = ?`, migration.version).Scan(&applied); err != nil {
-			return fmt.Errorf("check migration %d: %w", migration.version, err)
+		if err := conn.QueryRowContext(ctx, `SELECT COUNT(*) FROM schema_migrations WHERE version = ?`, migration.Version).Scan(&applied); err != nil {
+			return fmt.Errorf("check migration %d: %w", migration.Version, err)
 		}
 		if applied > 0 {
 			continue
 		}
 
+		if migration.baseline && hadVersionTable {
+			// Already-versioned databases were bootstrapped before version 0 existed.
+			if _, err := db.ExecContext(ctx, `INSERT INTO schema_migrations(version, name) VALUES(?, ?)`, migration.Version, migration.Name); err != nil {
+				return fmt.Errorf("record migration %d: %w", migration.Version, err)
+			}
+			continue
+		}
+
 		if migration.runGo != nil {
 			if err := migration.runGo(ctx, conn, db, keyring); err != nil {
-				return fmt.Errorf("apply migration %d (%s): %w", migration.version, migration.name, err)
+				return fmt.Errorf("apply migration %d (%s): %w", migration.Version, migration.Name, err)
 			}
-			if _, err := db.ExecContext(ctx, `INSERT INTO schema_migrations(version, name) VALUES(?, ?)`, migration.version, migration.name); err != nil {
-				return fmt.Errorf("record migration %d: %w", migration.version, err)
+			if _, err := db.ExecContext(ctx, `INSERT INTO schema_migrations(version, name) VALUES(?, ?)`, migration.Version, migration.Name); err != nil {
+				return fmt.Errorf("record migration %d: %w", migration.Version, err)
 			}
 		} else {
 			if err := applySchemaMigration(ctx, conn, migration); err != nil {
@@ -967,16 +997,16 @@ func applySchemaMigration(ctx context.Context, conn *sql.Conn, migration schemaM
 	if migration.disableForeignKeys {
 		var enabled int
 		if err := conn.QueryRowContext(ctx, `PRAGMA foreign_keys`).Scan(&enabled); err != nil {
-			return fmt.Errorf("read foreign key state for migration %d: %w", migration.version, err)
+			return fmt.Errorf("read foreign key state for migration %d: %w", migration.Version, err)
 		}
 		foreignKeysEnabled = enabled != 0
 		if foreignKeysEnabled {
 			if _, err := conn.ExecContext(ctx, `PRAGMA foreign_keys = OFF`); err != nil {
-				return fmt.Errorf("disable foreign keys for migration %d: %w", migration.version, err)
+				return fmt.Errorf("disable foreign keys for migration %d: %w", migration.Version, err)
 			}
 			defer func() {
 				if _, err := conn.ExecContext(ctx, `PRAGMA foreign_keys = ON`); err != nil && resultErr == nil {
-					resultErr = fmt.Errorf("restore foreign keys after migration %d: %w", migration.version, err)
+					resultErr = fmt.Errorf("restore foreign keys after migration %d: %w", migration.Version, err)
 				}
 			}()
 		}
@@ -984,32 +1014,554 @@ func applySchemaMigration(ctx context.Context, conn *sql.Conn, migration schemaM
 
 	tx, err := conn.BeginTx(ctx, nil)
 	if err != nil {
-		return fmt.Errorf("begin migration %d: %w", migration.version, err)
+		return fmt.Errorf("begin migration %d: %w", migration.Version, err)
 	}
 	defer tx.Rollback()
 	for _, statement := range migration.statements {
 		if _, err := tx.ExecContext(ctx, statement); err != nil {
-			return fmt.Errorf("apply migration %d (%s): %w", migration.version, migration.name, err)
+			return fmt.Errorf("apply migration %d (%s): %w", migration.Version, migration.Name, err)
 		}
 	}
 	if migration.verifyForeignKeys {
 		var violations int
 		if err := tx.QueryRowContext(ctx, `SELECT COUNT(*) FROM pragma_foreign_key_check`).Scan(&violations); err != nil {
-			return fmt.Errorf("verify foreign keys for migration %d: %w", migration.version, err)
+			return fmt.Errorf("verify foreign keys for migration %d: %w", migration.Version, err)
 		}
 		if violations != 0 {
-			return fmt.Errorf("verify foreign keys for migration %d: %d violation(s)", migration.version, violations)
+			return fmt.Errorf("verify foreign keys for migration %d: %d violation(s)", migration.Version, violations)
 		}
 	}
 	if _, err := tx.ExecContext(ctx,
 		`INSERT INTO schema_migrations(version, name) VALUES(?, ?)`,
-		migration.version,
-		migration.name,
+		migration.Version,
+		migration.Name,
 	); err != nil {
-		return fmt.Errorf("record migration %d: %w", migration.version, err)
+		return fmt.Errorf("record migration %d: %w", migration.Version, err)
 	}
 	if err := tx.Commit(); err != nil {
-		return fmt.Errorf("commit migration %d: %w", migration.version, err)
+		return fmt.Errorf("commit migration %d: %w", migration.Version, err)
 	}
 	return nil
+}
+
+// applyBaselineSchema is the pre-versioned bootstrap, kept verbatim as migration 0.
+func applyBaselineSchema(_ context.Context, _ *sql.Conn, db *sql.DB, _ *profilestorage.Keyring) error {
+	queries := []string{
+		`CREATE TABLE IF NOT EXISTS users (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			name TEXT NOT NULL,
+			email TEXT,
+			token TEXT NOT NULL UNIQUE,
+			created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+		);`,
+		`CREATE TABLE IF NOT EXISTS admin_sessions (
+			id TEXT PRIMARY KEY,
+			admin_id INTEGER NOT NULL DEFAULT 1,
+			csrf_token TEXT NOT NULL,
+			expires_at DATETIME NOT NULL,
+			created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+		);`,
+		`CREATE TABLE IF NOT EXISTS admins (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			username TEXT NOT NULL UNIQUE,
+			password_hash TEXT NOT NULL,
+			role TEXT NOT NULL DEFAULT 'super_admin',
+			created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+		);`,
+		`CREATE TABLE IF NOT EXISTS vless_keys (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			label TEXT NOT NULL,
+			client_display_name TEXT,
+			url TEXT NOT NULL,
+			created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+		);`,
+		`CREATE TABLE IF NOT EXISTS user_keys (
+			user_id INTEGER NOT NULL,
+			key_id INTEGER NOT NULL,
+			PRIMARY KEY (user_id, key_id),
+			FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+			FOREIGN KEY (key_id) REFERENCES vless_keys(id) ON DELETE CASCADE
+		);`,
+		`CREATE TABLE IF NOT EXISTS user_devices (
+			user_id INTEGER NOT NULL,
+			hwid TEXT NOT NULL,
+			created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+			last_seen_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+			PRIMARY KEY (user_id, hwid),
+			FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+		);`,
+		`CREATE TABLE IF NOT EXISTS subscription_settings (
+			id INTEGER PRIMARY KEY CHECK (id = 1),
+			title TEXT,
+			refresh_hours INTEGER NOT NULL DEFAULT 12,
+			info_url TEXT,
+			extra_url TEXT,
+			extra_status TEXT,
+			subscription_format TEXT NOT NULL DEFAULT 'links',
+			show_subscription_expiration INTEGER NOT NULL DEFAULT 0,
+			provider_id TEXT,
+			happ_no_limit_mode INTEGER NOT NULL DEFAULT 0,
+			happ_no_limit_mode_xhttp_only INTEGER NOT NULL DEFAULT 0,
+			happ_mandatory_hwid INTEGER NOT NULL DEFAULT 0,
+			happ_notify_expiration INTEGER NOT NULL DEFAULT 0,
+			happ_hide_server_settings INTEGER NOT NULL DEFAULT 0,
+			happ_subscription_body TEXT,
+			updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+		);`,
+		`CREATE TABLE IF NOT EXISTS panel_settings (
+			id INTEGER PRIMARY KEY CHECK (id = 1),
+			panel_title TEXT NOT NULL DEFAULT 'SubShare',
+			logo_data TEXT NOT NULL DEFAULT '',
+			favicon_data TEXT NOT NULL DEFAULT '',
+			page_title_admin TEXT NOT NULL DEFAULT 'Панель управления — SubShare',
+			page_title_admin_login TEXT NOT NULL DEFAULT 'Вход — SubShare',
+			page_title_subscription TEXT NOT NULL DEFAULT 'VPN-подписка — SubShare',
+			subscription_page_config TEXT NOT NULL DEFAULT '',
+			updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+		);`,
+		`CREATE TABLE IF NOT EXISTS routing_settings (
+				id INTEGER PRIMARY KEY CHECK (id = 1),
+				config_json TEXT NOT NULL DEFAULT '',
+				delivery_mode TEXT NOT NULL DEFAULT 'disabled' CHECK (delivery_mode IN ('disabled', 'add', 'onadd')),
+				updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+			);`,
+		`CREATE TABLE IF NOT EXISTS external_subscription_sources (
+					id INTEGER PRIMARY KEY AUTOINCREMENT,
+					name TEXT NOT NULL,
+					category TEXT NOT NULL DEFAULT 'general',
+					key_category TEXT NOT NULL DEFAULT '',
+					key_insert_mode TEXT NOT NULL DEFAULT 'bottom',
+					source_url TEXT NOT NULL UNIQUE,
+					enabled INTEGER NOT NULL DEFAULT 1,
+					apply_remote_metadata INTEGER NOT NULL DEFAULT 1,
+					pass_hwid INTEGER NOT NULL DEFAULT 0,
+					hwid_version TEXT,
+					hwid_model_name TEXT,
+					hwid_value TEXT,
+					last_import_count INTEGER NOT NULL DEFAULT 0,
+					import_status TEXT NOT NULL DEFAULT 'idle',
+					last_error TEXT,
+					last_synced_at DATETIME,
+				meta_title TEXT,
+				meta_refresh_hours INTEGER,
+				meta_support_url TEXT,
+				meta_web_page_url TEXT,
+				meta_announce TEXT,
+				created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+				updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+			);`,
+		`CREATE TABLE IF NOT EXISTS external_source_categories (
+						id INTEGER PRIMARY KEY AUTOINCREMENT,
+						name TEXT NOT NULL UNIQUE,
+						created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+						updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+					);`,
+		`CREATE TABLE IF NOT EXISTS key_categories (
+						id INTEGER PRIMARY KEY AUTOINCREMENT,
+						name TEXT NOT NULL UNIQUE,
+						color TEXT NOT NULL DEFAULT '#d8b33d',
+						sort_order INTEGER NOT NULL DEFAULT 0,
+						created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+						updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+					);`,
+	}
+
+	for _, q := range queries {
+		if _, err := db.Exec(q); err != nil {
+			return err
+		}
+	}
+
+	if err := ensureColumn(db, "admins", "role", "TEXT NOT NULL DEFAULT 'super_admin'"); err != nil {
+		return err
+	}
+	if err := ensureColumn(db, "admin_sessions", "admin_id", "INTEGER NOT NULL DEFAULT 1"); err != nil {
+		return err
+	}
+	if err := ensureColumn(db, "users", "status", "TEXT NOT NULL DEFAULT 'active'"); err != nil {
+		return err
+	}
+	if err := ensureColumn(db, "users", "starts_at", "DATETIME"); err != nil {
+		return err
+	}
+	if err := ensureColumn(db, "users", "expires_at", "DATETIME"); err != nil {
+		return err
+	}
+	if err := ensureColumn(db, "users", "blocked_reason", "TEXT"); err != nil {
+		return err
+	}
+	if err := ensureColumn(db, "users", "activation_code", "TEXT"); err != nil {
+		return err
+	}
+	if err := ensureColumn(db, "users", "activation_used_at", "DATETIME"); err != nil {
+		return err
+	}
+	if err := ensureColumn(db, "users", "subscription_id", "TEXT"); err != nil {
+		return err
+	}
+	if err := ensureColumn(db, "users", "max_devices", "INTEGER NOT NULL DEFAULT 1"); err != nil {
+		return err
+	}
+	if err := ensureColumn(db, "users", "subscription_name", "TEXT"); err != nil {
+		return err
+	}
+	if err := ensureColumn(db, "users", "subscription_refresh_hours", "INTEGER NOT NULL DEFAULT 12"); err != nil {
+		return err
+	}
+	if err := ensureColumn(db, "users", "subscription_info_url", "TEXT"); err != nil {
+		return err
+	}
+	if err := ensureColumn(db, "users", "subscription_extra_url", "TEXT"); err != nil {
+		return err
+	}
+	if err := ensureColumn(db, "users", "subscription_extra_status", "TEXT"); err != nil {
+		return err
+	}
+	if err := ensureColumn(db, "users", "time_zone", "TEXT NOT NULL DEFAULT 'Europe/Moscow'"); err != nil {
+		return err
+	}
+	if err := ensureColumn(db, "users", "language", "TEXT NOT NULL DEFAULT 'ru'"); err != nil {
+		return err
+	}
+	if err := ensureColumn(db, "vless_keys", "check_status", "TEXT NOT NULL DEFAULT 'unknown'"); err != nil {
+		return err
+	}
+	if err := ensureColumn(db, "vless_keys", "check_error", "TEXT"); err != nil {
+		return err
+	}
+	if err := ensureColumn(db, "vless_keys", "last_checked_at", "DATETIME"); err != nil {
+		return err
+	}
+	if err := ensureColumn(db, "vless_keys", "last_latency_ms", "INTEGER"); err != nil {
+		return err
+	}
+	if err := ensureColumn(db, "vless_keys", "status", "TEXT NOT NULL DEFAULT 'active'"); err != nil {
+		return err
+	}
+	if err := ensureColumn(db, "vless_keys", "key_kind", "TEXT NOT NULL DEFAULT 'real'"); err != nil {
+		return err
+	}
+	if err := ensureColumn(db, "vless_keys", "template_text", "TEXT"); err != nil {
+		return err
+	}
+	if err := ensureColumn(db, "vless_keys", "sort_order", "INTEGER NOT NULL DEFAULT 0"); err != nil {
+		return err
+	}
+	if err := ensureColumn(db, "vless_keys", "starts_at", "DATETIME"); err != nil {
+		return err
+	}
+	if err := ensureColumn(db, "vless_keys", "expires_at", "DATETIME"); err != nil {
+		return err
+	}
+	if err := ensureColumn(db, "vless_keys", "blocked_reason", "TEXT"); err != nil {
+		return err
+	}
+	if err := ensureColumn(db, "vless_keys", "external_source_id", "INTEGER"); err != nil {
+		return err
+	}
+	if err := ensureColumn(db, "vless_keys", "external_key_ref", "TEXT"); err != nil {
+		return err
+	}
+	if err := ensureColumn(db, "vless_keys", "category", "TEXT NOT NULL DEFAULT ''"); err != nil {
+		return err
+	}
+	if err := ensureColumn(db, "vless_keys", "profile_revision", "INTEGER NOT NULL DEFAULT 1"); err != nil {
+		return err
+	}
+	if err := ensureColumn(db, "vless_keys", "updated_at", "DATETIME"); err != nil {
+		return err
+	}
+	if err := ensureColumn(db, "vless_keys", "client_display_name", "TEXT"); err != nil {
+		return err
+	}
+	if err := ensureColumn(db, "key_categories", "color", "TEXT NOT NULL DEFAULT '#d8b33d'"); err != nil {
+		return err
+	}
+	if err := ensureColumn(db, "key_categories", "sort_order", "INTEGER NOT NULL DEFAULT 0"); err != nil {
+		return err
+	}
+	if err := ensureColumn(db, "external_subscription_sources", "key_category", "TEXT NOT NULL DEFAULT ''"); err != nil {
+		return err
+	}
+	if err := ensureColumn(db, "external_subscription_sources", "key_insert_mode", "TEXT NOT NULL DEFAULT 'bottom'"); err != nil {
+		return err
+	}
+	if err := ensureColumn(db, "external_subscription_sources", "pass_hwid", "INTEGER NOT NULL DEFAULT 0"); err != nil {
+		return err
+	}
+	if err := ensureColumn(db, "external_subscription_sources", "hwid_version", "TEXT"); err != nil {
+		return err
+	}
+	if err := ensureColumn(db, "external_subscription_sources", "hwid_model_name", "TEXT"); err != nil {
+		return err
+	}
+	if err := ensureColumn(db, "external_subscription_sources", "hwid_value", "TEXT"); err != nil {
+		return err
+	}
+	if err := ensureColumn(db, "user_devices", "device_name", "TEXT"); err != nil {
+		return err
+	}
+	if err := ensureColumn(db, "user_devices", "device_model", "TEXT"); err != nil {
+		return err
+	}
+	if err := ensureColumn(db, "user_devices", "platform", "TEXT"); err != nil {
+		return err
+	}
+	if err := ensureColumn(db, "user_devices", "os_version", "TEXT"); err != nil {
+		return err
+	}
+	if err := ensureColumn(db, "user_devices", "app_name", "TEXT"); err != nil {
+		return err
+	}
+	if err := ensureColumn(db, "user_devices", "app_version", "TEXT"); err != nil {
+		return err
+	}
+	if err := ensureColumn(db, "user_devices", "user_agent", "TEXT"); err != nil {
+		return err
+	}
+	if err := ensureColumn(db, "user_devices", "normalized_hwid", "TEXT"); err != nil {
+		return err
+	}
+
+	if _, err := db.Exec(`UPDATE users SET status = 'active' WHERE status IS NULL OR TRIM(status) = ''`); err != nil {
+		return err
+	}
+	if _, err := db.Exec(`UPDATE users SET activation_code = token WHERE activation_code IS NULL OR TRIM(activation_code) = ''`); err != nil {
+		return err
+	}
+	if _, err := db.Exec(`UPDATE users SET subscription_id = token WHERE subscription_id IS NULL OR TRIM(subscription_id) = ''`); err != nil {
+		return err
+	}
+	if _, err := db.Exec(`UPDATE users SET max_devices = 1 WHERE max_devices IS NULL OR max_devices < 0`); err != nil {
+		return err
+	}
+	if _, err := db.Exec(`UPDATE users SET subscription_refresh_hours = 12 WHERE subscription_refresh_hours IS NULL OR subscription_refresh_hours < 1`); err != nil {
+		return err
+	}
+	if _, err := db.Exec(`UPDATE users SET time_zone = 'Europe/Moscow' WHERE time_zone IS NULL OR TRIM(time_zone) = ''`); err != nil {
+		return err
+	}
+	if _, err := db.Exec(`UPDATE users SET language = 'ru' WHERE language IS NULL OR TRIM(language) = ''`); err != nil {
+		return err
+	}
+	if _, err := db.Exec(`CREATE UNIQUE INDEX IF NOT EXISTS idx_users_activation_code ON users(activation_code)`); err != nil {
+		return err
+	}
+	if _, err := db.Exec(`CREATE UNIQUE INDEX IF NOT EXISTS idx_users_subscription_id ON users(subscription_id)`); err != nil {
+		return err
+	}
+	if _, err := db.Exec(`CREATE INDEX IF NOT EXISTS idx_user_devices_user_id ON user_devices(user_id)`); err != nil {
+		return err
+	}
+	if _, err := db.Exec(`CREATE INDEX IF NOT EXISTS idx_user_devices_user_norm ON user_devices(user_id, normalized_hwid)`); err != nil {
+		return err
+	}
+	if _, err := db.Exec(`CREATE INDEX IF NOT EXISTS idx_user_keys_key_id ON user_keys(key_id)`); err != nil {
+		return err
+	}
+	if _, err := db.Exec(`UPDATE user_devices SET normalized_hwid = LOWER(TRIM(hwid)) WHERE normalized_hwid IS NULL OR TRIM(normalized_hwid) = ''`); err != nil {
+		return err
+	}
+	if _, err := db.Exec(`UPDATE vless_keys SET check_status = 'unknown' WHERE check_status IS NULL OR TRIM(check_status) = ''`); err != nil {
+		return err
+	}
+	if _, err := db.Exec(`UPDATE vless_keys SET status = 'non-active' WHERE LOWER(TRIM(status)) = 'blocked'`); err != nil {
+		return err
+	}
+	if _, err := db.Exec(`UPDATE vless_keys SET status = 'active' WHERE status IS NULL OR TRIM(status) = ''`); err != nil {
+		return err
+	}
+	if _, err := db.Exec(`UPDATE vless_keys SET key_kind = 'real' WHERE key_kind IS NULL OR TRIM(key_kind) = ''`); err != nil {
+		return err
+	}
+	if _, err := db.Exec(`UPDATE vless_keys SET sort_order = id WHERE sort_order IS NULL OR sort_order <= 0`); err != nil {
+		return err
+	}
+	if _, err := db.Exec(`UPDATE vless_keys SET category = TRIM(COALESCE(category, ''))`); err != nil {
+		return err
+	}
+	if _, err := db.Exec(`UPDATE vless_keys SET starts_at = created_at WHERE starts_at IS NULL`); err != nil {
+		return err
+	}
+	if _, err := db.Exec(`CREATE INDEX IF NOT EXISTS idx_vless_keys_kind_sort ON vless_keys(key_kind, sort_order, id)`); err != nil {
+		return err
+	}
+	if _, err := db.Exec(`CREATE INDEX IF NOT EXISTS idx_vless_keys_category_sort ON vless_keys(category, sort_order, id)`); err != nil {
+		return err
+	}
+	if _, err := db.Exec(`CREATE INDEX IF NOT EXISTS idx_vless_keys_external_source ON vless_keys(external_source_id)`); err != nil {
+		return err
+	}
+	if _, err := db.Exec(`CREATE UNIQUE INDEX IF NOT EXISTS idx_vless_keys_external_source_ref ON vless_keys(external_source_id, external_key_ref)`); err != nil {
+		return err
+	}
+	if _, err := db.Exec(`CREATE INDEX IF NOT EXISTS idx_external_subscription_sources_category ON external_subscription_sources(category, id)`); err != nil {
+		return err
+	}
+	if _, err := db.Exec(`CREATE UNIQUE INDEX IF NOT EXISTS idx_external_source_categories_name ON external_source_categories(name)`); err != nil {
+		return err
+	}
+	if _, err := db.Exec(`CREATE UNIQUE INDEX IF NOT EXISTS idx_key_categories_name ON key_categories(name)`); err != nil {
+		return err
+	}
+	if _, err := db.Exec(`INSERT OR IGNORE INTO subscription_settings(id, title, refresh_hours) VALUES(1, 'AllKeys', 12)`); err != nil {
+		return err
+	}
+	if _, err := db.Exec(`INSERT OR IGNORE INTO panel_settings(id) VALUES(1)`); err != nil {
+		return err
+	}
+	if err := ensureColumn(db, "panel_settings", "subscription_page_config", "TEXT NOT NULL DEFAULT ''"); err != nil {
+		return err
+	}
+	if _, err := db.Exec(`INSERT OR IGNORE INTO routing_settings(id, config_json) VALUES(1, '')`); err != nil {
+		return err
+	}
+	if err := ensureColumn(db, "subscription_settings", "time_zone", "TEXT NOT NULL DEFAULT 'Europe/Moscow'"); err != nil {
+		return err
+	}
+	if err := ensureColumn(db, "subscription_settings", "language", "TEXT NOT NULL DEFAULT 'ru'"); err != nil {
+		return err
+	}
+	if err := ensureColumn(db, "subscription_settings", "subscription_format", "TEXT NOT NULL DEFAULT 'links'"); err != nil {
+		return err
+	}
+	if err := ensureColumn(db, "subscription_settings", "show_subscription_expiration", "INTEGER NOT NULL DEFAULT 0"); err != nil {
+		return err
+	}
+	if err := ensureColumn(db, "subscription_settings", "provider_id", "TEXT"); err != nil {
+		return err
+	}
+	if err := ensureColumn(db, "subscription_settings", "happ_no_limit_mode", "INTEGER NOT NULL DEFAULT 0"); err != nil {
+		return err
+	}
+	if err := ensureColumn(db, "subscription_settings", "happ_no_limit_mode_xhttp_only", "INTEGER NOT NULL DEFAULT 0"); err != nil {
+		return err
+	}
+	if err := ensureColumn(db, "subscription_settings", "happ_mandatory_hwid", "INTEGER NOT NULL DEFAULT 0"); err != nil {
+		return err
+	}
+	if err := ensureColumn(db, "subscription_settings", "happ_notify_expiration", "INTEGER NOT NULL DEFAULT 0"); err != nil {
+		return err
+	}
+	if err := ensureColumn(db, "subscription_settings", "happ_hide_server_settings", "INTEGER NOT NULL DEFAULT 0"); err != nil {
+		return err
+	}
+	if err := ensureColumn(db, "subscription_settings", "happ_subscription_body", "TEXT"); err != nil {
+		return err
+	}
+	if _, err := db.Exec(`UPDATE subscription_settings SET refresh_hours = 12 WHERE refresh_hours < 1`); err != nil {
+		return err
+	}
+	if _, err := db.Exec(`UPDATE subscription_settings SET time_zone = 'Europe/Moscow' WHERE time_zone IS NULL OR TRIM(time_zone) = ''`); err != nil {
+		return err
+	}
+	if _, err := db.Exec(`UPDATE subscription_settings SET language = 'ru' WHERE language IS NULL OR TRIM(language) = ''`); err != nil {
+		return err
+	}
+	if _, err := db.Exec(`UPDATE external_subscription_sources SET category = 'Общее' WHERE category IS NULL OR TRIM(category) = ''`); err != nil {
+		return err
+	}
+	if _, err := db.Exec(`UPDATE external_subscription_sources SET category = 'Общее' WHERE LOWER(TRIM(category)) IN ('general', 'default')`); err != nil {
+		return err
+	}
+	if _, err := db.Exec(`INSERT OR IGNORE INTO external_source_categories(name) VALUES ('Общее')`); err != nil {
+		return err
+	}
+	if _, err := db.Exec(`UPDATE key_categories SET color = '#d8b33d' WHERE color IS NULL OR TRIM(color) = ''`); err != nil {
+		return err
+	}
+	if _, err := db.Exec(`UPDATE key_categories SET sort_order = id WHERE sort_order IS NULL OR sort_order <= 0`); err != nil {
+		return err
+	}
+	if _, err := db.Exec(`
+		INSERT OR IGNORE INTO external_source_categories(name)
+		SELECT DISTINCT TRIM(category)
+		FROM external_subscription_sources
+		WHERE TRIM(category) <> ''
+	`); err != nil {
+		return err
+	}
+	if _, err := db.Exec(`
+		INSERT OR IGNORE INTO key_categories(name)
+		SELECT DISTINCT TRIM(category)
+		FROM vless_keys
+		WHERE TRIM(category) <> ''
+	`); err != nil {
+		return err
+	}
+	if _, err := db.Exec(`UPDATE external_subscription_sources SET key_category = category WHERE key_category IS NULL OR TRIM(key_category) = ''`); err != nil {
+		return err
+	}
+	if _, err := db.Exec(`UPDATE external_subscription_sources SET key_category = TRIM(COALESCE(key_category, '')) WHERE key_category != TRIM(COALESCE(key_category, ''))`); err != nil {
+		return err
+	}
+	if _, err := db.Exec(`UPDATE external_subscription_sources SET key_insert_mode = 'bottom' WHERE LOWER(TRIM(COALESCE(key_insert_mode, ''))) NOT IN ('top','bottom')`); err != nil {
+		return err
+	}
+	if _, err := db.Exec(`UPDATE subscription_settings SET subscription_format = 'links' WHERE subscription_format IS NULL OR TRIM(subscription_format) = ''`); err != nil {
+		return err
+	}
+	if _, err := db.Exec(`UPDATE subscription_settings SET subscription_format = 'links' WHERE LOWER(TRIM(subscription_format)) NOT IN ('links','xray-json')`); err != nil {
+		return err
+	}
+	return nil
+}
+
+func ensureColumn(db *sql.DB, tableName, columnName, definition string) error {
+	if !validSQLIdentifier.MatchString(tableName) {
+		return fmt.Errorf("invalid SQL identifier: %q", tableName)
+	}
+	if !validSQLIdentifier.MatchString(columnName) {
+		return fmt.Errorf("invalid SQL identifier: %q", columnName)
+	}
+
+	rows, err := db.Query(fmt.Sprintf(`PRAGMA table_info(%s)`, tableName))
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var cid int
+		var name string
+		var colType string
+		var notnull int
+		var dflt sql.NullString
+		var pk int
+		if err := rows.Scan(&cid, &name, &colType, &notnull, &dflt, &pk); err != nil {
+			return err
+		}
+		if strings.EqualFold(strings.TrimSpace(name), columnName) {
+			return nil
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return err
+	}
+
+	_, err = db.Exec(fmt.Sprintf(`ALTER TABLE %s ADD COLUMN %s %s`, tableName, columnName, definition))
+	return err
+}
+
+type contextSQLExecutor interface {
+	ExecContext(ctx context.Context, query string, args ...any) (sql.Result, error)
+}
+
+// PromoteLegacyDeliveryAnnouncement copies a legacy announcement into
+// subscription_settings.extra_status when nothing is set there yet.
+func PromoteLegacyDeliveryAnnouncement(ctx context.Context, executor contextSQLExecutor, announcement string) (bool, error) {
+	announcement = strings.TrimSpace(announcement)
+	if announcement == "" {
+		return false, nil
+	}
+	result, err := executor.ExecContext(ctx, `
+		UPDATE subscription_settings
+		SET extra_status = ?, updated_at = CURRENT_TIMESTAMP
+		WHERE id = 1 AND TRIM(COALESCE(extra_status, '')) = ''
+	`, announcement)
+	if err != nil {
+		return false, err
+	}
+	rowsAffected, err := result.RowsAffected()
+	return rowsAffected > 0, err
 }

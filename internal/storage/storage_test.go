@@ -66,24 +66,18 @@ func TestInitializeSQLiteWithJournalMode(t *testing.T) {
 	dbPath := filepath.Join(t.TempDir(), "init.db")
 	kr := newTestKeyring(t)
 
-	migrated := false
-	dummyMigrator := func(db *sql.DB, keyring *profilestorage.Keyring) error {
-		migrated = true
-		if keyring != kr {
-			t.Fatalf("migrator received wrong keyring instance")
-		}
-		_, err := db.Exec(`CREATE TABLE schema_migrations (version INTEGER PRIMARY KEY)`)
-		return err
-	}
-
-	db, err := InitializeSQLiteWithJournalMode(dbPath, "DELETE", kr, dummyMigrator)
+	db, err := InitializeSQLiteWithJournalMode(dbPath, "DELETE", kr)
 	if err != nil {
 		t.Fatalf("initialize sqlite: %v", err)
 	}
 	defer db.Close()
 
-	if !migrated {
-		t.Fatal("migrator callback was not executed")
+	var versions int
+	if err := db.QueryRow(`SELECT COUNT(*) FROM schema_migrations`).Scan(&versions); err != nil {
+		t.Fatalf("read schema_migrations: %v", err)
+	}
+	if versions != len(SchemaMigrations) {
+		t.Fatalf("applied %d migrations, want %d", versions, len(SchemaMigrations))
 	}
 
 	if err := db.Ping(); err != nil {
@@ -93,7 +87,7 @@ func TestInitializeSQLiteWithJournalMode(t *testing.T) {
 
 func TestInitializeSQLiteAppliesConnectionPragmasAcrossThePool(t *testing.T) {
 	dbPath := filepath.Join(t.TempDir(), "pool-pragmas.db")
-	db, err := InitializeSQLiteWithJournalMode(dbPath, "WAL", newTestKeyring(t), nil)
+	db, err := InitializeSQLiteWithJournalMode(dbPath, "WAL", newTestKeyring(t))
 	if err != nil {
 		t.Fatalf("initialize sqlite: %v", err)
 	}

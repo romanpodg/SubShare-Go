@@ -2,10 +2,8 @@ package main
 
 import (
 	"context"
-	"database/sql"
 	"encoding/json"
 	"errors"
-	"path/filepath"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -217,29 +215,15 @@ func TestExecuteKeyHealthCheckBatchPersistsTheStatesReportedByTheSummary(t *test
 }
 
 func TestFinishKeyHealthCheckJobPersistsWarningStatusAndCounts(t *testing.T) {
-	db, err := sql.Open("sqlite", filepath.Join(t.TempDir(), "jobs.db"))
-	if err != nil {
-		t.Fatalf("open sqlite: %v", err)
-	}
-	defer db.Close()
-	conn, err := db.Conn(context.Background())
-	if err != nil {
-		t.Fatalf("open connection: %v", err)
-	}
-	if err := migrateBackgroundJobWarningResults(context.Background(), conn, db, nil); err != nil {
-		conn.Close()
-		t.Fatalf("create jobs schema: %v", err)
-	}
-	if err := conn.Close(); err != nil {
-		t.Fatalf("close connection: %v", err)
-	}
+	app := newIntegrationApp(t)
+	db := app.db
 	result, err := db.Exec(`INSERT INTO background_jobs(kind, status) VALUES('keys_health_check', 'running')`)
 	if err != nil {
 		t.Fatalf("insert job: %v", err)
 	}
 	jobID, _ := result.LastInsertId()
 	summary := keyHealthCheckJobSummary{TotalSelected: 100, Checked: 100, PersistedOK: 79, PersistFailed: 21}
-	(&App{db: db}).finishKeyHealthCheckJob(jobID, summary, nil)
+	app.finishKeyHealthCheckJob(jobID, summary, nil)
 
 	var status, message, countsJSON string
 	if err := db.QueryRow(`SELECT status, error_message, result_counts_json FROM background_jobs WHERE id = ?`, jobID).Scan(&status, &message, &countsJSON); err != nil {

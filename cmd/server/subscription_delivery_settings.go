@@ -1,10 +1,9 @@
 package main
 
 import (
-	"context"
-	"database/sql"
 	"encoding/json"
 	"fmt"
+	"github.com/romanpodg/SubShare-Go/internal/storage"
 	"net/http"
 	"strings"
 )
@@ -139,7 +138,7 @@ func (a *App) apiV1UpdateSubscriptionDeliverySettings(w http.ResponseWriter, r *
 		return
 	}
 	defer tx.Rollback()
-	promoted, err := promoteLegacyDeliveryAnnouncement(r.Context(), tx, legacyAnnouncement)
+	promoted, err := storage.PromoteLegacyDeliveryAnnouncement(r.Context(), tx, legacyAnnouncement)
 	if err == nil {
 		_, err = tx.ExecContext(r.Context(), `
 		INSERT INTO subscription_delivery_settings(id, response_headers_json, announcement, remarks_json, updated_at)
@@ -163,27 +162,6 @@ func (a *App) apiV1UpdateSubscriptionDeliverySettings(w http.ResponseWriter, r *
 		"legacy_announcement_promoted": promoted,
 	})
 	writeMessage(w, "subscription delivery settings updated")
-}
-
-type contextSQLExecutor interface {
-	ExecContext(context.Context, string, ...any) (sql.Result, error)
-}
-
-func promoteLegacyDeliveryAnnouncement(ctx context.Context, executor contextSQLExecutor, announcement string) (bool, error) {
-	announcement = strings.TrimSpace(announcement)
-	if announcement == "" {
-		return false, nil
-	}
-	result, err := executor.ExecContext(ctx, `
-		UPDATE subscription_settings
-		SET extra_status = ?, updated_at = CURRENT_TIMESTAMP
-		WHERE id = 1 AND TRIM(COALESCE(extra_status, '')) = ''
-	`, announcement)
-	if err != nil {
-		return false, err
-	}
-	rowsAffected, err := result.RowsAffected()
-	return rowsAffected > 0, err
 }
 
 func (a *App) applyGlobalDeliveryHeaders(w http.ResponseWriter) {

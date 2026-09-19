@@ -60,68 +60,16 @@ func newTwoKeyKeyring(t *testing.T) (*profilestorage.Keyring, *profilestorage.Ke
 
 func setupTestDB(t *testing.T) *sql.DB {
 	t.Helper()
-	dbPath := filepath.Join(t.TempDir(), "test_repo.db")
+	dbPath := filepath.Join(t.TempDir(), "test.db")
 	db, err := sql.Open("sqlite", filepath.ToSlash(dbPath))
 	if err != nil {
 		t.Fatalf("open db: %v", err)
 	}
-	schema := `
-		CREATE TABLE key_categories (
-			id INTEGER PRIMARY KEY AUTOINCREMENT,
-			name TEXT UNIQUE NOT NULL,
-			color TEXT NOT NULL DEFAULT '#4B5563',
-			sort_order INTEGER NOT NULL DEFAULT 0,
-			updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
-		);
-		CREATE TABLE external_subscription_sources (
-			id INTEGER PRIMARY KEY AUTOINCREMENT,
-			name TEXT NOT NULL,
-			key_category_id INTEGER,
-			key_category TEXT
-		);
-		CREATE TABLE vless_keys (
-			id INTEGER PRIMARY KEY AUTOINCREMENT,
-			label TEXT NOT NULL,
-			client_display_name TEXT,
-			url_blind_index TEXT,
-			category_id INTEGER,
-			category TEXT,
-			status TEXT NOT NULL DEFAULT 'active',
-			check_status TEXT NOT NULL DEFAULT 'unknown',
-			check_error TEXT,
-			last_checked_at DATETIME,
-			last_latency_ms INTEGER,
-			key_kind TEXT NOT NULL DEFAULT 'real',
-			template_text TEXT,
-			sort_order INTEGER NOT NULL DEFAULT 0,
-			external_source_id INTEGER,
-			external_key_ref TEXT,
-			protocol TEXT NOT NULL DEFAULT 'vless',
-			profile_schema_version INTEGER NOT NULL DEFAULT 1,
-			profile_compatibility TEXT NOT NULL DEFAULT 'full',
-			profile_warnings_json TEXT NOT NULL DEFAULT '[]',
-			profile_revision INTEGER NOT NULL DEFAULT 1,
-			created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-			updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
-		);
-		CREATE TABLE vless_key_secrets (
-			vless_key_id INTEGER PRIMARY KEY REFERENCES vless_keys(id) ON DELETE CASCADE,
-			encrypted_url TEXT
-		);
-		CREATE UNIQUE INDEX idx_vless_keys_local_blind_index
-			ON vless_keys(url_blind_index) WHERE external_source_id IS NULL;
-		CREATE TABLE users (
-			id INTEGER PRIMARY KEY AUTOINCREMENT,
-			key_assignment_mode TEXT NOT NULL DEFAULT 'all'
-		);
-		CREATE TABLE user_keys (
-			user_id INTEGER NOT NULL,
-			key_id INTEGER NOT NULL,
-			PRIMARY KEY (user_id, key_id)
-		);
-	`
-	if _, err := db.Exec(schema); err != nil {
-		t.Fatalf("seed schema: %v", err)
+	if _, err := db.Exec(`PRAGMA foreign_keys = ON`); err != nil {
+		t.Fatalf("enable foreign keys: %v", err)
+	}
+	if err := MigrateWithKeyring(db, newTestKeyringForRepo(t)); err != nil {
+		t.Fatalf("migrate: %v", err)
 	}
 	return db
 }
@@ -132,7 +80,7 @@ func TestProfileRepository_Create_Update_Clone(t *testing.T) {
 	defer db.Close()
 	kr := newTestKeyringForRepo(t)
 	repo := NewRepository(db, kr)
-	if _, err := db.Exec(`INSERT INTO users(key_assignment_mode) VALUES('all'), ('selected')`); err != nil {
+	if _, err := db.Exec(`INSERT INTO users(name, token, key_assignment_mode) VALUES('u1', 'tok-1', 'all'), ('u2', 'tok-2', 'selected')`); err != nil {
 		t.Fatalf("seed key assignment modes: %v", err)
 	}
 
@@ -436,7 +384,7 @@ func TestProfileRepository_SourceLocalMetadataDoesNotRewriteSecret(t *testing.T)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := db.Exec(`INSERT INTO external_subscription_sources(id, name) VALUES(77, 'Provider')`); err != nil {
+	if _, err := db.Exec(`INSERT INTO external_subscription_sources(id, name, source_url) VALUES(77, 'Provider', 'https://provider.example/sub')`); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := db.Exec(`UPDATE vless_keys SET external_source_id = 77 WHERE id = ?`, created.ID); err != nil {
@@ -523,7 +471,7 @@ func TestProfileRepository_SourceXrayUsesLabelAndClonePreservesEffectiveName(t *
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := db.Exec(`INSERT INTO external_subscription_sources(id, name) VALUES(88, 'Provider')`); err != nil {
+	if _, err := db.Exec(`INSERT INTO external_subscription_sources(id, name, source_url) VALUES(88, 'Provider', 'https://provider.example/sub')`); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := db.Exec(`UPDATE vless_keys SET external_source_id = 88 WHERE id = ?`, created.ID); err != nil {

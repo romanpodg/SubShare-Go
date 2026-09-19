@@ -1,4 +1,4 @@
-package main
+package storage
 
 import (
 	"context"
@@ -26,6 +26,16 @@ func testKeyring(t *testing.T) *profilestorage.Keyring {
 	return kr
 }
 
+func openMigratedTestDB(t *testing.T) *sql.DB {
+	t.Helper()
+	db, err := InitializeSQLiteWithJournalMode(filepath.Join(t.TempDir(), "migrated.db"), "DELETE", testKeyring(t))
+	if err != nil {
+		t.Fatalf("open migrated db: %v", err)
+	}
+	t.Cleanup(func() { _ = db.Close() })
+	return db
+}
+
 func TestMigrateAppliesVersionedMigrationsIdempotently(t *testing.T) {
 	t.Parallel()
 
@@ -39,13 +49,13 @@ func TestMigrateAppliesVersionedMigrationsIdempotently(t *testing.T) {
 	}
 
 	kr := testKeyring(t)
-	if err := migrateWithKeyring(db, kr); err != nil {
+	if err := MigrateWithKeyring(db, kr); err != nil {
 		t.Fatalf("first migrate: %v", err)
 	}
 	if _, err := db.Exec(`UPDATE subscription_settings SET refresh_hours = 0 WHERE id = 1`); err != nil {
 		t.Fatalf("prepare no-startup-data-fix assertion: %v", err)
 	}
-	if err := migrateWithKeyring(db, kr); err != nil {
+	if err := MigrateWithKeyring(db, kr); err != nil {
 		t.Fatalf("second migrate: %v", err)
 	}
 	var refreshHours int
@@ -60,8 +70,8 @@ func TestMigrateAppliesVersionedMigrationsIdempotently(t *testing.T) {
 	if err := db.QueryRow(`SELECT COUNT(*) FROM schema_migrations`).Scan(&versions); err != nil {
 		t.Fatalf("count schema migrations: %v", err)
 	}
-	if versions != len(schemaMigrations) {
-		t.Fatalf("schema migration count = %d, want %d", versions, len(schemaMigrations))
+	if versions != len(SchemaMigrations) {
+		t.Fatalf("schema migration count = %d, want %d", versions, len(SchemaMigrations))
 	}
 	assertSourceOwnedSchemaMetadata(t, db)
 
@@ -130,19 +140,19 @@ func TestMigrateCanonicalSubscriptionAnnouncementPreservesLegacyData(t *testing.
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			app := newIntegrationApp(t)
-			if _, err := app.db.Exec(`UPDATE subscription_settings SET extra_status = ? WHERE id = 1`, nullStringValue(test.canonical)); err != nil {
+			db := openMigratedTestDB(t)
+			if _, err := db.Exec(`UPDATE subscription_settings SET extra_status = ? WHERE id = 1`, nullStringValue(test.canonical)); err != nil {
 				t.Fatal(err)
 			}
-			if _, err := app.db.Exec(`UPDATE subscription_delivery_settings SET announcement = ? WHERE id = 1`, test.legacy); err != nil {
+			if _, err := db.Exec(`UPDATE subscription_delivery_settings SET announcement = ? WHERE id = 1`, test.legacy); err != nil {
 				t.Fatal(err)
 			}
-			conn, err := app.db.Conn(context.Background())
+			conn, err := db.Conn(context.Background())
 			if err != nil {
 				t.Fatal(err)
 			}
 			defer conn.Close()
-			if err := migrateCanonicalSubscriptionAnnouncement(context.Background(), conn, app.db, nil); err != nil {
+			if err := migrateCanonicalSubscriptionAnnouncement(context.Background(), conn, db, nil); err != nil {
 				t.Fatalf("migrate announcement: %v", err)
 			}
 
@@ -189,7 +199,7 @@ func TestMigrateHappRoutingDeliveryModePreservesConfigAndDefaultsDisabled(t *tes
 	if err := conn.QueryRowContext(context.Background(), `SELECT config_json, delivery_mode FROM routing_settings WHERE id = 1`).Scan(&config, &mode); err != nil {
 		t.Fatal(err)
 	}
-	if config != legacyConfig || mode != routingDeliveryModeDisabled {
+	if config != legacyConfig || mode != "disabled" {
 		t.Fatalf("config=%q mode=%q", config, mode)
 	}
 }
@@ -261,7 +271,7 @@ func TestLegacyBootstrapPreservesUnlimitedMaxDevices(t *testing.T) {
 		t.Fatalf("prepare legacy database: %v", err)
 	}
 
-	if err := migrateWithKeyring(db, testKeyring(t)); err != nil {
+	if err := MigrateWithKeyring(db, testKeyring(t)); err != nil {
 		t.Fatalf("migrate legacy database: %v", err)
 	}
 	var maxDevices int
@@ -296,10 +306,10 @@ func TestMigrationAddsGeneralExpirationSettingWithoutCopyingHappValue(t *testing
 			t.Fatalf("record migration %d: %v", version, err)
 		}
 	}
-	if err := migrateWithKeyring(db, nil); err != nil {
+	if err := MigrateWithKeyring(db, nil); err != nil {
 		t.Fatalf("upgrade settings database: %v", err)
 	}
-	if err := migrateWithKeyring(db, nil); err != nil {
+	if err := MigrateWithKeyring(db, nil); err != nil {
 		t.Fatalf("repeat settings upgrade: %v", err)
 	}
 	var happValue, showExpiration int
@@ -344,7 +354,7 @@ func TestProfilePersistenceMigrationUpgradesPopulatedVersionEightDatabase(t *tes
 	defer db.Close()
 	createPopulatedPreStage5Schema(t, db, 8)
 	kr := testKeyring(t)
-	if err := runVersionedMigrationsWithKeyring(db, kr); err != nil {
+	if err := MigrateWithKeyring(db, kr); err != nil {
 		t.Fatalf("upgrade version-eight database: %v", err)
 	}
 	var label, encURL, ref, protocol, compatibility, warnings, createdAt string
@@ -416,7 +426,7 @@ func TestSourceOwnedURLMigrationRollsBackWithoutMergingRows(t *testing.T) {
 	}
 
 	kr := testKeyring(t)
-	if err := runVersionedMigrationsWithKeyring(db, kr); err == nil || !strings.Contains(err.Error(), "source_owned_profile_urls") {
+	if err := MigrateWithKeyring(db, kr); err == nil || !strings.Contains(err.Error(), "source_owned_profile_urls") {
 		t.Fatalf("expected safe unique-index migration failure, got %v", err)
 	}
 	var rowCount, assignments, applied int

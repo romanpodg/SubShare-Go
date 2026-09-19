@@ -14,7 +14,7 @@ func TestStorage_LegacyKeyCRUD(t *testing.T) {
 	db := setupTestDB(t)
 	defer db.Close()
 
-	if _, err := db.Exec(`INSERT INTO users(id, key_assignment_mode) VALUES(1, 'all'), (2, 'manual')`); err != nil {
+	if _, err := db.Exec(`INSERT INTO users(id, name, token, key_assignment_mode) VALUES(1, 'u1', 'tok-1', 'all'), (2, 'u2', 'tok-2', 'selected')`); err != nil {
 		t.Fatalf("seed users: %v", err)
 	}
 
@@ -453,7 +453,7 @@ func TestKeyRepository_CategoryCollisionsReferencesAndOrdering(t *testing.T) {
 	if err != nil {
 		t.Fatalf("create imported key: %v", err)
 	}
-	if _, err := db.Exec(`INSERT INTO external_subscription_sources(id, name, key_category_id, key_category) VALUES(99, 'Feed', ?, 'Source')`, source.ID); err != nil {
+	if _, err := db.Exec(`INSERT INTO external_subscription_sources(id, name, source_url, key_category_id, key_category) VALUES(99, 'Feed', 'https://feed.example/sub', ?, 'Source')`, source.ID); err != nil {
 		t.Fatalf("seed external source: %v", err)
 	}
 	if _, err := db.Exec(`UPDATE vless_keys SET external_source_id = 99 WHERE id = ?`, importedID); err != nil {
