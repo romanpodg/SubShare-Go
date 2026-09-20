@@ -39,11 +39,20 @@ func TestFetchParsesBodyAndHeadersThroughInjectedClient(t *testing.T) {
 	if err != nil {
 		t.Fatalf("fetch: %v", err)
 	}
-	if len(parsed.Keys) != 1 || parsed.Keys[0].Protocol != "vless" {
+	if len(parsed.Keys) != 1 {
 		t.Fatalf("keys = %#v", parsed.Keys)
 	}
-	if parsed.Metadata.Title != "Provider feed" || parsed.Metadata.RefreshHours != 12 || parsed.Metadata.Announce != "Welcome" {
-		t.Fatalf("metadata = %#v", parsed.Metadata)
+	if parsed.Keys[0].Protocol != "vless" {
+		t.Fatalf("protocol = %q", parsed.Keys[0].Protocol)
+	}
+	if parsed.Metadata.Title != "Provider feed" {
+		t.Fatalf("title = %q", parsed.Metadata.Title)
+	}
+	if parsed.Metadata.RefreshHours != 12 {
+		t.Fatalf("refresh hours = %d", parsed.Metadata.RefreshHours)
+	}
+	if parsed.Metadata.Announce != "Welcome" {
+		t.Fatalf("announce = %q", parsed.Metadata.Announce)
 	}
 	if seenHWID != "device-1" {
 		t.Fatalf("hwid header = %q", seenHWID)

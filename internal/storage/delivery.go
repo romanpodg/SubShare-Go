@@ -58,23 +58,39 @@ func (r *Repository) ListDeliveryEntries(ctx context.Context, subscriptionID str
 
 	entries := make([]DeliveryEntry, 0)
 	for rows.Next() {
-		var entry DeliveryEntry
-		var encURL sql.NullString
-		if err := rows.Scan(&entry.ID, &entry.SourceID, &encURL, &entry.Kind, &entry.TemplateText, &entry.Label, &entry.ClientDisplayName, &entry.StoredProtocol, &entry.Compatibility); err != nil {
+		entry, encURL, err := scanDeliveryEntry(rows)
+		if err != nil {
 			return nil, err
 		}
 		if entry.Kind != "informational" {
-			if !encURL.Valid || encURL.String == "" {
-				entry.SecretError = keymanagement.ErrCredentialMissing
-			} else if raw, err := r.credentials.decrypt(encURL.String, entry.ID); err != nil {
-				entry.SecretError = err
-			} else {
-				entry.Raw = raw
-			}
+			r.resolveSecret(&entry, encURL)
 		}
 		entries = append(entries, entry)
 	}
 	return entries, rows.Err()
+}
+
+// scanDeliveryEntry reads one ListDeliveryEntries row and its raw envelope.
+func scanDeliveryEntry(rows *sql.Rows) (DeliveryEntry, sql.NullString, error) {
+	var entry DeliveryEntry
+	var encURL sql.NullString
+	err := rows.Scan(&entry.ID, &entry.SourceID, &encURL, &entry.Kind, &entry.TemplateText, &entry.Label, &entry.ClientDisplayName, &entry.StoredProtocol, &entry.Compatibility)
+	return entry, encURL, err
+}
+
+// resolveSecret decrypts the envelope into entry.Raw or records why it could
+// not be read in entry.SecretError.
+func (r *Repository) resolveSecret(entry *DeliveryEntry, encURL sql.NullString) {
+	if !encURL.Valid || encURL.String == "" {
+		entry.SecretError = keymanagement.ErrCredentialMissing
+		return
+	}
+	raw, err := r.credentials.decrypt(encURL.String, entry.ID)
+	if err != nil {
+		entry.SecretError = err
+		return
+	}
+	entry.Raw = raw
 }
 
 // VerifySecrets decrypts every stored secret and returns how many were checked.
@@ -86,36 +102,44 @@ func (r *Repository) VerifySecrets(ctx context.Context) (int, error) {
 	lastID := int64(0)
 	scanned := 0
 	for {
-		rows, err := r.db.QueryContext(ctx, `SELECT vless_key_id, encrypted_url FROM vless_key_secrets WHERE vless_key_id > ? ORDER BY vless_key_id ASC LIMIT 1000`, lastID)
+		nextID, count, err := r.verifySecretPage(ctx, lastID)
+		scanned += count
 		if err != nil {
-			return scanned, fmt.Errorf("query secrets: %w", err)
+			return scanned, err
 		}
-		count := 0
-		for rows.Next() {
-			count++
-			scanned++
-			var id int64
-			var env string
-			if err := rows.Scan(&id, &env); err != nil {
-				rows.Close()
-				return scanned, fmt.Errorf("scan secret: %w", err)
-			}
-			lastID = id
-			raw, err := r.credentials.decrypt(env, id)
-			if err != nil {
-				rows.Close()
-				return scanned, fmt.Errorf("row %d decryption failure: %w", id, err)
-			}
-			if raw == "" {
-				rows.Close()
-				return scanned, fmt.Errorf("row %d decrypted to zero bytes", id)
-			}
-		}
-		rows.Close()
 		if count == 0 {
 			return scanned, nil
 		}
+		lastID = nextID
 	}
+}
+
+// verifySecretPage decrypts up to 1000 secrets after lastID. It returns the
+// last id it reached and how many rows it touched, including a failing one.
+func (r *Repository) verifySecretPage(ctx context.Context, lastID int64) (nextID int64, count int, err error) {
+	rows, err := r.db.QueryContext(ctx, `SELECT vless_key_id, encrypted_url FROM vless_key_secrets WHERE vless_key_id > ? ORDER BY vless_key_id ASC LIMIT 1000`, lastID)
+	if err != nil {
+		return lastID, 0, fmt.Errorf("query secrets: %w", err)
+	}
+	defer rows.Close()
+	nextID = lastID
+	for rows.Next() {
+		count++
+		var id int64
+		var env string
+		if err := rows.Scan(&id, &env); err != nil {
+			return nextID, count, fmt.Errorf("scan secret: %w", err)
+		}
+		nextID = id
+		raw, err := r.credentials.decrypt(env, id)
+		if err != nil {
+			return nextID, count, fmt.Errorf("row %d decryption failure: %w", id, err)
+		}
+		if raw == "" {
+			return nextID, count, fmt.Errorf("row %d decrypted to zero bytes", id)
+		}
+	}
+	return nextID, count, nil
 }
 
 // Execer is satisfied by *sql.DB and *sql.Tx so key statements can join a

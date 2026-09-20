@@ -101,40 +101,59 @@ func (a *App) buildCapabilitiesMap(parsed *profiles.Profile) map[string]map[stri
 	if parsed == nil {
 		return caps
 	}
-	matrix := delivery.CapabilityMatrix()
-	for _, item := range matrix {
-		if strings.EqualFold(item.Protocol, string(parsed.Protocol)) {
-			for fmtName, outCap := range item.Outputs {
-				payload := map[string]any{
-					"status": string(outCap.Status),
-				}
-				if outCap.ReasonCode != "" {
-					payload["reason_code"] = outCap.ReasonCode
-				}
-				if outCap.TargetVersion != "" {
-					payload["target_version"] = outCap.TargetVersion
-				}
-				caps[fmtName] = payload
-			}
-
-			// Apply TUIC v4 overrides
-			if parsed.Protocol == profiles.ProtocolTUIC && parsed.Data != nil {
-				if tuicData, ok := parsed.Data.(profiles.TUICData); ok && tuicData.Generation == 4 {
-					caps["mihomo"] = map[string]any{"status": string(delivery.CapabilityUnsupported), "reason_code": delivery.ReasonCompatibility}
-					caps["sing-box"] = map[string]any{"status": string(delivery.CapabilityUnsupported), "reason_code": delivery.ReasonCompatibility}
-					caps["xray-json"] = map[string]any{"status": string(delivery.CapabilityUnsupported), "reason_code": delivery.ReasonCompatibility}
-					caps["plain"] = map[string]any{"status": string(delivery.CapabilityCompatibility), "reason_code": "raw_delivery_only"}
-					caps["base64"] = map[string]any{"status": string(delivery.CapabilityCompatibility), "reason_code": "raw_delivery_only"}
-				}
-			}
-			break
+	for _, item := range delivery.CapabilityMatrix() {
+		if !strings.EqualFold(item.Protocol, string(parsed.Protocol)) {
+			continue
 		}
+		for fmtName, outCap := range item.Outputs {
+			caps[fmtName] = capabilityPayload(outCap)
+		}
+		applyTUICv4Overrides(caps, parsed)
+		break
 	}
 	if len(caps) == 0 {
-		caps["plain"] = map[string]any{"status": "supported"}
-		caps["base64"] = map[string]any{"status": "supported"}
+		return defaultCapabilities()
 	}
 	return caps
+}
+
+// capabilityPayload renders one matrix entry as the key detail response shape.
+func capabilityPayload(outCap delivery.OutputCapability) map[string]any {
+	payload := map[string]any{
+		"status": string(outCap.Status),
+	}
+	if outCap.ReasonCode != "" {
+		payload["reason_code"] = outCap.ReasonCode
+	}
+	if outCap.TargetVersion != "" {
+		payload["target_version"] = outCap.TargetVersion
+	}
+	return payload
+}
+
+// applyTUICv4Overrides downgrades the structured outputs for TUIC v4 keys,
+// which only the raw delivery formats can carry.
+func applyTUICv4Overrides(caps map[string]map[string]any, parsed *profiles.Profile) {
+	if parsed.Protocol != profiles.ProtocolTUIC || parsed.Data == nil {
+		return
+	}
+	tuicData, ok := parsed.Data.(profiles.TUICData)
+	if !ok || tuicData.Generation != 4 {
+		return
+	}
+	caps["mihomo"] = map[string]any{"status": string(delivery.CapabilityUnsupported), "reason_code": delivery.ReasonCompatibility}
+	caps["sing-box"] = map[string]any{"status": string(delivery.CapabilityUnsupported), "reason_code": delivery.ReasonCompatibility}
+	caps["xray-json"] = map[string]any{"status": string(delivery.CapabilityUnsupported), "reason_code": delivery.ReasonCompatibility}
+	caps["plain"] = map[string]any{"status": string(delivery.CapabilityCompatibility), "reason_code": "raw_delivery_only"}
+	caps["base64"] = map[string]any{"status": string(delivery.CapabilityCompatibility), "reason_code": "raw_delivery_only"}
+}
+
+// defaultCapabilities is the fallback for protocols missing from the matrix.
+func defaultCapabilities() map[string]map[string]any {
+	return map[string]map[string]any{
+		"plain":  {"status": "supported"},
+		"base64": {"status": "supported"},
+	}
 }
 
 func (a *App) fetchKeyByID(id int64) (*model.VLESSKey, string, error) {

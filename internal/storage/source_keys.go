@@ -104,25 +104,42 @@ func (s *SourceSync) ListSourceKeys(sourceID int64) ([]SourceKey, error) {
 	defer rows.Close()
 	keys := make([]SourceKey, 0)
 	for rows.Next() {
-		var key SourceKey
-		var encURL sql.NullString
-		if err := rows.Scan(&key.ID, &key.Ref, &key.Fingerprint, &key.Label, &key.ClientDisplayName, &encURL, &key.Protocol, &key.ProfileSchemaVersion, &key.Compatibility, &key.WarningsJSON); err != nil {
+		key, err := s.scanSourceKey(rows)
+		if err != nil {
 			return nil, err
 		}
-		if encURL.Valid && encURL.String != "" {
-			if raw, err := s.credentials.decrypt(encURL.String, key.ID); err == nil {
-				key.URL = raw
-			}
-		}
-		key.Ref = strings.TrimSpace(key.Ref)
-		key.Fingerprint = strings.TrimSpace(key.Fingerprint)
 		keys = append(keys, key)
 	}
 	return keys, rows.Err()
 }
 
-func (s *SourceSync) SetClientDisplayName(sourceID, id int64, name string) error {
-	_, err := s.tx.ExecContext(s.ctx, `UPDATE vless_keys SET client_display_name = ? WHERE id = ? AND external_source_id = ?`, name, id, sourceID)
+// scanSourceKey reads one ListSourceKeys row, decrypting the secret when it
+// is present and readable.
+func (s *SourceSync) scanSourceKey(rows *sql.Rows) (SourceKey, error) {
+	var key SourceKey
+	var encURL sql.NullString
+	if err := rows.Scan(&key.ID, &key.Ref, &key.Fingerprint, &key.Label, &key.ClientDisplayName, &encURL, &key.Protocol, &key.ProfileSchemaVersion, &key.Compatibility, &key.WarningsJSON); err != nil {
+		return SourceKey{}, err
+	}
+	if encURL.Valid && encURL.String != "" {
+		if raw, err := s.credentials.decrypt(encURL.String, key.ID); err == nil {
+			key.URL = raw
+		}
+	}
+	key.Ref = strings.TrimSpace(key.Ref)
+	key.Fingerprint = strings.TrimSpace(key.Fingerprint)
+	return key, nil
+}
+
+// SourceKeyRef identifies one key owned by one source; every statement that
+// touches a single source-owned row is scoped by both ids.
+type SourceKeyRef struct {
+	SourceID int64
+	ID       int64
+}
+
+func (s *SourceSync) SetClientDisplayName(ref SourceKeyRef, name string) error {
+	_, err := s.tx.ExecContext(s.ctx, `UPDATE vless_keys SET client_display_name = ? WHERE id = ? AND external_source_id = ?`, name, ref.ID, ref.SourceID)
 	return err
 }
 
@@ -132,13 +149,13 @@ func (s *SourceSync) MergeUserAssignments(survivorID, duplicateID int64) error {
 	return err
 }
 
-func (s *SourceSync) DeleteSourceKey(sourceID, id int64) error {
-	_, err := s.tx.ExecContext(s.ctx, `DELETE FROM vless_keys WHERE id = ? AND external_source_id = ?`, id, sourceID)
+func (s *SourceSync) DeleteSourceKey(ref SourceKeyRef) error {
+	_, err := s.tx.ExecContext(s.ctx, `DELETE FROM vless_keys WHERE id = ? AND external_source_id = ?`, ref.ID, ref.SourceID)
 	return err
 }
 
-func (s *SourceSync) SetFingerprint(sourceID, id int64, fingerprint string) error {
-	_, err := s.tx.ExecContext(s.ctx, `UPDATE vless_keys SET profile_fingerprint = ? WHERE id = ? AND external_source_id = ?`, fingerprint, id, sourceID)
+func (s *SourceSync) SetFingerprint(ref SourceKeyRef, fingerprint string) error {
+	_, err := s.tx.ExecContext(s.ctx, `UPDATE vless_keys SET profile_fingerprint = ? WHERE id = ? AND external_source_id = ?`, fingerprint, ref.ID, ref.SourceID)
 	return err
 }
 
