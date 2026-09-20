@@ -576,6 +576,12 @@ The software is provided as-is, without warranty.
 
 ---
 
+## 💙 Acknowledgements
+
+Special thanks to [Driics](https://github.com/Driics) for helping make SubShare simpler and better.
+
+---
+
 <div align="center">
 
 **SubShare — one subscription layer for your VPN profiles.**
