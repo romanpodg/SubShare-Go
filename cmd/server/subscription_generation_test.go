@@ -63,9 +63,9 @@ func TestSourceOwnedClientDisplayNameOverridesURIAndJSONProjection(t *testing.T)
 		}
 	}
 
-	generated, _, denyCode, denyReason, err := app.generateSelectedSubscription("subscription-token", "plain")
-	if err != nil || denyCode != 0 {
-		t.Fatalf("generate source overrides code=%d reason=%q err=%v", denyCode, denyReason, err)
+	generated, denial, err := app.generateSelectedSubscription("subscription-token", "plain")
+	if err != nil || denial.Code != 0 {
+		t.Fatalf("generate source overrides code=%d reason=%q err=%v", denial.Code, denial.Reason, err)
 	}
 	if strings.Contains(generated.Body, `"outbounds"`) || strings.Contains(generated.Body, `{"`) {
 		t.Fatalf("raw JSON leaked from source projection: %q", generated.Body)
@@ -98,9 +98,9 @@ func TestSourceOwnedXrayProjectionUsesHumanLabelInsteadOfRoutingTag(t *testing.T
 		t.Fatal(err)
 	}
 
-	generated, _, denyCode, denyReason, err := app.generateSelectedSubscription("subscription-token", "plain")
-	if err != nil || denyCode != 0 {
-		t.Fatalf("source XRAY projection code=%d reason=%q err=%v", denyCode, denyReason, err)
+	generated, denial, err := app.generateSelectedSubscription("subscription-token", "plain")
+	if err != nil || denial.Code != 0 {
+		t.Fatalf("source XRAY projection code=%d reason=%q err=%v", denial.Code, denial.Reason, err)
 	}
 	lines := strings.Split(generated.Body, "\n")
 	if len(lines) != 2 {
@@ -321,9 +321,9 @@ func TestPlainDeliveryPreservesExactMixedRawAndBase64WrapsFinalBody(t *testing.T
 		wantLines = append(wantLines, item.raw)
 	}
 	want := strings.Join(wantLines, "\n")
-	generated, _, denyCode, denyReason, err := app.generateSelectedSubscription("subscription-token", "plain")
-	if err != nil || denyCode != 0 || generated.Body != want || len(generated.Exclusions) != 0 {
-		t.Fatalf("plain output mismatch code=%d reason=%q err=%v exclusions=%d", denyCode, denyReason, err, len(generated.Exclusions))
+	generated, denial, err := app.generateSelectedSubscription("subscription-token", "plain")
+	if err != nil || denial.Code != 0 || generated.Body != want || len(generated.Exclusions) != 0 {
+		t.Fatalf("plain output mismatch code=%d reason=%q err=%v exclusions=%d", denial.Code, denial.Reason, err, len(generated.Exclusions))
 	}
 
 	request := httptest.NewRequest(http.MethodGet, "/sub/subscription-token/subbody", nil)
@@ -363,9 +363,9 @@ func TestLinkModeProjectsRawXrayJSONAtResolverBoundaryWithoutMutatingProfiles(t 
 		t.Fatalf("assign informational key: %v", err)
 	}
 
-	generated, _, denyCode, denyReason, err := app.generateSelectedSubscription("subscription-token", "plain")
-	if err != nil || denyCode != 0 {
-		t.Fatalf("link generation code=%d reason=%q err=%v", denyCode, denyReason, err)
+	generated, denial, err := app.generateSelectedSubscription("subscription-token", "plain")
+	if err != nil || denial.Code != 0 {
+		t.Fatalf("link generation code=%d reason=%q err=%v", denial.Code, denial.Reason, err)
 	}
 	if json.Valid([]byte(generated.Body)) || strings.Contains(generated.Body, `"outbounds"`) || strings.Contains(generated.Body, `{"`) {
 		t.Fatalf("raw XRAY-JSON leaked into link body: %q", generated.Body)
@@ -391,7 +391,7 @@ func TestLinkModeProjectsRawXrayJSONAtResolverBoundaryWithoutMutatingProfiles(t 
 	if err := app.db.QueryRow(`SELECT COUNT(*) FROM vless_keys`).Scan(&rowsBefore); err != nil {
 		t.Fatal(err)
 	}
-	if _, _, _, _, err := app.generateSelectedSubscription("subscription-token", "xray-json"); err != nil {
+	if _, _, err := app.generateSelectedSubscription("subscription-token", "xray-json"); err != nil {
 		t.Fatalf("JSON mode generation: %v", err)
 	}
 	var rowsAfter int
@@ -427,9 +427,9 @@ func TestLinkModeProjectsMultipleXrayOutboundsWithClientNameAndKeepsStoredBytes(
 		t.Fatal(err)
 	}
 
-	generated, _, denyCode, denyReason, err := app.generateSelectedSubscription("subscription-token", "plain")
-	if err != nil || denyCode != 0 {
-		t.Fatalf("link projection code=%d reason=%q err=%v", denyCode, denyReason, err)
+	generated, denial, err := app.generateSelectedSubscription("subscription-token", "plain")
+	if err != nil || denial.Code != 0 {
+		t.Fatalf("link projection code=%d reason=%q err=%v", denial.Code, denial.Reason, err)
 	}
 	if strings.Contains(generated.Body, `"dns"`) || strings.Contains(generated.Body, `"routing"`) || strings.Contains(generated.Body, `"outbounds"`) || strings.Contains(generated.Body, "freedom") || strings.Contains(generated.Body, "blackhole") {
 		t.Fatalf("non-link JSON content leaked: %q", generated.Body)
@@ -456,9 +456,9 @@ func TestLinkModeProjectsMultipleXrayOutboundsWithClientNameAndKeepsStoredBytes(
 		t.Fatalf("base64 link projection status=%d decode=%v body=%q", recorder.Code, decodeErr, string(decoded))
 	}
 
-	jsonGenerated, _, denyCode, _, err := app.generateSelectedSubscription("subscription-token", "xray-json")
-	if err != nil || denyCode != 0 || !strings.Contains(jsonGenerated.Body, `"dns"`) || !strings.Contains(jsonGenerated.Body, `"routing"`) {
-		t.Fatalf("JSON mode lost original document: code=%d err=%v body=%q", denyCode, err, jsonGenerated.Body)
+	jsonGenerated, denial, err := app.generateSelectedSubscription("subscription-token", "xray-json")
+	if err != nil || denial.Code != 0 || !strings.Contains(jsonGenerated.Body, `"dns"`) || !strings.Contains(jsonGenerated.Body, `"routing"`) {
+		t.Fatalf("JSON mode lost original document: code=%d err=%v body=%q", denial.Code, err, jsonGenerated.Body)
 	}
 	var envelopeAfter string
 	if err := app.db.QueryRow(`SELECT encrypted_url FROM vless_key_secrets WHERE vless_key_id = ?`, keyID).Scan(&envelopeAfter); err != nil {
@@ -517,7 +517,7 @@ func TestDeliveryDedupIsSemanticCurrentKeyAndPersistenceReadOnly(t *testing.T) {
 	}
 	before := loadState()
 
-	generated, _, _, _, err := app.generateSelectedSubscription("subscription-token", "plain")
+	generated, _, err := app.generateSelectedSubscription("subscription-token", "plain")
 	expectedWinner, expectedErr := delivery.ShareURIWithDisplayName(firstRaw, "first")
 	if err != nil || expectedErr != nil || generated.Body != expectedWinner {
 		t.Fatalf("semantic winner mismatch (err=%v)", err)
@@ -568,7 +568,7 @@ func TestUnsafeAndMalformedStoredRowsAreSafelyExcluded(t *testing.T) {
 	previous := log.Writer()
 	log.SetOutput(&logs)
 	t.Cleanup(func() { log.SetOutput(previous) })
-	generated, _, _, _, err := app.generateSelectedSubscription("subscription-token", "plain")
+	generated, _, err := app.generateSelectedSubscription("subscription-token", "plain")
 	if err != nil || generated.Body != deliverySSClean || len(generated.Exclusions) != 2 {
 		t.Fatalf("safe partial output mismatch exclusions=%d err=%v", len(generated.Exclusions), err)
 	}
@@ -627,12 +627,12 @@ func TestStructuredDeliveryWithOnlyExcludedProfilesReturnsAllExcludedFailure(t *
 	userID := seedSubscriptionUser(t, app, model.UserStatusActive)
 	insertAssignedDeliveryKey(t, app, userID, nil, "TUIC v4", externalTestTUICV4, "tuic", "read_only", 0)
 
-	generated, _, denyCode, denyReason, err := app.generateSelectedSubscription("subscription-token", "mihomo")
+	generated, denial, err := app.generateSelectedSubscription("subscription-token", "mihomo")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if denyCode != http.StatusUnprocessableEntity || denyReason != delivery.ReasonAllExcluded || generated.Body != "" || generated.GeneratedCount != 0 {
-		t.Fatalf("empty structured result code=%d reason=%q or non-empty body", denyCode, denyReason)
+	if denial.Code != http.StatusUnprocessableEntity || denial.Reason != delivery.ReasonAllExcluded || generated.Body != "" || generated.GeneratedCount != 0 {
+		t.Fatalf("empty structured result code=%d reason=%q or non-empty body", denial.Code, denial.Reason)
 	}
 	if len(generated.Exclusions) != 1 || generated.Exclusions[0].Reason != delivery.ReasonCompatibility {
 		t.Fatalf("empty structured exclusions = %#v", generated.Exclusions)

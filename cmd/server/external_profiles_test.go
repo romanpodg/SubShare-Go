@@ -753,7 +753,7 @@ func TestExternalProfileSyncPreservesLocalStatusAndClientDisplayName(t *testing.
 	if _, err := app.db.Exec(`INSERT INTO user_keys(user_id, key_id) VALUES(?, ?)`, userID, keyID); err != nil {
 		t.Fatal(err)
 	}
-	generated, _, _, _, err := app.generateSelectedSubscription("subscription-token", "plain")
+	generated, _, err := app.generateSelectedSubscription("subscription-token", "plain")
 	if err != nil {
 		t.Fatal(err)
 	}

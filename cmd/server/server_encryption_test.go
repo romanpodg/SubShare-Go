@@ -109,9 +109,9 @@ func TestStage7SubscriptionDeliveryCorruptedRowExclusion(t *testing.T) {
 	_, _ = app.db.Exec(`INSERT INTO vless_key_secrets(vless_key_id, encrypted_url) VALUES(?, ?)`, id2, "$subshare-profile$v1$xchacha20poly1305$key-1$badnonce$badcipher")
 	_, _ = app.db.Exec(`INSERT INTO user_keys(user_id, key_id) VALUES(?, ?)`, userID, id2)
 
-	gen, _, denyCode, _, err := app.generateSelectedSubscription(subID, "links")
-	if err != nil || denyCode != 0 {
-		t.Fatalf("generateSelectedSubscription err=%v denyCode=%d", err, denyCode)
+	gen, denial, err := app.generateSelectedSubscription(subID, "links")
+	if err != nil || denial.Code != 0 {
+		t.Fatalf("generateSelectedSubscription err=%v denial.Code=%d", err, denial.Code)
 	}
 	if !strings.Contains(gen.Body, validURI) {
 		t.Fatalf("generated body does not contain valid URI: %s", gen.Body)
@@ -128,9 +128,9 @@ func TestStage7SubscriptionDeliveryCorruptedRowExclusion(t *testing.T) {
 	}
 
 	_, _ = app.db.Exec(`DELETE FROM user_keys WHERE key_id = ?`, id1)
-	_, _, denyCode503, _, _ := app.generateSelectedSubscription(subID, "links")
-	if denyCode503 != 503 {
-		t.Fatalf("expected 503 when all eligible rows are corrupt, got %d", denyCode503)
+	_, denial503, _ := app.generateSelectedSubscription(subID, "links")
+	if denial503.Code != 503 {
+		t.Fatalf("expected 503 when all eligible rows are corrupt, got %d", denial503.Code)
 	}
 }
 

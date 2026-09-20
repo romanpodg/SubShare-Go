@@ -4,15 +4,12 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
-	"github.com/romanpodg/SubShare-Go/internal/delivery"
-	"github.com/romanpodg/SubShare-Go/internal/profileconfig"
 	"net/http"
 	"net/url"
 	"strings"
 	"time"
 
 	"github.com/romanpodg/SubShare-Go/internal/middleware"
-	"github.com/romanpodg/SubShare-Go/internal/model"
 )
 
 type deviceMeta struct {
@@ -210,52 +207,4 @@ func validOriginHost(host string) bool {
 	}
 	parsed, err := url.Parse("http://" + host)
 	return err == nil && parsed.Host == host && parsed.Hostname() != ""
-}
-
-func (a *App) buildSubscriptionTemplateData(subscriptionID string, subscriptionFormat string) (delivery.TemplateData, error) {
-	out := delivery.TemplateData{
-		SubscriptionID: strings.TrimSpace(subscriptionID),
-	}
-	format, ok := model.NormalizeSubscriptionFormat(subscriptionFormat)
-	if !ok {
-		format = model.SubscriptionFormatLinks
-	}
-
-	var name sql.NullString
-	var email sql.NullString
-	var expiresAt sql.NullTime
-	err := a.db.QueryRow(
-		`SELECT name, email, expires_at FROM users WHERE subscription_id = ?`,
-		subscriptionID,
-	).Scan(&name, &email, &expiresAt)
-	if err != nil {
-		return out, err
-	}
-
-	out.UserName = strings.TrimSpace(name.String)
-	telegram := strings.TrimPrefix(strings.TrimSpace(email.String), "@")
-	out.Telegram = telegram
-	if expiresAt.Valid {
-		local := expiresAt.Time.Local()
-		out.ExpiryDate = local.Format("02/01/2006")
-		out.ExpiryDateTime = local.Format("02/01/2006 15:04")
-	}
-
-	entries, err := a.store().ListDeliveryEntries(context.Background(), subscriptionID)
-	if err != nil {
-		return out, err
-	}
-	realCount := 0
-	for _, entry := range entries {
-		if entry.Kind != model.KeyKindReal || entry.SecretError != nil {
-			continue
-		}
-		if format == model.SubscriptionFormatLinks && profileconfig.SupportedConfigScheme(entry.Raw) == model.SubscriptionFormatXrayJSON {
-			continue
-		}
-		realCount++
-	}
-	out.RealKeysCount = realCount
-
-	return out, nil
 }

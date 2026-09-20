@@ -19,30 +19,35 @@ func (a *App) deliveryIdentity(raw string) (string, error) {
 type deliverySelection struct {
 	Entries       []delivery.Entry
 	Exclusions    []delivery.Exclusion
-	Settings      model.SubscriptionSettings
+	Format        string // effective subscription format for this response type
 	EligibleCount int
+	RealKeysCount int // deliverable real keys, as informational templates count them
 }
 
-func (a *App) selectSubscriptionEntries(subscriptionID, responseType string) (deliverySelection, int, string, error) {
-	settings, _, _, err := a.effectiveSubscriptionSettings(subscriptionID)
-	if err != nil {
-		return deliverySelection{}, 0, "", err
-	}
+func formatFor(responseType string, settings model.SubscriptionSettings) string {
 	switch responseType {
 	case "xray-json":
-		settings.SubscriptionFormat = model.SubscriptionFormatXrayJSON
+		return model.SubscriptionFormatXrayJSON
 	case "base64", "plain", "mihomo", "sing-box":
-		settings.SubscriptionFormat = model.SubscriptionFormatLinks
+		return model.SubscriptionFormatLinks
 	}
+	return settings.SubscriptionFormat
+}
 
-	stored, err := a.store().ListDeliveryEntries(context.Background(), subscriptionID)
+func (a *App) selectSubscriptionEntries(ctx subscriptionDeliveryContext, responseType string) (deliverySelection, subscriptionDenial, error) {
+	format := formatFor(responseType, ctx.Settings)
+	stored, err := a.store().ListDeliveryEntries(context.Background(), ctx.SubscriptionID)
 	if err != nil {
-		return deliverySelection{}, 0, "", err
+		return deliverySelection{}, subscriptionDenial{}, err
 	}
 
-	selection := deliverySelection{Settings: settings, Entries: []delivery.Entry{}, Exclusions: []delivery.Exclusion{}}
+	selection := deliverySelection{Format: format, Entries: []delivery.Entry{}, Exclusions: []delivery.Exclusion{}}
 	seen := make(map[string]struct{})
 	for _, row := range stored {
+		if row.Kind == model.KeyKindReal && row.SecretError == nil &&
+			!(format == model.SubscriptionFormatLinks && profileconfig.SupportedConfigScheme(row.Raw) == model.SubscriptionFormatXrayJSON) {
+			selection.RealKeysCount++
+		}
 		entry := delivery.Entry{
 			ID: row.ID, SourceID: row.SourceID, Raw: row.Raw, Kind: row.Kind, TemplateText: row.TemplateText,
 			Label: row.Label, ClientDisplayName: row.ClientDisplayName, StoredProtocol: row.StoredProtocol, Compatibility: row.Compatibility,
@@ -77,7 +82,7 @@ func (a *App) selectSubscriptionEntries(subscriptionID, responseType string) (de
 		}
 		identity, err := a.deliveryIdentity(entry.Raw)
 		if err != nil {
-			return deliverySelection{}, 0, "", err
+			return deliverySelection{}, subscriptionDenial{}, err
 		}
 		if _, duplicate := seen[identity]; duplicate {
 			continue
@@ -86,7 +91,7 @@ func (a *App) selectSubscriptionEntries(subscriptionID, responseType string) (de
 		selection.Entries = append(selection.Entries, entry)
 	}
 	if selection.EligibleCount == 0 {
-		return selection, 503, "subscription has no available keys", nil
+		return selection, deny(503, "", "subscription has no available keys"), nil
 	}
 	if len(selection.Entries) == 0 {
 		allCorrupt := len(selection.Exclusions) > 0
@@ -97,34 +102,44 @@ func (a *App) selectSubscriptionEntries(subscriptionID, responseType string) (de
 			}
 		}
 		if allCorrupt {
-			return selection, 503, "subscription has no available keys", nil
+			return selection, deny(503, "", "subscription has no available keys"), nil
 		}
 	}
-	return selection, 0, "", nil
+	return selection, subscriptionDenial{}, nil
 }
 
-func (a *App) generateSelectedSubscription(subscriptionID, responseType string) (delivery.Generated, model.SubscriptionSettings, int, string, error) {
-	selection, denyCode, denyReason, err := a.selectSubscriptionEntries(subscriptionID, responseType)
-	if err != nil || denyCode != 0 {
-		return delivery.Generated{Exclusions: selection.Exclusions}, selection.Settings, denyCode, denyReason, err
+// generateSubscription renders the subscription for an already prepared
+// request context: no settings or user rows are re-read.
+func (a *App) generateSubscription(ctx subscriptionDeliveryContext, responseType string) (delivery.Generated, subscriptionDenial, error) {
+	selection, denial, err := a.selectSubscriptionEntries(ctx, responseType)
+	if err != nil || denial.denied() {
+		return delivery.Generated{Exclusions: selection.Exclusions}, denial, err
 	}
-	templateData, err := a.buildSubscriptionTemplateData(subscriptionID, selection.Settings.SubscriptionFormat)
-	if err != nil {
-		return delivery.Generated{}, selection.Settings, 0, "", err
-	}
-	generated, err := delivery.Render(responseType, selection.Entries, selection.Settings.SubscriptionFormat, templateData)
+	generated, err := delivery.Render(responseType, selection.Entries, selection.Format, ctx.templateData(selection.RealKeysCount))
 	generated.Exclusions = append(selection.Exclusions, generated.Exclusions...)
 	generated.EligibleCount = selection.EligibleCount
-	generated.OutputFormat = delivery.EffectiveFormat(responseType, selection.Settings, a.subscriptionBodyEncoding)
+	settings := ctx.Settings
+	settings.SubscriptionFormat = selection.Format
+	generated.OutputFormat = delivery.EffectiveFormat(responseType, settings, a.subscriptionBodyEncoding)
 	if err != nil {
-		return generated, selection.Settings, 0, "", err
+		return generated, subscriptionDenial{}, err
 	}
 	if generated.GeneratedCount == 0 {
 		if delivery.IsStructuredFormat(generated.OutputFormat) && len(generated.Exclusions) > 0 {
 			generated.Body = ""
-			return generated, selection.Settings, http.StatusUnprocessableEntity, delivery.ReasonAllExcluded, nil
+			return generated, deny(http.StatusUnprocessableEntity, "", delivery.ReasonAllExcluded), nil
 		}
-		return generated, selection.Settings, 503, "subscription has no available keys", nil
+		return generated, deny(503, "", "subscription has no available keys"), nil
 	}
-	return generated, selection.Settings, 0, "", nil
+	return generated, subscriptionDenial{}, nil
+}
+
+// generateSelectedSubscription loads the request context itself. Handlers use
+// generateSubscription with the context they already prepared.
+func (a *App) generateSelectedSubscription(subscriptionID, responseType string) (delivery.Generated, subscriptionDenial, error) {
+	ctx, err := a.loadSubscriptionContext(subscriptionID)
+	if err != nil {
+		return delivery.Generated{}, subscriptionDenial{}, err
+	}
+	return a.generateSubscription(ctx, responseType)
 }
