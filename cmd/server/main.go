@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"github.com/romanpodg/SubShare-Go/internal/httpapi"
 	"log"
 	"log/slog"
 	"net/http"
@@ -127,14 +128,14 @@ func runConfigured(config configuration.Config) error {
 	// Health check
 	mux.HandleFunc("GET /health", func(w http.ResponseWriter, r *http.Request) {
 		if err := db.Ping(); err != nil {
-			writeError(w, http.StatusServiceUnavailable, "database unreachable")
+			httpapi.WriteError(w, r, http.StatusServiceUnavailable, "database unreachable")
 			return
 		}
-		writeJSON(w, http.StatusOK, map[string]any{"status": "ok"})
+		httpapi.WriteJSON(w, http.StatusOK, map[string]any{"status": "ok"})
 	})
 
 	// Auth API
-	mux.HandleFunc("POST /api/auth/login", loginLimiter.Wrap(writeError, app.apiLogin))
+	mux.HandleFunc("POST /api/auth/login", loginLimiter.Wrap(httpapi.WriteError, app.apiLogin))
 	mux.Handle("POST /api/auth/logout", app.requireAdmin(http.HandlerFunc(app.apiLogout)))
 	mux.Handle("GET /api/auth/me", app.requireAdmin(http.HandlerFunc(app.apiMe)))
 
@@ -144,15 +145,15 @@ func runConfigured(config configuration.Config) error {
 	mux.Handle("GET /api/v1/build-info", app.requireAdmin(http.HandlerFunc(app.apiV1BuildInfo)))
 	mux.Handle("GET /api/v1/openapi.yaml", app.requireAdmin(http.HandlerFunc(app.apiV1OpenAPI)))
 	mux.Handle("GET /api/v1/users", app.requireAdmin(http.HandlerFunc(app.apiV1ListUsers)))
-	mux.Handle("POST /api/v1/users", app.requireAdmin(app.v1Compatibility(http.HandlerFunc(app.apiCreateUser))))
+	mux.Handle("POST /api/v1/users", app.requireAdmin(httpapi.V1Envelope(http.HandlerFunc(app.apiCreateUser))))
 	mux.Handle("GET /api/v1/users/{id}", app.requireAdmin(http.HandlerFunc(app.apiV1GetUser)))
-	mux.Handle("DELETE /api/v1/users/{id}", app.requireAdmin(app.v1Compatibility(http.HandlerFunc(app.apiDeleteUser))))
-	mux.Handle("PUT /api/v1/users/{id}/keys", app.requireAdmin(app.v1Compatibility(http.HandlerFunc(app.apiUpdateUserKeys))))
-	mux.Handle("PUT /api/v1/users/{id}/subscription", app.requireAdmin(app.v1Compatibility(http.HandlerFunc(app.apiUpdateUserSubscription))))
+	mux.Handle("DELETE /api/v1/users/{id}", app.requireAdmin(httpapi.V1Envelope(http.HandlerFunc(app.apiDeleteUser))))
+	mux.Handle("PUT /api/v1/users/{id}/keys", app.requireAdmin(httpapi.V1Envelope(http.HandlerFunc(app.apiUpdateUserKeys))))
+	mux.Handle("PUT /api/v1/users/{id}/subscription", app.requireAdmin(httpapi.V1Envelope(http.HandlerFunc(app.apiUpdateUserSubscription))))
 	mux.Handle("PATCH /api/v1/users/{id}/subscription", app.requireAdmin(http.HandlerFunc(app.apiV1PatchUserSubscription)))
 	mux.Handle("PUT /api/v1/users/{id}/key-assignment", app.requireAdmin(http.HandlerFunc(app.apiV1UpdateUserKeyAssignment)))
-	mux.Handle("PUT /api/v1/users/{id}/settings", app.requireAdmin(app.v1Compatibility(http.HandlerFunc(app.apiUpdateUserSettings))))
-	mux.Handle("PUT /api/v1/users/{id}/hwid", app.requireAdmin(app.v1Compatibility(http.HandlerFunc(app.apiUpdateUserHWID))))
+	mux.Handle("PUT /api/v1/users/{id}/settings", app.requireAdmin(httpapi.V1Envelope(http.HandlerFunc(app.apiUpdateUserSettings))))
+	mux.Handle("PUT /api/v1/users/{id}/hwid", app.requireAdmin(httpapi.V1Envelope(http.HandlerFunc(app.apiUpdateUserHWID))))
 	app.registerKeyRoutes(mux)
 	mux.Handle("GET /api/v1/sources", app.requireAdmin(http.HandlerFunc(app.apiV1ListSources)))
 	mux.Handle("POST /api/v1/sources/preview", app.requireSuperAdmin(http.HandlerFunc(app.apiV1PreviewSource)))
@@ -163,10 +164,10 @@ func runConfigured(config configuration.Config) error {
 	mux.Handle("POST /api/v1/sources/{id}/sync", app.requireSuperAdmin(http.HandlerFunc(app.apiV1QueueSourceSync)))
 	mux.Handle("GET /api/v1/source-categories", app.requireAdmin(http.HandlerFunc(app.apiV1ListSourceCategories)))
 	mux.Handle("GET /api/v1/audit-events", app.requireAdmin(http.HandlerFunc(app.apiV1ListAuditEvents)))
-	mux.Handle("GET /api/v1/admins", app.requireSuperAdmin(app.v1Compatibility(http.HandlerFunc(app.apiListAdmins))))
-	mux.Handle("POST /api/v1/admins", app.requireSuperAdmin(app.v1Compatibility(http.HandlerFunc(app.apiCreateAdmin))))
-	mux.Handle("PUT /api/v1/admins/{id}", app.requireSuperAdmin(app.v1Compatibility(http.HandlerFunc(app.apiUpdateAdmin))))
-	mux.Handle("DELETE /api/v1/admins/{id}", app.requireSuperAdmin(app.v1Compatibility(http.HandlerFunc(app.apiDeleteAdmin))))
+	mux.Handle("GET /api/v1/admins", app.requireSuperAdmin(httpapi.V1Envelope(http.HandlerFunc(app.apiListAdmins))))
+	mux.Handle("POST /api/v1/admins", app.requireSuperAdmin(httpapi.V1Envelope(http.HandlerFunc(app.apiCreateAdmin))))
+	mux.Handle("PUT /api/v1/admins/{id}", app.requireSuperAdmin(httpapi.V1Envelope(http.HandlerFunc(app.apiUpdateAdmin))))
+	mux.Handle("DELETE /api/v1/admins/{id}", app.requireSuperAdmin(httpapi.V1Envelope(http.HandlerFunc(app.apiDeleteAdmin))))
 	mux.Handle("GET /api/v1/templates", app.requireAdmin(http.HandlerFunc(app.apiV1ListTemplates)))
 	mux.Handle("POST /api/v1/templates/preview", app.requireSuperAdmin(http.HandlerFunc(app.apiV1PreviewTemplate)))
 	mux.Handle("POST /api/v1/templates", app.requireSuperAdmin(http.HandlerFunc(app.apiV1CreateTemplate)))
@@ -198,7 +199,7 @@ func runConfigured(config configuration.Config) error {
 	mux.Handle("PUT /api/v1/panel-settings", app.requireSuperAdmin(http.HandlerFunc(app.apiUpdatePanelSettings)))
 	mux.HandleFunc("GET /api/v1/subscription-page-config", app.apiGetSubscriptionPageConfig)
 	mux.Handle("PUT /api/v1/subscription-page-config", app.requireSuperAdmin(http.HandlerFunc(app.apiUpdateSubscriptionPageConfig)))
-	mux.HandleFunc("POST /api/v1/subscriptions/activate", activationLimiter.Wrap(writeError, app.apiActivateSubscription))
+	mux.HandleFunc("POST /api/v1/subscriptions/activate", activationLimiter.Wrap(httpapi.WriteError, app.apiActivateSubscription))
 
 	// Admins Management API (Super Admin only)
 	mux.Handle("GET /api/admin/admins", app.requireSuperAdmin(http.HandlerFunc(app.apiListAdmins)))
@@ -237,13 +238,13 @@ func runConfigured(config configuration.Config) error {
 	mux.Handle("PUT /api/admin/subscription-page-config", app.requireSuperAdmin(http.HandlerFunc(app.apiUpdateSubscriptionPageConfig)))
 
 	// Subscription API
-	mux.HandleFunc("POST /api/subscription/activate", activationLimiter.Wrap(writeError, app.apiActivateSubscription))
+	mux.HandleFunc("POST /api/subscription/activate", activationLimiter.Wrap(httpapi.WriteError, app.apiActivateSubscription))
 
 	// Subscription delivery (VPN clients hit this directly)
-	mux.HandleFunc("GET /sub/{subscription_id}", subscriptionLimiter.Wrap(writeError, app.handleSubscription))
-	mux.HandleFunc("GET /sub/{subscription_id}/subbody", subscriptionLimiter.Wrap(writeError, app.handleSubscriptionSubBody))
-	mux.HandleFunc("GET /sub/{subscription_id}/subbody/plain", subscriptionLimiter.Wrap(writeError, app.handleSubscriptionSubBodyPlain))
-	mux.HandleFunc("GET /api/sub/{subscription_id}/info", subscriptionLimiter.Wrap(writeError, app.apiGetSubscriptionInfo))
+	mux.HandleFunc("GET /sub/{subscription_id}", subscriptionLimiter.Wrap(httpapi.WriteError, app.handleSubscription))
+	mux.HandleFunc("GET /sub/{subscription_id}/subbody", subscriptionLimiter.Wrap(httpapi.WriteError, app.handleSubscriptionSubBody))
+	mux.HandleFunc("GET /sub/{subscription_id}/subbody/plain", subscriptionLimiter.Wrap(httpapi.WriteError, app.handleSubscriptionSubBodyPlain))
+	mux.HandleFunc("GET /api/sub/{subscription_id}/info", subscriptionLimiter.Wrap(httpapi.WriteError, app.apiGetSubscriptionInfo))
 
 	// Serve frontend static files in production (if frontend/out exists)
 	frontendDir := "frontend/out"

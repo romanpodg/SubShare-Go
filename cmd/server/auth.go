@@ -7,6 +7,7 @@ import (
 	"database/sql"
 	"encoding/hex"
 	"encoding/json"
+	"github.com/romanpodg/SubShare-Go/internal/httpapi"
 	"log"
 	"net/http"
 	"strconv"
@@ -70,10 +71,10 @@ func (a *App) requireSuperAdmin(next http.Handler) http.Handler {
 
 func writeAdminAuthError(w http.ResponseWriter, r *http.Request, status int, code, message string) {
 	if strings.HasPrefix(r.URL.Path, "/api/v1/") {
-		writeV1Error(w, r, status, code, message)
+		httpapi.WriteV1Error(w, r, status, code, message)
 		return
 	}
-	writeJSON(w, status, map[string]any{"error": message})
+	httpapi.WriteJSON(w, status, map[string]any{"error": message})
 }
 
 func isOwnerRole(role string) bool {

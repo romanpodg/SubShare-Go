@@ -5,6 +5,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"github.com/romanpodg/SubShare-Go/internal/httpapi"
 	"github.com/romanpodg/SubShare-Go/internal/storage"
 	"net/http"
 	"net/http/httptest"
@@ -47,7 +48,7 @@ func TestCharacterization_APIV1ErrorEnvelopeShape(t *testing.T) {
 
 func TestCharacterization_LegacyAPIErrorResponseShape(t *testing.T) {
 	rec := httptest.NewRecorder()
-	writeError(rec, http.StatusBadRequest, "invalid parameter")
+	httpapi.WriteError(rec, nil, http.StatusBadRequest, "invalid parameter")
 
 	if rec.Code != http.StatusBadRequest {
 		t.Fatalf("status = %d, want %d", rec.Code, http.StatusBadRequest)

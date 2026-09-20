@@ -3,6 +3,7 @@ package main
 import (
 	"encoding/json"
 	"fmt"
+	"github.com/romanpodg/SubShare-Go/internal/httpapi"
 	"html"
 	"log"
 	"net/http"
@@ -934,7 +935,7 @@ func (a *App) apiGetSubscriptionPageConfig(w http.ResponseWriter, r *http.Reques
 	settings, err := a.getPanelSettings()
 	if err != nil {
 		log.Printf("apiGetSubscriptionPageConfig: %v", err)
-		writeError(w, http.StatusInternalServerError, "failed to load subscription page config")
+		httpapi.WriteError(w, r, http.StatusInternalServerError, "failed to load subscription page config")
 		return
 	}
 
@@ -944,7 +945,7 @@ func (a *App) apiGetSubscriptionPageConfig(w http.ResponseWriter, r *http.Reques
 		pretty = defaultSubscriptionPageConfigJSON
 	}
 
-	writeJSON(w, http.StatusOK, map[string]any{
+	httpapi.WriteJSON(w, http.StatusOK, map[string]any{
 		"config_json":         pretty,
 		"default_config_json": defaultSubscriptionPageConfigJSON,
 	})
@@ -952,22 +953,22 @@ func (a *App) apiGetSubscriptionPageConfig(w http.ResponseWriter, r *http.Reques
 
 func (a *App) apiUpdateSubscriptionPageConfig(w http.ResponseWriter, r *http.Request) {
 	var req model.UpdateSubscriptionPageConfigRequest
-	if err := readJSONWithLimit(w, r, &req, 1<<20); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid request body")
+	if err := httpapi.ReadJSONWithLimit(w, r, &req, 1<<20); err != nil {
+		httpapi.WriteError(w, r, http.StatusBadRequest, "invalid request body")
 		return
 	}
 
 	_, pretty, err := normalizeSubscriptionPageConfig(req.ConfigJSON)
 	if err != nil {
-		writeError(w, http.StatusBadRequest, "config_json must be a valid JSON config")
+		httpapi.WriteError(w, r, http.StatusBadRequest, "config_json must be a valid JSON config")
 		return
 	}
 
 	if err := a.updateSubscriptionPageConfig(pretty); err != nil {
 		log.Printf("apiUpdateSubscriptionPageConfig: %v", err)
-		writeError(w, http.StatusInternalServerError, "failed to save subscription page config")
+		httpapi.WriteError(w, r, http.StatusInternalServerError, "failed to save subscription page config")
 		return
 	}
 
-	writeJSON(w, http.StatusOK, map[string]any{"config_json": pretty})
+	httpapi.WriteJSON(w, http.StatusOK, map[string]any{"config_json": pretty})
 }

@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"github.com/romanpodg/SubShare-Go/internal/delivery"
+	"github.com/romanpodg/SubShare-Go/internal/httpapi"
 	"github.com/romanpodg/SubShare-Go/internal/storage"
 	"net/http"
 	"strings"
@@ -101,10 +102,10 @@ func (a *App) getSubscriptionDeliverySettings() (subscriptionDeliverySettings, e
 func (a *App) apiV1GetSubscriptionDeliverySettings(w http.ResponseWriter, r *http.Request) {
 	settings, err := a.getSubscriptionDeliverySettings()
 	if err != nil {
-		writeV1Error(w, r, http.StatusInternalServerError, "delivery_settings_load_failed", "failed to load subscription delivery settings")
+		httpapi.WriteV1Error(w, r, http.StatusInternalServerError, "delivery_settings_load_failed", "failed to load subscription delivery settings")
 		return
 	}
-	writeJSON(w, http.StatusOK, subscriptionDeliverySettingsResponse{
+	httpapi.WriteJSON(w, http.StatusOK, subscriptionDeliverySettingsResponse{
 		subscriptionDeliverySettings:   settings,
 		Capabilities:                   delivery.CapabilityMatrix(),
 		GenerationExclusionReasonCodes: delivery.ExclusionReasonCodes(),
@@ -113,20 +114,20 @@ func (a *App) apiV1GetSubscriptionDeliverySettings(w http.ResponseWriter, r *htt
 
 func (a *App) apiV1UpdateSubscriptionDeliverySettings(w http.ResponseWriter, r *http.Request) {
 	var input subscriptionDeliverySettingsUpdate
-	if err := readJSON(r, &input); err != nil {
-		writeV1Error(w, r, http.StatusBadRequest, "invalid_body", "invalid request body")
+	if err := httpapi.ReadJSON(r, &input); err != nil {
+		httpapi.WriteV1Error(w, r, http.StatusBadRequest, "invalid_body", "invalid request body")
 		return
 	}
 	settings, err := validateSubscriptionDeliverySettings(input.subscriptionDeliverySettings)
 	if err != nil {
-		writeV1Error(w, r, http.StatusBadRequest, "delivery_settings_invalid", err.Error())
+		httpapi.WriteV1Error(w, r, http.StatusBadRequest, "delivery_settings_invalid", err.Error())
 		return
 	}
 	legacyAnnouncement := ""
 	if input.LegacyAnnouncement != nil {
 		legacyAnnouncement = strings.TrimSpace(*input.LegacyAnnouncement)
 		if len([]rune(legacyAnnouncement)) > 255 {
-			writeV1Error(w, r, http.StatusBadRequest, "delivery_settings_invalid", "deprecated announcement is too long")
+			httpapi.WriteV1Error(w, r, http.StatusBadRequest, "delivery_settings_invalid", "deprecated announcement is too long")
 			return
 		}
 	}
@@ -135,7 +136,7 @@ func (a *App) apiV1UpdateSubscriptionDeliverySettings(w http.ResponseWriter, r *
 	remarksJSON, _ := json.Marshal(settings.Remarks)
 	tx, err := a.db.BeginTx(r.Context(), nil)
 	if err != nil {
-		writeV1Error(w, r, http.StatusInternalServerError, "delivery_settings_update_failed", "failed to update subscription delivery settings")
+		httpapi.WriteV1Error(w, r, http.StatusInternalServerError, "delivery_settings_update_failed", "failed to update subscription delivery settings")
 		return
 	}
 	defer tx.Rollback()
@@ -155,14 +156,14 @@ func (a *App) apiV1UpdateSubscriptionDeliverySettings(w http.ResponseWriter, r *
 		err = tx.Commit()
 	}
 	if err != nil {
-		writeV1Error(w, r, http.StatusInternalServerError, "delivery_settings_update_failed", "failed to update subscription delivery settings")
+		httpapi.WriteV1Error(w, r, http.StatusInternalServerError, "delivery_settings_update_failed", "failed to update subscription delivery settings")
 		return
 	}
 	a.recordAuditEvent(r, "subscription_delivery_settings.update", "settings", "subscription", map[string]any{
 		"response_header_count":        len(settings.ResponseHeaders),
 		"legacy_announcement_promoted": promoted,
 	})
-	writeMessage(w, "subscription delivery settings updated")
+	httpapi.WriteMessage(w, "subscription delivery settings updated")
 }
 
 func (a *App) applyGlobalDeliveryHeaders(w http.ResponseWriter) {

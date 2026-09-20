@@ -117,10 +117,10 @@ func (rl *RateLimiter) evictLocked(cutoff time.Time) {
 
 // Wrap wraps an http.HandlerFunc with rate limiting. It uses writeErrorFunc to
 // write error responses, allowing callers to provide their own error handler.
-func (rl *RateLimiter) Wrap(writeErrorFunc func(http.ResponseWriter, int, string), next http.HandlerFunc) http.HandlerFunc {
+func (rl *RateLimiter) Wrap(writeErrorFunc func(http.ResponseWriter, *http.Request, int, string), next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if !rl.Allow(ClientIP(r)) {
-			writeErrorFunc(w, http.StatusTooManyRequests, "too many requests, try again later")
+			writeErrorFunc(w, r, http.StatusTooManyRequests, "too many requests, try again later")
 			return
 		}
 		next(w, r)

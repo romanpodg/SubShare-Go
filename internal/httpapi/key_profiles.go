@@ -23,7 +23,7 @@ func NewKeyProfileHandler(service *keymanagement.Service, audit AuditRecorder) *
 }
 
 func (h *KeyProfileHandler) GetKey(w http.ResponseWriter, r *http.Request) {
-	id, ok := pathID(w, r, "id")
+	id, ok := PathID(w, r, "id")
 	if !ok {
 		return
 	}
@@ -35,19 +35,19 @@ func (h *KeyProfileHandler) GetKey(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	writeJSON(w, http.StatusOK, map[string]any{"data": detail})
+	WriteJSON(w, http.StatusOK, map[string]any{"data": detail})
 }
 
 func (h *KeyProfileHandler) RevealKey(w http.ResponseWriter, r *http.Request) {
-	id, ok := pathID(w, r, "id")
+	id, ok := PathID(w, r, "id")
 	if !ok {
 		return
 	}
 	applyStrictNoCacheHeaders(w)
 
 	var req model.KeySecretRevealRequest
-	if err := readJSONWithLimit(w, r, &req, 1<<20); err != nil {
-		writeV1Error(w, r, http.StatusBadRequest, "invalid_body", "invalid request body")
+	if err := ReadJSONWithLimit(w, r, &req, 1<<20); err != nil {
+		WriteV1Error(w, r, http.StatusBadRequest, "invalid_body", "invalid request body")
 		return
 	}
 
@@ -68,7 +68,7 @@ func (h *KeyProfileHandler) RevealKey(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if result.Target == "raw" {
-		writeJSON(w, http.StatusOK, map[string]any{
+		WriteJSON(w, http.StatusOK, map[string]any{
 			"data": model.KeyRawSecretResponse{
 				KeyID:                    id,
 				ConfirmedProfileRevision: result.ConfirmedProfileRevision,
@@ -79,7 +79,7 @@ func (h *KeyProfileHandler) RevealKey(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	writeJSON(w, http.StatusOK, map[string]any{
+	WriteJSON(w, http.StatusOK, map[string]any{
 		"data": model.KeyStructuredSecretsResponse{
 			KeyID:                    id,
 			ConfirmedProfileRevision: result.ConfirmedProfileRevision,
@@ -90,15 +90,15 @@ func (h *KeyProfileHandler) RevealKey(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *KeyProfileHandler) CloneKey(w http.ResponseWriter, r *http.Request) {
-	id, ok := pathID(w, r, "id")
+	id, ok := PathID(w, r, "id")
 	if !ok {
 		return
 	}
 	applyNoStoreHeaders(w)
 
 	var req model.KeyCloneRequest
-	if err := readJSONWithLimit(w, r, &req, 1<<20); err != nil {
-		writeV1Error(w, r, http.StatusBadRequest, "invalid_body", "invalid request body")
+	if err := ReadJSONWithLimit(w, r, &req, 1<<20); err != nil {
+		WriteV1Error(w, r, http.StatusBadRequest, "invalid_body", "invalid request body")
 		return
 	}
 
@@ -119,13 +119,13 @@ func (h *KeyProfileHandler) CloneKey(w http.ResponseWriter, r *http.Request) {
 		})
 	}
 
-	writeJSON(w, http.StatusCreated, map[string]any{"data": detail})
+	WriteJSON(w, http.StatusCreated, map[string]any{"data": detail})
 }
 
 func (h *KeyProfileHandler) GetKeyEditorSchema(w http.ResponseWriter, r *http.Request) {
 	applyNoStoreHeaders(w)
 	schema := h.service.EditorSchema()
-	writeJSON(w, http.StatusOK, map[string]any{
+	WriteJSON(w, http.StatusOK, map[string]any{
 		"data": schema,
 	})
 }
@@ -134,8 +134,8 @@ func (h *KeyProfileHandler) CreateKeyProfile(w http.ResponseWriter, r *http.Requ
 	applyNoStoreHeaders(w)
 
 	var req model.CreateKeyProfileRequest
-	if err := readJSONWithLimit(w, r, &req, 1<<20); err != nil {
-		writeV1Error(w, r, http.StatusBadRequest, "invalid_body", "invalid or unallowed JSON request body")
+	if err := ReadJSONWithLimit(w, r, &req, 1<<20); err != nil {
+		WriteV1Error(w, r, http.StatusBadRequest, "invalid_body", "invalid or unallowed JSON request body")
 		return
 	}
 
@@ -161,19 +161,19 @@ func (h *KeyProfileHandler) CreateKeyProfile(w http.ResponseWriter, r *http.Requ
 		h.audit(r, "key.create", "key", strconv.FormatInt(detail.ID, 10), map[string]any{"label": detail.Label})
 	}
 
-	writeJSON(w, http.StatusCreated, map[string]any{"data": detail})
+	WriteJSON(w, http.StatusCreated, map[string]any{"data": detail})
 }
 
 func (h *KeyProfileHandler) UpdateKeyProfile(w http.ResponseWriter, r *http.Request) {
-	id, ok := pathID(w, r, "id")
+	id, ok := PathID(w, r, "id")
 	if !ok {
 		return
 	}
 	applyNoStoreHeaders(w)
 
 	var req model.UpdateKeyProfileRequest
-	if err := readJSONWithLimit(w, r, &req, 1<<20); err != nil {
-		writeV1Error(w, r, http.StatusBadRequest, "invalid_body", "invalid or unallowed JSON request body")
+	if err := ReadJSONWithLimit(w, r, &req, 1<<20); err != nil {
+		WriteV1Error(w, r, http.StatusBadRequest, "invalid_body", "invalid or unallowed JSON request body")
 		return
 	}
 
@@ -200,5 +200,5 @@ func (h *KeyProfileHandler) UpdateKeyProfile(w http.ResponseWriter, r *http.Requ
 		h.audit(r, "key.update", "key", strconv.FormatInt(detail.ID, 10), map[string]any{"label": detail.Label})
 	}
 
-	writeJSON(w, http.StatusOK, map[string]any{"data": detail})
+	WriteJSON(w, http.StatusOK, map[string]any{"data": detail})
 }

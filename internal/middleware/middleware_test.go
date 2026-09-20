@@ -117,7 +117,7 @@ func TestRateLimiter_Wrap(t *testing.T) {
 
 	var errorCode int
 	var errorMsg string
-	writeErr := func(w http.ResponseWriter, code int, msg string) {
+	writeErr := func(w http.ResponseWriter, _ *http.Request, code int, msg string) {
 		errorCode = code
 		errorMsg = msg
 		w.WriteHeader(code)

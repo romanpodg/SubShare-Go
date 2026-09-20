@@ -4,12 +4,11 @@ import (
 	"context"
 	"database/sql"
 	"encoding/base64"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"github.com/romanpodg/SubShare-Go/internal/delivery"
+	"github.com/romanpodg/SubShare-Go/internal/httpapi"
 	"github.com/romanpodg/SubShare-Go/internal/storage"
-	"io"
 	"log"
 	"net/http"
 	"net/url"
@@ -26,57 +25,10 @@ import (
 
 var providerIDPattern = regexp.MustCompile(`^[A-Za-z0-9]{8}$`)
 
-// --- JSON helpers ---
-
-func writeJSON(w http.ResponseWriter, status int, payload any) {
-	w.Header().Set("Content-Type", "application/json; charset=utf-8")
-	w.WriteHeader(status)
-	_ = json.NewEncoder(w).Encode(payload)
-}
-
 func applySensitiveResponseHeaders(w http.ResponseWriter) {
 	w.Header().Set("Cache-Control", "no-store, no-cache, must-revalidate, private")
 	w.Header().Set("Pragma", "no-cache")
 	w.Header().Set("Expires", "0")
-}
-
-func readJSON(r *http.Request, dst any) error {
-	return readJSONWithLimit(nil, r, dst, 1<<20)
-}
-
-func readJSONWithLimit(w http.ResponseWriter, r *http.Request, dst any, limit int64) error {
-	r.Body = http.MaxBytesReader(w, r.Body, limit)
-	dec := json.NewDecoder(r.Body)
-	dec.DisallowUnknownFields()
-	if err := dec.Decode(dst); err != nil {
-		return err
-	}
-	var trailing any
-	if err := dec.Decode(&trailing); err != io.EOF {
-		if err == nil {
-			return fmt.Errorf("request body must contain a single JSON value")
-		}
-		return err
-	}
-	return nil
-}
-
-func writeError(w http.ResponseWriter, status int, msg string) {
-	writeJSON(w, status, map[string]any{"error": msg})
-}
-
-func writeMessage(w http.ResponseWriter, msg string) {
-	writeJSON(w, http.StatusOK, map[string]any{"message": msg})
-}
-
-func pathID(w http.ResponseWriter, r *http.Request, name string) (int64, bool) {
-	raw := r.PathValue(name)
-	id, err := strconv.ParseInt(raw, 10, 64)
-	if err != nil || id <= 0 {
-		writeError(w, http.StatusBadRequest, "invalid "+name)
-		return 0, false
-	}
-	return id, true
 }
 
 func normalizeKeyCategory(raw string) string {
@@ -96,8 +48,8 @@ func (a *App) listKeyCategories() ([]model.KeyCategory, error) {
 
 func (a *App) apiLogin(w http.ResponseWriter, r *http.Request) {
 	var req model.LoginRequest
-	if err := readJSON(r, &req); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid request body")
+	if err := httpapi.ReadJSON(r, &req); err != nil {
+		httpapi.WriteError(w, r, http.StatusBadRequest, "invalid request body")
 		return
 	}
 
@@ -105,22 +57,22 @@ func (a *App) apiLogin(w http.ResponseWriter, r *http.Request) {
 	adminID, authenticated, err := a.authenticateAdministrator(r.Context(), username, req.Password)
 	if err != nil {
 		log.Printf("apiLogin: %v", err)
-		writeError(w, http.StatusInternalServerError, "internal server error")
+		httpapi.WriteError(w, r, http.StatusInternalServerError, "internal server error")
 		return
 	}
 	if !authenticated {
-		writeError(w, http.StatusUnauthorized, "invalid credentials")
+		httpapi.WriteError(w, r, http.StatusUnauthorized, "invalid credentials")
 		return
 	}
 
 	sessionID, err := generateToken(32)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to create session")
+		httpapi.WriteError(w, r, http.StatusInternalServerError, "failed to create session")
 		return
 	}
 	csrfToken, err := generateToken(32)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to create session")
+		httpapi.WriteError(w, r, http.StatusInternalServerError, "failed to create session")
 		return
 	}
 
@@ -128,7 +80,7 @@ func (a *App) apiLogin(w http.ResponseWriter, r *http.Request) {
 	_, err = a.db.Exec(`INSERT INTO admin_sessions(id, admin_id, csrf_token, expires_at) VALUES(?, ?, ?, ?)`, hashSessionID(sessionID), adminID, csrfToken, expiresAt)
 	if err != nil {
 		log.Printf("apiLogin: failed to save session to database: %v", err)
-		writeError(w, http.StatusInternalServerError, "failed to create session")
+		httpapi.WriteError(w, r, http.StatusInternalServerError, "failed to create session")
 		return
 	}
 
@@ -141,7 +93,7 @@ func (a *App) apiLogin(w http.ResponseWriter, r *http.Request) {
 		SameSite: http.SameSiteStrictMode,
 		MaxAge:   int((24 * time.Hour).Seconds()),
 	})
-	writeJSON(w, http.StatusOK, map[string]any{"csrf_token": csrfToken})
+	httpapi.WriteJSON(w, http.StatusOK, map[string]any{"csrf_token": csrfToken})
 }
 
 func (a *App) apiLogout(w http.ResponseWriter, r *http.Request) {
@@ -158,12 +110,12 @@ func (a *App) apiLogout(w http.ResponseWriter, r *http.Request) {
 		SameSite: http.SameSiteStrictMode,
 		MaxAge:   -1,
 	})
-	writeMessage(w, "logged out")
+	httpapi.WriteMessage(w, "logged out")
 }
 
 func (a *App) apiMe(w http.ResponseWriter, r *http.Request) {
 	session, _, _ := a.adminSessionFromRequest(r)
-	writeJSON(w, http.StatusOK, map[string]any{
+	httpapi.WriteJSON(w, http.StatusOK, map[string]any{
 		"authenticated": true,
 		"role":          session.Role,
 		"csrf_token":    session.CSRFToken,
@@ -176,7 +128,7 @@ func (a *App) apiListAdmins(w http.ResponseWriter, r *http.Request) {
 	rows, err := a.db.Query(`SELECT id, username, role, created_at FROM admins ORDER BY id ASC`)
 	if err != nil {
 		log.Printf("apiListAdmins: %v", err)
-		writeError(w, http.StatusInternalServerError, "failed to query admins")
+		httpapi.WriteError(w, r, http.StatusInternalServerError, "failed to query admins")
 		return
 	}
 	defer rows.Close()
@@ -186,7 +138,7 @@ func (a *App) apiListAdmins(w http.ResponseWriter, r *http.Request) {
 		var adm model.Admin
 		if err := rows.Scan(&adm.ID, &adm.Username, &adm.Role, &adm.CreatedAt); err != nil {
 			log.Printf("apiListAdmins scan: %v", err)
-			writeError(w, http.StatusInternalServerError, "failed to scan admins")
+			httpapi.WriteError(w, r, http.StatusInternalServerError, "failed to scan admins")
 			return
 		}
 		admins = append(admins, adm)
@@ -196,13 +148,13 @@ func (a *App) apiListAdmins(w http.ResponseWriter, r *http.Request) {
 		admins = []model.Admin{}
 	}
 
-	writeJSON(w, http.StatusOK, map[string]any{"admins": admins})
+	httpapi.WriteJSON(w, http.StatusOK, map[string]any{"admins": admins})
 }
 
 func (a *App) apiCreateAdmin(w http.ResponseWriter, r *http.Request) {
 	var req model.CreateAdminRequest
-	if err := readJSON(r, &req); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid request body")
+	if err := httpapi.ReadJSON(r, &req); err != nil {
+		httpapi.WriteError(w, r, http.StatusBadRequest, "invalid request body")
 		return
 	}
 
@@ -210,11 +162,11 @@ func (a *App) apiCreateAdmin(w http.ResponseWriter, r *http.Request) {
 	role, roleOK := normalizeAdminRole(req.Role)
 
 	if username == "" {
-		writeError(w, http.StatusBadRequest, "username is required")
+		httpapi.WriteError(w, r, http.StatusBadRequest, "username is required")
 		return
 	}
 	if !roleOK {
-		writeError(w, http.StatusBadRequest, "invalid role")
+		httpapi.WriteError(w, r, http.StatusBadRequest, "invalid role")
 		return
 	}
 
@@ -223,48 +175,48 @@ func (a *App) apiCreateAdmin(w http.ResponseWriter, r *http.Request) {
 	err := a.db.QueryRow(`SELECT EXISTS(SELECT 1 FROM admins WHERE username = ?)`, username).Scan(&exists)
 	if err != nil {
 		log.Printf("apiCreateAdmin check exists: %v", err)
-		writeError(w, http.StatusInternalServerError, "internal database error")
+		httpapi.WriteError(w, r, http.StatusInternalServerError, "internal database error")
 		return
 	}
 	if exists {
-		writeError(w, http.StatusConflict, "username is already taken")
+		httpapi.WriteError(w, r, http.StatusConflict, "username is already taken")
 		return
 	}
 
 	passwordHash, err := a.passwordHasher().Hash(req.Password)
 	if err != nil {
 		if adminpassword.IsPolicyError(err) {
-			writeError(w, http.StatusBadRequest, err.Error())
+			httpapi.WriteError(w, r, http.StatusBadRequest, err.Error())
 			return
 		}
 		log.Printf("apiCreateAdmin: password hashing failed")
-		writeError(w, http.StatusInternalServerError, "failed to hash password")
+		httpapi.WriteError(w, r, http.StatusInternalServerError, "failed to hash password")
 		return
 	}
 
 	result, err := a.db.Exec(`INSERT INTO admins (username, password_hash, role) VALUES (?, ?, ?)`, username, passwordHash, role)
 	if err != nil {
 		log.Printf("apiCreateAdmin insert: %v", err)
-		writeError(w, http.StatusInternalServerError, "failed to create admin")
+		httpapi.WriteError(w, r, http.StatusInternalServerError, "failed to create admin")
 		return
 	}
 	adminID, _ := result.LastInsertId()
 	a.recordAuditEvent(r, "admin.create", "admin", strconv.FormatInt(adminID, 10), map[string]any{"username": username, "role": role})
 
-	writeMessage(w, "administrator created successfully")
+	httpapi.WriteMessage(w, "administrator created successfully")
 }
 
 func (a *App) apiUpdateAdmin(w http.ResponseWriter, r *http.Request) {
 	idStr := r.PathValue("id")
 	id, err := strconv.ParseInt(idStr, 10, 64)
 	if err != nil || id <= 0 {
-		writeError(w, http.StatusBadRequest, "invalid administrator id")
+		httpapi.WriteError(w, r, http.StatusBadRequest, "invalid administrator id")
 		return
 	}
 
 	var req model.UpdateAdminRequest
-	if err := readJSON(r, &req); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid request body")
+	if err := httpapi.ReadJSON(r, &req); err != nil {
+		httpapi.WriteError(w, r, http.StatusBadRequest, "invalid request body")
 		return
 	}
 
@@ -279,11 +231,11 @@ func (a *App) apiUpdateAdmin(w http.ResponseWriter, r *http.Request) {
 	err = a.db.QueryRow(`SELECT username, role FROM admins WHERE id = ?`, id).Scan(&currentUsername, &currentRole)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
-			writeError(w, http.StatusNotFound, "administrator not found")
+			httpapi.WriteError(w, r, http.StatusNotFound, "administrator not found")
 			return
 		}
 		log.Printf("apiUpdateAdmin query: %v", err)
-		writeError(w, http.StatusInternalServerError, "database error")
+		httpapi.WriteError(w, r, http.StatusInternalServerError, "database error")
 		return
 	}
 
@@ -292,17 +244,17 @@ func (a *App) apiUpdateAdmin(w http.ResponseWriter, r *http.Request) {
 		passwordHash, err := a.passwordHasher().Hash(passwordValue)
 		if err != nil {
 			if adminpassword.IsPolicyError(err) {
-				writeError(w, http.StatusBadRequest, err.Error())
+				httpapi.WriteError(w, r, http.StatusBadRequest, err.Error())
 				return
 			}
 			log.Printf("apiUpdateAdmin: password hashing failed")
-			writeError(w, http.StatusInternalServerError, "failed to hash password")
+			httpapi.WriteError(w, r, http.StatusInternalServerError, "failed to hash password")
 			return
 		}
 		_, err = a.db.Exec(`UPDATE admins SET password_hash = ? WHERE id = ?`, passwordHash, id)
 		if err != nil {
 			log.Printf("apiUpdateAdmin password update: %v", err)
-			writeError(w, http.StatusInternalServerError, "failed to update password")
+			httpapi.WriteError(w, r, http.StatusInternalServerError, "failed to update password")
 			return
 		}
 		// Invalidate all active sessions for this admin since password changed, except the current one
@@ -318,14 +270,14 @@ func (a *App) apiUpdateAdmin(w http.ResponseWriter, r *http.Request) {
 	if role != "" {
 		normalizedRole, roleOK := normalizeAdminRole(role)
 		if !roleOK {
-			writeError(w, http.StatusBadRequest, "invalid role")
+			httpapi.WriteError(w, r, http.StatusBadRequest, "invalid role")
 			return
 		}
 		role = normalizedRole
 
 		// Prevent changing own role
 		if id == session.AdminID {
-			writeError(w, http.StatusBadRequest, "you cannot change your own role")
+			httpapi.WriteError(w, r, http.StatusBadRequest, "you cannot change your own role")
 			return
 		}
 
@@ -335,11 +287,11 @@ func (a *App) apiUpdateAdmin(w http.ResponseWriter, r *http.Request) {
 			err = a.db.QueryRow(`SELECT COUNT(*) FROM admins WHERE role IN ('owner', 'super_admin')`).Scan(&superAdminCount)
 			if err != nil {
 				log.Printf("apiUpdateAdmin count super admins: %v", err)
-				writeError(w, http.StatusInternalServerError, "database error")
+				httpapi.WriteError(w, r, http.StatusInternalServerError, "database error")
 				return
 			}
 			if superAdminCount <= 1 {
-				writeError(w, http.StatusBadRequest, "cannot demote the only remaining super admin")
+				httpapi.WriteError(w, r, http.StatusBadRequest, "cannot demote the only remaining super admin")
 				return
 			}
 		}
@@ -347,7 +299,7 @@ func (a *App) apiUpdateAdmin(w http.ResponseWriter, r *http.Request) {
 		_, err = a.db.Exec(`UPDATE admins SET role = ? WHERE id = ?`, role, id)
 		if err != nil {
 			log.Printf("apiUpdateAdmin role update: %v", err)
-			writeError(w, http.StatusInternalServerError, "failed to update role")
+			httpapi.WriteError(w, r, http.StatusInternalServerError, "failed to update role")
 			return
 		}
 
@@ -359,14 +311,14 @@ func (a *App) apiUpdateAdmin(w http.ResponseWriter, r *http.Request) {
 		"role":             role,
 		"password_changed": passwordValue != "",
 	})
-	writeMessage(w, "administrator updated successfully")
+	httpapi.WriteMessage(w, "administrator updated successfully")
 }
 
 func (a *App) apiDeleteAdmin(w http.ResponseWriter, r *http.Request) {
 	idStr := r.PathValue("id")
 	id, err := strconv.ParseInt(idStr, 10, 64)
 	if err != nil || id <= 0 {
-		writeError(w, http.StatusBadRequest, "invalid administrator id")
+		httpapi.WriteError(w, r, http.StatusBadRequest, "invalid administrator id")
 		return
 	}
 
@@ -374,7 +326,7 @@ func (a *App) apiDeleteAdmin(w http.ResponseWriter, r *http.Request) {
 
 	// Prevent deleting oneself
 	if id == session.AdminID {
-		writeError(w, http.StatusBadRequest, "you cannot delete your own account")
+		httpapi.WriteError(w, r, http.StatusBadRequest, "you cannot delete your own account")
 		return
 	}
 
@@ -383,11 +335,11 @@ func (a *App) apiDeleteAdmin(w http.ResponseWriter, r *http.Request) {
 	err = a.db.QueryRow(`SELECT role FROM admins WHERE id = ?`, id).Scan(&role)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
-			writeError(w, http.StatusNotFound, "administrator not found")
+			httpapi.WriteError(w, r, http.StatusNotFound, "administrator not found")
 			return
 		}
 		log.Printf("apiDeleteAdmin query: %v", err)
-		writeError(w, http.StatusInternalServerError, "database error")
+		httpapi.WriteError(w, r, http.StatusInternalServerError, "database error")
 		return
 	}
 
@@ -397,11 +349,11 @@ func (a *App) apiDeleteAdmin(w http.ResponseWriter, r *http.Request) {
 		err = a.db.QueryRow(`SELECT COUNT(*) FROM admins WHERE role IN ('owner', 'super_admin')`).Scan(&superAdminCount)
 		if err != nil {
 			log.Printf("apiDeleteAdmin count super admins: %v", err)
-			writeError(w, http.StatusInternalServerError, "database error")
+			httpapi.WriteError(w, r, http.StatusInternalServerError, "database error")
 			return
 		}
 		if superAdminCount <= 1 {
-			writeError(w, http.StatusBadRequest, "cannot delete the only remaining super admin")
+			httpapi.WriteError(w, r, http.StatusBadRequest, "cannot delete the only remaining super admin")
 			return
 		}
 	}
@@ -410,7 +362,7 @@ func (a *App) apiDeleteAdmin(w http.ResponseWriter, r *http.Request) {
 	_, err = a.db.Exec(`DELETE FROM admin_sessions WHERE admin_id = ?`, id)
 	if err != nil {
 		log.Printf("apiDeleteAdmin delete sessions: %v", err)
-		writeError(w, http.StatusInternalServerError, "failed to delete sessions")
+		httpapi.WriteError(w, r, http.StatusInternalServerError, "failed to delete sessions")
 		return
 	}
 
@@ -418,18 +370,18 @@ func (a *App) apiDeleteAdmin(w http.ResponseWriter, r *http.Request) {
 	res, err := a.db.Exec(`DELETE FROM admins WHERE id = ?`, id)
 	if err != nil {
 		log.Printf("apiDeleteAdmin delete admin: %v", err)
-		writeError(w, http.StatusInternalServerError, "failed to delete admin")
+		httpapi.WriteError(w, r, http.StatusInternalServerError, "failed to delete admin")
 		return
 	}
 
 	rowsAffected, _ := res.RowsAffected()
 	if rowsAffected == 0 {
-		writeError(w, http.StatusNotFound, "administrator not found")
+		httpapi.WriteError(w, r, http.StatusNotFound, "administrator not found")
 		return
 	}
 
 	a.recordAuditEvent(r, "admin.delete", "admin", strconv.FormatInt(id, 10), nil)
-	writeMessage(w, "administrator deleted successfully")
+	httpapi.WriteMessage(w, "administrator deleted successfully")
 }
 
 // --- Users API ---
@@ -439,7 +391,7 @@ func (a *App) apiListUsers(w http.ResponseWriter, r *http.Request) {
 	users, err := a.listUsers()
 	if err != nil {
 		log.Printf("apiListUsers: %v", err)
-		writeError(w, http.StatusInternalServerError, "failed to list users")
+		httpapi.WriteError(w, r, http.StatusInternalServerError, "failed to list users")
 		return
 	}
 	if users == nil {
@@ -451,13 +403,13 @@ func (a *App) apiListUsers(w http.ResponseWriter, r *http.Request) {
 	for i := range users {
 		users[i].Token = ""
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"users": users})
+	httpapi.WriteJSON(w, http.StatusOK, map[string]any{"users": users})
 }
 
 func (a *App) apiCreateUser(w http.ResponseWriter, r *http.Request) {
 	var req model.CreateUserRequest
-	if err := readJSON(r, &req); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid request body")
+	if err := httpapi.ReadJSON(r, &req); err != nil {
+		httpapi.WriteError(w, r, http.StatusBadRequest, "invalid request body")
 		return
 	}
 
@@ -466,7 +418,7 @@ func (a *App) apiCreateUser(w http.ResponseWriter, r *http.Request) {
 	activationCode := strings.TrimSpace(req.ActivationCode)
 	status, ok := model.NormalizeUserStatus(req.Status)
 	if !ok {
-		writeError(w, http.StatusBadRequest, "invalid subscription status")
+		httpapi.WriteError(w, r, http.StatusBadRequest, "invalid subscription status")
 		return
 	}
 
@@ -475,7 +427,7 @@ func (a *App) apiCreateUser(w http.ResponseWriter, r *http.Request) {
 		issueDays = 30
 	}
 	if issueDays > 3650 {
-		writeError(w, http.StatusBadRequest, "issue days must be between 1 and 3650")
+		httpapi.WriteError(w, r, http.StatusBadRequest, "issue days must be between 1 and 3650")
 		return
 	}
 
@@ -485,35 +437,35 @@ func (a *App) apiCreateUser(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if name == "" {
-		writeError(w, http.StatusBadRequest, "name is required")
+		httpapi.WriteError(w, r, http.StatusBadRequest, "name is required")
 		return
 	}
 	if activationCode == "" || strings.Contains(activationCode, "/") {
-		writeError(w, http.StatusBadRequest, "activation code is required")
+		httpapi.WriteError(w, r, http.StatusBadRequest, "activation code is required")
 		return
 	}
 	if len(name) > 255 {
-		writeError(w, http.StatusBadRequest, "name is too long (max 255 characters)")
+		httpapi.WriteError(w, r, http.StatusBadRequest, "name is too long (max 255 characters)")
 		return
 	}
 	if len(email) > 255 {
-		writeError(w, http.StatusBadRequest, "email is too long (max 255 characters)")
+		httpapi.WriteError(w, r, http.StatusBadRequest, "email is too long (max 255 characters)")
 		return
 	}
 	if len(activationCode) > 128 {
-		writeError(w, http.StatusBadRequest, "activation code is too long (max 128 characters)")
+		httpapi.WriteError(w, r, http.StatusBadRequest, "activation code is too long (max 128 characters)")
 		return
 	}
 
 	legacyToken, err := generateToken(24)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to generate user token")
+		httpapi.WriteError(w, r, http.StatusInternalServerError, "failed to generate user token")
 		return
 	}
 
 	subscriptionID, err := generateToken(24)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to generate subscription token")
+		httpapi.WriteError(w, r, http.StatusInternalServerError, "failed to generate subscription token")
 		return
 	}
 
@@ -522,7 +474,7 @@ func (a *App) apiCreateUser(w http.ResponseWriter, r *http.Request) {
 
 	tx, err := a.db.Begin()
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to create user")
+		httpapi.WriteError(w, r, http.StatusInternalServerError, "failed to create user")
 		return
 	}
 	defer tx.Rollback()
@@ -543,7 +495,7 @@ func (a *App) apiCreateUser(w http.ResponseWriter, r *http.Request) {
 		if strings.Contains(errText, "users.subscription_id") || strings.Contains(errText, "idx_users_subscription_id") {
 			subscriptionID, err = generateToken(24)
 			if err != nil {
-				writeError(w, http.StatusInternalServerError, "failed to generate subscription token")
+				httpapi.WriteError(w, r, http.StatusInternalServerError, "failed to generate subscription token")
 				return
 			}
 			continue
@@ -552,106 +504,106 @@ func (a *App) apiCreateUser(w http.ResponseWriter, r *http.Request) {
 	}
 	if err != nil {
 		log.Printf("apiCreateUser: %v", err)
-		writeError(w, http.StatusConflict, "failed to create user (check activation code uniqueness)")
+		httpapi.WriteError(w, r, http.StatusConflict, "failed to create user (check activation code uniqueness)")
 		return
 	}
 
 	if err := storage.AssignAllKeysToUser(context.Background(), tx, userID); err != nil {
 		log.Printf("apiCreateUser: failed to assign keys to user %d: %v", userID, err)
-		writeError(w, http.StatusInternalServerError, "failed to create user")
+		httpapi.WriteError(w, r, http.StatusInternalServerError, "failed to create user")
 		return
 	}
 	if err := tx.Commit(); err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to create user")
+		httpapi.WriteError(w, r, http.StatusInternalServerError, "failed to create user")
 		return
 	}
 
 	a.recordAuditEvent(r, "user.create", "user", strconv.FormatInt(userID, 10), map[string]any{"name": name})
-	writeMessage(w, "user created")
+	httpapi.WriteMessage(w, "user created")
 }
 
 func (a *App) apiDeleteUser(w http.ResponseWriter, r *http.Request) {
-	id, ok := pathID(w, r, "id")
+	id, ok := httpapi.PathID(w, r, "id")
 	if !ok {
 		return
 	}
 	res, err := a.db.Exec(`DELETE FROM users WHERE id = ?`, id)
 	if err != nil {
 		log.Printf("apiDeleteUser: %v", err)
-		writeError(w, http.StatusInternalServerError, "failed to delete user")
+		httpapi.WriteError(w, r, http.StatusInternalServerError, "failed to delete user")
 		return
 	}
 	n, _ := res.RowsAffected()
 	if n == 0 {
-		writeError(w, http.StatusNotFound, "user not found")
+		httpapi.WriteError(w, r, http.StatusNotFound, "user not found")
 		return
 	}
 	a.recordAuditEvent(r, "user.delete", "user", strconv.FormatInt(id, 10), nil)
-	writeMessage(w, "user deleted")
+	httpapi.WriteMessage(w, "user deleted")
 }
 
 func (a *App) apiUpdateUserKeys(w http.ResponseWriter, r *http.Request) {
-	id, ok := pathID(w, r, "id")
+	id, ok := httpapi.PathID(w, r, "id")
 	if !ok {
 		return
 	}
 
 	var req model.UpdateUserKeysRequest
-	if err := readJSON(r, &req); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid request body")
+	if err := httpapi.ReadJSON(r, &req); err != nil {
+		httpapi.WriteError(w, r, http.StatusBadRequest, "invalid request body")
 		return
 	}
 
 	if err := a.updateUserKeyAssignment(id, model.KeyAssignmentModeSelected, req.KeyIDs); err != nil {
 		if errors.Is(err, errAssignmentUserNotFound) {
-			writeError(w, http.StatusNotFound, "user not found")
+			httpapi.WriteError(w, r, http.StatusNotFound, "user not found")
 			return
 		}
 		if errors.Is(err, errAssignmentKeyNotFound) {
-			writeError(w, http.StatusBadRequest, "one or more keys do not exist")
+			httpapi.WriteError(w, r, http.StatusBadRequest, "one or more keys do not exist")
 			return
 		}
 		log.Printf("apiUpdateUserKeys: %v", err)
-		writeError(w, http.StatusInternalServerError, "failed to update user keys")
+		httpapi.WriteError(w, r, http.StatusInternalServerError, "failed to update user keys")
 		return
 	}
 	a.recordAuditEvent(r, "user.keys.update", "user", strconv.FormatInt(id, 10), map[string]any{
 		"mode": model.KeyAssignmentModeSelected, "keys_count": len(req.KeyIDs),
 	})
-	writeMessage(w, "subscription keys updated")
+	httpapi.WriteMessage(w, "subscription keys updated")
 }
 
 func (a *App) apiUpdateUserSubscription(w http.ResponseWriter, r *http.Request) {
-	id, ok := pathID(w, r, "id")
+	id, ok := httpapi.PathID(w, r, "id")
 	if !ok {
 		return
 	}
 
 	var req model.UpdateSubscriptionRequest
-	if err := readJSON(r, &req); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid request body")
+	if err := httpapi.ReadJSON(r, &req); err != nil {
+		httpapi.WriteError(w, r, http.StatusBadRequest, "invalid request body")
 		return
 	}
 
 	status, ok := model.NormalizeUserStatus(req.Status)
 	if !ok {
-		writeError(w, http.StatusBadRequest, "invalid subscription status")
+		httpapi.WriteError(w, r, http.StatusBadRequest, "invalid subscription status")
 		return
 	}
 
 	startsAt, err := parseOptionalDateTimeLocal(req.StartsAt)
 	if err != nil {
-		writeError(w, http.StatusBadRequest, "invalid starts_at datetime")
+		httpapi.WriteError(w, r, http.StatusBadRequest, "invalid starts_at datetime")
 		return
 	}
 	expiresAt, err := parseOptionalDateTimeLocal(req.ExpiresAt)
 	if err != nil {
-		writeError(w, http.StatusBadRequest, "invalid expires_at datetime")
+		httpapi.WriteError(w, r, http.StatusBadRequest, "invalid expires_at datetime")
 		return
 	}
 
 	if startsAt.Valid && expiresAt.Valid && startsAt.Time.After(expiresAt.Time) {
-		writeError(w, http.StatusBadRequest, "starts_at must be before expires_at")
+		httpapi.WriteError(w, r, http.StatusBadRequest, "starts_at must be before expires_at")
 		return
 	}
 
@@ -662,7 +614,7 @@ func (a *App) apiUpdateUserSubscription(w http.ResponseWriter, r *http.Request) 
 
 	subscriptionName := strings.TrimSpace(req.SubscriptionName)
 	if len(subscriptionName) > 120 {
-		writeError(w, http.StatusBadRequest, "subscription_name is too long (max 120 characters)")
+		httpapi.WriteError(w, r, http.StatusBadRequest, "subscription_name is too long (max 120 characters)")
 		return
 	}
 
@@ -671,14 +623,14 @@ func (a *App) apiUpdateUserSubscription(w http.ResponseWriter, r *http.Request) 
 		subscriptionRefreshHours = 12
 	}
 	if subscriptionRefreshHours > 720 {
-		writeError(w, http.StatusBadRequest, "subscription_refresh_hours must be between 1 and 720")
+		httpapi.WriteError(w, r, http.StatusBadRequest, "subscription_refresh_hours must be between 1 and 720")
 		return
 	}
 
 	normalizeURL := func(raw string, field string) (string, bool) {
 		normalized, err := normalizeAbsoluteHTTPURL(raw, field)
 		if err != nil {
-			writeError(w, http.StatusBadRequest, err.Error())
+			httpapi.WriteError(w, r, http.StatusBadRequest, err.Error())
 			return "", false
 		}
 		return normalized, true
@@ -695,7 +647,7 @@ func (a *App) apiUpdateUserSubscription(w http.ResponseWriter, r *http.Request) 
 
 	subscriptionExtraStatus := strings.TrimSpace(req.SubscriptionExtraStatus)
 	if len(subscriptionExtraStatus) > 255 {
-		writeError(w, http.StatusBadRequest, "subscription_extra_status is too long (max 255 characters)")
+		httpapi.WriteError(w, r, http.StatusBadRequest, "subscription_extra_status is too long (max 255 characters)")
 		return
 	}
 
@@ -724,16 +676,16 @@ func (a *App) apiUpdateUserSubscription(w http.ResponseWriter, r *http.Request) 
 	)
 	if err != nil {
 		log.Printf("apiUpdateUserSubscription: %v", err)
-		writeError(w, http.StatusInternalServerError, "failed to update subscription")
+		httpapi.WriteError(w, r, http.StatusInternalServerError, "failed to update subscription")
 		return
 	}
 	a.recordAuditEvent(r, "user.subscription.update", "user", strconv.FormatInt(id, 10), map[string]any{"status": status})
-	writeMessage(w, "subscription updated")
+	httpapi.WriteMessage(w, "subscription updated")
 }
 
 func (a *App) apiGetUserSubscriptionURLs(w http.ResponseWriter, r *http.Request) {
 	applySensitiveResponseHeaders(w)
-	id, ok := pathID(w, r, "id")
+	id, ok := httpapi.PathID(w, r, "id")
 	if !ok {
 		return
 	}
@@ -741,17 +693,17 @@ func (a *App) apiGetUserSubscriptionURLs(w http.ResponseWriter, r *http.Request)
 	var subscriptionID sql.NullString
 	if err := a.db.QueryRow(`SELECT subscription_id FROM users WHERE id = ?`, id).Scan(&subscriptionID); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
-			writeError(w, http.StatusNotFound, "user not found")
+			httpapi.WriteError(w, r, http.StatusNotFound, "user not found")
 			return
 		}
 		log.Printf("apiGetUserSubscriptionURLs: %v", err)
-		writeError(w, http.StatusInternalServerError, "failed to load user subscription")
+		httpapi.WriteError(w, r, http.StatusInternalServerError, "failed to load user subscription")
 		return
 	}
 
 	subID := strings.TrimSpace(subscriptionID.String)
 	if subID == "" {
-		writeError(w, http.StatusBadRequest, "subscription id is empty")
+		httpapi.WriteError(w, r, http.StatusBadRequest, "subscription id is empty")
 		return
 	}
 
@@ -763,21 +715,21 @@ func (a *App) apiGetUserSubscriptionURLs(w http.ResponseWriter, r *http.Request)
 		log.Printf("apiGetUserSubscriptionURLs: encrypt failed for user_id=%d: %v", id, err)
 	}
 
-	writeJSON(w, http.StatusOK, map[string]any{
+	httpapi.WriteJSON(w, http.StatusOK, map[string]any{
 		"plain_url":     plainURL,
 		"encrypted_url": encryptedURL,
 	})
 }
 
 func (a *App) apiUpdateUserSettings(w http.ResponseWriter, r *http.Request) {
-	id, ok := pathID(w, r, "id")
+	id, ok := httpapi.PathID(w, r, "id")
 	if !ok {
 		return
 	}
 
 	var req model.UpdateUserSettingsRequest
-	if err := readJSON(r, &req); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid request body")
+	if err := httpapi.ReadJSON(r, &req); err != nil {
+		httpapi.WriteError(w, r, http.StatusBadRequest, "invalid request body")
 		return
 	}
 
@@ -786,11 +738,11 @@ func (a *App) apiUpdateUserSettings(w http.ResponseWriter, r *http.Request) {
 		timeZone = "Europe/Moscow"
 	}
 	if len(timeZone) > 64 {
-		writeError(w, http.StatusBadRequest, "time_zone is too long (max 64 characters)")
+		httpapi.WriteError(w, r, http.StatusBadRequest, "time_zone is too long (max 64 characters)")
 		return
 	}
 	if _, err := time.LoadLocation(timeZone); err != nil {
-		writeError(w, http.StatusBadRequest, "time_zone must be a valid IANA timezone")
+		httpapi.WriteError(w, r, http.StatusBadRequest, "time_zone must be a valid IANA timezone")
 		return
 	}
 
@@ -801,19 +753,19 @@ func (a *App) apiUpdateUserSettings(w http.ResponseWriter, r *http.Request) {
 	switch language {
 	case "ru", "en":
 	default:
-		writeError(w, http.StatusBadRequest, "language must be one of: ru, en")
+		httpapi.WriteError(w, r, http.StatusBadRequest, "language must be one of: ru, en")
 		return
 	}
 
 	res, err := a.db.Exec(`UPDATE users SET time_zone = ?, language = ? WHERE id = ?`, timeZone, language, id)
 	if err != nil {
 		log.Printf("apiUpdateUserSettings: %v", err)
-		writeError(w, http.StatusInternalServerError, "failed to update user settings")
+		httpapi.WriteError(w, r, http.StatusInternalServerError, "failed to update user settings")
 		return
 	}
 	updated, _ := res.RowsAffected()
 	if updated == 0 {
-		writeError(w, http.StatusNotFound, "user not found")
+		httpapi.WriteError(w, r, http.StatusNotFound, "user not found")
 		return
 	}
 
@@ -821,24 +773,24 @@ func (a *App) apiUpdateUserSettings(w http.ResponseWriter, r *http.Request) {
 		"time_zone": timeZone,
 		"language":  language,
 	})
-	writeMessage(w, "user settings updated")
+	httpapi.WriteMessage(w, "user settings updated")
 }
 
 func (a *App) apiGetPanelSettings(w http.ResponseWriter, r *http.Request) {
 	settings, err := a.getPanelSettings()
 	if err != nil {
 		log.Printf("apiGetPanelSettings: %v", err)
-		writeError(w, http.StatusInternalServerError, "failed to load panel settings")
+		httpapi.WriteError(w, r, http.StatusInternalServerError, "failed to load panel settings")
 		return
 	}
-	writeJSON(w, http.StatusOK, settings)
+	httpapi.WriteJSON(w, http.StatusOK, settings)
 }
 
 func (a *App) apiUpdatePanelSettings(w http.ResponseWriter, r *http.Request) {
 	// Panel settings may contain base64-encoded images — allow up to 16 MB.
 	var req model.PanelSettings
-	if err := readJSONWithLimit(w, r, &req, 16<<20); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid request body")
+	if err := httpapi.ReadJSONWithLimit(w, r, &req, 16<<20); err != nil {
+		httpapi.WriteError(w, r, http.StatusBadRequest, "invalid request body")
 		return
 	}
 	req.PanelTitle = strings.TrimSpace(req.PanelTitle)
@@ -856,26 +808,26 @@ func (a *App) apiUpdatePanelSettings(w http.ResponseWriter, r *http.Request) {
 	}
 	if err := a.updatePanelSettings(req); err != nil {
 		log.Printf("apiUpdatePanelSettings: %v", err)
-		writeError(w, http.StatusInternalServerError, "failed to save panel settings")
+		httpapi.WriteError(w, r, http.StatusInternalServerError, "failed to save panel settings")
 		return
 	}
-	writeJSON(w, http.StatusOK, req)
+	httpapi.WriteJSON(w, http.StatusOK, req)
 }
 
 func (a *App) apiGetSubscriptionSettings(w http.ResponseWriter, r *http.Request) {
 	settings, err := a.getSubscriptionSettings()
 	if err != nil {
 		log.Printf("apiGetSubscriptionSettings: %v", err)
-		writeError(w, http.StatusInternalServerError, "failed to load subscription settings")
+		httpapi.WriteError(w, r, http.StatusInternalServerError, "failed to load subscription settings")
 		return
 	}
-	writeJSON(w, http.StatusOK, settings)
+	httpapi.WriteJSON(w, http.StatusOK, settings)
 }
 
 func (a *App) apiUpdateSubscriptionSettings(w http.ResponseWriter, r *http.Request) {
 	var req model.UpdateSubscriptionSettingsRequest
-	if err := readJSON(r, &req); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid request body")
+	if err := httpapi.ReadJSON(r, &req); err != nil {
+		httpapi.WriteError(w, r, http.StatusBadRequest, "invalid request body")
 		return
 	}
 
@@ -884,7 +836,7 @@ func (a *App) apiUpdateSubscriptionSettings(w http.ResponseWriter, r *http.Reque
 		title = "AllKeys"
 	}
 	if len(title) > 120 {
-		writeError(w, http.StatusBadRequest, "title is too long (max 120 characters)")
+		httpapi.WriteError(w, r, http.StatusBadRequest, "title is too long (max 120 characters)")
 		return
 	}
 
@@ -893,7 +845,7 @@ func (a *App) apiUpdateSubscriptionSettings(w http.ResponseWriter, r *http.Reque
 		refreshHours = 12
 	}
 	if refreshHours > 720 {
-		writeError(w, http.StatusBadRequest, "refresh_hours must be between 1 and 720")
+		httpapi.WriteError(w, r, http.StatusBadRequest, "refresh_hours must be between 1 and 720")
 		return
 	}
 
@@ -904,7 +856,7 @@ func (a *App) apiUpdateSubscriptionSettings(w http.ResponseWriter, r *http.Reque
 		}
 		parsed, err := url.ParseRequestURI(raw)
 		if err != nil || parsed.Scheme == "" || parsed.Host == "" {
-			writeError(w, http.StatusBadRequest, field+" must be a valid absolute URL")
+			httpapi.WriteError(w, r, http.StatusBadRequest, field+" must be a valid absolute URL")
 			return "", false
 		}
 		return raw, true
@@ -921,12 +873,12 @@ func (a *App) apiUpdateSubscriptionSettings(w http.ResponseWriter, r *http.Reque
 
 	extraStatus := strings.TrimSpace(req.ExtraStatus)
 	if len(extraStatus) > 255 {
-		writeError(w, http.StatusBadRequest, "extra_status is too long (max 255 characters)")
+		httpapi.WriteError(w, r, http.StatusBadRequest, "extra_status is too long (max 255 characters)")
 		return
 	}
 	subscriptionFormat, ok := model.NormalizeSubscriptionFormat(req.SubscriptionFormat)
 	if !ok {
-		writeError(w, http.StatusBadRequest, "subscription_format must be one of: links, xray-json")
+		httpapi.WriteError(w, r, http.StatusBadRequest, "subscription_format must be one of: links, xray-json")
 		return
 	}
 
@@ -935,11 +887,11 @@ func (a *App) apiUpdateSubscriptionSettings(w http.ResponseWriter, r *http.Reque
 		timeZone = "Europe/Moscow"
 	}
 	if len(timeZone) > 64 {
-		writeError(w, http.StatusBadRequest, "time_zone is too long (max 64 characters)")
+		httpapi.WriteError(w, r, http.StatusBadRequest, "time_zone is too long (max 64 characters)")
 		return
 	}
 	if _, err := time.LoadLocation(timeZone); err != nil {
-		writeError(w, http.StatusBadRequest, "time_zone must be a valid IANA timezone")
+		httpapi.WriteError(w, r, http.StatusBadRequest, "time_zone must be a valid IANA timezone")
 		return
 	}
 
@@ -950,13 +902,13 @@ func (a *App) apiUpdateSubscriptionSettings(w http.ResponseWriter, r *http.Reque
 	switch language {
 	case "ru", "en":
 	default:
-		writeError(w, http.StatusBadRequest, "language must be one of: ru, en")
+		httpapi.WriteError(w, r, http.StatusBadRequest, "language must be one of: ru, en")
 		return
 	}
 
 	providerID := strings.TrimSpace(req.ProviderID)
 	if providerID != "" && !providerIDPattern.MatchString(providerID) {
-		writeError(w, http.StatusBadRequest, "provider_id must match ^[A-Za-z0-9]{8}$")
+		httpapi.WriteError(w, r, http.StatusBadRequest, "provider_id must match ^[A-Za-z0-9]{8}$")
 		return
 	}
 
@@ -971,7 +923,7 @@ func (a *App) apiUpdateSubscriptionSettings(w http.ResponseWriter, r *http.Reque
 		showSubscriptionExpiration = boolToInt(*req.ShowSubscriptionExpiration)
 	}
 	if len(happSubscriptionBody) > 10000 {
-		writeError(w, http.StatusBadRequest, "happ_subscription_body is too long (max 10000 characters)")
+		httpapi.WriteError(w, r, http.StatusBadRequest, "happ_subscription_body is too long (max 10000 characters)")
 		return
 	}
 	if _, err := a.db.Exec(
@@ -999,30 +951,30 @@ func (a *App) apiUpdateSubscriptionSettings(w http.ResponseWriter, r *http.Reque
 		nullStringValue(happSubscriptionBody),
 	); err != nil {
 		log.Printf("apiUpdateSubscriptionSettings: %v", err)
-		writeError(w, http.StatusInternalServerError, "failed to update subscription settings")
+		httpapi.WriteError(w, r, http.StatusInternalServerError, "failed to update subscription settings")
 		return
 	}
 
-	writeMessage(w, "subscription settings updated")
+	httpapi.WriteMessage(w, "subscription settings updated")
 }
 
 func (a *App) apiGetRoutingSettings(w http.ResponseWriter, r *http.Request) {
 	settings, err := a.getRoutingSettings()
 	if err != nil {
 		log.Printf("apiGetRoutingSettings: %v", err)
-		writeError(w, http.StatusInternalServerError, "failed to load routing settings")
+		httpapi.WriteError(w, r, http.StatusInternalServerError, "failed to load routing settings")
 		return
 	}
 	if !validRoutingDeliveryMode(settings.DeliveryMode) {
 		settings.DeliveryMode = routingDeliveryModeDisabled
 	}
-	writeJSON(w, http.StatusOK, routingSettingsWithLinks(settings))
+	httpapi.WriteJSON(w, http.StatusOK, routingSettingsWithLinks(settings))
 }
 
 func (a *App) apiUpdateRoutingSettings(w http.ResponseWriter, r *http.Request) {
 	var req model.UpdateRoutingSettingsRequest
-	if err := readJSON(r, &req); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid request body")
+	if err := httpapi.ReadJSON(r, &req); err != nil {
+		httpapi.WriteError(w, r, http.StatusBadRequest, "invalid request body")
 		return
 	}
 
@@ -1030,7 +982,7 @@ func (a *App) apiUpdateRoutingSettings(w http.ResponseWriter, r *http.Request) {
 	current, err := a.getRoutingSettings()
 	if err != nil {
 		log.Printf("apiUpdateRoutingSettings load current: %v", err)
-		writeError(w, http.StatusInternalServerError, "failed to update routing settings")
+		httpapi.WriteError(w, r, http.StatusInternalServerError, "failed to update routing settings")
 		return
 	}
 	deliveryMode := current.DeliveryMode
@@ -1041,103 +993,103 @@ func (a *App) apiUpdateRoutingSettings(w http.ResponseWriter, r *http.Request) {
 		deliveryMode = strings.TrimSpace(*req.DeliveryMode)
 	}
 	if !validRoutingDeliveryMode(deliveryMode) {
-		writeError(w, http.StatusBadRequest, "delivery_mode must be disabled, add, or onadd")
+		httpapi.WriteError(w, r, http.StatusBadRequest, "delivery_mode must be disabled, add, or onadd")
 		return
 	}
 	if err := validateHappRoutingConfig(configJSON, deliveryMode != routingDeliveryModeDisabled); err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
+		httpapi.WriteError(w, r, http.StatusBadRequest, err.Error())
 		return
 	}
 
 	settings := model.RoutingSettings{ConfigJSON: configJSON, DeliveryMode: deliveryMode}
 	if err := a.updateRoutingSettings(settings); err != nil {
 		log.Printf("apiUpdateRoutingSettings: %v", err)
-		writeError(w, http.StatusInternalServerError, "failed to update routing settings")
+		httpapi.WriteError(w, r, http.StatusInternalServerError, "failed to update routing settings")
 		return
 	}
 
 	response := routingSettingsWithLinks(settings)
 	response.Message = "routing settings updated"
-	writeJSON(w, http.StatusOK, response)
+	httpapi.WriteJSON(w, http.StatusOK, response)
 }
 
 func (a *App) apiUpdateUserHWID(w http.ResponseWriter, r *http.Request) {
-	id, ok := pathID(w, r, "id")
+	id, ok := httpapi.PathID(w, r, "id")
 	if !ok {
 		return
 	}
 
 	var req model.UpdateHWIDRequest
-	if err := readJSON(r, &req); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid request body")
+	if err := httpapi.ReadJSON(r, &req); err != nil {
+		httpapi.WriteError(w, r, http.StatusBadRequest, "invalid request body")
 		return
 	}
 
 	if req.MaxDevices < 0 || req.MaxDevices > 32 {
-		writeError(w, http.StatusBadRequest, "max_devices must be between 0 and 32 (0 means unlimited)")
+		httpapi.WriteError(w, r, http.StatusBadRequest, "max_devices must be between 0 and 32 (0 means unlimited)")
 		return
 	}
 
 	if _, err := a.db.Exec(`UPDATE users SET max_devices = ? WHERE id = ?`, req.MaxDevices, id); err != nil {
 		log.Printf("apiUpdateUserHWID: %v", err)
-		writeError(w, http.StatusInternalServerError, "failed to update hwid settings")
+		httpapi.WriteError(w, r, http.StatusInternalServerError, "failed to update hwid settings")
 		return
 	}
 	a.recordAuditEvent(r, "user.hwid.update", "user", strconv.FormatInt(id, 10), map[string]any{"max_devices": req.MaxDevices})
-	writeMessage(w, "hwid settings updated")
+	httpapi.WriteMessage(w, "hwid settings updated")
 }
 
 func (a *App) apiDeleteUserHWID(w http.ResponseWriter, r *http.Request) {
-	id, ok := pathID(w, r, "id")
+	id, ok := httpapi.PathID(w, r, "id")
 	if !ok {
 		return
 	}
 	hwid := r.PathValue("hwid")
 	if strings.TrimSpace(hwid) == "" {
-		writeError(w, http.StatusBadRequest, "hwid is required")
+		httpapi.WriteError(w, r, http.StatusBadRequest, "hwid is required")
 		return
 	}
 
 	res, err := a.db.Exec(`DELETE FROM user_devices WHERE user_id = ? AND hwid = ?`, id, hwid)
 	if err != nil {
 		log.Printf("apiDeleteUserHWID: %v", err)
-		writeError(w, http.StatusInternalServerError, "failed to delete hwid")
+		httpapi.WriteError(w, r, http.StatusInternalServerError, "failed to delete hwid")
 		return
 	}
 	n, _ := res.RowsAffected()
 	if n == 0 {
-		writeError(w, http.StatusNotFound, "hwid not found")
+		httpapi.WriteError(w, r, http.StatusNotFound, "hwid not found")
 		return
 	}
 	a.recordAuditEvent(r, "user.hwid.delete", "user", strconv.FormatInt(id, 10), nil)
-	writeMessage(w, "hwid removed")
+	httpapi.WriteMessage(w, "hwid removed")
 }
 
 // --- Subscription API ---
 
 func (a *App) apiActivateSubscription(w http.ResponseWriter, r *http.Request) {
 	var req model.ActivateRequest
-	if err := readJSON(r, &req); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid request body")
+	if err := httpapi.ReadJSON(r, &req); err != nil {
+		httpapi.WriteError(w, r, http.StatusBadRequest, "invalid request body")
 		return
 	}
 
 	activationCode := strings.TrimSpace(req.ActivationCode)
 	if activationCode == "" || strings.Contains(activationCode, "/") {
-		writeError(w, http.StatusBadRequest, "Введите корректный ключ активации")
+		httpapi.WriteError(w, r, http.StatusBadRequest, "Введите корректный ключ активации")
 		return
 	}
 
 	subscriptionID, code, reason, err := a.redeemActivationCode(activationCode)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to activate subscription")
+		httpapi.WriteError(w, r, http.StatusInternalServerError, "failed to activate subscription")
 		return
 	}
 	if code != http.StatusOK {
 		if strings.TrimSpace(reason) == "" {
 			reason = "Не удалось активировать подписку"
 		}
-		writeError(w, code, reason)
+		httpapi.WriteError(w, r, code, reason)
 		return
 	}
 
@@ -1149,7 +1101,7 @@ func (a *App) apiActivateSubscription(w http.ResponseWriter, r *http.Request) {
 			log.Printf("apiActivateSubscription: failed to encrypt url via configured Happ API: %v", err)
 		}
 	}
-	writeJSON(w, http.StatusOK, map[string]any{
+	httpapi.WriteJSON(w, http.StatusOK, map[string]any{
 		"subscription_url": subscriptionURL,
 		"message":          "Ключ активирован. Ссылка готова — скопируйте и вставьте её в VPN-клиент",
 	})
@@ -1195,7 +1147,7 @@ func (a *App) handleSubscription(w http.ResponseWriter, r *http.Request) {
 	delivery.ApplyExclusionHeaders(w.Header(), generated.Exclusions)
 	if denyCode != 0 {
 		if denyCode == http.StatusUnprocessableEntity && denyReason == delivery.ReasonAllExcluded {
-			writeJSON(w, denyCode, delivery.FailurePayload(generated))
+			httpapi.WriteJSON(w, denyCode, delivery.FailurePayload(generated))
 			a.incrementSubscriptionMetric(generated.OutputFormat, "all_excluded")
 			return
 		}
@@ -1528,14 +1480,14 @@ func (a *App) apiExportUsers(w http.ResponseWriter, r *http.Request) {
 	users, err := a.listUsers()
 	if err != nil {
 		log.Printf("apiExportUsers: %v", err)
-		writeError(w, http.StatusInternalServerError, "failed to export users")
+		httpapi.WriteError(w, r, http.StatusInternalServerError, "failed to export users")
 		return
 	}
 	if users == nil {
 		users = []model.User{}
 	}
 	w.Header().Set("Content-Disposition", `attachment; filename="users.json"`)
-	writeJSON(w, http.StatusOK, users)
+	httpapi.WriteJSON(w, http.StatusOK, users)
 }
 
 func (a *App) apiGetSubscriptionInfo(w http.ResponseWriter, r *http.Request) {
@@ -1587,6 +1539,6 @@ WHERE subscription_id = ?
 		user.ExpiresAt = expiresAt.Time.Format(time.RFC3339)
 	}
 
-	writeJSON(w, http.StatusOK, user)
+	httpapi.WriteJSON(w, http.StatusOK, user)
 	a.incrementSubscriptionMetric("info", "success")
 }

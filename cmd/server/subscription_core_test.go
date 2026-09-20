@@ -5,6 +5,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"errors"
+	"github.com/romanpodg/SubShare-Go/internal/httpapi"
 	"net/http"
 	"net/http/httptest"
 	"strconv"
@@ -448,7 +449,7 @@ func TestStrictJSONRejectsUnknownTrailingAndOversizedBodies(t *testing.T) {
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			var request model.UpdateKeyAssignmentRequest
-			err := readJSONWithLimit(httptest.NewRecorder(), httptest.NewRequest(http.MethodPut, "/", bytes.NewBufferString(test.body)), &request, 128)
+			err := httpapi.ReadJSONWithLimit(httptest.NewRecorder(), httptest.NewRequest(http.MethodPut, "/", bytes.NewBufferString(test.body)), &request, 128)
 			if err == nil {
 				t.Fatal("invalid JSON body was accepted")
 			}

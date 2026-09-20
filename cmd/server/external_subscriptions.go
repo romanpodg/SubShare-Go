@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"database/sql"
+	"github.com/romanpodg/SubShare-Go/internal/httpapi"
 	"log"
 	"net/http"
 	"sort"
@@ -304,38 +305,38 @@ func (a *App) apiListExternalSourceCategories(w http.ResponseWriter, r *http.Req
 	categories, err := a.listExternalSourceCategories()
 	if err != nil {
 		log.Printf("apiListExternalSourceCategories: %v", err)
-		writeError(w, http.StatusInternalServerError, "failed to list source categories")
+		httpapi.WriteError(w, r, http.StatusInternalServerError, "failed to list source categories")
 		return
 	}
 	if categories == nil {
 		categories = []model.ExternalSourceCategory{}
 	}
-	writeJSON(w, http.StatusOK, map[string]any{
+	httpapi.WriteJSON(w, http.StatusOK, map[string]any{
 		"categories": categories,
 	})
 }
 
 func (a *App) apiCreateExternalSourceCategory(w http.ResponseWriter, r *http.Request) {
 	var req model.ExternalSourceCategoryCreateRequest
-	if err := readJSON(r, &req); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid request body")
+	if err := httpapi.ReadJSON(r, &req); err != nil {
+		httpapi.WriteError(w, r, http.StatusBadRequest, "invalid request body")
 		return
 	}
 
 	rawName := strings.TrimSpace(req.Name)
 	if rawName == "" {
-		writeError(w, http.StatusBadRequest, "category name is required")
+		httpapi.WriteError(w, r, http.StatusBadRequest, "category name is required")
 		return
 	}
 	name := sources.NormalizeCategory(rawName)
 
 	if err := a.upsertExternalSourceCategory(name); err != nil {
 		log.Printf("apiCreateExternalSourceCategory: %v", err)
-		writeError(w, http.StatusInternalServerError, "failed to create source category")
+		httpapi.WriteError(w, r, http.StatusInternalServerError, "failed to create source category")
 		return
 	}
 
-	writeJSON(w, http.StatusOK, map[string]any{
+	httpapi.WriteJSON(w, http.StatusOK, map[string]any{
 		"category": model.ExternalSourceCategory{Name: name},
 		"message":  "source category saved",
 	})
@@ -343,44 +344,44 @@ func (a *App) apiCreateExternalSourceCategory(w http.ResponseWriter, r *http.Req
 
 func (a *App) apiRenameExternalSourceCategory(w http.ResponseWriter, r *http.Request) {
 	var req model.ExternalSourceCategoryRenameRequest
-	if err := readJSON(r, &req); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid request body")
+	if err := httpapi.ReadJSON(r, &req); err != nil {
+		httpapi.WriteError(w, r, http.StatusBadRequest, "invalid request body")
 		return
 	}
 
 	oldRaw := strings.TrimSpace(req.OldName)
 	newRaw := strings.TrimSpace(req.NewName)
 	if oldRaw == "" || newRaw == "" {
-		writeError(w, http.StatusBadRequest, "both old_name and new_name are required")
+		httpapi.WriteError(w, r, http.StatusBadRequest, "both old_name and new_name are required")
 		return
 	}
 	oldName := sources.NormalizeCategory(oldRaw)
 	newName := sources.NormalizeCategory(newRaw)
 	if oldName == newName {
-		writeMessage(w, "category name unchanged")
+		httpapi.WriteMessage(w, "category name unchanged")
 		return
 	}
 
 	var sourceCount int64
 	if err := a.db.QueryRow(`SELECT COUNT(*) FROM external_subscription_sources WHERE category = ?`, oldName).Scan(&sourceCount); err != nil {
 		log.Printf("apiRenameExternalSourceCategory count sources: %v", err)
-		writeError(w, http.StatusInternalServerError, "failed to rename source category")
+		httpapi.WriteError(w, r, http.StatusInternalServerError, "failed to rename source category")
 		return
 	}
 	var categoryCount int64
 	if err := a.db.QueryRow(`SELECT COUNT(*) FROM external_source_categories WHERE name = ?`, oldName).Scan(&categoryCount); err != nil {
 		log.Printf("apiRenameExternalSourceCategory count categories: %v", err)
-		writeError(w, http.StatusInternalServerError, "failed to rename source category")
+		httpapi.WriteError(w, r, http.StatusInternalServerError, "failed to rename source category")
 		return
 	}
 	if sourceCount == 0 && categoryCount == 0 {
-		writeError(w, http.StatusNotFound, "source category not found")
+		httpapi.WriteError(w, r, http.StatusNotFound, "source category not found")
 		return
 	}
 
 	tx, err := a.db.Begin()
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to rename source category")
+		httpapi.WriteError(w, r, http.StatusInternalServerError, "failed to rename source category")
 		return
 	}
 	defer tx.Rollback()
@@ -392,7 +393,7 @@ func (a *App) apiRenameExternalSourceCategory(w http.ResponseWriter, r *http.Req
 		newName,
 	); err != nil {
 		log.Printf("apiRenameExternalSourceCategory upsert new category: %v", err)
-		writeError(w, http.StatusInternalServerError, "failed to rename source category")
+		httpapi.WriteError(w, r, http.StatusInternalServerError, "failed to rename source category")
 		return
 	}
 
@@ -404,22 +405,22 @@ func (a *App) apiRenameExternalSourceCategory(w http.ResponseWriter, r *http.Req
 		oldName,
 	); err != nil {
 		log.Printf("apiRenameExternalSourceCategory update sources: %v", err)
-		writeError(w, http.StatusInternalServerError, "failed to rename source category")
+		httpapi.WriteError(w, r, http.StatusInternalServerError, "failed to rename source category")
 		return
 	}
 
 	if _, err := tx.Exec(`DELETE FROM external_source_categories WHERE name = ?`, oldName); err != nil {
 		log.Printf("apiRenameExternalSourceCategory delete old category: %v", err)
-		writeError(w, http.StatusInternalServerError, "failed to rename source category")
+		httpapi.WriteError(w, r, http.StatusInternalServerError, "failed to rename source category")
 		return
 	}
 
 	if err := tx.Commit(); err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to rename source category")
+		httpapi.WriteError(w, r, http.StatusInternalServerError, "failed to rename source category")
 		return
 	}
 
-	writeMessage(w, "source category renamed")
+	httpapi.WriteMessage(w, "source category renamed")
 }
 
 func (row externalSourceRow) syncTarget() sources.SyncTarget {

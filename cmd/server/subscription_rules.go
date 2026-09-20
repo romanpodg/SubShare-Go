@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"github.com/romanpodg/SubShare-Go/internal/delivery"
+	"github.com/romanpodg/SubShare-Go/internal/httpapi"
 	"net/http"
 	"regexp"
 	"strconv"
@@ -354,10 +355,10 @@ func (a *App) matchSubscriptionResponseRule(r *http.Request) (*responseRule, err
 func (a *App) apiV1ListTemplates(w http.ResponseWriter, r *http.Request) {
 	items, err := a.listSubscriptionTemplates()
 	if err != nil {
-		writeV1Error(w, r, http.StatusInternalServerError, "templates_list_failed", "failed to load templates")
+		httpapi.WriteV1Error(w, r, http.StatusInternalServerError, "templates_list_failed", "failed to load templates")
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"data": items})
+	httpapi.WriteJSON(w, http.StatusOK, map[string]any{"data": items})
 }
 
 func renderTemplatePreview(input templateInput) (string, string, error) {
@@ -391,32 +392,32 @@ func renderTemplatePreview(input templateInput) (string, string, error) {
 
 func (a *App) apiV1PreviewTemplate(w http.ResponseWriter, r *http.Request) {
 	var input templateInput
-	if err := readJSON(r, &input); err != nil {
-		writeV1Error(w, r, http.StatusBadRequest, "invalid_body", "invalid request body")
+	if err := httpapi.ReadJSON(r, &input); err != nil {
+		httpapi.WriteV1Error(w, r, http.StatusBadRequest, "invalid_body", "invalid request body")
 		return
 	}
 	input, err := validateTemplateInput(input)
 	if err != nil {
-		writeV1Error(w, r, http.StatusBadRequest, "template_invalid", err.Error())
+		httpapi.WriteV1Error(w, r, http.StatusBadRequest, "template_invalid", err.Error())
 		return
 	}
 	body, contentType, err := renderTemplatePreview(input)
 	if err != nil {
-		writeV1Error(w, r, http.StatusUnprocessableEntity, "template_render_invalid", err.Error())
+		httpapi.WriteV1Error(w, r, http.StatusUnprocessableEntity, "template_render_invalid", err.Error())
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"content": body, "content_type": contentType})
+	httpapi.WriteJSON(w, http.StatusOK, map[string]any{"content": body, "content_type": contentType})
 }
 
 func (a *App) apiV1CreateTemplate(w http.ResponseWriter, r *http.Request) {
 	var input templateInput
-	if err := readJSON(r, &input); err != nil {
-		writeV1Error(w, r, http.StatusBadRequest, "invalid_body", "invalid request body")
+	if err := httpapi.ReadJSON(r, &input); err != nil {
+		httpapi.WriteV1Error(w, r, http.StatusBadRequest, "invalid_body", "invalid request body")
 		return
 	}
 	input, err := validateTemplateInput(input)
 	if err != nil {
-		writeV1Error(w, r, http.StatusBadRequest, "template_invalid", err.Error())
+		httpapi.WriteV1Error(w, r, http.StatusBadRequest, "template_invalid", err.Error())
 		return
 	}
 	slug := templateSlug(input.Name)
@@ -433,27 +434,27 @@ func (a *App) apiV1CreateTemplate(w http.ResponseWriter, r *http.Request) {
 		VALUES(?, ?, ?, ?, ?)
 	`, slug, input.Name, input.Format, input.Content, boolToInt(input.Enabled))
 	if err != nil {
-		writeV1Error(w, r, http.StatusConflict, "template_create_failed", "failed to create template")
+		httpapi.WriteV1Error(w, r, http.StatusConflict, "template_create_failed", "failed to create template")
 		return
 	}
 	id, _ := result.LastInsertId()
 	a.recordAuditEvent(r, "template.create", "template", strconv.FormatInt(id, 10), map[string]any{"name": input.Name, "format": input.Format})
-	writeJSON(w, http.StatusCreated, map[string]any{"id": id, "slug": slug})
+	httpapi.WriteJSON(w, http.StatusCreated, map[string]any{"id": id, "slug": slug})
 }
 
 func (a *App) apiV1UpdateTemplate(w http.ResponseWriter, r *http.Request) {
-	id, ok := pathID(w, r, "id")
+	id, ok := httpapi.PathID(w, r, "id")
 	if !ok {
 		return
 	}
 	var input templateInput
-	if err := readJSON(r, &input); err != nil {
-		writeV1Error(w, r, http.StatusBadRequest, "invalid_body", "invalid request body")
+	if err := httpapi.ReadJSON(r, &input); err != nil {
+		httpapi.WriteV1Error(w, r, http.StatusBadRequest, "invalid_body", "invalid request body")
 		return
 	}
 	input, err := validateTemplateInput(input)
 	if err != nil {
-		writeV1Error(w, r, http.StatusBadRequest, "template_invalid", err.Error())
+		httpapi.WriteV1Error(w, r, http.StatusBadRequest, "template_invalid", err.Error())
 		return
 	}
 	result, err := a.db.Exec(`
@@ -462,73 +463,73 @@ func (a *App) apiV1UpdateTemplate(w http.ResponseWriter, r *http.Request) {
 		WHERE id = ?
 	`, input.Name, input.Format, input.Content, boolToInt(input.Enabled), id)
 	if err != nil {
-		writeV1Error(w, r, http.StatusConflict, "template_update_failed", "failed to update template")
+		httpapi.WriteV1Error(w, r, http.StatusConflict, "template_update_failed", "failed to update template")
 		return
 	}
 	if affected, _ := result.RowsAffected(); affected == 0 {
-		writeV1Error(w, r, http.StatusNotFound, "template_not_found", "template not found")
+		httpapi.WriteV1Error(w, r, http.StatusNotFound, "template_not_found", "template not found")
 		return
 	}
 	a.recordAuditEvent(r, "template.update", "template", strconv.FormatInt(id, 10), map[string]any{"name": input.Name, "format": input.Format})
-	writeMessage(w, "template updated")
+	httpapi.WriteMessage(w, "template updated")
 }
 
 func (a *App) apiV1DeleteTemplate(w http.ResponseWriter, r *http.Request) {
-	id, ok := pathID(w, r, "id")
+	id, ok := httpapi.PathID(w, r, "id")
 	if !ok {
 		return
 	}
 	var system int
 	err := a.db.QueryRow(`SELECT is_system FROM subscription_templates WHERE id = ?`, id).Scan(&system)
 	if errors.Is(err, sql.ErrNoRows) {
-		writeV1Error(w, r, http.StatusNotFound, "template_not_found", "template not found")
+		httpapi.WriteV1Error(w, r, http.StatusNotFound, "template_not_found", "template not found")
 		return
 	}
 	if err != nil {
-		writeV1Error(w, r, http.StatusInternalServerError, "template_delete_failed", "failed to delete template")
+		httpapi.WriteV1Error(w, r, http.StatusInternalServerError, "template_delete_failed", "failed to delete template")
 		return
 	}
 	if system != 0 {
-		writeV1Error(w, r, http.StatusConflict, "system_template", "system templates cannot be deleted")
+		httpapi.WriteV1Error(w, r, http.StatusConflict, "system_template", "system templates cannot be deleted")
 		return
 	}
 	if _, err := a.db.Exec(`DELETE FROM subscription_templates WHERE id = ?`, id); err != nil {
-		writeV1Error(w, r, http.StatusConflict, "template_in_use", "template is used by a response rule")
+		httpapi.WriteV1Error(w, r, http.StatusConflict, "template_in_use", "template is used by a response rule")
 		return
 	}
 	a.recordAuditEvent(r, "template.delete", "template", strconv.FormatInt(id, 10), nil)
-	writeMessage(w, "template deleted")
+	httpapi.WriteMessage(w, "template deleted")
 }
 
 func (a *App) apiV1ListResponseRules(w http.ResponseWriter, r *http.Request) {
 	items, err := a.listResponseRules()
 	if err != nil {
-		writeV1Error(w, r, http.StatusInternalServerError, "rules_list_failed", "failed to load response rules")
+		httpapi.WriteV1Error(w, r, http.StatusInternalServerError, "rules_list_failed", "failed to load response rules")
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"data": items})
+	httpapi.WriteJSON(w, http.StatusOK, map[string]any{"data": items})
 }
 
 func (a *App) saveResponseRule(w http.ResponseWriter, r *http.Request, id *int64) {
 	var input responseRuleInput
-	if err := readJSON(r, &input); err != nil {
-		writeV1Error(w, r, http.StatusBadRequest, "invalid_body", "invalid request body")
+	if err := httpapi.ReadJSON(r, &input); err != nil {
+		httpapi.WriteV1Error(w, r, http.StatusBadRequest, "invalid_body", "invalid request body")
 		return
 	}
 	input, err := validateResponseRuleInput(input)
 	if err != nil {
-		writeV1Error(w, r, http.StatusBadRequest, "rule_invalid", err.Error())
+		httpapi.WriteV1Error(w, r, http.StatusBadRequest, "rule_invalid", err.Error())
 		return
 	}
 	if input.TemplateID != nil {
 		var enabled int
 		var templateFormat string
 		if err := a.db.QueryRow(`SELECT enabled, format FROM subscription_templates WHERE id = ?`, *input.TemplateID).Scan(&enabled, &templateFormat); err != nil || enabled == 0 {
-			writeV1Error(w, r, http.StatusBadRequest, "template_invalid", "selected template does not exist or is disabled")
+			httpapi.WriteV1Error(w, r, http.StatusBadRequest, "template_invalid", "selected template does not exist or is disabled")
 			return
 		}
 		if templateFormat != input.ResponseType {
-			writeV1Error(w, r, http.StatusBadRequest, "template_format_mismatch", "selected template format must match the rule response type")
+			httpapi.WriteV1Error(w, r, http.StatusBadRequest, "template_format_mismatch", "selected template format must match the rule response type")
 			return
 		}
 	} else if input.ResponseType == "browser" || input.ResponseType == "block" || input.ResponseType == "not-found" {
@@ -542,12 +543,12 @@ func (a *App) saveResponseRule(w http.ResponseWriter, r *http.Request, id *int64
 			VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?)
 		`, input.Name, input.Description, boolToInt(input.Enabled), input.Priority, input.Operator, string(conditionsJSON), input.ResponseType, input.TemplateID, string(headersJSON))
 		if err != nil {
-			writeV1Error(w, r, http.StatusConflict, "rule_create_failed", "failed to create response rule")
+			httpapi.WriteV1Error(w, r, http.StatusConflict, "rule_create_failed", "failed to create response rule")
 			return
 		}
 		createdID, _ := result.LastInsertId()
 		a.recordAuditEvent(r, "response_rule.create", "response_rule", strconv.FormatInt(createdID, 10), map[string]any{"name": input.Name})
-		writeJSON(w, http.StatusCreated, map[string]any{"id": createdID})
+		httpapi.WriteJSON(w, http.StatusCreated, map[string]any{"id": createdID})
 		return
 	}
 	result, err := a.db.Exec(`
@@ -557,15 +558,15 @@ func (a *App) saveResponseRule(w http.ResponseWriter, r *http.Request, id *int64
 		WHERE id = ?
 	`, input.Name, input.Description, boolToInt(input.Enabled), input.Priority, input.Operator, string(conditionsJSON), input.ResponseType, input.TemplateID, string(headersJSON), *id)
 	if err != nil {
-		writeV1Error(w, r, http.StatusConflict, "rule_update_failed", "failed to update response rule")
+		httpapi.WriteV1Error(w, r, http.StatusConflict, "rule_update_failed", "failed to update response rule")
 		return
 	}
 	if affected, _ := result.RowsAffected(); affected == 0 {
-		writeV1Error(w, r, http.StatusNotFound, "rule_not_found", "response rule not found")
+		httpapi.WriteV1Error(w, r, http.StatusNotFound, "rule_not_found", "response rule not found")
 		return
 	}
 	a.recordAuditEvent(r, "response_rule.update", "response_rule", strconv.FormatInt(*id, 10), map[string]any{"name": input.Name})
-	writeMessage(w, "response rule updated")
+	httpapi.WriteMessage(w, "response rule updated")
 }
 
 func (a *App) apiV1CreateResponseRule(w http.ResponseWriter, r *http.Request) {
@@ -573,7 +574,7 @@ func (a *App) apiV1CreateResponseRule(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *App) apiV1UpdateResponseRule(w http.ResponseWriter, r *http.Request) {
-	id, ok := pathID(w, r, "id")
+	id, ok := httpapi.PathID(w, r, "id")
 	if !ok {
 		return
 	}
@@ -581,30 +582,30 @@ func (a *App) apiV1UpdateResponseRule(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *App) apiV1DeleteResponseRule(w http.ResponseWriter, r *http.Request) {
-	id, ok := pathID(w, r, "id")
+	id, ok := httpapi.PathID(w, r, "id")
 	if !ok {
 		return
 	}
 	var system int
 	err := a.db.QueryRow(`SELECT is_system FROM response_rules WHERE id = ?`, id).Scan(&system)
 	if errors.Is(err, sql.ErrNoRows) {
-		writeV1Error(w, r, http.StatusNotFound, "rule_not_found", "response rule not found")
+		httpapi.WriteV1Error(w, r, http.StatusNotFound, "rule_not_found", "response rule not found")
 		return
 	}
 	if err != nil {
-		writeV1Error(w, r, http.StatusInternalServerError, "rule_delete_failed", "failed to delete response rule")
+		httpapi.WriteV1Error(w, r, http.StatusInternalServerError, "rule_delete_failed", "failed to delete response rule")
 		return
 	}
 	if system != 0 {
-		writeV1Error(w, r, http.StatusConflict, "system_rule", "system response rules cannot be deleted")
+		httpapi.WriteV1Error(w, r, http.StatusConflict, "system_rule", "system response rules cannot be deleted")
 		return
 	}
 	if _, err := a.db.Exec(`DELETE FROM response_rules WHERE id = ?`, id); err != nil {
-		writeV1Error(w, r, http.StatusInternalServerError, "rule_delete_failed", "failed to delete response rule")
+		httpapi.WriteV1Error(w, r, http.StatusInternalServerError, "rule_delete_failed", "failed to delete response rule")
 		return
 	}
 	a.recordAuditEvent(r, "response_rule.delete", "response_rule", strconv.FormatInt(id, 10), nil)
-	writeMessage(w, "response rule deleted")
+	httpapi.WriteMessage(w, "response rule deleted")
 }
 
 func (a *App) loadTemplate(id *int64) (*subscriptionTemplate, error) {

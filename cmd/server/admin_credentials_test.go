@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"github.com/romanpodg/SubShare-Go/internal/httpapi"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
@@ -357,7 +358,7 @@ func TestAdministratorCreateAndChangeRoutesSharePasswordPolicy(t *testing.T) {
 		handler := http.Handler(http.HandlerFunc(app.apiCreateAdmin))
 		if v1 {
 			request = httptest.NewRequest(http.MethodPost, "/api/v1/admins", bytes.NewReader(body))
-			handler = app.v1Compatibility(handler)
+			handler = httpapi.V1Envelope(handler)
 		}
 		handler.ServeHTTP(recorder, request)
 		return recorder
@@ -421,7 +422,7 @@ func TestAdministratorCreateAndChangeRoutesSharePasswordPolicy(t *testing.T) {
 		recorder := httptest.NewRecorder()
 		handler := http.Handler(http.HandlerFunc(app.apiUpdateAdmin))
 		if v1 {
-			handler = app.v1Compatibility(handler)
+			handler = httpapi.V1Envelope(handler)
 		}
 		handler.ServeHTTP(recorder, request)
 		return recorder

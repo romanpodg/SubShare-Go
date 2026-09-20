@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"github.com/romanpodg/SubShare-Go/internal/httpapi"
 	"github.com/romanpodg/SubShare-Go/internal/storage"
 	"net/http"
 	"net/url"
@@ -33,13 +34,13 @@ func normalizeAbsoluteHTTPURL(raw, field string) (string, error) {
 }
 
 func (a *App) apiV1PatchUserSubscription(w http.ResponseWriter, r *http.Request) {
-	id, ok := pathID(w, r, "id")
+	id, ok := httpapi.PathID(w, r, "id")
 	if !ok {
 		return
 	}
 	var input model.PatchSubscriptionRequest
-	if err := readJSON(r, &input); err != nil {
-		writeV1Error(w, r, http.StatusBadRequest, "invalid_body", "invalid request body")
+	if err := httpapi.ReadJSON(r, &input); err != nil {
+		httpapi.WriteV1Error(w, r, http.StatusBadRequest, "invalid_body", "invalid request body")
 		return
 	}
 
@@ -59,22 +60,22 @@ func (a *App) apiV1PatchUserSubscription(w http.ResponseWriter, r *http.Request)
 		&infoURL, &extraURL, &extraStatus, &timeZone,
 	)
 	if errors.Is(err, sql.ErrNoRows) {
-		writeV1Error(w, r, http.StatusNotFound, "user_not_found", "user not found")
+		httpapi.WriteV1Error(w, r, http.StatusNotFound, "user_not_found", "user not found")
 		return
 	}
 	if err != nil {
-		writeV1Error(w, r, http.StatusInternalServerError, "subscription_load_failed", "failed to load subscription")
+		httpapi.WriteV1Error(w, r, http.StatusInternalServerError, "subscription_load_failed", "failed to load subscription")
 		return
 	}
 
 	if input.Status.Set {
 		if input.Status.Null {
-			writeV1Error(w, r, http.StatusBadRequest, "status_invalid", "status cannot be null")
+			httpapi.WriteV1Error(w, r, http.StatusBadRequest, "status_invalid", "status cannot be null")
 			return
 		}
 		normalized, valid := model.NormalizeUserStatus(input.Status.Value)
 		if !valid {
-			writeV1Error(w, r, http.StatusBadRequest, "status_invalid", "invalid subscription status")
+			httpapi.WriteV1Error(w, r, http.StatusBadRequest, "status_invalid", "invalid subscription status")
 			return
 		}
 		status = normalized
@@ -99,15 +100,15 @@ func (a *App) apiV1PatchUserSubscription(w http.ResponseWriter, r *http.Request)
 		return nil
 	}
 	if err := applyTime(input.StartsAt, &startsAt, "starts_at"); err != nil {
-		writeV1Error(w, r, http.StatusBadRequest, "starts_at_invalid", err.Error())
+		httpapi.WriteV1Error(w, r, http.StatusBadRequest, "starts_at_invalid", err.Error())
 		return
 	}
 	if err := applyTime(input.ExpiresAt, &expiresAt, "expires_at"); err != nil {
-		writeV1Error(w, r, http.StatusBadRequest, "expires_at_invalid", err.Error())
+		httpapi.WriteV1Error(w, r, http.StatusBadRequest, "expires_at_invalid", err.Error())
 		return
 	}
 	if startsAt.Valid && expiresAt.Valid && startsAt.Time.After(expiresAt.Time) {
-		writeV1Error(w, r, http.StatusBadRequest, "date_range_invalid", "starts_at must be before expires_at")
+		httpapi.WriteV1Error(w, r, http.StatusBadRequest, "date_range_invalid", "starts_at must be before expires_at")
 		return
 	}
 
@@ -127,15 +128,15 @@ func (a *App) apiV1PatchUserSubscription(w http.ResponseWriter, r *http.Request)
 		return nil
 	}
 	if err := applyString(input.BlockedReason, &blockedReason, 255, "blocked_reason"); err != nil {
-		writeV1Error(w, r, http.StatusBadRequest, "blocked_reason_invalid", err.Error())
+		httpapi.WriteV1Error(w, r, http.StatusBadRequest, "blocked_reason_invalid", err.Error())
 		return
 	}
 	if err := applyString(input.SubscriptionName, &name, 120, "subscription_name"); err != nil {
-		writeV1Error(w, r, http.StatusBadRequest, "subscription_name_invalid", err.Error())
+		httpapi.WriteV1Error(w, r, http.StatusBadRequest, "subscription_name_invalid", err.Error())
 		return
 	}
 	if err := applyString(input.SubscriptionExtraStatus, &extraStatus, 255, "subscription_extra_status"); err != nil {
-		writeV1Error(w, r, http.StatusBadRequest, "subscription_extra_status_invalid", err.Error())
+		httpapi.WriteV1Error(w, r, http.StatusBadRequest, "subscription_extra_status_invalid", err.Error())
 		return
 	}
 	applyURL := func(field model.OptionalString, target *sql.NullString, fieldName string) error {
@@ -154,18 +155,18 @@ func (a *App) apiV1PatchUserSubscription(w http.ResponseWriter, r *http.Request)
 		return nil
 	}
 	if err := applyURL(input.SubscriptionInfoURL, &infoURL, "subscription_info_url"); err != nil {
-		writeV1Error(w, r, http.StatusBadRequest, "subscription_info_url_invalid", err.Error())
+		httpapi.WriteV1Error(w, r, http.StatusBadRequest, "subscription_info_url_invalid", err.Error())
 		return
 	}
 	if err := applyURL(input.SubscriptionExtraURL, &extraURL, "subscription_extra_url"); err != nil {
-		writeV1Error(w, r, http.StatusBadRequest, "subscription_extra_url_invalid", err.Error())
+		httpapi.WriteV1Error(w, r, http.StatusBadRequest, "subscription_extra_url_invalid", err.Error())
 		return
 	}
 	if input.SubscriptionRefreshHours.Set {
 		if input.SubscriptionRefreshHours.Null || input.SubscriptionRefreshHours.Value == 0 {
 			refreshHours = 0
 		} else if input.SubscriptionRefreshHours.Value < 1 || input.SubscriptionRefreshHours.Value > 720 {
-			writeV1Error(w, r, http.StatusBadRequest, "subscription_refresh_invalid", "subscription_refresh_hours must be between 1 and 720")
+			httpapi.WriteV1Error(w, r, http.StatusBadRequest, "subscription_refresh_invalid", "subscription_refresh_hours must be between 1 and 720")
 			return
 		} else {
 			refreshHours = input.SubscriptionRefreshHours.Value
@@ -186,11 +187,11 @@ func (a *App) apiV1PatchUserSubscription(w http.ResponseWriter, r *http.Request)
 		nullStringValue(name.String), refreshHours, nullStringValue(infoURL.String),
 		nullStringValue(extraURL.String), nullStringValue(extraStatus.String), id)
 	if err != nil {
-		writeV1Error(w, r, http.StatusInternalServerError, "subscription_update_failed", "failed to update subscription")
+		httpapi.WriteV1Error(w, r, http.StatusInternalServerError, "subscription_update_failed", "failed to update subscription")
 		return
 	}
 	a.recordAuditEvent(r, "user.subscription.update", "user", strconv.FormatInt(id, 10), map[string]any{"status": status})
-	writeMessage(w, "subscription updated")
+	httpapi.WriteMessage(w, "subscription updated")
 }
 
 func (a *App) updateUserKeyAssignment(userID int64, mode string, keyIDs []int64) error {
@@ -248,36 +249,36 @@ func (a *App) updateUserKeyAssignment(userID int64, mode string, keyIDs []int64)
 }
 
 func (a *App) apiV1UpdateUserKeyAssignment(w http.ResponseWriter, r *http.Request) {
-	id, ok := pathID(w, r, "id")
+	id, ok := httpapi.PathID(w, r, "id")
 	if !ok {
 		return
 	}
 	var input model.UpdateKeyAssignmentRequest
-	if err := readJSON(r, &input); err != nil {
-		writeV1Error(w, r, http.StatusBadRequest, "invalid_body", "invalid request body")
+	if err := httpapi.ReadJSON(r, &input); err != nil {
+		httpapi.WriteV1Error(w, r, http.StatusBadRequest, "invalid_body", "invalid request body")
 		return
 	}
 	mode, valid := model.NormalizeKeyAssignmentMode(input.Mode)
 	if !valid {
-		writeV1Error(w, r, http.StatusBadRequest, "assignment_mode_invalid", "mode must be all or selected")
+		httpapi.WriteV1Error(w, r, http.StatusBadRequest, "assignment_mode_invalid", "mode must be all or selected")
 		return
 	}
 	if mode == model.KeyAssignmentModeAll && len(input.KeyIDs) > 0 {
-		writeV1Error(w, r, http.StatusBadRequest, "assignment_keys_invalid", "key_ids must be empty in all mode")
+		httpapi.WriteV1Error(w, r, http.StatusBadRequest, "assignment_keys_invalid", "key_ids must be empty in all mode")
 		return
 	}
 	err := a.updateUserKeyAssignment(id, mode, input.KeyIDs)
 	switch {
 	case errors.Is(err, errAssignmentUserNotFound):
-		writeV1Error(w, r, http.StatusNotFound, "user_not_found", "user not found")
+		httpapi.WriteV1Error(w, r, http.StatusNotFound, "user_not_found", "user not found")
 	case errors.Is(err, errAssignmentKeyNotFound):
-		writeV1Error(w, r, http.StatusBadRequest, "key_not_found", "one or more keys do not exist")
+		httpapi.WriteV1Error(w, r, http.StatusBadRequest, "key_not_found", "one or more keys do not exist")
 	case err != nil:
-		writeV1Error(w, r, http.StatusInternalServerError, "assignment_update_failed", "failed to update key assignment")
+		httpapi.WriteV1Error(w, r, http.StatusInternalServerError, "assignment_update_failed", "failed to update key assignment")
 	default:
 		a.recordAuditEvent(r, "user.keys.update", "user", strconv.FormatInt(id, 10), map[string]any{
 			"mode": mode, "keys_count": len(input.KeyIDs),
 		})
-		writeMessage(w, "subscription key assignment updated")
+		httpapi.WriteMessage(w, "subscription key assignment updated")
 	}
 }

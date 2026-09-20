@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"github.com/romanpodg/SubShare-Go/internal/httpapi"
 	"github.com/romanpodg/SubShare-Go/internal/sources"
 	"github.com/romanpodg/SubShare-Go/internal/storage"
 	"net/http"
@@ -11,7 +12,6 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/romanpodg/SubShare-Go/internal/middleware"
 	"github.com/romanpodg/SubShare-Go/internal/model"
 )
 
@@ -104,18 +104,6 @@ func sourceDetailFromRow(row externalSourceRow, importedKeys int) sourceV1Detail
 	}
 }
 
-func writeV1FieldError(w http.ResponseWriter, r *http.Request, status int, code, message, field string) {
-	requestID, _ := r.Context().Value(middleware.CtxKeyRequestID).(string)
-	fieldErrors := map[string][]string{}
-	if field != "" {
-		fieldErrors[field] = []string{message}
-	}
-	writeJSON(w, status, map[string]any{
-		"error": message, "code": code, "message": message,
-		"field_errors": fieldErrors, "request_id": requestID,
-	})
-}
-
 func sourceListFilter(r *http.Request) (string, []any) {
 	clauses := []string{"1 = 1"}
 	args := make([]any, 0, 3)
@@ -155,7 +143,7 @@ func (a *App) apiV1ListSources(w http.ResponseWriter, r *http.Request) {
 	where, args := sourceListFilter(r)
 	var total int
 	if err := a.db.QueryRow(`SELECT COUNT(*) FROM external_subscription_sources s WHERE `+where, args...).Scan(&total); err != nil {
-		writeV1Error(w, r, http.StatusInternalServerError, "sources_list_failed", "failed to load sources")
+		httpapi.WriteV1Error(w, r, http.StatusInternalServerError, "sources_list_failed", "failed to load sources")
 		return
 	}
 	query := `
@@ -172,7 +160,7 @@ func (a *App) apiV1ListSources(w http.ResponseWriter, r *http.Request) {
 	queryArgs := append(append([]any{}, args...), pageSize, (page-1)*pageSize)
 	rows, err := a.db.Query(query, queryArgs...)
 	if err != nil {
-		writeV1Error(w, r, http.StatusInternalServerError, "sources_list_failed", "failed to load sources")
+		httpapi.WriteV1Error(w, r, http.StatusInternalServerError, "sources_list_failed", "failed to load sources")
 		return
 	}
 	defer rows.Close()
@@ -186,7 +174,7 @@ func (a *App) apiV1ListSources(w http.ResponseWriter, r *http.Request) {
 			&enabled, &passHWID, &hasHWID, &item.LastImportCount, &item.ImportStatus,
 			&item.LastError, &lastSynced, &createdAt, &updatedAt, &item.ImportedKeys,
 		); err != nil {
-			writeV1Error(w, r, http.StatusInternalServerError, "sources_list_failed", "failed to load sources")
+			httpapi.WriteV1Error(w, r, http.StatusInternalServerError, "sources_list_failed", "failed to load sources")
 			return
 		}
 		item.Category = sources.NormalizeCategory(item.Category)
@@ -201,50 +189,50 @@ func (a *App) apiV1ListSources(w http.ResponseWriter, r *http.Request) {
 		items = append(items, item)
 	}
 	if err := rows.Err(); err != nil {
-		writeV1Error(w, r, http.StatusInternalServerError, "sources_list_failed", "failed to load sources")
+		httpapi.WriteV1Error(w, r, http.StatusInternalServerError, "sources_list_failed", "failed to load sources")
 		return
 	}
 	totalPages := 0
 	if total > 0 {
 		totalPages = (total + pageSize - 1) / pageSize
 	}
-	writeJSON(w, http.StatusOK, map[string]any{
+	httpapi.WriteJSON(w, http.StatusOK, map[string]any{
 		"data": items,
 		"meta": pageMeta{Page: page, PageSize: pageSize, Total: total, TotalPages: totalPages},
 	})
 }
 
 func (a *App) apiV1GetSource(w http.ResponseWriter, r *http.Request) {
-	id, ok := pathID(w, r, "id")
+	id, ok := httpapi.PathID(w, r, "id")
 	if !ok {
 		return
 	}
 	row, err := a.getExternalSourceByID(id)
 	if errors.Is(err, sql.ErrNoRows) {
-		writeV1Error(w, r, http.StatusNotFound, "source_not_found", "source not found")
+		httpapi.WriteV1Error(w, r, http.StatusNotFound, "source_not_found", "source not found")
 		return
 	}
 	if err != nil {
-		writeV1Error(w, r, http.StatusInternalServerError, "source_load_failed", "failed to load source")
+		httpapi.WriteV1Error(w, r, http.StatusInternalServerError, "source_load_failed", "failed to load source")
 		return
 	}
 	importedKeys, err := storage.CountSourceKeys(context.Background(), a.db, id)
 	if err != nil {
-		writeV1Error(w, r, http.StatusInternalServerError, "source_load_failed", "failed to load source")
+		httpapi.WriteV1Error(w, r, http.StatusInternalServerError, "source_load_failed", "failed to load source")
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"data": sourceDetailFromRow(row, importedKeys)})
+	httpapi.WriteJSON(w, http.StatusOK, map[string]any{"data": sourceDetailFromRow(row, importedKeys)})
 }
 
 func (a *App) apiV1PreviewSource(w http.ResponseWriter, r *http.Request) {
 	var req model.ExternalSourcePreviewRequest
-	if err := readJSON(r, &req); err != nil {
-		writeV1FieldError(w, r, http.StatusBadRequest, "validation_failed", "invalid request body", "")
+	if err := httpapi.ReadJSON(r, &req); err != nil {
+		httpapi.WriteFieldError(w, r, http.StatusBadRequest, "validation_failed", "invalid request body", "")
 		return
 	}
 	sourceURL, err := sources.ValidateURL(req.SourceURL)
 	if err != nil {
-		writeV1FieldError(w, r, http.StatusBadRequest, "source_url_invalid", err.Error(), "source_url")
+		httpapi.WriteFieldError(w, r, http.StatusBadRequest, "source_url_invalid", err.Error(), "source_url")
 		return
 	}
 	hwidProfile := sources.NormalizeHWIDProfile(req.PassHWID, req.HWIDVersion, req.HWIDModelName, req.HWIDValue)
@@ -258,10 +246,10 @@ func (a *App) apiV1PreviewSource(w http.ResponseWriter, r *http.Request) {
 		parsed, err = sources.Fetch(context.Background(), a.sourceClient(), sourceURL, hwidProfile, a.externalProfileFingerprintKeys())
 	}
 	if err != nil {
-		writeV1FieldError(w, r, http.StatusBadRequest, "source_preview_failed", err.Error(), "source_url")
+		httpapi.WriteFieldError(w, r, http.StatusBadRequest, "source_preview_failed", err.Error(), "source_url")
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{
+	httpapi.WriteJSON(w, http.StatusOK, map[string]any{
 		"source_url": sourceURL, "suggested_name": sources.SuggestName(sourceURL, parsed.Metadata),
 		"detected_format": parsed.DetectedFormat, "key_count": len(parsed.Keys),
 		"metadata": map[string]any{
@@ -277,27 +265,27 @@ func (a *App) apiV1PreviewSource(w http.ResponseWriter, r *http.Request) {
 
 func (a *App) apiV1CreateSource(w http.ResponseWriter, r *http.Request) {
 	var req model.ExternalSourceImportRequest
-	if err := readJSON(r, &req); err != nil {
-		writeV1FieldError(w, r, http.StatusBadRequest, "validation_failed", "invalid request body", "")
+	if err := httpapi.ReadJSON(r, &req); err != nil {
+		httpapi.WriteFieldError(w, r, http.StatusBadRequest, "validation_failed", "invalid request body", "")
 		return
 	}
 	sourceURL, err := sources.ValidateURL(req.SourceURL)
 	if err != nil {
-		writeV1FieldError(w, r, http.StatusBadRequest, "source_url_invalid", err.Error(), "source_url")
+		httpapi.WriteFieldError(w, r, http.StatusBadRequest, "source_url_invalid", err.Error(), "source_url")
 		return
 	}
 	var exists bool
 	if err := a.db.QueryRow(`SELECT EXISTS(SELECT 1 FROM external_subscription_sources WHERE source_url = ?)`, sourceURL).Scan(&exists); err != nil {
-		writeV1Error(w, r, http.StatusInternalServerError, "source_create_failed", "failed to create source")
+		httpapi.WriteV1Error(w, r, http.StatusInternalServerError, "source_create_failed", "failed to create source")
 		return
 	}
 	if exists {
-		writeV1FieldError(w, r, http.StatusConflict, "source_url_conflict", "source URL already exists", "source_url")
+		httpapi.WriteFieldError(w, r, http.StatusConflict, "source_url_conflict", "source URL already exists", "source_url")
 		return
 	}
 	name, err := sources.ValidateName(req.Name)
 	if err != nil {
-		writeV1FieldError(w, r, http.StatusBadRequest, "source_name_invalid", err.Error(), "name")
+		httpapi.WriteFieldError(w, r, http.StatusBadRequest, "source_name_invalid", err.Error(), "name")
 		return
 	}
 	hwidProfile := sources.NormalizeHWIDProfile(req.PassHWID, req.HWIDVersion, req.HWIDModelName, req.HWIDValue)
@@ -311,40 +299,40 @@ func (a *App) apiV1CreateSource(w http.ResponseWriter, r *http.Request) {
 		parsed, err = sources.Fetch(context.Background(), a.sourceClient(), sourceURL, hwidProfile, a.externalProfileFingerprintKeys())
 	}
 	if err != nil {
-		writeV1FieldError(w, r, http.StatusBadRequest, "source_import_failed", err.Error(), "source_url")
+		httpapi.WriteFieldError(w, r, http.StatusBadRequest, "source_import_failed", err.Error(), "source_url")
 		return
 	}
 	parsed, err = sources.FilterSelection(parsed, req.SelectedItemRefs)
 	if err != nil {
-		writeV1FieldError(w, r, http.StatusBadRequest, "source_selection_invalid", err.Error(), "selected_item_refs")
+		httpapi.WriteFieldError(w, r, http.StatusBadRequest, "source_selection_invalid", err.Error(), "selected_item_refs")
 		return
 	}
 	if len(parsed.Keys) == 0 {
-		writeV1FieldError(w, r, http.StatusBadRequest, "source_empty", "no keys to import", "source_url")
+		httpapi.WriteFieldError(w, r, http.StatusBadRequest, "source_empty", "no keys to import", "source_url")
 		return
 	}
 	category := sources.NormalizeCategory(req.Category)
 	keyCategory := normalizeKeyCategory(req.KeyCategory)
 	tx, err := a.db.Begin()
 	if err != nil {
-		writeV1Error(w, r, http.StatusInternalServerError, "source_create_failed", "failed to create source")
+		httpapi.WriteV1Error(w, r, http.StatusInternalServerError, "source_create_failed", "failed to create source")
 		return
 	}
 	defer tx.Rollback()
 	if _, err := tx.Exec(`INSERT OR IGNORE INTO external_source_categories(name) VALUES(?)`, category); err != nil {
-		writeV1Error(w, r, http.StatusInternalServerError, "source_category_failed", "failed to save source category")
+		httpapi.WriteV1Error(w, r, http.StatusInternalServerError, "source_category_failed", "failed to save source category")
 		return
 	}
 	var sourceCategoryID int64
 	if err := tx.QueryRow(`SELECT id FROM external_source_categories WHERE name = ?`, category).Scan(&sourceCategoryID); err != nil {
-		writeV1Error(w, r, http.StatusInternalServerError, "source_category_failed", "failed to resolve source category")
+		httpapi.WriteV1Error(w, r, http.StatusInternalServerError, "source_category_failed", "failed to resolve source category")
 		return
 	}
 	var keyCategoryID any
 	if keyCategory != "" {
 		var nextCategoryOrder int64
 		if err := tx.QueryRow(`SELECT COALESCE(MAX(sort_order), 0) + 1 FROM key_categories`).Scan(&nextCategoryOrder); err != nil {
-			writeV1Error(w, r, http.StatusInternalServerError, "key_category_failed", "failed to save key category")
+			httpapi.WriteV1Error(w, r, http.StatusInternalServerError, "key_category_failed", "failed to save key category")
 			return
 		}
 		if _, err := tx.Exec(`
@@ -352,12 +340,12 @@ func (a *App) apiV1CreateSource(w http.ResponseWriter, r *http.Request) {
 			VALUES(?, '#d8b33d', ?, CURRENT_TIMESTAMP)
 			ON CONFLICT(name) DO NOTHING
 		`, keyCategory, nextCategoryOrder); err != nil {
-			writeV1Error(w, r, http.StatusInternalServerError, "key_category_failed", "failed to save key category")
+			httpapi.WriteV1Error(w, r, http.StatusInternalServerError, "key_category_failed", "failed to save key category")
 			return
 		}
 		var resolvedID int64
 		if err := tx.QueryRow(`SELECT id FROM key_categories WHERE name = ?`, keyCategory).Scan(&resolvedID); err != nil {
-			writeV1Error(w, r, http.StatusInternalServerError, "key_category_failed", "failed to resolve key category")
+			httpapi.WriteV1Error(w, r, http.StatusInternalServerError, "key_category_failed", "failed to resolve key category")
 			return
 		}
 		keyCategoryID = resolvedID
@@ -373,10 +361,10 @@ func (a *App) apiV1CreateSource(w http.ResponseWriter, r *http.Request) {
 		nullStringValue(hwidProfile.Version), nullStringValue(hwidProfile.ModelName), nullStringValue(hwidProfile.HWID))
 	if err != nil {
 		if strings.Contains(strings.ToLower(err.Error()), "unique") {
-			writeV1FieldError(w, r, http.StatusConflict, "source_url_conflict", "source URL already exists", "source_url")
+			httpapi.WriteFieldError(w, r, http.StatusConflict, "source_url_conflict", "source URL already exists", "source_url")
 			return
 		}
-		writeV1Error(w, r, http.StatusInternalServerError, "source_create_failed", "failed to create source")
+		httpapi.WriteV1Error(w, r, http.StatusInternalServerError, "source_create_failed", "failed to create source")
 		return
 	}
 	sourceID, _ := result.LastInsertId()
@@ -397,22 +385,22 @@ func (a *App) apiV1CreateSource(w http.ResponseWriter, r *http.Request) {
 	}
 	syncResult, err := sources.Sync(a.store().SourceSyncOn(context.Background(), tx), source.syncTarget(), parsed, a.externalProfileFingerprintKeys())
 	if err != nil {
-		writeV1Error(w, r, http.StatusInternalServerError, "source_create_failed", "failed to save imported source")
+		httpapi.WriteV1Error(w, r, http.StatusInternalServerError, "source_create_failed", "failed to save imported source")
 		return
 	}
 	if err := tx.Commit(); err != nil {
-		writeV1Error(w, r, http.StatusInternalServerError, "source_create_failed", "failed to save imported source")
+		httpapi.WriteV1Error(w, r, http.StatusInternalServerError, "source_create_failed", "failed to save imported source")
 		return
 	}
 	row, err := a.getExternalSourceByID(sourceID)
 	if err != nil {
-		writeV1Error(w, r, http.StatusInternalServerError, "source_create_failed", "source created but response could not be loaded")
+		httpapi.WriteV1Error(w, r, http.StatusInternalServerError, "source_create_failed", "source created but response could not be loaded")
 		return
 	}
 	a.recordAuditEvent(r, "external_source.create", "external_source", strconv.FormatInt(sourceID, 10), map[string]any{
 		"imported_count": syncResult.Imported, "skipped_count": syncResult.Skipped, "result_counts": syncResult.Counts,
 	})
-	writeJSON(w, http.StatusCreated, map[string]any{
+	httpapi.WriteJSON(w, http.StatusCreated, map[string]any{
 		"data": sourceDetailFromRow(row, syncResult.Imported), "imported_count": syncResult.Imported,
 		"skipped_count": syncResult.Skipped, "warnings": sources.NonNilWarnings(parsed.Warnings),
 		"detected_format": parsed.DetectedFormat, "result_counts": syncResult.Counts, "items": syncResult.Items,
@@ -420,43 +408,43 @@ func (a *App) apiV1CreateSource(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *App) apiV1UpdateSource(w http.ResponseWriter, r *http.Request) {
-	id, ok := pathID(w, r, "id")
+	id, ok := httpapi.PathID(w, r, "id")
 	if !ok {
 		return
 	}
 	current, err := a.getExternalSourceByID(id)
 	if errors.Is(err, sql.ErrNoRows) {
-		writeV1Error(w, r, http.StatusNotFound, "source_not_found", "source not found")
+		httpapi.WriteV1Error(w, r, http.StatusNotFound, "source_not_found", "source not found")
 		return
 	}
 	if err != nil {
-		writeV1Error(w, r, http.StatusInternalServerError, "source_load_failed", "failed to load source")
+		httpapi.WriteV1Error(w, r, http.StatusInternalServerError, "source_load_failed", "failed to load source")
 		return
 	}
 	var req sourceV1UpdateRequest
-	if err := readJSON(r, &req); err != nil {
-		writeV1FieldError(w, r, http.StatusBadRequest, "validation_failed", "invalid request body", "")
+	if err := httpapi.ReadJSON(r, &req); err != nil {
+		httpapi.WriteFieldError(w, r, http.StatusBadRequest, "validation_failed", "invalid request body", "")
 		return
 	}
 	name, err := sources.ValidateName(req.Name)
 	if err != nil {
-		writeV1FieldError(w, r, http.StatusBadRequest, "source_name_invalid", err.Error(), "name")
+		httpapi.WriteFieldError(w, r, http.StatusBadRequest, "source_name_invalid", err.Error(), "name")
 		return
 	}
 	sourceURL, err := sources.ValidateURL(req.SourceURL)
 	if err != nil {
-		writeV1FieldError(w, r, http.StatusBadRequest, "source_url_invalid", err.Error(), "source_url")
+		httpapi.WriteFieldError(w, r, http.StatusBadRequest, "source_url_invalid", err.Error(), "source_url")
 		return
 	}
 	category := sources.NormalizeCategory(req.Category)
 	keyCategory := normalizeKeyCategory(req.KeyCategory)
 	if err := a.upsertExternalSourceCategory(category); err != nil {
-		writeV1Error(w, r, http.StatusInternalServerError, "source_category_failed", "failed to save source category")
+		httpapi.WriteV1Error(w, r, http.StatusInternalServerError, "source_category_failed", "failed to save source category")
 		return
 	}
 	if keyCategory != "" {
 		if err := a.upsertKeyCategory(keyCategory); err != nil {
-			writeV1Error(w, r, http.StatusInternalServerError, "key_category_failed", "failed to save key category")
+			httpapi.WriteV1Error(w, r, http.StatusInternalServerError, "key_category_failed", "failed to save key category")
 			return
 		}
 	}
@@ -468,7 +456,7 @@ func (a *App) apiV1UpdateSource(w http.ResponseWriter, r *http.Request) {
 	}
 	tx, err := a.db.Begin()
 	if err != nil {
-		writeV1Error(w, r, http.StatusInternalServerError, "source_update_failed", "failed to update source")
+		httpapi.WriteV1Error(w, r, http.StatusInternalServerError, "source_update_failed", "failed to update source")
 		return
 	}
 	defer tx.Rollback()
@@ -483,15 +471,15 @@ func (a *App) apiV1UpdateSource(w http.ResponseWriter, r *http.Request) {
 		nullStringValue(strings.TrimSpace(req.HWIDModelName)), nullStringValue(hwidValue), id)
 	if err != nil {
 		if strings.Contains(strings.ToLower(err.Error()), "unique") {
-			writeV1FieldError(w, r, http.StatusConflict, "source_url_conflict", "source URL already exists", "source_url")
+			httpapi.WriteFieldError(w, r, http.StatusConflict, "source_url_conflict", "source URL already exists", "source_url")
 			return
 		}
-		writeV1Error(w, r, http.StatusInternalServerError, "source_update_failed", "failed to update source")
+		httpapi.WriteV1Error(w, r, http.StatusInternalServerError, "source_update_failed", "failed to update source")
 		return
 	}
 	affected, _ := result.RowsAffected()
 	if affected == 0 {
-		writeV1Error(w, r, http.StatusNotFound, "source_not_found", "source not found")
+		httpapi.WriteV1Error(w, r, http.StatusNotFound, "source_not_found", "source not found")
 		return
 	}
 	keyStatus := model.KeyStatusActive
@@ -499,56 +487,56 @@ func (a *App) apiV1UpdateSource(w http.ResponseWriter, r *http.Request) {
 		keyStatus = model.KeyStatusNonActive
 	}
 	if err := storage.SetSourceKeysStatus(context.Background(), tx, id, keyStatus); err != nil {
-		writeV1Error(w, r, http.StatusInternalServerError, "source_update_failed", "failed to update source keys")
+		httpapi.WriteV1Error(w, r, http.StatusInternalServerError, "source_update_failed", "failed to update source keys")
 		return
 	}
 	if err := tx.Commit(); err != nil {
-		writeV1Error(w, r, http.StatusInternalServerError, "source_update_failed", "failed to update source")
+		httpapi.WriteV1Error(w, r, http.StatusInternalServerError, "source_update_failed", "failed to update source")
 		return
 	}
 	a.recordAuditEvent(r, "external_source.update", "external_source", strconv.FormatInt(id, 10), map[string]any{"enabled": req.Enabled})
-	writeJSON(w, http.StatusOK, map[string]any{"message": "source updated"})
+	httpapi.WriteJSON(w, http.StatusOK, map[string]any{"message": "source updated"})
 }
 
 func (a *App) apiV1DeleteSource(w http.ResponseWriter, r *http.Request) {
-	id, ok := pathID(w, r, "id")
+	id, ok := httpapi.PathID(w, r, "id")
 	if !ok {
 		return
 	}
 	tx, err := a.db.Begin()
 	if err != nil {
-		writeV1Error(w, r, http.StatusInternalServerError, "source_delete_failed", "failed to delete source")
+		httpapi.WriteV1Error(w, r, http.StatusInternalServerError, "source_delete_failed", "failed to delete source")
 		return
 	}
 	defer tx.Rollback()
 	deletedKeys, err := storage.DeleteSourceKeys(context.Background(), tx, id)
 	if err != nil {
-		writeV1Error(w, r, http.StatusInternalServerError, "source_delete_failed", "failed to delete source keys")
+		httpapi.WriteV1Error(w, r, http.StatusInternalServerError, "source_delete_failed", "failed to delete source keys")
 		return
 	}
 	result, err := tx.Exec(`DELETE FROM external_subscription_sources WHERE id = ?`, id)
 	if err != nil {
-		writeV1Error(w, r, http.StatusInternalServerError, "source_delete_failed", "failed to delete source")
+		httpapi.WriteV1Error(w, r, http.StatusInternalServerError, "source_delete_failed", "failed to delete source")
 		return
 	}
 	affected, _ := result.RowsAffected()
 	if affected == 0 {
-		writeV1Error(w, r, http.StatusNotFound, "source_not_found", "source not found")
+		httpapi.WriteV1Error(w, r, http.StatusNotFound, "source_not_found", "source not found")
 		return
 	}
 	if err := tx.Commit(); err != nil {
-		writeV1Error(w, r, http.StatusInternalServerError, "source_delete_failed", "failed to delete source")
+		httpapi.WriteV1Error(w, r, http.StatusInternalServerError, "source_delete_failed", "failed to delete source")
 		return
 	}
 	a.recordAuditEvent(r, "external_source.delete", "external_source", strconv.FormatInt(id, 10), map[string]any{"deleted_keys": deletedKeys})
-	writeJSON(w, http.StatusOK, map[string]any{"message": "source deleted", "deleted_keys": deletedKeys})
+	httpapi.WriteJSON(w, http.StatusOK, map[string]any{"message": "source deleted", "deleted_keys": deletedKeys})
 }
 
 func (a *App) apiV1ListSourceCategories(w http.ResponseWriter, r *http.Request) {
 	categories, err := a.listExternalSourceCategories()
 	if err != nil {
-		writeV1Error(w, r, http.StatusInternalServerError, "source_categories_failed", "failed to load source categories")
+		httpapi.WriteV1Error(w, r, http.StatusInternalServerError, "source_categories_failed", "failed to load source categories")
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"data": categories})
+	httpapi.WriteJSON(w, http.StatusOK, map[string]any{"data": categories})
 }

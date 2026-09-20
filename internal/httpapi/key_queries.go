@@ -49,7 +49,7 @@ type keyPageMeta struct {
 func (h *KeyQueryHandler) ListKeys(w http.ResponseWriter, r *http.Request) {
 	keys, err := h.service.ListLegacy(r.Context())
 	if err != nil {
-		writeV1Error(w, r, http.StatusInternalServerError, "keys_list_failed", "failed to load keys")
+		WriteV1Error(w, r, http.StatusInternalServerError, "keys_list_failed", "failed to load keys")
 		return
 	}
 	query := strings.ToLower(strings.TrimSpace(r.URL.Query().Get("query")))
@@ -75,16 +75,16 @@ func (h *KeyQueryHandler) ListKeys(w http.ResponseWriter, r *http.Request) {
 	}
 	page, pageSize := parseKeyPageParams(r)
 	data, meta := paginateKeySummaries(items, page, pageSize)
-	writeJSON(w, http.StatusOK, map[string]any{"data": data, "meta": meta})
+	WriteJSON(w, http.StatusOK, map[string]any{"data": data, "meta": meta})
 }
 
 func (h *KeyQueryHandler) ListCategories(w http.ResponseWriter, r *http.Request) {
 	categories, err := h.service.ListCategories(r.Context())
 	if err != nil {
-		writeV1Error(w, r, http.StatusInternalServerError, "key_categories_failed", "failed to load key categories")
+		WriteV1Error(w, r, http.StatusInternalServerError, "key_categories_failed", "failed to load key categories")
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"data": categories})
+	WriteJSON(w, http.StatusOK, map[string]any{"data": categories})
 }
 
 func parseKeyPageParams(r *http.Request) (int, int) {
