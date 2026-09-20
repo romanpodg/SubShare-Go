@@ -72,17 +72,7 @@ func executeKeyHealthCheckBatch(
 	var persistenceMu sync.Mutex
 
 	for _, target := range targets {
-		targetStatus, _ := model.NormalizeKeyStatus(target.Status)
-		if targetStatus != model.KeyStatusActive {
-			summary.SkippedDisabled++
-			continue
-		}
-		if kind, _ := model.NormalizeKeyKind(target.Kind); kind == model.KeyKindInformational {
-			summary.SkippedUnsupported++
-			continue
-		}
-		if target.Unreadable || strings.TrimSpace(target.URL) == "" {
-			summary.CheckFailed++
+		if summary.skipTarget(target) {
 			continue
 		}
 
@@ -91,66 +81,101 @@ func executeKeyHealthCheckBatch(
 		go func(item keymanagement.HealthCheckTarget) {
 			defer waitGroup.Done()
 			defer func() { <-semaphore }()
-			result := keyHealthCheckItemResult{}
-			defer func() {
-				if recover() != nil {
-					result = keyHealthCheckItemResult{checkFailed: true}
-				}
-				results <- result
-			}()
-
-			status, detail, latency, err := check(context.Background(), item.URL)
-			if err != nil {
-				result.checkFailed = true
-				return
-			}
-			result.status = model.NormalizeCheckStatus(status)
-			if result.status == "unsupported_check" {
-				result.unsupported = true
-			}
-			// SQLite has one writer. Keep probes concurrent, but serialize their
-			// short metadata updates so the batch does not contend with itself.
-			persistenceMu.Lock()
-			persistErr := persist(item.ID, result.status, detail, latency)
-			persistenceMu.Unlock()
-			if persistErr != nil {
-				log.Printf(
-					"background key check result persistence failed: key_id=%d health_state=%s latency_ms=%d error_type=%T err=%v",
-					item.ID,
-					result.status,
-					latency,
-					persistErr,
-					persistErr,
-				)
-				result.persistFailed = true
-			}
+			results <- checkKeyHealthTarget(item, check, persist, &persistenceMu)
 		}(target)
 	}
 
 	waitGroup.Wait()
 	close(results)
 	for result := range results {
-		summary.Checked++
-		if result.checkFailed {
-			summary.CheckFailed++
-			continue
-		}
-		if result.persistFailed {
-			summary.PersistFailed++
-		} else {
-			summary.PersistedOK++
-		}
-		if result.unsupported {
-			summary.SkippedUnsupported++
-		} else if result.status == "up" {
-			summary.Healthy++
-		} else if result.status == "down" {
-			summary.Unhealthy++
-		} else {
-			summary.CheckFailed++
-		}
+		summary.record(result)
 	}
 	return summary
+}
+
+// skipTarget counts a target that is not probed at all and reports whether it
+// was skipped.
+func (s *keyHealthCheckJobSummary) skipTarget(target keymanagement.HealthCheckTarget) bool {
+	targetStatus, _ := model.NormalizeKeyStatus(target.Status)
+	if targetStatus != model.KeyStatusActive {
+		s.SkippedDisabled++
+		return true
+	}
+	if kind, _ := model.NormalizeKeyKind(target.Kind); kind == model.KeyKindInformational {
+		s.SkippedUnsupported++
+		return true
+	}
+	if target.Unreadable || strings.TrimSpace(target.URL) == "" {
+		s.CheckFailed++
+		return true
+	}
+	return false
+}
+
+// record tallies one probed target.
+func (s *keyHealthCheckJobSummary) record(result keyHealthCheckItemResult) {
+	s.Checked++
+	if result.checkFailed {
+		s.CheckFailed++
+		return
+	}
+	if result.persistFailed {
+		s.PersistFailed++
+	} else {
+		s.PersistedOK++
+	}
+	switch {
+	case result.unsupported:
+		s.SkippedUnsupported++
+	case result.status == "up":
+		s.Healthy++
+	case result.status == "down":
+		s.Unhealthy++
+	default:
+		s.CheckFailed++
+	}
+}
+
+// checkKeyHealthTarget probes one key and persists the outcome. A panic in the
+// checker or persister is reported as a failed check.
+func checkKeyHealthTarget(
+	item keymanagement.HealthCheckTarget,
+	check keyHealthCheckExecutor,
+	persist keyHealthResultPersister,
+	persistenceMu *sync.Mutex,
+) (result keyHealthCheckItemResult) {
+	defer func() {
+		if recover() != nil {
+			result = keyHealthCheckItemResult{checkFailed: true}
+		}
+	}()
+
+	status, detail, latency, err := check(context.Background(), item.URL)
+	if err != nil {
+		result.checkFailed = true
+		return result
+	}
+	result.status = model.NormalizeCheckStatus(status)
+	if result.status == "unsupported_check" {
+		result.unsupported = true
+	}
+	// SQLite has one writer. Keep probes concurrent, but serialize their
+	// short metadata updates so the batch does not contend with itself.
+	persistenceMu.Lock()
+	persistErr := persist(item.ID, result.status, detail, latency)
+	persistenceMu.Unlock()
+	if persistErr != nil {
+		log.Printf(
+			"background key check result persistence failed: key_id=%d health_state=%s latency_ms=%d error_type=%T err=%v",
+			item.ID,
+			result.status,
+			latency,
+			persistErr,
+			persistErr,
+		)
+		result.persistFailed = true
+	}
+	return result
 }
 
 func keyHealthCheckJobStatus(summary keyHealthCheckJobSummary, fatalErr error) string {

@@ -58,67 +58,115 @@ func extractValue(values url.Values, headers http.Header, queryKeys []string, he
 	return ""
 }
 
+// clientAppSignatures lists user-agent substrings that identify a client app,
+// in detection order, with the regexp that extracts its version.
+var clientAppSignatures = []struct {
+	needles []string
+	app     string
+	version *regexp.Regexp
+}{
+	{[]string{"happproxy", "happ/"}, "Happ", reHappVersion},
+	{[]string{"hiddify"}, "Hiddify", reHiddifyVersion},
+	{[]string{"shadowrocket"}, "Shadowrocket", reShadowrocketVer},
+	{[]string{"streisand"}, "Streisand", reStreisandVer},
+}
+
+// desktopPlatformSignatures lists OS version regexps tried after Android, in
+// detection order. dotted converts "17_1" style versions to "17.1".
+var desktopPlatformSignatures = []struct {
+	version  *regexp.Regexp
+	platform string
+	dotted   bool
+}{
+	{reIOSVersion, "iOS", true},
+	{reWindowsVersion, "Windows", false},
+	{reMacOSVersion, "macOS", true},
+}
+
+func containsAny(haystack string, needles []string) bool {
+	for _, needle := range needles {
+		if strings.Contains(haystack, needle) {
+			return true
+		}
+	}
+	return false
+}
+
+func detectClientApp(ua, uaLower string, info *ParsedDeviceInfo) {
+	if matches := reV2rayNGVersion.FindStringSubmatch(ua); len(matches) > 1 {
+		info.ClientApp = "v2rayNG"
+		info.ClientVersion = matches[1]
+		return
+	}
+	if strings.Contains(uaLower, "dalvik/") && strings.Contains(uaLower, "android") {
+		info.ClientApp = "v2rayNG"
+		return
+	}
+	for _, sig := range clientAppSignatures {
+		if !containsAny(uaLower, sig.needles) {
+			continue
+		}
+		info.ClientApp = sig.app
+		if matches := sig.version.FindStringSubmatch(ua); len(matches) > 1 {
+			info.ClientVersion = matches[1]
+		}
+		return
+	}
+}
+
+func detectPlatform(ua, uaLower string, info *ParsedDeviceInfo) {
+	if matches := reAndroidVersion.FindStringSubmatch(ua); len(matches) > 1 {
+		info.Platform = "Android"
+		info.OSVersion = matches[1]
+		detectAndroidDevice(ua, info)
+		return
+	}
+	for _, sig := range desktopPlatformSignatures {
+		matches := sig.version.FindStringSubmatch(ua)
+		if len(matches) <= 1 {
+			continue
+		}
+		info.Platform = sig.platform
+		info.OSVersion = matches[1]
+		if sig.dotted {
+			info.OSVersion = strings.ReplaceAll(matches[1], "_", ".")
+		}
+		return
+	}
+	if strings.Contains(uaLower, "linux") {
+		info.Platform = "Linux"
+	}
+}
+
+// detectAndroidDevice fills the model from the "; <model> Build/<tag>" segment
+// and derives the brand when the build tag ends with the model name.
+func detectAndroidDevice(ua string, info *ParsedDeviceInfo) {
+	modelBuild := reAndroidModelBuild.FindStringSubmatch(ua)
+	if len(modelBuild) <= 2 {
+		return
+	}
+	info.DeviceModel = strings.TrimSpace(modelBuild[1])
+	buildTag := strings.TrimSpace(modelBuild[2])
+	if buildTag == "" {
+		return
+	}
+	upperModel := strings.ToUpper(strings.ReplaceAll(info.DeviceModel, " ", ""))
+	upperBuild := strings.ToUpper(strings.ReplaceAll(buildTag, " ", ""))
+	if upperModel == "" || !strings.HasSuffix(upperBuild, upperModel) {
+		return
+	}
+	if brand := strings.TrimSpace(strings.TrimSuffix(upperBuild, upperModel)); brand != "" {
+		info.DeviceBrand = brand
+	}
+}
+
 func ParseDeviceInfo(hwid string, ua string, headers http.Header, queryParams url.Values) ParsedDeviceInfo {
 	info := ParsedDeviceInfo{NormalizedID: normalizeHWID(hwid)}
 	ua = strings.TrimSpace(ua)
 	uaLower := strings.ToLower(ua)
 
-	if matches := reV2rayNGVersion.FindStringSubmatch(ua); len(matches) > 1 {
-		info.ClientApp = "v2rayNG"
-		info.ClientVersion = matches[1]
-	} else if strings.Contains(uaLower, "dalvik/") && strings.Contains(uaLower, "android") {
-		info.ClientApp = "v2rayNG"
-	} else if strings.Contains(uaLower, "happproxy") || strings.Contains(uaLower, "happ/") {
-		info.ClientApp = "Happ"
-		if matches := reHappVersion.FindStringSubmatch(ua); len(matches) > 1 {
-			info.ClientVersion = matches[1]
-		}
-	} else if strings.Contains(uaLower, "hiddify") {
-		info.ClientApp = "Hiddify"
-		if matches := reHiddifyVersion.FindStringSubmatch(ua); len(matches) > 1 {
-			info.ClientVersion = matches[1]
-		}
-	} else if strings.Contains(uaLower, "shadowrocket") {
-		info.ClientApp = "Shadowrocket"
-		if matches := reShadowrocketVer.FindStringSubmatch(ua); len(matches) > 1 {
-			info.ClientVersion = matches[1]
-		}
-	} else if strings.Contains(uaLower, "streisand") {
-		info.ClientApp = "Streisand"
-		if matches := reStreisandVer.FindStringSubmatch(ua); len(matches) > 1 {
-			info.ClientVersion = matches[1]
-		}
-	}
-
-	if matches := reAndroidVersion.FindStringSubmatch(ua); len(matches) > 1 {
-		info.Platform = "Android"
-		info.OSVersion = matches[1]
-		if modelBuild := reAndroidModelBuild.FindStringSubmatch(ua); len(modelBuild) > 2 {
-			info.DeviceModel = strings.TrimSpace(modelBuild[1])
-			buildTag := strings.TrimSpace(modelBuild[2])
-			if buildTag != "" {
-				upperModel := strings.ToUpper(strings.ReplaceAll(info.DeviceModel, " ", ""))
-				upperBuild := strings.ToUpper(strings.ReplaceAll(buildTag, " ", ""))
-				if upperModel != "" && strings.HasSuffix(upperBuild, upperModel) {
-					brand := strings.TrimSpace(strings.TrimSuffix(upperBuild, upperModel))
-					if brand != "" {
-						info.DeviceBrand = brand
-					}
-				}
-			}
-		}
-	} else if matches := reIOSVersion.FindStringSubmatch(ua); len(matches) > 1 {
-		info.Platform = "iOS"
-		info.OSVersion = strings.ReplaceAll(matches[1], "_", ".")
-	} else if matches := reWindowsVersion.FindStringSubmatch(ua); len(matches) > 1 {
-		info.Platform = "Windows"
-		info.OSVersion = matches[1]
-	} else if matches := reMacOSVersion.FindStringSubmatch(ua); len(matches) > 1 {
-		info.Platform = "macOS"
-		info.OSVersion = strings.ReplaceAll(matches[1], "_", ".")
-	} else if strings.Contains(uaLower, "linux") {
-		info.Platform = "Linux"
-	}
+	detectClientApp(ua, uaLower, &info)
+	detectPlatform(ua, uaLower, &info)
 
 	explicitPlatform := extractValue(queryParams, headers,
 		[]string{"platform", "device_os", "os"},

@@ -144,60 +144,19 @@ func (s *Service) CreateLocal(ctx context.Context, params CreateLocalParams) (*m
 		return nil, ErrLabelTooLong
 	}
 
-	creationMode := strings.ToLower(strings.TrimSpace(params.CreationMode))
-	if creationMode == "" {
-		if params.RawURI != "" {
-			creationMode = "raw"
-		} else {
-			creationMode = "structured"
-		}
-	}
-	if creationMode != "raw" && creationMode != "structured" {
-		return nil, ErrInvalidCreationMode
-	}
-	if creationMode == "raw" && params.Structured != nil {
-		return nil, ErrMutuallyExclusiveMode
-	}
-	if creationMode == "structured" && strings.TrimSpace(params.RawURI) != "" {
-		return nil, ErrMutuallyExclusiveMode
+	creationMode, err := resolveCreationMode(params)
+	if err != nil {
+		return nil, err
 	}
 
 	builtURI := ""
 	if kind == model.KeyKindReal {
-		if creationMode == "raw" {
-			builtURI = strings.TrimSpace(params.RawURI)
-			if builtURI == "" {
-				return nil, ErrRawURIRequired
-			}
-			if _, _, parseErr := validateStoredConfiguration(builtURI); parseErr != nil {
-				return nil, invalidProfileURIError(parseErr)
-			}
-		} else {
-			proto := strings.ToLower(strings.TrimSpace(params.Protocol))
-			if proto == "tuic_v4" {
-				return nil, ErrTUICv4StructuredForbidden
-			}
-			if params.Structured == nil {
-				return nil, ErrStructuredPayloadRequired
-			}
-			var err error
-			builtURI, err = BuildURIFromStructuredCreate(proto, label, params.Structured)
-			if err != nil {
-				return nil, err
-			}
-		}
+		builtURI, err = buildRealProfileURI(creationMode, label, params)
 	} else {
-		if creationMode == "structured" && params.Structured != nil {
-			return nil, ErrInformationalStructuredForbidden
-		}
-		if templateText == "" {
-			templateText = label
-		}
-		token, err := generateToken(12)
-		if err != nil {
-			return nil, fmt.Errorf("failed to generate key token: %w", err)
-		}
-		builtURI = "info://" + token
+		builtURI, templateText, err = buildInformationalProfile(creationMode, label, templateText, params)
+	}
+	if err != nil {
+		return nil, err
 	}
 
 	storedProtocol := "legacy"
@@ -222,4 +181,66 @@ func (s *Service) CreateLocal(ctx context.Context, params CreateLocalParams) (*m
 
 	detail := BuildKeyProfileDetailResponse(*createdKey, decryptedURI, s.capabilityResolver)
 	return &detail, nil
+}
+
+// resolveCreationMode normalises the requested creation mode ("raw" or
+// "structured"), defaulting from the payload shape, and rejects mixed payloads.
+func resolveCreationMode(params CreateLocalParams) (string, error) {
+	creationMode := strings.ToLower(strings.TrimSpace(params.CreationMode))
+	if creationMode == "" {
+		if params.RawURI != "" {
+			creationMode = "raw"
+		} else {
+			creationMode = "structured"
+		}
+	}
+	if creationMode != "raw" && creationMode != "structured" {
+		return "", ErrInvalidCreationMode
+	}
+	if creationMode == "raw" && params.Structured != nil {
+		return "", ErrMutuallyExclusiveMode
+	}
+	if creationMode == "structured" && strings.TrimSpace(params.RawURI) != "" {
+		return "", ErrMutuallyExclusiveMode
+	}
+	return creationMode, nil
+}
+
+// buildRealProfileURI produces the stored configuration for a real profile
+// from either the raw URI or the structured payload.
+func buildRealProfileURI(creationMode, label string, params CreateLocalParams) (string, error) {
+	if creationMode == "raw" {
+		builtURI := strings.TrimSpace(params.RawURI)
+		if builtURI == "" {
+			return "", ErrRawURIRequired
+		}
+		if _, _, parseErr := validateStoredConfiguration(builtURI); parseErr != nil {
+			return "", invalidProfileURIError(parseErr)
+		}
+		return builtURI, nil
+	}
+	proto := strings.ToLower(strings.TrimSpace(params.Protocol))
+	if proto == "tuic_v4" {
+		return "", ErrTUICv4StructuredForbidden
+	}
+	if params.Structured == nil {
+		return "", ErrStructuredPayloadRequired
+	}
+	return BuildURIFromStructuredCreate(proto, label, params.Structured)
+}
+
+// buildInformationalProfile returns the placeholder URI and effective template
+// text for an informational profile.
+func buildInformationalProfile(creationMode, label, templateText string, params CreateLocalParams) (string, string, error) {
+	if creationMode == "structured" && params.Structured != nil {
+		return "", templateText, ErrInformationalStructuredForbidden
+	}
+	if templateText == "" {
+		templateText = label
+	}
+	token, err := generateToken(12)
+	if err != nil {
+		return "", templateText, fmt.Errorf("failed to generate key token: %w", err)
+	}
+	return "info://" + token, templateText, nil
 }

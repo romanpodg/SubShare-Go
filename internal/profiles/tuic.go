@@ -66,80 +66,7 @@ func (tuicAdapter) Parse(raw string) (*Profile, error) {
 		return nil, err
 	}
 	data.FieldObservations = tuicFieldObservations(authority, parameters, data.Generation)
-	data.SNI, _ = firstParameter(parameters, tuicAliases, "sni")
-	data.SNI = strings.ToLower(strings.TrimSpace(data.SNI))
-	if hasParameter(parameters, tuicAliases, "sni") && data.SNI == "" {
-		return nil, newError(ErrorInvalidProfile, ProtocolTUIC, "sni")
-	}
-	if alpnValue, present := firstParameter(parameters, tuicAliases, "alpn"); present {
-		for _, item := range strings.Split(alpnValue, ",") {
-			item = strings.TrimSpace(item)
-			if item == "" {
-				return nil, newError(ErrorInvalidProfile, ProtocolTUIC, "alpn")
-			}
-			data.ALPN = append(data.ALPN, item)
-		}
-	}
-	if value, present := firstParameter(parameters, tuicAliases, "skip-cert-verify"); present {
-		data.SkipCertificateVerification, err = parseBoolean(value, ProtocolTUIC, "skip_cert_verify", false)
-		if err != nil {
-			return nil, err
-		}
-	}
-	if value, present := firstParameter(parameters, tuicAliases, "disable-sni"); present {
-		data.DisableSNI, err = parseBoolean(value, ProtocolTUIC, "disable_sni", false)
-		if err != nil {
-			return nil, err
-		}
-	}
-	data.CongestionController, _ = firstParameter(parameters, tuicAliases, "congestion-controller")
-	data.CongestionController = strings.ToLower(strings.TrimSpace(data.CongestionController))
-	if hasParameter(parameters, tuicAliases, "congestion-controller") && data.CongestionController == "" {
-		return nil, newError(ErrorInvalidProfile, ProtocolTUIC, "congestion_controller")
-	}
-	if data.CongestionController == "" {
-		data.CongestionController = "cubic"
-	}
-	data.UDPRelayMode, _ = firstParameter(parameters, tuicAliases, "udp-relay-mode")
-	data.UDPRelayMode = strings.ToLower(strings.TrimSpace(data.UDPRelayMode))
-	if hasParameter(parameters, tuicAliases, "udp-relay-mode") && data.UDPRelayMode == "" {
-		return nil, newError(ErrorInvalidProfile, ProtocolTUIC, "udp_relay_mode")
-	}
-	if data.UDPRelayMode == "" {
-		data.UDPRelayMode = "native"
-	}
-	if value, present := firstParameter(parameters, tuicAliases, "udp-over-stream"); present {
-		data.UDPOverStream, err = parseBoolean(value, ProtocolTUIC, "udp_over_stream", false)
-		if err != nil {
-			return nil, err
-		}
-	}
-	if value, present := firstParameter(parameters, tuicAliases, "zero-rtt"); present {
-		data.ZeroRTT, err = parseBoolean(value, ProtocolTUIC, "zero_rtt", false)
-		if err != nil {
-			return nil, err
-		}
-	}
-	data.Heartbeat, err = durationParameter(parameters, "heartbeat")
-	if err != nil {
-		return nil, err
-	}
-	data.RequestTimeout, err = durationParameter(parameters, "request-timeout")
-	if err != nil {
-		return nil, err
-	}
-	if value, present := firstParameter(parameters, tuicAliases, "fast-open"); present {
-		data.FastOpen, err = parseBoolean(value, ProtocolTUIC, "fast_open", false)
-		if err != nil {
-			return nil, err
-		}
-	}
-	data.MaxOpenStreams, err = positiveIntegerParameter(parameters, "max-open-streams", 1<<31-1)
-	if err != nil {
-		return nil, err
-	}
-	data.MaxUDPRelayPacketSize, err = positiveIntegerParameter(parameters, "max-udp-relay-packet-size", 65535)
-	if err != nil {
+	if data, err = parseTUICOptions(parameters, data); err != nil {
 		return nil, err
 	}
 
@@ -179,94 +106,210 @@ func (tuicAdapter) Parse(raw string) (*Profile, error) {
 	return profile, nil
 }
 
+// parseTUICOptions reads every non-credential parameter into data.
+func parseTUICOptions(parameters []QueryParameter, data TUICData) (TUICData, error) {
+	var err error
+	if data.SNI, err = lowercaseTUICParameter(parameters, "sni", "sni"); err != nil {
+		return TUICData{}, err
+	}
+	if data.ALPN, err = tuicALPNParameter(parameters); err != nil {
+		return TUICData{}, err
+	}
+	if data.SkipCertificateVerification, err = booleanTUICParameter(parameters, "skip-cert-verify", "skip_cert_verify"); err != nil {
+		return TUICData{}, err
+	}
+	if data.DisableSNI, err = booleanTUICParameter(parameters, "disable-sni", "disable_sni"); err != nil {
+		return TUICData{}, err
+	}
+	if data.CongestionController, err = lowercaseTUICParameter(parameters, "congestion-controller", "congestion_controller"); err != nil {
+		return TUICData{}, err
+	}
+	if data.CongestionController == "" {
+		data.CongestionController = "cubic"
+	}
+	if data.UDPRelayMode, err = lowercaseTUICParameter(parameters, "udp-relay-mode", "udp_relay_mode"); err != nil {
+		return TUICData{}, err
+	}
+	if data.UDPRelayMode == "" {
+		data.UDPRelayMode = "native"
+	}
+	if data.UDPOverStream, err = booleanTUICParameter(parameters, "udp-over-stream", "udp_over_stream"); err != nil {
+		return TUICData{}, err
+	}
+	if data.ZeroRTT, err = booleanTUICParameter(parameters, "zero-rtt", "zero_rtt"); err != nil {
+		return TUICData{}, err
+	}
+	if data.Heartbeat, err = durationParameter(parameters, "heartbeat"); err != nil {
+		return TUICData{}, err
+	}
+	if data.RequestTimeout, err = durationParameter(parameters, "request-timeout"); err != nil {
+		return TUICData{}, err
+	}
+	if data.FastOpen, err = booleanTUICParameter(parameters, "fast-open", "fast_open"); err != nil {
+		return TUICData{}, err
+	}
+	if data.MaxOpenStreams, err = positiveIntegerParameter(parameters, "max-open-streams", 1<<31-1); err != nil {
+		return TUICData{}, err
+	}
+	if data.MaxUDPRelayPacketSize, err = positiveIntegerParameter(parameters, "max-udp-relay-packet-size", 65535); err != nil {
+		return TUICData{}, err
+	}
+	return data, nil
+}
+
+// lowercaseTUICParameter returns the trimmed lowercase value, rejecting a
+// present-but-blank parameter. Absent parameters yield "".
+func lowercaseTUICParameter(parameters []QueryParameter, canonical, field string) (string, error) {
+	value, present := firstParameter(parameters, tuicAliases, canonical)
+	value = strings.ToLower(strings.TrimSpace(value))
+	if present && value == "" {
+		return "", newError(ErrorInvalidProfile, ProtocolTUIC, field)
+	}
+	return value, nil
+}
+
+// booleanTUICParameter parses an optional 0/1/true/false flag; absent means false.
+func booleanTUICParameter(parameters []QueryParameter, canonical, field string) (bool, error) {
+	value, present := firstParameter(parameters, tuicAliases, canonical)
+	if !present {
+		return false, nil
+	}
+	return parseBoolean(value, ProtocolTUIC, field, false)
+}
+
+func tuicALPNParameter(parameters []QueryParameter) ([]string, error) {
+	alpnValue, present := firstParameter(parameters, tuicAliases, "alpn")
+	if !present {
+		return nil, nil
+	}
+	var alpn []string
+	for _, item := range strings.Split(alpnValue, ",") {
+		item = strings.TrimSpace(item)
+		if item == "" {
+			return nil, newError(ErrorInvalidProfile, ProtocolTUIC, "alpn")
+		}
+		alpn = append(alpn, item)
+	}
+	return alpn, nil
+}
+
+// tuicCredentialInput collects every place a TUIC URI can carry credentials
+// so dialect detection can reason about them together.
+type tuicCredentialInput struct {
+	userSingle    string
+	userUUID      string
+	userPassword  string
+	hasUserPair   bool
+	queryToken    string
+	queryUUID     string
+	queryPassword string
+	hasQueryToken bool
+	hasQueryUUID  bool
+	hasQueryPass  bool
+}
+
 func parseTUICCredentials(authority authorityParts, parameters []QueryParameter) (TUICData, error) {
-	var data TUICData
 	for _, credentialField := range []string{"token", "uuid", "password"} {
 		if conflictingParameterValues(parameters, credentialField) {
 			return TUICData{}, newError(ErrorAmbiguousTUICDialect, ProtocolTUIC, credentialField)
 		}
 	}
-	queryToken, hasQueryToken := firstParameter(parameters, tuicAliases, "token")
-	queryUUID, hasQueryUUID := firstParameter(parameters, tuicAliases, "uuid")
-	queryPassword, hasQueryPassword := firstParameter(parameters, tuicAliases, "password")
-
-	var userSingle string
-	var userUUID string
-	var userPassword string
-	hasUserPair := false
-	if authority.hasUserInfo {
-		if before, after, found := strings.Cut(authority.rawUserInfo, ":"); found {
-			hasUserPair = true
-			var err error
-			userUUID, err = decodeUserInfo(before, ProtocolTUIC, "uuid")
-			if err != nil {
-				return TUICData{}, err
-			}
-			userPassword, err = decodeUserInfo(after, ProtocolTUIC, "password")
-			if err != nil {
-				return TUICData{}, err
-			}
-		} else {
-			var err error
-			userSingle, err = decodeUserInfo(authority.rawUserInfo, ProtocolTUIC, "token")
-			if err != nil {
-				return TUICData{}, err
-			}
-		}
+	var input tuicCredentialInput
+	input.queryToken, input.hasQueryToken = firstParameter(parameters, tuicAliases, "token")
+	input.queryUUID, input.hasQueryUUID = firstParameter(parameters, tuicAliases, "uuid")
+	input.queryPassword, input.hasQueryPass = firstParameter(parameters, tuicAliases, "password")
+	if err := input.readUserInfo(authority); err != nil {
+		return TUICData{}, err
 	}
-	if userSingle != "" && !hasQueryToken && !hasQueryUUID && !hasQueryPassword {
-		if isUUID(userSingle) {
-			return TUICData{}, newError(ErrorMissingCredential, ProtocolTUIC, "password")
-		}
-		if looksLikeUUID(userSingle) {
-			return TUICData{}, newError(ErrorInvalidProfile, ProtocolTUIC, "uuid")
-		}
-	}
-	if userSingle != "" && hasQueryToken && userSingle != queryToken {
-		return TUICData{}, newError(ErrorAmbiguousTUICDialect, ProtocolTUIC, "token")
-	}
-	if userSingle != "" && hasQueryPassword && !hasQueryToken && !hasQueryUUID {
-		if !isUUID(userSingle) {
-			return TUICData{}, newError(ErrorAmbiguousTUICDialect, ProtocolTUIC, "credential")
-		}
-		queryUUID = userSingle
-		hasQueryUUID = true
-		userSingle = ""
+	if err := input.classifySingleUserInfo(); err != nil {
+		return TUICData{}, err
 	}
 
-	hasV5Signal := hasUserPair || hasQueryUUID || hasQueryPassword
-	hasV4Signal := hasQueryToken || (userSingle != "" && !hasQueryPassword)
+	hasV5Signal := input.hasUserPair || input.hasQueryUUID || input.hasQueryPass
+	hasV4Signal := input.hasQueryToken || (input.userSingle != "" && !input.hasQueryPass)
 	if hasV4Signal && hasV5Signal {
 		return TUICData{}, newError(ErrorAmbiguousTUICDialect, ProtocolTUIC, "credential")
 	}
 	if hasV4Signal {
-		token := queryToken
-		if token == "" {
-			token = userSingle
-		}
-		if token == "" {
-			return TUICData{}, newError(ErrorMissingCredential, ProtocolTUIC, "token")
-		}
-		data.Generation = 4
-		data.Token = NewSensitiveValue(token)
-		return data, nil
+		return input.v4Data()
 	}
 	if !hasV5Signal {
 		return TUICData{}, newError(ErrorMissingCredential, ProtocolTUIC, "credential")
 	}
-	uuid := userUUID
-	password := userPassword
-	if hasQueryUUID {
-		if uuid != "" && uuid != queryUUID {
+	return input.v5Data()
+}
+
+func (input *tuicCredentialInput) readUserInfo(authority authorityParts) error {
+	if !authority.hasUserInfo {
+		return nil
+	}
+	before, after, found := strings.Cut(authority.rawUserInfo, ":")
+	var err error
+	if !found {
+		input.userSingle, err = decodeUserInfo(authority.rawUserInfo, ProtocolTUIC, "token")
+		return err
+	}
+	input.hasUserPair = true
+	if input.userUUID, err = decodeUserInfo(before, ProtocolTUIC, "uuid"); err != nil {
+		return err
+	}
+	input.userPassword, err = decodeUserInfo(after, ProtocolTUIC, "password")
+	return err
+}
+
+// classifySingleUserInfo decides whether a lone userinfo value is a v4 token
+// or a v5 UUID whose password arrived via the query string.
+func (input *tuicCredentialInput) classifySingleUserInfo() error {
+	if input.userSingle == "" {
+		return nil
+	}
+	if !input.hasQueryToken && !input.hasQueryUUID && !input.hasQueryPass {
+		if isUUID(input.userSingle) {
+			return newError(ErrorMissingCredential, ProtocolTUIC, "password")
+		}
+		if looksLikeUUID(input.userSingle) {
+			return newError(ErrorInvalidProfile, ProtocolTUIC, "uuid")
+		}
+	}
+	if input.hasQueryToken && input.userSingle != input.queryToken {
+		return newError(ErrorAmbiguousTUICDialect, ProtocolTUIC, "token")
+	}
+	if input.hasQueryPass && !input.hasQueryToken && !input.hasQueryUUID {
+		if !isUUID(input.userSingle) {
+			return newError(ErrorAmbiguousTUICDialect, ProtocolTUIC, "credential")
+		}
+		input.queryUUID = input.userSingle
+		input.hasQueryUUID = true
+		input.userSingle = ""
+	}
+	return nil
+}
+
+func (input *tuicCredentialInput) v4Data() (TUICData, error) {
+	token := input.queryToken
+	if token == "" {
+		token = input.userSingle
+	}
+	if token == "" {
+		return TUICData{}, newError(ErrorMissingCredential, ProtocolTUIC, "token")
+	}
+	return TUICData{Generation: 4, Token: NewSensitiveValue(token)}, nil
+}
+
+func (input *tuicCredentialInput) v5Data() (TUICData, error) {
+	uuid := input.userUUID
+	password := input.userPassword
+	if input.hasQueryUUID {
+		if uuid != "" && uuid != input.queryUUID {
 			return TUICData{}, newError(ErrorAmbiguousTUICDialect, ProtocolTUIC, "uuid")
 		}
-		uuid = queryUUID
+		uuid = input.queryUUID
 	}
-	if hasQueryPassword {
-		if password != "" && password != queryPassword {
+	if input.hasQueryPass {
+		if password != "" && password != input.queryPassword {
 			return TUICData{}, newError(ErrorAmbiguousTUICDialect, ProtocolTUIC, "password")
 		}
-		password = queryPassword
+		password = input.queryPassword
 	}
 	if uuid == "" {
 		return TUICData{}, newError(ErrorMissingCredential, ProtocolTUIC, "uuid")
@@ -277,10 +320,7 @@ func parseTUICCredentials(authority authorityParts, parameters []QueryParameter)
 	if !isUUID(uuid) {
 		return TUICData{}, newError(ErrorInvalidProfile, ProtocolTUIC, "uuid")
 	}
-	data.Generation = 5
-	data.UUID = NewSensitiveValue(strings.ToLower(uuid))
-	data.Password = NewSensitiveValue(password)
-	return data, nil
+	return TUICData{Generation: 5, UUID: NewSensitiveValue(strings.ToLower(uuid)), Password: NewSensitiveValue(password)}, nil
 }
 
 func conflictingParameterValues(parameters []QueryParameter, canonical string) bool {
@@ -473,23 +513,8 @@ func (tuicAdapter) Validate(profile *Profile) error {
 	if _, err := parsePortSpec(profile.Port.Expression, ProtocolTUIC, false); err != nil {
 		return err
 	}
-	switch data.Generation {
-	case 4:
-		if !data.Token.IsSet() {
-			return newError(ErrorMissingCredential, ProtocolTUIC, "token")
-		}
-	case 5:
-		if !data.UUID.IsSet() {
-			return newError(ErrorMissingCredential, ProtocolTUIC, "uuid")
-		}
-		if !isUUID(data.UUID.Reveal()) {
-			return newError(ErrorInvalidProfile, ProtocolTUIC, "uuid")
-		}
-		if !data.Password.IsSet() {
-			return newError(ErrorMissingCredential, ProtocolTUIC, "password")
-		}
-	default:
-		return newError(ErrorUnsupportedGeneration, ProtocolTUIC, "generation")
+	if err := validateTUICCredentials(data); err != nil {
+		return err
 	}
 	switch data.CongestionController {
 	case "cubic", "new_reno", "bbr":
@@ -515,6 +540,28 @@ func (tuicAdapter) Validate(profile *Profile) error {
 		if strings.TrimSpace(alpn) == "" || strings.ContainsAny(alpn, "\r\n\x00") {
 			return newError(ErrorInvalidProfile, ProtocolTUIC, "alpn")
 		}
+	}
+	return nil
+}
+
+func validateTUICCredentials(data TUICData) error {
+	switch data.Generation {
+	case 4:
+		if !data.Token.IsSet() {
+			return newError(ErrorMissingCredential, ProtocolTUIC, "token")
+		}
+	case 5:
+		if !data.UUID.IsSet() {
+			return newError(ErrorMissingCredential, ProtocolTUIC, "uuid")
+		}
+		if !isUUID(data.UUID.Reveal()) {
+			return newError(ErrorInvalidProfile, ProtocolTUIC, "uuid")
+		}
+		if !data.Password.IsSet() {
+			return newError(ErrorMissingCredential, ProtocolTUIC, "password")
+		}
+	default:
+		return newError(ErrorUnsupportedGeneration, ProtocolTUIC, "generation")
 	}
 	return nil
 }
@@ -549,45 +596,24 @@ func (adapter tuicAdapter) SerializeCanonical(profile *Profile) (SerializationRe
 		return SerializationResult{}, newError(ErrorCompatibilityOnlyInput, ProtocolTUIC, "generation")
 	}
 	primary := make([]canonicalParameter, 0, 12)
-	if data.SNI != "" || hasParameter(profile.QueryParameters, tuicAliases, "sni") {
-		primary = append(primary, canonicalParameter{key: "sni", value: data.SNI, hasValue: true})
+	add := func(key string, nonDefault bool, value string) {
+		if nonDefault || hasParameter(profile.QueryParameters, tuicAliases, key) {
+			primary = append(primary, canonicalParameter{key: key, value: value, hasValue: true})
+		}
 	}
-	if len(data.ALPN) > 0 || hasParameter(profile.QueryParameters, tuicAliases, "alpn") {
-		primary = append(primary, canonicalParameter{key: "alpn", value: strings.Join(data.ALPN, ","), hasValue: true})
-	}
-	if data.SkipCertificateVerification || hasParameter(profile.QueryParameters, tuicAliases, "skip-cert-verify") {
-		primary = append(primary, canonicalParameter{key: "skip-cert-verify", value: booleanQueryValue(data.SkipCertificateVerification), hasValue: true})
-	}
-	if data.DisableSNI || hasParameter(profile.QueryParameters, tuicAliases, "disable-sni") {
-		primary = append(primary, canonicalParameter{key: "disable-sni", value: booleanQueryValue(data.DisableSNI), hasValue: true})
-	}
-	if data.CongestionController != "cubic" || hasParameter(profile.QueryParameters, tuicAliases, "congestion-controller") {
-		primary = append(primary, canonicalParameter{key: "congestion-controller", value: data.CongestionController, hasValue: true})
-	}
-	if data.UDPRelayMode != "native" || hasParameter(profile.QueryParameters, tuicAliases, "udp-relay-mode") {
-		primary = append(primary, canonicalParameter{key: "udp-relay-mode", value: data.UDPRelayMode, hasValue: true})
-	}
-	if data.UDPOverStream || hasParameter(profile.QueryParameters, tuicAliases, "udp-over-stream") {
-		primary = append(primary, canonicalParameter{key: "udp-over-stream", value: booleanQueryValue(data.UDPOverStream), hasValue: true})
-	}
-	if data.ZeroRTT || hasParameter(profile.QueryParameters, tuicAliases, "zero-rtt") {
-		primary = append(primary, canonicalParameter{key: "zero-rtt", value: booleanQueryValue(data.ZeroRTT), hasValue: true})
-	}
-	if data.Heartbeat != "" || hasParameter(profile.QueryParameters, tuicAliases, "heartbeat") {
-		primary = append(primary, canonicalParameter{key: "heartbeat", value: data.Heartbeat, hasValue: true})
-	}
-	if data.RequestTimeout != "" || hasParameter(profile.QueryParameters, tuicAliases, "request-timeout") {
-		primary = append(primary, canonicalParameter{key: "request-timeout", value: data.RequestTimeout, hasValue: true})
-	}
-	if data.FastOpen || hasParameter(profile.QueryParameters, tuicAliases, "fast-open") {
-		primary = append(primary, canonicalParameter{key: "fast-open", value: booleanQueryValue(data.FastOpen), hasValue: true})
-	}
-	if data.MaxOpenStreams > 0 || hasParameter(profile.QueryParameters, tuicAliases, "max-open-streams") {
-		primary = append(primary, canonicalParameter{key: "max-open-streams", value: strconv.Itoa(data.MaxOpenStreams), hasValue: true})
-	}
-	if data.MaxUDPRelayPacketSize > 0 || hasParameter(profile.QueryParameters, tuicAliases, "max-udp-relay-packet-size") {
-		primary = append(primary, canonicalParameter{key: "max-udp-relay-packet-size", value: strconv.Itoa(data.MaxUDPRelayPacketSize), hasValue: true})
-	}
+	add("sni", data.SNI != "", data.SNI)
+	add("alpn", len(data.ALPN) > 0, strings.Join(data.ALPN, ","))
+	add("skip-cert-verify", data.SkipCertificateVerification, booleanQueryValue(data.SkipCertificateVerification))
+	add("disable-sni", data.DisableSNI, booleanQueryValue(data.DisableSNI))
+	add("congestion-controller", data.CongestionController != "cubic", data.CongestionController)
+	add("udp-relay-mode", data.UDPRelayMode != "native", data.UDPRelayMode)
+	add("udp-over-stream", data.UDPOverStream, booleanQueryValue(data.UDPOverStream))
+	add("zero-rtt", data.ZeroRTT, booleanQueryValue(data.ZeroRTT))
+	add("heartbeat", data.Heartbeat != "", data.Heartbeat)
+	add("request-timeout", data.RequestTimeout != "", data.RequestTimeout)
+	add("fast-open", data.FastOpen, booleanQueryValue(data.FastOpen))
+	add("max-open-streams", data.MaxOpenStreams > 0, strconv.Itoa(data.MaxOpenStreams))
+	add("max-udp-relay-packet-size", data.MaxUDPRelayPacketSize > 0, strconv.Itoa(data.MaxUDPRelayPacketSize))
 	query := canonicalQuery(profile.QueryParameters, primary, tuicAliases, "token", "uuid", "password")
 	userInfo := percentEncode(data.UUID.Reveal()) + ":" + percentEncode(data.Password.Reveal())
 	uri := canonicalURI("tuic", userInfo, formatHostPort(profile.Server, profile.Port), query, profile.DisplayName)

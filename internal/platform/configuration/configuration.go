@@ -139,39 +139,52 @@ func LoadFromMap(values map[string]string) (Config, error) {
 	if config.BackupInterval, err = parsePositiveDuration("BACKUP_INTERVAL", trimmed(values, "BACKUP_INTERVAL"), DefaultBackupInterval); err != nil {
 		return Config{}, err
 	}
-	if config.ProfileFingerprintKey, err = parseFingerprintKey("PROFILE_FINGERPRINT_KEY", trimmed(values, "PROFILE_FINGERPRINT_KEY")); err != nil {
-		return Config{}, err
-	}
-	previousFingerprintKeys := values["PROFILE_FINGERPRINT_PREVIOUS_KEYS"]
-	if previousFingerprintKeys != "" && strings.TrimSpace(previousFingerprintKeys) == "" {
-		return Config{}, fmt.Errorf("PROFILE_FINGERPRINT_PREVIOUS_KEYS must not contain whitespace-only entries")
-	}
-	if config.ProfileFingerprintOldKeys, err = parseFingerprintOldKeys(strings.TrimSpace(previousFingerprintKeys), config.ProfileFingerprintKey); err != nil {
+	if err = loadProfileSecrets(values, &config); err != nil {
 		return Config{}, err
 	}
 
+	return config, nil
+}
+
+// loadProfileSecrets fills the fingerprint keys and encryption keyring.
+func loadProfileSecrets(values map[string]string, config *Config) error {
+	var err error
+	if config.ProfileFingerprintKey, err = parseFingerprintKey("PROFILE_FINGERPRINT_KEY", trimmed(values, "PROFILE_FINGERPRINT_KEY")); err != nil {
+		return err
+	}
+	previousFingerprintKeys := values["PROFILE_FINGERPRINT_PREVIOUS_KEYS"]
+	if previousFingerprintKeys != "" && strings.TrimSpace(previousFingerprintKeys) == "" {
+		return fmt.Errorf("PROFILE_FINGERPRINT_PREVIOUS_KEYS must not contain whitespace-only entries")
+	}
+	if config.ProfileFingerprintOldKeys, err = parseFingerprintOldKeys(strings.TrimSpace(previousFingerprintKeys), config.ProfileFingerprintKey); err != nil {
+		return err
+	}
+	config.ProfileKeyring, err = loadProfileKeyring(values)
+	return err
+}
+
+func loadProfileKeyring(values map[string]string) (*profilestorage.Keyring, error) {
 	keyringFile := trimmed(values, "PROFILE_ENCRYPTION_KEYRING_FILE")
 	keyringJSON := values["PROFILE_ENCRYPTION_KEYRING_JSON"]
 
 	if keyringFile != "" && keyringJSON != "" {
-		return Config{}, fmt.Errorf("PROFILE_ENCRYPTION_KEYRING_FILE and PROFILE_ENCRYPTION_KEYRING_JSON are mutually exclusive")
+		return nil, fmt.Errorf("PROFILE_ENCRYPTION_KEYRING_FILE and PROFILE_ENCRYPTION_KEYRING_JSON are mutually exclusive")
 	}
-
 	if keyringFile != "" {
 		kr, err := profilestorage.LoadKeyringFile(keyringFile)
 		if err != nil {
-			return Config{}, fmt.Errorf("load keyring file: %w", err)
+			return nil, fmt.Errorf("load keyring file: %w", err)
 		}
-		config.ProfileKeyring = kr
-	} else if keyringJSON != "" {
+		return kr, nil
+	}
+	if keyringJSON != "" {
 		kr, err := profilestorage.LoadKeyringJSON([]byte(keyringJSON))
 		if err != nil {
-			return Config{}, fmt.Errorf("load keyring JSON: %w", err)
+			return nil, fmt.Errorf("load keyring JSON: %w", err)
 		}
-		config.ProfileKeyring = kr
+		return kr, nil
 	}
-
-	return config, nil
+	return nil, nil
 }
 
 func parseFingerprintKey(name, raw string) ([]byte, error) {

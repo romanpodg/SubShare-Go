@@ -52,6 +52,21 @@ func nullInt64Value(id int64) any {
 	return id
 }
 
+// parseUpdatedAt reads the stored updated_at text, accepting the SQLite and
+// RFC 3339 layouts, and falls back to created_at otherwise.
+func parseUpdatedAt(updatedAt sql.NullString, fallback time.Time) time.Time {
+	if !updatedAt.Valid || updatedAt.String == "" {
+		return fallback
+	}
+	if t, err := time.Parse("2006-01-02 15:04:05", updatedAt.String); err == nil {
+		return t
+	}
+	if t, err := time.Parse(time.RFC3339, updatedAt.String); err == nil {
+		return t
+	}
+	return fallback
+}
+
 func (r *Repository) GetByID(ctx context.Context, id int64) (*model.VLESSKey, string, error) {
 	return loadKeyByID(ctx, r.db, r.credentials, id)
 }
@@ -135,17 +150,7 @@ func loadKeyByID(ctx context.Context, db *sql.DB, credentials *credentialStore, 
 	if key.ProfileRevision < 1 {
 		key.ProfileRevision = 1
 	}
-	if updatedAt.Valid && updatedAt.String != "" {
-		if t, err := time.Parse("2006-01-02 15:04:05", updatedAt.String); err == nil {
-			key.UpdatedAt = t
-		} else if t, err := time.Parse(time.RFC3339, updatedAt.String); err == nil {
-			key.UpdatedAt = t
-		} else {
-			key.UpdatedAt = key.CreatedAt
-		}
-	} else {
-		key.UpdatedAt = key.CreatedAt
-	}
+	key.UpdatedAt = parseUpdatedAt(updatedAt, key.CreatedAt)
 	if externalSourceID.Valid {
 		key.ExternalSourceID = externalSourceID.Int64
 	}
@@ -240,37 +245,9 @@ func (r *Repository) UpdateLocal(ctx context.Context, params keymanagement.Updat
 		return nil, "", err
 	}
 
-	var extSourceID sql.NullInt64
-	var storedRev sql.NullInt64
-	var storedBlindIndex string
-	var storedEncryptedURL sql.NullString
-	err = tx.QueryRowContext(ctx, `
-		SELECT k.external_source_id, COALESCE(k.profile_revision, 1), k.url_blind_index, s.encrypted_url
-		FROM vless_keys k
-		LEFT JOIN vless_key_secrets s ON s.vless_key_id = k.id
-		WHERE k.id = ?
-	`, params.ID).Scan(&extSourceID, &storedRev, &storedBlindIndex, &storedEncryptedURL)
-	if errors.Is(err, sql.ErrNoRows) {
-		return nil, "", keymanagement.ErrKeyNotFound
-	}
+	storedURI, storedBlindIndex, err := r.loadLocalKeyForUpdate(ctx, tx, params.ID, params.ExpectedRevision)
 	if err != nil {
-		return nil, "", fmt.Errorf("failed to load key ownership: %w", err)
-	}
-	if extSourceID.Valid && extSourceID.Int64 > 0 {
-		return nil, "", keymanagement.ErrSourceOwnedReadOnly
-	}
-	if storedRev.Int64 != params.ExpectedRevision {
-		return nil, "", keymanagement.ErrProfileRevisionConflict
-	}
-	if !storedEncryptedURL.Valid || storedEncryptedURL.String == "" {
-		return nil, "", keymanagement.ErrStorageIntegrity
-	}
-	storedURI, decryptErr := r.credentials.decrypt(storedEncryptedURL.String, params.ID)
-	if decryptErr != nil {
-		if credentialKeyUnavailable(decryptErr) {
-			return nil, "", fmt.Errorf("%w: %v", keymanagement.ErrEncryptionUnavailable, decryptErr)
-		}
-		return nil, "", fmt.Errorf("%w: %v", keymanagement.ErrStorageIntegrity, decryptErr)
+		return nil, "", err
 	}
 	if storedURI == params.NewURI {
 		blindIndex = storedBlindIndex
@@ -313,6 +290,42 @@ func (r *Repository) UpdateLocal(ctx context.Context, params keymanagement.Updat
 	}
 
 	return r.GetByID(ctx, params.ID)
+}
+
+// loadLocalKeyForUpdate checks that the key exists, is locally owned, sits at
+// the expected revision and has a decryptable secret; it returns the current
+// plaintext URI and blind index.
+func (r *Repository) loadLocalKeyForUpdate(ctx context.Context, tx *sql.Tx, id, expectedRevision int64) (string, string, error) {
+	var extSourceID sql.NullInt64
+	var storedRev sql.NullInt64
+	var storedBlindIndex string
+	var storedEncryptedURL sql.NullString
+	err := tx.QueryRowContext(ctx, `
+		SELECT k.external_source_id, COALESCE(k.profile_revision, 1), k.url_blind_index, s.encrypted_url
+		FROM vless_keys k
+		LEFT JOIN vless_key_secrets s ON s.vless_key_id = k.id
+		WHERE k.id = ?
+	`, id).Scan(&extSourceID, &storedRev, &storedBlindIndex, &storedEncryptedURL)
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", "", keymanagement.ErrKeyNotFound
+	}
+	if err != nil {
+		return "", "", fmt.Errorf("failed to load key ownership: %w", err)
+	}
+	if extSourceID.Valid && extSourceID.Int64 > 0 {
+		return "", "", keymanagement.ErrSourceOwnedReadOnly
+	}
+	if storedRev.Int64 != expectedRevision {
+		return "", "", keymanagement.ErrProfileRevisionConflict
+	}
+	if !storedEncryptedURL.Valid || storedEncryptedURL.String == "" {
+		return "", "", keymanagement.ErrStorageIntegrity
+	}
+	storedURI, decryptErr := r.credentials.decrypt(storedEncryptedURL.String, id)
+	if decryptErr != nil {
+		return "", "", mapKeyCredentialError(decryptErr)
+	}
+	return storedURI, storedBlindIndex, nil
 }
 
 // UpdateSourceOwnedMetadata changes only locally administered delivery metadata.
@@ -389,57 +402,16 @@ func (r *Repository) CloneLocal(ctx context.Context, params keymanagement.CloneP
 	}
 	defer tx.Rollback()
 
-	var sourceLabel, sourceCategory, sourceKind, sourceStatus, sourceProtocol string
-	var sourceTemplateText, sourceWarnings, sourceEncURL, sourceClientDisplayName sql.NullString
-	var sourceCategoryID, sourceExternalSourceID sql.NullInt64
-	var sourceSchemaVer int
-	var sourceRevision int64
-	err = tx.QueryRowContext(ctx, `
-		SELECT k.label, k.client_display_name, k.category, k.key_kind, k.template_text, k.status, k.protocol,
-		       k.profile_schema_version, k.profile_warnings_json, s.encrypted_url,
-		       k.category_id, k.external_source_id, COALESCE(k.profile_revision, 1)
-		FROM vless_keys k
-		LEFT JOIN vless_key_secrets s ON k.id = s.vless_key_id
-		WHERE k.id = ?
-	`, params.ID).Scan(
-		&sourceLabel, &sourceClientDisplayName, &sourceCategory, &sourceKind, &sourceTemplateText, &sourceStatus,
-		&sourceProtocol, &sourceSchemaVer, &sourceWarnings, &sourceEncURL, &sourceCategoryID, &sourceExternalSourceID, &sourceRevision,
-	)
-	if errors.Is(err, sql.ErrNoRows) {
-		return nil, "", keymanagement.ErrKeyNotFound
-	}
+	src, decryptedURI, err := r.loadCloneSource(ctx, tx, params.ID, params.ExpectedRevision)
 	if err != nil {
-		return nil, "", fmt.Errorf("failed to load source key: %w", err)
-	}
-
-	if sourceRevision != params.ExpectedRevision {
-		return nil, "", keymanagement.ErrProfileRevisionConflict
-	}
-
-	if !sourceEncURL.Valid || sourceEncURL.String == "" {
-		return nil, "", keymanagement.ErrStorageIntegrity
-	}
-
-	decryptedURI, decErr := r.credentials.decrypt(sourceEncURL.String, params.ID)
-	if decErr != nil {
-		if credentialKeyUnavailable(decErr) {
-			return nil, "", fmt.Errorf("%w: %v", keymanagement.ErrEncryptionUnavailable, decErr)
-		}
-		return nil, "", fmt.Errorf("%w: %v", keymanagement.ErrStorageIntegrity, decErr)
+		return nil, "", err
 	}
 
 	newLabel := strings.TrimSpace(params.NewLabel)
 	if newLabel == "" {
-		newLabel = sourceLabel + " (Копия)"
+		newLabel = src.label + " (Копия)"
 	}
-	cloneClientDisplayName := strings.TrimSpace(sourceClientDisplayName.String)
-	if cloneClientDisplayName == "" && sourceExternalSourceID.Valid && sourceExternalSourceID.Int64 > 0 {
-		sourceEffectiveName := profileconfig.EffectiveClientDisplayName("", decryptedURI, sourceLabel, true)
-		localFallbackName := profileconfig.EffectiveClientDisplayName("", decryptedURI, newLabel, false)
-		if sourceEffectiveName != localFallbackName {
-			cloneClientDisplayName = sourceEffectiveName
-		}
-	}
+	cloneClientDisplayName := src.cloneClientDisplayName(newLabel, decryptedURI)
 
 	var nextSortOrder int64
 	if err := tx.QueryRowContext(ctx, `SELECT COALESCE(MAX(sort_order), 0) + 1 FROM vless_keys`).Scan(&nextSortOrder); err != nil {
@@ -457,7 +429,7 @@ func (r *Repository) CloneLocal(ctx context.Context, params keymanagement.CloneP
 			protocol, profile_schema_version, profile_compatibility, profile_warnings_json,
 			profile_revision, created_at, updated_at
 		) VALUES(?, ?, ?, ?, ?, ?, 'unknown', ?, ?, ?, NULL, NULL, ?, ?, 'full', ?, 1, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
-	`, newLabel, nullStringValue(cloneClientDisplayName), blindIndex, nullInt64Value(sourceCategoryID.Int64), sourceCategory, sourceStatus, sourceKind, nullStringValue(sourceTemplateText.String), nextSortOrder, sourceProtocol, sourceSchemaVer, nullStringValue(sourceWarnings.String))
+	`, newLabel, nullStringValue(cloneClientDisplayName), blindIndex, nullInt64Value(src.categoryID.Int64), src.category, src.status, src.kind, nullStringValue(src.templateText.String), nextSortOrder, src.protocol, src.schemaVersion, nullStringValue(src.warnings.String))
 	if err != nil {
 		return nil, "", fmt.Errorf("failed to insert cloned key: %w", err)
 	}
@@ -488,6 +460,69 @@ func (r *Repository) CloneLocal(ctx context.Context, params keymanagement.CloneP
 	}
 
 	return r.GetByID(ctx, newID)
+}
+
+// cloneSource is the row a clone is copied from.
+type cloneSource struct {
+	label, category, kind, status, protocol string
+	templateText, warnings, encryptedURL    sql.NullString
+	clientDisplayName                       sql.NullString
+	categoryID, externalSourceID            sql.NullInt64
+	schemaVersion                           int
+	revision                                int64
+}
+
+// loadCloneSource reads the source row, checks its revision and returns it
+// together with the decrypted configuration.
+func (r *Repository) loadCloneSource(ctx context.Context, tx *sql.Tx, id, expectedRevision int64) (*cloneSource, string, error) {
+	var src cloneSource
+	err := tx.QueryRowContext(ctx, `
+		SELECT k.label, k.client_display_name, k.category, k.key_kind, k.template_text, k.status, k.protocol,
+		       k.profile_schema_version, k.profile_warnings_json, s.encrypted_url,
+		       k.category_id, k.external_source_id, COALESCE(k.profile_revision, 1)
+		FROM vless_keys k
+		LEFT JOIN vless_key_secrets s ON k.id = s.vless_key_id
+		WHERE k.id = ?
+	`, id).Scan(
+		&src.label, &src.clientDisplayName, &src.category, &src.kind, &src.templateText, &src.status,
+		&src.protocol, &src.schemaVersion, &src.warnings, &src.encryptedURL, &src.categoryID, &src.externalSourceID, &src.revision,
+	)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, "", keymanagement.ErrKeyNotFound
+	}
+	if err != nil {
+		return nil, "", fmt.Errorf("failed to load source key: %w", err)
+	}
+
+	if src.revision != expectedRevision {
+		return nil, "", keymanagement.ErrProfileRevisionConflict
+	}
+
+	if !src.encryptedURL.Valid || src.encryptedURL.String == "" {
+		return nil, "", keymanagement.ErrStorageIntegrity
+	}
+
+	decryptedURI, decErr := r.credentials.decrypt(src.encryptedURL.String, id)
+	if decErr != nil {
+		return nil, "", mapKeyCredentialError(decErr)
+	}
+	return &src, decryptedURI, nil
+}
+
+// cloneClientDisplayName keeps an explicit display name; for a source-owned
+// key without one it pins the source-derived name only when a local key with
+// the new label would display something different.
+func (src *cloneSource) cloneClientDisplayName(newLabel, decryptedURI string) string {
+	name := strings.TrimSpace(src.clientDisplayName.String)
+	if name != "" || !src.externalSourceID.Valid || src.externalSourceID.Int64 <= 0 {
+		return name
+	}
+	sourceEffectiveName := profileconfig.EffectiveClientDisplayName("", decryptedURI, src.label, true)
+	localFallbackName := profileconfig.EffectiveClientDisplayName("", decryptedURI, newLabel, false)
+	if sourceEffectiveName != localFallbackName {
+		return sourceEffectiveName
+	}
+	return name
 }
 
 func (r *Repository) ListLegacy(ctx context.Context) ([]model.VLESSKey, error) {
@@ -525,17 +560,7 @@ func (r *Repository) ListLegacy(ctx context.Context) ([]model.VLESSKey, error) {
 		if err := rows.Scan(&key.ID, &key.Label, &storedClientDisplayName, &encURL, &categoryID, &category, &kind, &templateText, &status, &checkStatus, &checkError, &lastCheckedAt, &latency, &key.CreatedAt, &externalSourceID, &externalSourceName, &key.Protocol, &key.ProfileSchemaVersion, &key.ProfileCompatibility, &warningsJSON, &key.ProfileRevision, &updatedAt); err != nil {
 			return nil, err
 		}
-		if updatedAt.Valid && updatedAt.String != "" {
-			if t, err := time.Parse("2006-01-02 15:04:05", updatedAt.String); err == nil {
-				key.UpdatedAt = t
-			} else if t, err := time.Parse(time.RFC3339, updatedAt.String); err == nil {
-				key.UpdatedAt = t
-			} else {
-				key.UpdatedAt = key.CreatedAt
-			}
-		} else {
-			key.UpdatedAt = key.CreatedAt
-		}
+		key.UpdatedAt = parseUpdatedAt(updatedAt, key.CreatedAt)
 		decryptedURL, decryptErr := r.credentials.decrypt(encURL.String, key.ID)
 		if decryptErr != nil {
 			return nil, mapKeyCredentialError(decryptErr)

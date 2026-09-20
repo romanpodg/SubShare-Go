@@ -10,6 +10,7 @@ import (
 	"github.com/romanpodg/SubShare-Go/internal/keymanagement"
 	"github.com/romanpodg/SubShare-Go/internal/model"
 	"github.com/romanpodg/SubShare-Go/internal/profileconfig"
+	"github.com/romanpodg/SubShare-Go/internal/storage"
 )
 
 func (a *App) deliveryIdentity(raw string) (string, error) {
@@ -44,8 +45,7 @@ func (a *App) selectSubscriptionEntries(ctx subscriptionDeliveryContext, respons
 	selection := deliverySelection{Format: format, Entries: []delivery.Entry{}, Exclusions: []delivery.Exclusion{}}
 	seen := make(map[string]struct{})
 	for _, row := range stored {
-		if row.Kind == model.KeyKindReal && row.SecretError == nil &&
-			!(format == model.SubscriptionFormatLinks && profileconfig.SupportedConfigScheme(row.Raw) == model.SubscriptionFormatXrayJSON) {
+		if countsAsRealKey(row, format) {
 			selection.RealKeysCount++
 		}
 		entry := delivery.Entry{
@@ -60,11 +60,7 @@ func (a *App) selectSubscriptionEntries(ctx subscriptionDeliveryContext, respons
 			continue
 		}
 		if row.SecretError != nil {
-			cause := "decryption_failed"
-			if errors.Is(row.SecretError, keymanagement.ErrCredentialMissing) {
-				cause = "missing_secret"
-			}
-			log.Printf("operator_event: row_id=%d source_id=%v reason=profile_storage_integrity_error error=%s", entry.ID, entry.SourceID, cause)
+			log.Printf("operator_event: row_id=%d source_id=%v reason=profile_storage_integrity_error error=%s", entry.ID, entry.SourceID, secretErrorCause(row.SecretError))
 			selection.Exclusions = append(selection.Exclusions, delivery.Exclusion{RecordRef: entry.SafeRef(), Protocol: "unknown", Format: responseType, Reason: "profile_storage_integrity_error"})
 			continue
 		}
@@ -93,19 +89,38 @@ func (a *App) selectSubscriptionEntries(ctx subscriptionDeliveryContext, respons
 	if selection.EligibleCount == 0 {
 		return selection, deny(503, "", "subscription has no available keys"), nil
 	}
-	if len(selection.Entries) == 0 {
-		allCorrupt := len(selection.Exclusions) > 0
-		for _, ex := range selection.Exclusions {
-			if ex.Reason != "profile_storage_integrity_error" {
-				allCorrupt = false
-				break
-			}
-		}
-		if allCorrupt {
-			return selection, deny(503, "", "subscription has no available keys"), nil
-		}
+	if len(selection.Entries) == 0 && allIntegrityExclusions(selection.Exclusions) {
+		return selection, deny(503, "", "subscription has no available keys"), nil
 	}
 	return selection, subscriptionDenial{}, nil
+}
+
+// countsAsRealKey reports whether a stored row is a deliverable real key for
+// the given format, as informational templates count them.
+func countsAsRealKey(row storage.DeliveryEntry, format string) bool {
+	return row.Kind == model.KeyKindReal && row.SecretError == nil &&
+		!(format == model.SubscriptionFormatLinks && profileconfig.SupportedConfigScheme(row.Raw) == model.SubscriptionFormatXrayJSON)
+}
+
+func secretErrorCause(err error) string {
+	if errors.Is(err, keymanagement.ErrCredentialMissing) {
+		return "missing_secret"
+	}
+	return "decryption_failed"
+}
+
+// allIntegrityExclusions reports whether there is at least one exclusion and
+// every one of them is a profile storage integrity error.
+func allIntegrityExclusions(exclusions []delivery.Exclusion) bool {
+	if len(exclusions) == 0 {
+		return false
+	}
+	for _, ex := range exclusions {
+		if ex.Reason != "profile_storage_integrity_error" {
+			return false
+		}
+	}
+	return true
 }
 
 // generateSubscription renders the subscription for an already prepared

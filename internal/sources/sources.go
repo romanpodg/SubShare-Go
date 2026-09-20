@@ -236,43 +236,18 @@ func maybeDecodeBase64SubscriptionBody(raw string) (string, bool, error) {
 		}
 	}
 
-	var compact strings.Builder
-	compact.Grow(len(candidate))
-	base64Like := true
-	for _, char := range candidate {
-		switch {
-		case char == '\r' || char == '\n' || char == '\t' || char == ' ':
-			continue
-		case char >= 'a' && char <= 'z', char >= 'A' && char <= 'Z', char >= '0' && char <= '9', char == '+', char == '/', char == '-', char == '_', char == '=':
-			compact.WriteRune(char)
-		default:
-			base64Like = false
-		}
-	}
-	if !base64Like || compact.Len() < 24 {
+	encoded, base64Like := compactBase64Body(candidate)
+	if !base64Like || len(encoded) < 24 {
 		if explicit {
 			return "", true, fmt.Errorf("invalid_base64_subscription")
 		}
 		return "", false, nil
 	}
-	encoded := compact.String()
 	if strings.ContainsAny(encoded, "+/") && strings.ContainsAny(encoded, "-_") {
 		return "", true, fmt.Errorf("invalid_base64_subscription")
 	}
 
-	var encoding *base64.Encoding
-	urlSafe := strings.ContainsAny(encoded, "-_")
-	padded := strings.Contains(encoded, "=")
-	switch {
-	case urlSafe && padded:
-		encoding = base64.URLEncoding.Strict()
-	case urlSafe:
-		encoding = base64.RawURLEncoding.Strict()
-	case padded:
-		encoding = base64.StdEncoding.Strict()
-	default:
-		encoding = base64.RawStdEncoding.Strict()
-	}
+	encoding := base64EncodingFor(encoded)
 	if encoding.DecodedLen(len(encoded)) > MaxBodyBytes {
 		return "", true, fmt.Errorf("subscription_body_too_large")
 	}
@@ -290,6 +265,40 @@ func maybeDecodeBase64SubscriptionBody(raw string) (string, bool, error) {
 		return decoded, true, nil
 	}
 	return "", true, fmt.Errorf("invalid_base64_subscription")
+}
+
+// compactBase64Body strips ASCII whitespace and reports whether every
+// remaining character belongs to the standard or URL-safe Base64 alphabet.
+func compactBase64Body(candidate string) (string, bool) {
+	var compact strings.Builder
+	compact.Grow(len(candidate))
+	base64Like := true
+	for _, char := range candidate {
+		switch {
+		case char == '\r' || char == '\n' || char == '\t' || char == ' ':
+			continue
+		case char >= 'a' && char <= 'z', char >= 'A' && char <= 'Z', char >= '0' && char <= '9', char == '+', char == '/', char == '-', char == '_', char == '=':
+			compact.WriteRune(char)
+		default:
+			base64Like = false
+		}
+	}
+	return compact.String(), base64Like
+}
+
+func base64EncodingFor(encoded string) *base64.Encoding {
+	urlSafe := strings.ContainsAny(encoded, "-_")
+	padded := strings.Contains(encoded, "=")
+	switch {
+	case urlSafe && padded:
+		return base64.URLEncoding.Strict()
+	case urlSafe:
+		return base64.RawURLEncoding.Strict()
+	case padded:
+		return base64.StdEncoding.Strict()
+	default:
+		return base64.RawStdEncoding.Strict()
+	}
 }
 
 // externalURIScheme performs explicit ASCII URI-scheme recognition. Schemes
@@ -530,48 +539,67 @@ func parseExternalLinkBody(body string, fingerprintKeys [][]byte) ([]ParsedKey, 
 		if raw == "" || strings.HasPrefix(raw, "#") || strings.HasPrefix(raw, ";") {
 			continue
 		}
+		var err error
 		if strings.HasPrefix(raw, "{") && json.Valid([]byte(raw)) {
-			jsonKeys, jsonItems, err := parseExternalJSONBody(raw, index+1, fingerprintKeys)
-			if err != nil {
-				return nil, nil, err
-			}
-			for _, item := range jsonItems {
-				if item.Status == StatusRejected {
-					items = append(items, item)
-				}
-			}
-			for _, key := range jsonKeys {
-				appendExternalParsedItem(&keys, &items, seen, key)
-			}
-			continue
+			err = appendExternalJSONLine(raw, index+1, fingerprintKeys, &keys, &items, seen)
+		} else {
+			err = appendExternalURILine(raw, index+1, fingerprintKeys, &keys, &items, seen)
 		}
-		scheme := externalURIScheme(raw)
-		switch scheme {
-		case "vless", "vmess", "trojan", "ss", "hysteria2", "hy2", "tuic":
-			key, item, err := parseExternalProfileItem(raw, index+1, scheme, fingerprintKeys)
-			if err != nil {
-				return nil, nil, err
-			}
-			if key == nil {
-				items = append(items, item)
-				continue
-			}
-			appendExternalParsedItem(&keys, &items, seen, *key)
-		case "hysteria", "hysteria2+realm", "realm", "realm+http":
-			item, err := rejectedExternalItem(raw, index+1, scheme, StatusUnsupported, "unsupported_protocol", fingerprintKeys)
-			if err != nil {
-				return nil, nil, err
-			}
-			items = append(items, item)
-		default:
-			item, err := rejectedExternalItem(raw, index+1, scheme, StatusUnsupported, "unsupported_scheme", fingerprintKeys)
-			if err != nil {
-				return nil, nil, err
-			}
-			items = append(items, item)
+		if err != nil {
+			return nil, nil, err
 		}
 	}
 	return keys, items, nil
+}
+
+// appendExternalJSONLine folds one inline JSON document into the link-list
+// result: its rejected items are reported, its keys go through the shared
+// dedupe path, and every other item status is dropped.
+func appendExternalJSONLine(raw string, lineIndex int, fingerprintKeys [][]byte, keys *[]ParsedKey, items *[]ImportItem, seen map[string]struct{}) error {
+	jsonKeys, jsonItems, err := parseExternalJSONBody(raw, lineIndex, fingerprintKeys)
+	if err != nil {
+		return err
+	}
+	for _, item := range jsonItems {
+		if item.Status == StatusRejected {
+			*items = append(*items, item)
+		}
+	}
+	for _, key := range jsonKeys {
+		appendExternalParsedItem(keys, items, seen, key)
+	}
+	return nil
+}
+
+func appendExternalURILine(raw string, lineIndex int, fingerprintKeys [][]byte, keys *[]ParsedKey, items *[]ImportItem, seen map[string]struct{}) error {
+	scheme := externalURIScheme(raw)
+	switch scheme {
+	case "vless", "vmess", "trojan", "ss", "hysteria2", "hy2", "tuic":
+		key, item, err := parseExternalProfileItem(raw, lineIndex, scheme, fingerprintKeys)
+		if err != nil {
+			return err
+		}
+		if key == nil {
+			*items = append(*items, item)
+			return nil
+		}
+		appendExternalParsedItem(keys, items, seen, *key)
+		return nil
+	case "hysteria", "hysteria2+realm", "realm", "realm+http":
+		item, err := rejectedExternalItem(raw, lineIndex, scheme, StatusUnsupported, "unsupported_protocol", fingerprintKeys)
+		if err != nil {
+			return err
+		}
+		*items = append(*items, item)
+		return nil
+	default:
+		item, err := rejectedExternalItem(raw, lineIndex, scheme, StatusUnsupported, "unsupported_scheme", fingerprintKeys)
+		if err != nil {
+			return err
+		}
+		*items = append(*items, item)
+		return nil
+	}
 }
 
 func isSIP008ProfileObject(object map[string]any) bool {
@@ -733,161 +761,36 @@ func parseXrayHysteria2Object(object map[string]any, raw string, lineIndex int, 
 	stream, _ := profileconfig.AsObject(outbound["streamSettings"])
 	hysteriaSettings, _ := profileconfig.AsObject(stream["hysteriaSettings"])
 
-	settingsVersionRaw, settingsMarkerPresent := settings["version"]
-	streamVersionRaw, streamMarkerPresent := hysteriaSettings["version"]
-	settingsVersion, settingsVersionValid := xrayVersionValue(settingsVersionRaw)
-	streamVersion, streamVersionValid := xrayVersionValue(streamVersionRaw)
-	if !settingsMarkerPresent && !streamMarkerPresent {
-		identity.Protocol = "hysteria-unknown"
-		item, err := safeRejectedXrayJSONItem(raw, lineIndex, identity, StatusUnsupported, "ambiguous_hysteria_version", fingerprintKeys)
-		return nil, &item, true, err
-	}
-	if (settingsMarkerPresent && !settingsVersionValid) || (streamMarkerPresent && !streamVersionValid) {
-		identity.Protocol = "hysteria-unknown"
-		item, err := safeRejectedXrayJSONItem(raw, lineIndex, identity, StatusUnsupported, "unsupported_hysteria_version", fingerprintKeys)
-		return nil, &item, true, err
-	}
-	isV2 := (settingsMarkerPresent && settingsVersion == 2) || (streamMarkerPresent && streamVersion == 2)
-	if !isV2 {
-		if (!settingsMarkerPresent || settingsVersion == 1) && (!streamMarkerPresent || streamVersion == 1) {
-			item, err := safeRejectedXrayJSONItem(raw, lineIndex, identity, StatusUnsupported, "unsupported_hysteria_v1", fingerprintKeys)
-			return nil, &item, true, err
-		}
-		identity.Protocol = "hysteria-unknown"
-		item, err := safeRejectedXrayJSONItem(raw, lineIndex, identity, StatusUnsupported, "unsupported_hysteria_version", fingerprintKeys)
-		return nil, &item, true, err
-	}
-	if (settingsMarkerPresent && settingsVersion != 2) || (streamMarkerPresent && streamVersion != 2) {
-		identity.Protocol = "hysteria-unknown"
-		item, err := safeRejectedXrayJSONItem(raw, lineIndex, identity, StatusUnsupported, "unsupported_hysteria_version", fingerprintKeys)
+	if protocol, errorCode := xrayHysteriaVersionRejection(settings, hysteriaSettings); errorCode != "" {
+		identity.Protocol = protocol
+		item, err := safeRejectedXrayJSONItem(raw, lineIndex, identity, StatusUnsupported, errorCode, fingerprintKeys)
 		return nil, &item, true, err
 	}
 	identity.Protocol = "hysteria2"
+	reject := func() (*ParsedKey, *ImportItem, bool, error) {
+		item, err := safeRejectedXrayJSONItem(raw, lineIndex, identity, StatusRejected, "invalid_hysteria2_json", fingerprintKeys)
+		return nil, &item, true, err
+	}
 
 	host, hostOK := settings["address"].(string)
 	host = strings.TrimSpace(host)
 	port := strings.TrimSpace(identity.Port)
 	auth, authOK := hysteriaSettings["auth"].(string)
 	auth = strings.TrimSpace(auth)
-	method := strings.ToLower(profileconfig.AnyToString(stream["method"]))
-	network := strings.ToLower(profileconfig.AnyToString(stream["network"]))
-	if !hostOK || !authOK || host == "" || port == "" || auth == "" ||
-		(method == "" && network == "") ||
-		(method != "" && method != "hysteria") ||
-		(network != "" && network != "hysteria") ||
-		!strings.EqualFold(profileconfig.AnyToString(stream["security"]), "tls") ||
-		!onlyObjectKeys(outbound, "tag", "protocol", "settings", "streamSettings") ||
-		!onlyObjectKeys(settings, "version", "address", "port") ||
-		!onlyObjectKeys(hysteriaSettings, "version", "auth") ||
-		!onlyObjectKeys(stream, "method", "network", "security", "hysteriaSettings", "tlsSettings", "finalmask") {
-		item, err := safeRejectedXrayJSONItem(raw, lineIndex, identity, StatusRejected, "invalid_hysteria2_json", fingerprintKeys)
-		return nil, &item, true, err
+	if !hostOK || !authOK || host == "" || port == "" || auth == "" || !xrayHysteria2ShapeValid(outbound, settings, stream, hysteriaSettings) {
+		return reject()
 	}
 
 	query := url.Values{}
-	tlsSettings, tlsSettingsOK := profileconfig.AsObject(stream["tlsSettings"])
-	if _, present := stream["tlsSettings"]; present && !tlsSettingsOK {
-		item, err := safeRejectedXrayJSONItem(raw, lineIndex, identity, StatusRejected, "invalid_hysteria2_json", fingerprintKeys)
-		return nil, &item, true, err
+	if !xrayHysteria2TLSQuery(stream, query) {
+		return reject()
 	}
-	if tlsSettings != nil && !onlyObjectKeys(tlsSettings, "serverName", "pinnedPeerCertSha256", "allowInsecure", "alpn", "fingerprint") {
-		item, err := safeRejectedXrayJSONItem(raw, lineIndex, identity, StatusRejected, "invalid_hysteria2_json", fingerprintKeys)
-		return nil, &item, true, err
+	hopPorts, ok := xrayHysteria2FinalMaskQuery(stream, query)
+	if !ok {
+		return reject()
 	}
-	if sniRaw, present := tlsSettings["serverName"]; present {
-		sni, ok := sniRaw.(string)
-		sni = strings.TrimSpace(sni)
-		if !ok || sni == "" {
-			item, err := safeRejectedXrayJSONItem(raw, lineIndex, identity, StatusRejected, "invalid_hysteria2_json", fingerprintKeys)
-			return nil, &item, true, err
-		}
-		query.Set("sni", sni)
-	}
-	if pinRaw, present := tlsSettings["pinnedPeerCertSha256"]; present {
-		pin, ok := pinRaw.(string)
-		pin = strings.TrimSpace(pin)
-		if !ok || pin == "" {
-			item, err := safeRejectedXrayJSONItem(raw, lineIndex, identity, StatusRejected, "invalid_hysteria2_json", fingerprintKeys)
-			return nil, &item, true, err
-		}
-		query.Set("pinSHA256", pin)
-	}
-	if insecureRaw, present := tlsSettings["allowInsecure"]; present {
-		insecure, ok := insecureRaw.(bool)
-		if !ok {
-			item, err := safeRejectedXrayJSONItem(raw, lineIndex, identity, StatusRejected, "invalid_hysteria2_json", fingerprintKeys)
-			return nil, &item, true, err
-		}
-		if insecure {
-			query.Set("insecure", "1")
-		} else {
-			query.Set("insecure", "0")
-		}
-	}
-	alpnValues, alpnOK := xrayStringArray(tlsSettings, "alpn")
-	if !alpnOK {
-		item, err := safeRejectedXrayJSONItem(raw, lineIndex, identity, StatusRejected, "invalid_hysteria2_json", fingerprintKeys)
-		return nil, &item, true, err
-	}
-	for _, alpn := range alpnValues {
-		query.Add("alpn", alpn)
-	}
-	if fingerprintRaw, present := tlsSettings["fingerprint"]; present {
-		fingerprint, ok := fingerprintRaw.(string)
-		fingerprint = strings.TrimSpace(fingerprint)
-		if !ok || fingerprint == "" {
-			item, err := safeRejectedXrayJSONItem(raw, lineIndex, identity, StatusRejected, "invalid_hysteria2_json", fingerprintKeys)
-			return nil, &item, true, err
-		}
-		query.Set("fp", fingerprint)
-	}
-
-	finalMask, finalMaskOK := profileconfig.AsObject(stream["finalmask"])
-	if _, present := stream["finalmask"]; present && !finalMaskOK {
-		item, err := safeRejectedXrayJSONItem(raw, lineIndex, identity, StatusRejected, "invalid_hysteria2_json", fingerprintKeys)
-		return nil, &item, true, err
-	}
-	if finalMask != nil && !onlyObjectKeys(finalMask, "quicParams", "udp") {
-		item, err := safeRejectedXrayJSONItem(raw, lineIndex, identity, StatusRejected, "invalid_hysteria2_json", fingerprintKeys)
-		return nil, &item, true, err
-	}
-	if quicParams, ok := profileconfig.AsObject(finalMask["quicParams"]); ok {
-		if !onlyObjectKeys(quicParams, "udpHop") {
-			item, err := safeRejectedXrayJSONItem(raw, lineIndex, identity, StatusRejected, "invalid_hysteria2_json", fingerprintKeys)
-			return nil, &item, true, err
-		}
-		if udpHop, hopOK := profileconfig.AsObject(quicParams["udpHop"]); hopOK {
-			if !onlyObjectKeys(udpHop, "ports") || profileconfig.AnyToString(udpHop["ports"]) == "" {
-				item, err := safeRejectedXrayJSONItem(raw, lineIndex, identity, StatusRejected, "invalid_hysteria2_json", fingerprintKeys)
-				return nil, &item, true, err
-			}
-			port = profileconfig.AnyToString(udpHop["ports"])
-		} else if _, present := quicParams["udpHop"]; present {
-			item, err := safeRejectedXrayJSONItem(raw, lineIndex, identity, StatusRejected, "invalid_hysteria2_json", fingerprintKeys)
-			return nil, &item, true, err
-		}
-	} else if _, present := finalMask["quicParams"]; present {
-		item, err := safeRejectedXrayJSONItem(raw, lineIndex, identity, StatusRejected, "invalid_hysteria2_json", fingerprintKeys)
-		return nil, &item, true, err
-	}
-	masks := profileconfig.AsArray(finalMask["udp"])
-	if _, present := finalMask["udp"]; present && masks == nil {
-		item, err := safeRejectedXrayJSONItem(raw, lineIndex, identity, StatusRejected, "invalid_hysteria2_json", fingerprintKeys)
-		return nil, &item, true, err
-	}
-	if len(masks) > 0 {
-		if len(masks) != 1 {
-			item, err := safeRejectedXrayJSONItem(raw, lineIndex, identity, StatusRejected, "invalid_hysteria2_json", fingerprintKeys)
-			return nil, &item, true, err
-		}
-		mask, ok := profileconfig.AsObject(masks[0])
-		maskSettings, settingsOK := profileconfig.AsObject(mask["settings"])
-		if !ok || !settingsOK || profileconfig.AnyToString(mask["type"]) != "salamander" || !onlyObjectKeys(mask, "type", "settings") || !onlyObjectKeys(maskSettings, "password") {
-			item, err := safeRejectedXrayJSONItem(raw, lineIndex, identity, StatusRejected, "invalid_hysteria2_json", fingerprintKeys)
-			return nil, &item, true, err
-		}
-		query.Set("obfs", "salamander")
-		query.Set("obfs-password", profileconfig.AnyToString(maskSettings["password"]))
+	if hopPorts != "" {
+		port = hopPorts
 	}
 
 	authorityHost := host
@@ -906,23 +809,181 @@ func parseXrayHysteria2Object(object map[string]any, raw string, lineIndex int, 
 
 	profile, err := profiles.Parse(profileURI)
 	if err != nil {
-		item, itemErr := safeRejectedXrayJSONItem(raw, lineIndex, identity, StatusRejected, "invalid_hysteria2_json", fingerprintKeys)
-		return nil, &item, true, itemErr
+		return reject()
 	}
 	serialized, err := profiles.Serialize(profile, profiles.CanonicalSerialization)
 	if err != nil {
-		item, itemErr := safeRejectedXrayJSONItem(raw, lineIndex, identity, StatusRejected, "invalid_hysteria2_json", fingerprintKeys)
-		return nil, &item, true, itemErr
+		return reject()
 	}
-	itemRef, err := buildExternalItemRef(raw, lineIndex, fingerprintKeys)
+	key, err := xrayHysteria2ParsedKey(profile, serialized, label, raw, lineIndex, fingerprintKeys)
 	if err != nil {
 		return nil, nil, true, err
+	}
+	item := safeExternalItem(*key, StatusAccepted, "")
+	return key, &item, true, nil
+}
+
+// xrayHysteriaVersionRejection inspects both Hysteria version markers and
+// returns the identity protocol plus rejection code for anything other than
+// an unambiguous version 2. An empty code means version 2 was confirmed.
+func xrayHysteriaVersionRejection(settings, hysteriaSettings map[string]any) (string, string) {
+	settingsVersionRaw, settingsMarkerPresent := settings["version"]
+	streamVersionRaw, streamMarkerPresent := hysteriaSettings["version"]
+	settingsVersion, settingsVersionValid := xrayVersionValue(settingsVersionRaw)
+	streamVersion, streamVersionValid := xrayVersionValue(streamVersionRaw)
+	if !settingsMarkerPresent && !streamMarkerPresent {
+		return "hysteria-unknown", "ambiguous_hysteria_version"
+	}
+	if (settingsMarkerPresent && !settingsVersionValid) || (streamMarkerPresent && !streamVersionValid) {
+		return "hysteria-unknown", "unsupported_hysteria_version"
+	}
+	isV2 := (settingsMarkerPresent && settingsVersion == 2) || (streamMarkerPresent && streamVersion == 2)
+	if !isV2 {
+		if (!settingsMarkerPresent || settingsVersion == 1) && (!streamMarkerPresent || streamVersion == 1) {
+			return "hysteria", "unsupported_hysteria_v1"
+		}
+		return "hysteria-unknown", "unsupported_hysteria_version"
+	}
+	if (settingsMarkerPresent && settingsVersion != 2) || (streamMarkerPresent && streamVersion != 2) {
+		return "hysteria-unknown", "unsupported_hysteria_version"
+	}
+	return "", ""
+}
+
+func xrayHysteria2ShapeValid(outbound, settings, stream, hysteriaSettings map[string]any) bool {
+	method := strings.ToLower(profileconfig.AnyToString(stream["method"]))
+	network := strings.ToLower(profileconfig.AnyToString(stream["network"]))
+	if (method == "" && network == "") || (method != "" && method != "hysteria") || (network != "" && network != "hysteria") {
+		return false
+	}
+	return strings.EqualFold(profileconfig.AnyToString(stream["security"]), "tls") &&
+		onlyObjectKeys(outbound, "tag", "protocol", "settings", "streamSettings") &&
+		onlyObjectKeys(settings, "version", "address", "port") &&
+		onlyObjectKeys(hysteriaSettings, "version", "auth") &&
+		onlyObjectKeys(stream, "method", "network", "security", "hysteriaSettings", "tlsSettings", "finalmask")
+}
+
+// xrayTrimmedString reads an optional string field: absent is fine, but a
+// present value must be a non-blank string.
+func xrayTrimmedString(object map[string]any, key string) (string, bool, bool) {
+	raw, present := object[key]
+	if !present {
+		return "", false, true
+	}
+	value, ok := raw.(string)
+	value = strings.TrimSpace(value)
+	return value, true, ok && value != ""
+}
+
+func xrayHysteria2TLSQuery(stream map[string]any, query url.Values) bool {
+	tlsSettings, tlsSettingsOK := profileconfig.AsObject(stream["tlsSettings"])
+	if _, present := stream["tlsSettings"]; present && !tlsSettingsOK {
+		return false
+	}
+	if tlsSettings != nil && !onlyObjectKeys(tlsSettings, "serverName", "pinnedPeerCertSha256", "allowInsecure", "alpn", "fingerprint") {
+		return false
+	}
+	for _, field := range [...]struct{ key, param string }{{"serverName", "sni"}, {"pinnedPeerCertSha256", "pinSHA256"}} {
+		value, present, ok := xrayTrimmedString(tlsSettings, field.key)
+		if !ok {
+			return false
+		}
+		if present {
+			query.Set(field.param, value)
+		}
+	}
+	if insecureRaw, present := tlsSettings["allowInsecure"]; present {
+		insecure, ok := insecureRaw.(bool)
+		if !ok {
+			return false
+		}
+		if insecure {
+			query.Set("insecure", "1")
+		} else {
+			query.Set("insecure", "0")
+		}
+	}
+	alpnValues, alpnOK := xrayStringArray(tlsSettings, "alpn")
+	if !alpnOK {
+		return false
+	}
+	for _, alpn := range alpnValues {
+		query.Add("alpn", alpn)
+	}
+	fingerprint, present, ok := xrayTrimmedString(tlsSettings, "fingerprint")
+	if !ok {
+		return false
+	}
+	if present {
+		query.Set("fp", fingerprint)
+	}
+	return true
+}
+
+// xrayHysteria2FinalMaskQuery validates the finalmask block, adds salamander
+// obfuscation to query and returns the udpHop port expression when present.
+func xrayHysteria2FinalMaskQuery(stream map[string]any, query url.Values) (string, bool) {
+	finalMask, finalMaskOK := profileconfig.AsObject(stream["finalmask"])
+	if _, present := stream["finalmask"]; present && !finalMaskOK {
+		return "", false
+	}
+	if finalMask != nil && !onlyObjectKeys(finalMask, "quicParams", "udp") {
+		return "", false
+	}
+	hopPorts, ok := xrayHysteria2HopPorts(finalMask)
+	if !ok {
+		return "", false
+	}
+	masks := profileconfig.AsArray(finalMask["udp"])
+	if _, present := finalMask["udp"]; present && masks == nil {
+		return "", false
+	}
+	if len(masks) > 0 {
+		if len(masks) != 1 {
+			return "", false
+		}
+		mask, ok := profileconfig.AsObject(masks[0])
+		maskSettings, settingsOK := profileconfig.AsObject(mask["settings"])
+		if !ok || !settingsOK || profileconfig.AnyToString(mask["type"]) != "salamander" || !onlyObjectKeys(mask, "type", "settings") || !onlyObjectKeys(maskSettings, "password") {
+			return "", false
+		}
+		query.Set("obfs", "salamander")
+		query.Set("obfs-password", profileconfig.AnyToString(maskSettings["password"]))
+	}
+	return hopPorts, true
+}
+
+func xrayHysteria2HopPorts(finalMask map[string]any) (string, bool) {
+	quicParams, ok := profileconfig.AsObject(finalMask["quicParams"])
+	if !ok {
+		_, present := finalMask["quicParams"]
+		return "", !present
+	}
+	if !onlyObjectKeys(quicParams, "udpHop") {
+		return "", false
+	}
+	udpHop, hopOK := profileconfig.AsObject(quicParams["udpHop"])
+	if !hopOK {
+		_, present := quicParams["udpHop"]
+		return "", !present
+	}
+	ports := profileconfig.AnyToString(udpHop["ports"])
+	if !onlyObjectKeys(udpHop, "ports") || ports == "" {
+		return "", false
+	}
+	return ports, true
+}
+
+func xrayHysteria2ParsedKey(profile *profiles.Profile, serialized profiles.SerializationResult, label, raw string, lineIndex int, fingerprintKeys [][]byte) (*ParsedKey, error) {
+	itemRef, err := buildExternalItemRef(raw, lineIndex, fingerprintKeys)
+	if err != nil {
+		return nil, err
 	}
 	fingerprints := make([]string, 0, len(fingerprintKeys))
 	for _, fingerprintKey := range fingerprintKeys {
 		fingerprint, fingerprintErr := profiles.Fingerprint(profile, fingerprintKey)
 		if fingerprintErr != nil {
-			return nil, nil, true, fingerprintErr
+			return nil, fingerprintErr
 		}
 		fingerprints = append(fingerprints, fingerprint)
 	}
@@ -937,8 +998,7 @@ func parseXrayHysteria2Object(object map[string]any, raw string, lineIndex int, 
 	if len(fingerprints) > 0 {
 		key.Fingerprint = fingerprints[0]
 	}
-	item := safeExternalItem(*key, StatusAccepted, "")
-	return key, &item, true, nil
+	return key, nil
 }
 
 func parseExternalJSONBody(body string, firstItemIndex int, fingerprintKeys [][]byte) ([]ParsedKey, []ImportItem, error) {
@@ -946,69 +1006,15 @@ func parseExternalJSONBody(body string, firstItemIndex int, fingerprintKeys [][]
 	if err := json.Unmarshal([]byte(body), &parsed); err != nil {
 		return nil, nil, fmt.Errorf("invalid_json_subscription")
 	}
-	keys := make([]ParsedKey, 0, 16)
-	items := make([]ImportItem, 0, 16)
-	seen := make(map[string]struct{})
-	appendObject := func(obj map[string]any, lineIndex int) error {
-		encoded, err := json.Marshal(obj)
-		if err != nil {
-			return fmt.Errorf("invalid_json_subscription")
-		}
-		raw := string(encoded)
-		itemRef, err := buildExternalItemRef(raw, lineIndex, fingerprintKeys)
-		if err != nil {
-			return err
-		}
-		if isSIP008ProfileObject(obj) {
-			items = append(items, ImportItem{
-				ItemRef: itemRef, LineIndex: lineIndex, Protocol: "shadowsocks", Scheme: "sip008",
-				Compatibility: "unsupported", Status: StatusUnsupported, Warnings: []string{},
-				ErrorCode: "unsupported_sip008_format", URLShort: "shadowsocks",
-			})
-			return nil
-		}
-		if hysteriaKey, hysteriaItem, handled, hysteriaErr := parseXrayHysteria2Object(obj, raw, lineIndex, fingerprintKeys); handled {
-			if hysteriaErr != nil {
-				return hysteriaErr
-			}
-			if hysteriaKey == nil {
-				items = append(items, *hysteriaItem)
-				return nil
-			}
-			appendExternalParsedItem(&keys, &items, seen, *hysteriaKey)
-			return nil
-		}
-		drafts, parseErr := profileconfig.ParseXrayJSONDrafts(raw)
-		if parseErr != nil || len(drafts) == 0 {
-			if identity, identified := firstXrayJSONIdentity(obj); identified {
-				status := StatusUnsupported
-				errorCode := "unsupported_xray_protocol"
-				if identity.Protocol == "vless" || identity.Protocol == "vmess" || identity.Protocol == "trojan" {
-					status = StatusRejected
-					errorCode = "invalid_" + identity.Protocol + "_json"
-				}
-				item, itemErr := safeRejectedXrayJSONItem(raw, lineIndex, identity, status, errorCode, fingerprintKeys)
-				if itemErr != nil {
-					return itemErr
-				}
-				items = append(items, item)
-				return nil
-			}
-			items = append(items, ImportItem{ItemRef: itemRef, LineIndex: lineIndex, Protocol: "xray-json", Scheme: "xray-json", Compatibility: "legacy", Status: StatusRejected, Warnings: []string{}, ErrorCode: "invalid_xray_json", URLShort: "xray-json"})
-			return nil
-		}
-		label := strings.TrimSpace(ExtractJSONLabel(obj, fmt.Sprintf("JSON %03d", lineIndex)))
-		if label == "" {
-			label = fmt.Sprintf("JSON %03d", lineIndex)
-		}
-		host, port, _ := profileconfig.ParseXrayJSONTarget(raw)
-		key := ParsedKey{Label: label, URL: raw, Scheme: "xray-json", Protocol: "xray-json", Host: host, Port: port, Ref: KeyRef(raw), ItemRef: itemRef, LineIndex: lineIndex, Compatibility: "legacy", InitialStatus: StatusAccepted}
-		appendExternalParsedItem(&keys, &items, seen, key)
-		return nil
+	collector := &externalJSONCollector{
+		keys:            make([]ParsedKey, 0, 16),
+		items:           make([]ImportItem, 0, 16),
+		seen:            make(map[string]struct{}),
+		fingerprintKeys: fingerprintKeys,
 	}
 	switch typed := parsed.(type) {
 	case map[string]any:
-		if err := appendObject(typed, firstItemIndex); err != nil {
+		if err := collector.appendObject(typed, firstItemIndex); err != nil {
 			return nil, nil, err
 		}
 	case []any:
@@ -1016,24 +1022,105 @@ func parseExternalJSONBody(body string, firstItemIndex int, fingerprintKeys [][]
 			return nil, nil, fmt.Errorf("too_many_source_items")
 		}
 		for index, value := range typed {
-			lineIndex := firstItemIndex + index
-			object, ok := value.(map[string]any)
-			if !ok {
-				itemRef, err := buildExternalItemRef("invalid-json-item", lineIndex, fingerprintKeys)
-				if err != nil {
-					return nil, nil, err
-				}
-				items = append(items, ImportItem{ItemRef: itemRef, LineIndex: lineIndex, Protocol: "xray-json", Scheme: "xray-json", Compatibility: "legacy", Status: StatusRejected, Warnings: []string{}, ErrorCode: "invalid_xray_json", URLShort: "xray-json"})
-				continue
-			}
-			if err := appendObject(object, lineIndex); err != nil {
+			if err := collector.appendValue(value, firstItemIndex+index); err != nil {
 				return nil, nil, err
 			}
 		}
 	default:
 		return nil, nil, fmt.Errorf("invalid_json_subscription")
 	}
-	return keys, items, nil
+	return collector.keys, collector.items, nil
+}
+
+// externalJSONCollector accumulates the keys and items produced while walking
+// one JSON subscription document.
+type externalJSONCollector struct {
+	keys            []ParsedKey
+	items           []ImportItem
+	seen            map[string]struct{}
+	fingerprintKeys [][]byte
+}
+
+func invalidXrayJSONItem(itemRef string, lineIndex int) ImportItem {
+	return ImportItem{ItemRef: itemRef, LineIndex: lineIndex, Protocol: "xray-json", Scheme: "xray-json", Compatibility: "legacy", Status: StatusRejected, Warnings: []string{}, ErrorCode: "invalid_xray_json", URLShort: "xray-json"}
+}
+
+func (c *externalJSONCollector) appendValue(value any, lineIndex int) error {
+	object, ok := value.(map[string]any)
+	if !ok {
+		itemRef, err := buildExternalItemRef("invalid-json-item", lineIndex, c.fingerprintKeys)
+		if err != nil {
+			return err
+		}
+		c.items = append(c.items, invalidXrayJSONItem(itemRef, lineIndex))
+		return nil
+	}
+	return c.appendObject(object, lineIndex)
+}
+
+func (c *externalJSONCollector) appendObject(obj map[string]any, lineIndex int) error {
+	encoded, err := json.Marshal(obj)
+	if err != nil {
+		return fmt.Errorf("invalid_json_subscription")
+	}
+	raw := string(encoded)
+	itemRef, err := buildExternalItemRef(raw, lineIndex, c.fingerprintKeys)
+	if err != nil {
+		return err
+	}
+	if isSIP008ProfileObject(obj) {
+		c.items = append(c.items, ImportItem{
+			ItemRef: itemRef, LineIndex: lineIndex, Protocol: "shadowsocks", Scheme: "sip008",
+			Compatibility: "unsupported", Status: StatusUnsupported, Warnings: []string{},
+			ErrorCode: "unsupported_sip008_format", URLShort: "shadowsocks",
+		})
+		return nil
+	}
+	if hysteriaKey, hysteriaItem, handled, hysteriaErr := parseXrayHysteria2Object(obj, raw, lineIndex, c.fingerprintKeys); handled {
+		if hysteriaErr != nil {
+			return hysteriaErr
+		}
+		if hysteriaKey == nil {
+			c.items = append(c.items, *hysteriaItem)
+			return nil
+		}
+		appendExternalParsedItem(&c.keys, &c.items, c.seen, *hysteriaKey)
+		return nil
+	}
+	drafts, parseErr := profileconfig.ParseXrayJSONDrafts(raw)
+	if parseErr != nil || len(drafts) == 0 {
+		item, itemErr := c.undraftableXrayJSONItem(obj, raw, itemRef, lineIndex)
+		if itemErr != nil {
+			return itemErr
+		}
+		c.items = append(c.items, item)
+		return nil
+	}
+	label := strings.TrimSpace(ExtractJSONLabel(obj, fmt.Sprintf("JSON %03d", lineIndex)))
+	if label == "" {
+		label = fmt.Sprintf("JSON %03d", lineIndex)
+	}
+	host, port, _ := profileconfig.ParseXrayJSONTarget(raw)
+	key := ParsedKey{Label: label, URL: raw, Scheme: "xray-json", Protocol: "xray-json", Host: host, Port: port, Ref: KeyRef(raw), ItemRef: itemRef, LineIndex: lineIndex, Compatibility: "legacy", InitialStatus: StatusAccepted}
+	appendExternalParsedItem(&c.keys, &c.items, c.seen, key)
+	return nil
+}
+
+// undraftableXrayJSONItem classifies an Xray document that yielded no drafts:
+// a recognisable vless/vmess/trojan outbound is a rejected malformed profile,
+// any other identified protocol is unsupported, and the rest is invalid JSON.
+func (c *externalJSONCollector) undraftableXrayJSONItem(obj map[string]any, raw, itemRef string, lineIndex int) (ImportItem, error) {
+	identity, identified := firstXrayJSONIdentity(obj)
+	if !identified {
+		return invalidXrayJSONItem(itemRef, lineIndex), nil
+	}
+	status := StatusUnsupported
+	errorCode := "unsupported_xray_protocol"
+	if identity.Protocol == "vless" || identity.Protocol == "vmess" || identity.Protocol == "trojan" {
+		status = StatusRejected
+		errorCode = "invalid_" + identity.Protocol + "_json"
+	}
+	return safeRejectedXrayJSONItem(raw, lineIndex, identity, status, errorCode, c.fingerprintKeys)
 }
 
 func CountItems(items []ImportItem) Counts {
@@ -1486,289 +1573,367 @@ func Sync(sync *storage.SourceSync, source SyncTarget, parsed ParseResult, finge
 	if len(parsed.Keys) == 0 {
 		return result, fmt.Errorf("no_keys_to_import")
 	}
-	itemIndexes := make(map[string]int, len(result.Items))
+	state := &syncState{sync: sync, source: source, parsed: parsed, fingerprintKeys: fingerprintKeys, result: result}
+	state.itemIndexes = make(map[string]int, len(result.Items))
 	for index := range result.Items {
-		itemIndexes[result.Items[index].ItemRef] = index
-	}
-	setItemStatus := func(itemRef, status string) {
-		if index, exists := itemIndexes[itemRef]; exists {
-			result.Items[index].Status = status
-		}
+		state.itemIndexes[result.Items[index].ItemRef] = index
 	}
 
-	sourceID := source.ID
-	statusValue := model.KeyStatusActive
+	state.statusValue = model.KeyStatusActive
 	if !source.Enabled {
-		statusValue = model.KeyStatusNonActive
+		state.statusValue = model.KeyStatusNonActive
 	}
-	targetCategory := keymanagement.NormalizeKeyCategory(source.KeyCategory)
-	targetCategoryID, err := sync.EnsureCategory(targetCategory)
+	state.targetCategory = keymanagement.NormalizeKeyCategory(source.KeyCategory)
+	targetCategoryID, err := sync.EnsureCategory(state.targetCategory)
 	if err != nil {
-		return result, err
+		return state.result, err
 	}
+	state.targetCategoryID = targetCategoryID
 	insertMode := NormalizeKeyInsertMode(source.KeyInsertMode)
 
-	existingKeys, err := sync.ListSourceKeys(sourceID)
+	state.existingKeys, err = sync.ListSourceKeys(source.ID)
 	if err != nil {
-		return result, err
+		return state.result, err
+	}
+	if len(fingerprintKeys) == 0 {
+		return state.result, fmt.Errorf("profile_fingerprint_key_unavailable")
+	}
+	if err := state.repairDuplicateGroups(); err != nil {
+		return state.result, err
+	}
+	state.indexExistingKeys()
+	state.countIncomingLabels()
+
+	state.seenRefs = make(map[string]struct{}, len(parsed.Keys))
+	state.nextSortOrder, err = sync.NextSortOrder(targetCategoryID, source.ID, insertMode == "top", len(parsed.Keys))
+	if err != nil {
+		return state.result, err
+	}
+	for index, item := range parsed.Keys {
+		if err := state.upsertParsedKey(index, item); err != nil {
+			return state.result, err
+		}
+	}
+	if err := state.removeUnmatched(); err != nil {
+		return state.result, err
+	}
+	removed := state.result.Counts.Removed
+	state.result.Counts = CountItems(state.result.Items)
+	state.result.Counts.Removed = removed
+
+	if err := sync.MarkSourceSynced(source.ID, state.result.Imported, storage.SourceSyncMetadata{
+		Title: parsed.Metadata.Title, RefreshHours: parsed.Metadata.RefreshHours, SupportURL: parsed.Metadata.SupportURL,
+		WebPageURL: parsed.Metadata.WebPageURL, Announce: parsed.Metadata.Announce,
+	}); err != nil {
+		return state.result, err
 	}
 
-	// Historical synchronizers could create multiple source-owned rows for the
-	// same URI profile. Repair those groups before normal matching so assigning
-	// the canonical fingerprint cannot temporarily conflict with a duplicate.
-	// A row already holding the current fingerprint wins; otherwise the lowest
-	// stable ID wins because existingKeys is ordered by ID. Raw XRAY-JSON does
-	// not parse as a URI profile and deliberately retains exact-raw identity.
-	if len(fingerprintKeys) == 0 {
-		return result, fmt.Errorf("profile_fingerprint_key_unavailable")
+	return state.result, nil
+}
+
+// syncState carries the maps and counters shared by the Sync phases.
+type syncState struct {
+	sync            *storage.SourceSync
+	source          SyncTarget
+	parsed          ParseResult
+	fingerprintKeys [][]byte
+	result          SyncResult
+	itemIndexes     map[string]int
+
+	statusValue      string
+	targetCategory   string
+	targetCategoryID any
+
+	existingKeys          []storage.SourceKey
+	removedDuplicateIDs   map[int64]struct{}
+	existingByRef         map[string]storage.SourceKey
+	existingByFingerprint map[string]storage.SourceKey
+	existingByLabel       map[string]storage.SourceKey
+	existingLabelCounts   map[string]int
+	existingIDs           map[int64]struct{}
+	incomingLabelCounts   map[string]int
+
+	seenRefs      map[string]struct{}
+	nextSortOrder int64
+}
+
+func (s *syncState) setItemStatus(itemRef, status string) {
+	if index, exists := s.itemIndexes[itemRef]; exists {
+		s.result.Items[index].Status = status
 	}
+}
+
+// syncLabel is the stored label for an incoming key: trimmed, defaulted by
+// position and truncated to the column width.
+func syncLabel(item ParsedKey, index int) string {
+	label := strings.TrimSpace(item.Label)
+	if label == "" {
+		label = fmt.Sprintf("Импорт %03d", index+1)
+	}
+	if len(label) > 255 {
+		label = label[:255]
+	}
+	return label
+}
+
+// repairDuplicateGroups merges historical duplicate rows. Historical
+// synchronizers could create multiple source-owned rows for the same URI
+// profile. Repair those groups before normal matching so assigning the
+// canonical fingerprint cannot temporarily conflict with a duplicate. A row
+// already holding the current fingerprint wins; otherwise the lowest stable ID
+// wins because existingKeys is ordered by ID. Raw XRAY-JSON does not parse as
+// a URI profile and deliberately retains exact-raw identity.
+func (s *syncState) repairDuplicateGroups() error {
 	semanticGroups := make(map[string][]int)
-	for index := range existingKeys {
-		if existingKeys[index].URL == "" {
+	for index := range s.existingKeys {
+		if s.existingKeys[index].URL == "" {
 			continue
 		}
-		profile, parseErr := profiles.Parse(existingKeys[index].URL)
+		profile, parseErr := profiles.Parse(s.existingKeys[index].URL)
 		if parseErr != nil {
 			continue
 		}
-		fingerprint, fingerprintErr := profiles.Fingerprint(profile, fingerprintKeys[0])
+		fingerprint, fingerprintErr := profiles.Fingerprint(profile, s.fingerprintKeys[0])
 		if fingerprintErr != nil {
 			continue
 		}
 		semanticGroups[fingerprint] = append(semanticGroups[fingerprint], index)
 	}
-	removedDuplicateIDs := make(map[int64]struct{})
+	s.removedDuplicateIDs = make(map[int64]struct{})
 	for fingerprint, indexes := range semanticGroups {
 		if len(indexes) < 2 {
 			continue
 		}
-		survivorIndex := indexes[0]
-		for _, index := range indexes {
-			if existingKeys[index].Fingerprint == fingerprint {
-				survivorIndex = index
-				break
-			}
-		}
-		survivorID := existingKeys[survivorIndex].ID
-		// client_display_name is local administrator metadata, not source data.
-		// Keep the survivor's override when present; otherwise inherit the first
-		// non-empty override in stable-ID order before duplicates are deleted.
-		if strings.TrimSpace(existingKeys[survivorIndex].ClientDisplayName) == "" {
-			for _, index := range indexes {
-				override := strings.TrimSpace(existingKeys[index].ClientDisplayName)
-				if override == "" {
-					continue
-				}
-				if err := sync.SetClientDisplayName(sourceID, survivorID, override); err != nil {
-					return result, err
-				}
-				existingKeys[survivorIndex].ClientDisplayName = override
-				break
-			}
-		}
-		for _, index := range indexes {
-			duplicateID := existingKeys[index].ID
-			if duplicateID == survivorID {
-				continue
-			}
-			if err := sync.MergeUserAssignments(survivorID, duplicateID); err != nil {
-				return result, err
-			}
-			if err := sync.DeleteSourceKey(sourceID, duplicateID); err != nil {
-				return result, err
-			}
-			removedDuplicateIDs[duplicateID] = struct{}{}
-			result.Counts.Removed++
-		}
-		if existingKeys[survivorIndex].Fingerprint != fingerprint {
-			if err := sync.SetFingerprint(sourceID, survivorID, fingerprint); err != nil {
-				return result, err
-			}
-			existingKeys[survivorIndex].Fingerprint = fingerprint
+		if err := s.mergeDuplicateGroup(fingerprint, indexes); err != nil {
+			return err
 		}
 	}
+	return nil
+}
 
-	existingByRef := make(map[string]storage.SourceKey)
-	existingByFingerprint := make(map[string]storage.SourceKey)
-	existingByLabel := make(map[string]storage.SourceKey)
-	existingLabelCounts := make(map[string]int)
-	existingIDs := make(map[int64]struct{})
-	for _, key := range existingKeys {
-		if _, removed := removedDuplicateIDs[key.ID]; removed {
+func (s *syncState) mergeDuplicateGroup(fingerprint string, indexes []int) error {
+	survivorIndex := indexes[0]
+	for _, index := range indexes {
+		if s.existingKeys[index].Fingerprint == fingerprint {
+			survivorIndex = index
+			break
+		}
+	}
+	survivorID := s.existingKeys[survivorIndex].ID
+	if err := s.inheritClientDisplayName(survivorIndex, indexes); err != nil {
+		return err
+	}
+	for _, index := range indexes {
+		duplicateID := s.existingKeys[index].ID
+		if duplicateID == survivorID {
+			continue
+		}
+		if err := s.sync.MergeUserAssignments(survivorID, duplicateID); err != nil {
+			return err
+		}
+		if err := s.sync.DeleteSourceKey(s.source.ID, duplicateID); err != nil {
+			return err
+		}
+		s.removedDuplicateIDs[duplicateID] = struct{}{}
+		s.result.Counts.Removed++
+	}
+	if s.existingKeys[survivorIndex].Fingerprint != fingerprint {
+		if err := s.sync.SetFingerprint(s.source.ID, survivorID, fingerprint); err != nil {
+			return err
+		}
+		s.existingKeys[survivorIndex].Fingerprint = fingerprint
+	}
+	return nil
+}
+
+// inheritClientDisplayName: client_display_name is local administrator
+// metadata, not source data. Keep the survivor's override when present;
+// otherwise inherit the first non-empty override in stable-ID order before
+// duplicates are deleted.
+func (s *syncState) inheritClientDisplayName(survivorIndex int, indexes []int) error {
+	if strings.TrimSpace(s.existingKeys[survivorIndex].ClientDisplayName) != "" {
+		return nil
+	}
+	for _, index := range indexes {
+		override := strings.TrimSpace(s.existingKeys[index].ClientDisplayName)
+		if override == "" {
+			continue
+		}
+		if err := s.sync.SetClientDisplayName(s.source.ID, s.existingKeys[survivorIndex].ID, override); err != nil {
+			return err
+		}
+		s.existingKeys[survivorIndex].ClientDisplayName = override
+		return nil
+	}
+	return nil
+}
+
+func (s *syncState) indexExistingKeys() {
+	s.existingByRef = make(map[string]storage.SourceKey)
+	s.existingByFingerprint = make(map[string]storage.SourceKey)
+	s.existingByLabel = make(map[string]storage.SourceKey)
+	s.existingLabelCounts = make(map[string]int)
+	s.existingIDs = make(map[int64]struct{})
+	for _, key := range s.existingKeys {
+		if _, removed := s.removedDuplicateIDs[key.ID]; removed {
 			continue
 		}
 		if key.Ref != "" {
-			existingByRef[key.Ref] = key
+			s.existingByRef[key.Ref] = key
 		}
 		if key.Fingerprint != "" {
-			if _, exists := existingByFingerprint[key.Fingerprint]; !exists {
-				existingByFingerprint[key.Fingerprint] = key
+			if _, exists := s.existingByFingerprint[key.Fingerprint]; !exists {
+				s.existingByFingerprint[key.Fingerprint] = key
 			}
 		} else if key.URL != "" {
-			// Rows imported before semantic fingerprints existed still need to
-			// preserve their ID on the first post-upgrade rename/re-encoding.
-			// Compute only in memory from the decrypted profile; raw XRAY-JSON
-			// intentionally remains on its exact-raw reference identity.
-			if profile, parseErr := profiles.Parse(key.URL); parseErr == nil {
-				for _, fingerprintKey := range fingerprintKeys {
-					fingerprint, fingerprintErr := profiles.Fingerprint(profile, fingerprintKey)
-					if fingerprintErr == nil {
-						if _, exists := existingByFingerprint[fingerprint]; !exists {
-							existingByFingerprint[fingerprint] = key
-						}
-					}
-				}
-			}
+			s.indexLegacyFingerprints(key)
 		}
 		label := strings.TrimSpace(key.Label)
 		if label != "" {
-			existingLabelCounts[label]++
-			existingByLabel[label] = key
+			s.existingLabelCounts[label]++
+			s.existingByLabel[label] = key
 		}
-		existingIDs[key.ID] = struct{}{}
+		s.existingIDs[key.ID] = struct{}{}
 	}
-	incomingLabelCounts := make(map[string]int)
-	for index, item := range parsed.Keys {
-		label := strings.TrimSpace(item.Label)
-		if label == "" {
-			label = fmt.Sprintf("Импорт %03d", index+1)
-		}
-		if len(label) > 255 {
-			label = label[:255]
-		}
-		incomingLabelCounts[label]++
-	}
+}
 
-	seenRefs := make(map[string]struct{}, len(parsed.Keys))
-	nextSortOrder, err := sync.NextSortOrder(targetCategoryID, sourceID, insertMode == "top", len(parsed.Keys))
+// indexLegacyFingerprints: rows imported before semantic fingerprints existed
+// still need to preserve their ID on the first post-upgrade
+// rename/re-encoding. Compute only in memory from the decrypted profile; raw
+// XRAY-JSON intentionally remains on its exact-raw reference identity.
+func (s *syncState) indexLegacyFingerprints(key storage.SourceKey) {
+	profile, parseErr := profiles.Parse(key.URL)
+	if parseErr != nil {
+		return
+	}
+	for _, fingerprintKey := range s.fingerprintKeys {
+		fingerprint, fingerprintErr := profiles.Fingerprint(profile, fingerprintKey)
+		if fingerprintErr != nil {
+			continue
+		}
+		if _, exists := s.existingByFingerprint[fingerprint]; !exists {
+			s.existingByFingerprint[fingerprint] = key
+		}
+	}
+}
+
+func (s *syncState) countIncomingLabels() {
+	s.incomingLabelCounts = make(map[string]int)
+	for index, item := range s.parsed.Keys {
+		s.incomingLabelCounts[syncLabel(item, index)]++
+	}
+}
+
+func (s *syncState) upsertParsedKey(index int, item ParsedKey) error {
+	ref := strings.TrimSpace(item.Ref)
+	if ref == "" {
+		ref = KeyRef(item.URL)
+	}
+	if _, exists := s.seenRefs[ref]; exists {
+		s.result.Skipped++
+		s.setItemStatus(item.ItemRef, StatusDuplicate)
+		return nil
+	}
+	s.seenRefs[ref] = struct{}{}
+
+	label := syncLabel(item, index)
+	urlValue := item.URL
+	if strings.TrimSpace(urlValue) == "" || len(urlValue) > 65535 {
+		s.result.Skipped++
+		s.setItemStatus(item.ItemRef, StatusRejected)
+		return nil
+	}
+	warningPayload, err := json.Marshal(item.WarningCodes)
 	if err != nil {
-		return result, err
+		return err
 	}
-
-	for index, item := range parsed.Keys {
-		ref := strings.TrimSpace(item.Ref)
-		if ref == "" {
-			ref = KeyRef(item.URL)
-		}
-		if _, exists := seenRefs[ref]; exists {
-			result.Skipped++
-			setItemStatus(item.ItemRef, StatusDuplicate)
-			continue
-		}
-		seenRefs[ref] = struct{}{}
-
-		label := strings.TrimSpace(item.Label)
-		if label == "" {
-			label = fmt.Sprintf("Импорт %03d", index+1)
-		}
-		if len(label) > 255 {
-			label = label[:255]
-		}
-
-		urlValue := item.URL
-		if strings.TrimSpace(urlValue) == "" {
-			result.Skipped++
-			setItemStatus(item.ItemRef, StatusRejected)
-			continue
-		}
-		if len(urlValue) > 65535 {
-			result.Skipped++
-			setItemStatus(item.ItemRef, StatusRejected)
-			continue
-		}
-		warningPayload, err := json.Marshal(item.WarningCodes)
-		if err != nil {
-			return result, err
-		}
-		warningsJSON := string(warningPayload)
-
-		existing, matched := existingByRef[ref]
-		if !matched {
-			for _, candidate := range item.FingerprintCandidates {
-				if candidateMatch, exists := existingByFingerprint[candidate]; exists {
-					existing = candidateMatch
-					matched = true
-					break
-				}
-			}
-		}
-		// A provider may rotate connection material while retaining the logical
-		// profile name. When both sides have exactly one such label, preserve the
-		// row (and its local metadata). Ambiguous labels deliberately remain on
-		// the conservative remove/add path.
-		if !matched && incomingLabelCounts[label] == 1 && existingLabelCounts[label] == 1 {
-			candidate := existingByLabel[label]
-			if _, available := existingIDs[candidate.ID]; available {
-				existing = candidate
-				matched = true
-			}
-		}
-		if matched {
-			stableRef := existing.Ref
-			if stableRef == "" {
-				stableRef = ref
-			}
-			changed := existing.Label != label || existing.URL != urlValue || existing.Protocol != item.Protocol ||
-				existing.Fingerprint != item.Fingerprint || existing.ProfileSchemaVersion != item.ProfileSchemaVersion ||
-				existing.Compatibility != item.Compatibility || existing.WarningsJSON != warningsJSON
-			if err := sync.UpdateSourceKey(existing.ID, storage.SourceKeyWrite{
-				SourceID: sourceID, Ref: stableRef, Label: label, CategoryID: targetCategoryID, Category: targetCategory,
-				SortOrder: nextSortOrder, Protocol: item.Protocol, Fingerprint: item.Fingerprint,
-				ProfileSchemaVersion: item.ProfileSchemaVersion, Compatibility: item.Compatibility, WarningsJSON: warningsJSON, URL: urlValue,
-			}); err != nil {
-				return result, err
-			}
-			delete(existingIDs, existing.ID)
-			nextSortOrder++
-			result.Imported++
-			if changed {
-				setItemStatus(item.ItemRef, StatusUpdated)
-			} else {
-				setItemStatus(item.ItemRef, StatusUnchanged)
-			}
-			continue
-		}
-
-		_, err = sync.InsertSourceKey(storage.SourceKeyWrite{
-			SourceID: sourceID, Ref: ref, Label: label, CategoryID: targetCategoryID, Category: targetCategory, Status: statusValue,
-			SortOrder: nextSortOrder, Protocol: item.Protocol, Fingerprint: item.Fingerprint,
-			ProfileSchemaVersion: item.ProfileSchemaVersion, Compatibility: item.Compatibility, WarningsJSON: warningsJSON, URL: urlValue,
-		})
-		if errors.Is(err, storage.ErrDuplicateSourceKey) {
-			result.Skipped++
-			setItemStatus(item.ItemRef, StatusDuplicate)
-			continue
-		}
-		if err != nil {
-			return result, err
-		}
-		setItemStatus(item.ItemRef, StatusAdded)
-		nextSortOrder++
-		result.Imported++
+	write := storage.SourceKeyWrite{
+		SourceID: s.source.ID, Ref: ref, Label: label, CategoryID: s.targetCategoryID, Category: s.targetCategory,
+		SortOrder: s.nextSortOrder, Protocol: item.Protocol, Fingerprint: item.Fingerprint,
+		ProfileSchemaVersion: item.ProfileSchemaVersion, Compatibility: item.Compatibility, WarningsJSON: string(warningPayload), URL: urlValue,
 	}
+	if existing, matched := s.matchExisting(item, ref, label); matched {
+		return s.writeMatched(existing, item, write)
+	}
+	return s.insertNew(item, write)
+}
 
-	// Any rejected/unsupported source item makes absence ambiguous. Preserve
-	// unmatched rows until a fully parsed refresh confirms they are missing.
-	if parsed.Counts.Rejected == 0 && parsed.Counts.Unsupported == 0 {
-		for keyID := range existingIDs {
-			if err := sync.DeleteSourceKey(sourceID, keyID); err != nil {
-				return result, err
-			}
-			result.Counts.Removed++
+// matchExisting finds the stored row for an incoming key by ref, then by any
+// fingerprint candidate, then by unique label. A provider may rotate
+// connection material while retaining the logical profile name. When both
+// sides have exactly one such label, preserve the row (and its local
+// metadata). Ambiguous labels deliberately remain on the conservative
+// remove/add path.
+func (s *syncState) matchExisting(item ParsedKey, ref, label string) (storage.SourceKey, bool) {
+	if existing, matched := s.existingByRef[ref]; matched {
+		return existing, true
+	}
+	for _, candidate := range item.FingerprintCandidates {
+		if existing, exists := s.existingByFingerprint[candidate]; exists {
+			return existing, true
 		}
 	}
-	removed := result.Counts.Removed
-	result.Counts = CountItems(result.Items)
-	result.Counts.Removed = removed
-
-	if err := sync.MarkSourceSynced(sourceID, result.Imported, storage.SourceSyncMetadata{
-		Title: parsed.Metadata.Title, RefreshHours: parsed.Metadata.RefreshHours, SupportURL: parsed.Metadata.SupportURL,
-		WebPageURL: parsed.Metadata.WebPageURL, Announce: parsed.Metadata.Announce,
-	}); err != nil {
-		return result, err
+	if s.incomingLabelCounts[label] == 1 && s.existingLabelCounts[label] == 1 {
+		candidate := s.existingByLabel[label]
+		if _, available := s.existingIDs[candidate.ID]; available {
+			return candidate, true
+		}
 	}
+	return storage.SourceKey{}, false
+}
 
-	return result, nil
+func (s *syncState) writeMatched(existing storage.SourceKey, item ParsedKey, write storage.SourceKeyWrite) error {
+	if existing.Ref != "" {
+		write.Ref = existing.Ref
+	}
+	changed := existing.Label != write.Label || existing.URL != write.URL || existing.Protocol != item.Protocol ||
+		existing.Fingerprint != item.Fingerprint || existing.ProfileSchemaVersion != item.ProfileSchemaVersion ||
+		existing.Compatibility != item.Compatibility || existing.WarningsJSON != write.WarningsJSON
+	if err := s.sync.UpdateSourceKey(existing.ID, write); err != nil {
+		return err
+	}
+	delete(s.existingIDs, existing.ID)
+	s.nextSortOrder++
+	s.result.Imported++
+	if changed {
+		s.setItemStatus(item.ItemRef, StatusUpdated)
+	} else {
+		s.setItemStatus(item.ItemRef, StatusUnchanged)
+	}
+	return nil
+}
+
+func (s *syncState) insertNew(item ParsedKey, write storage.SourceKeyWrite) error {
+	write.Status = s.statusValue
+	_, err := s.sync.InsertSourceKey(write)
+	if errors.Is(err, storage.ErrDuplicateSourceKey) {
+		s.result.Skipped++
+		s.setItemStatus(item.ItemRef, StatusDuplicate)
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	s.setItemStatus(item.ItemRef, StatusAdded)
+	s.nextSortOrder++
+	s.result.Imported++
+	return nil
+}
+
+// removeUnmatched deletes stored rows the feed no longer lists. Any
+// rejected/unsupported source item makes absence ambiguous. Preserve unmatched
+// rows until a fully parsed refresh confirms they are missing.
+func (s *syncState) removeUnmatched() error {
+	if s.parsed.Counts.Rejected != 0 || s.parsed.Counts.Unsupported != 0 {
+		return nil
+	}
+	for keyID := range s.existingIDs {
+		if err := s.sync.DeleteSourceKey(s.source.ID, keyID); err != nil {
+			return err
+		}
+		s.result.Counts.Removed++
+	}
+	return nil
 }
 
 const maxExternalSourceNameCodePoints = 64

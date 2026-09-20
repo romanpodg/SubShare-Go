@@ -107,34 +107,17 @@ func (s *Service) UpdateLegacy(ctx context.Context, id int64, params UpdateLegac
 		return "", err
 	}
 
-	builtURL := ""
+	var builtURL string
 	if kind == model.KeyKindReal {
-		if rawURL := strings.TrimSpace(params.RawURL); rawURL != "" {
-			if err := profileconfig.ValidateRealConfigURL(rawURL); err != nil {
-				return "", invalidProfileURIError(err)
-			}
-			builtURL = rawURL
-		} else {
-			var err error
-			builtURL, err = buildVLESSURL(params.UUID, params.Host, params.Port, params.Query, params.Fragment)
-			if err != nil {
-				return "", invalidProfileURIError(err)
-			}
-		}
+		builtURL, err = buildLegacyRealURL(params)
 	} else {
 		if templateText == "" {
 			templateText = label
 		}
-		if existingURL != "" {
-			builtURL = strings.TrimSpace(existingURL)
-		}
-		if builtURL == "" {
-			token, err := generateToken(12)
-			if err != nil {
-				return "", fmt.Errorf("failed to generate key: %w", err)
-			}
-			builtURL = "info://" + token
-		}
+		builtURL, err = legacyInformationalURL(existingURL)
+	}
+	if err != nil {
+		return "", err
 	}
 
 	if len(builtURL) > 65535 {
@@ -157,6 +140,35 @@ func (s *Service) UpdateLegacy(ctx context.Context, id int64, params UpdateLegac
 	}
 
 	return label, nil
+}
+
+// buildLegacyRealURL takes the raw URL when one is supplied, otherwise
+// assembles a VLESS link from the structured legacy fields.
+func buildLegacyRealURL(params UpdateLegacyParams) (string, error) {
+	if rawURL := strings.TrimSpace(params.RawURL); rawURL != "" {
+		if err := profileconfig.ValidateRealConfigURL(rawURL); err != nil {
+			return "", invalidProfileURIError(err)
+		}
+		return rawURL, nil
+	}
+	builtURL, err := buildVLESSURL(params.UUID, params.Host, params.Port, params.Query, params.Fragment)
+	if err != nil {
+		return "", invalidProfileURIError(err)
+	}
+	return builtURL, nil
+}
+
+// legacyInformationalURL keeps the existing placeholder URL, minting a new
+// one only when there is none.
+func legacyInformationalURL(existingURL string) (string, error) {
+	if builtURL := strings.TrimSpace(existingURL); builtURL != "" {
+		return builtURL, nil
+	}
+	token, err := generateToken(12)
+	if err != nil {
+		return "", fmt.Errorf("failed to generate key: %w", err)
+	}
+	return "info://" + token, nil
 }
 
 func (s *Service) DeleteLegacy(ctx context.Context, id int64) error {

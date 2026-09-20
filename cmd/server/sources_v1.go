@@ -224,6 +224,18 @@ func (a *App) apiV1GetSource(w http.ResponseWriter, r *http.Request) {
 	httpapi.WriteJSON(w, http.StatusOK, map[string]any{"data": sourceDetailFromRow(row, importedKeys)})
 }
 
+// parseOrFetchSource parses a pasted raw body when one is supplied, otherwise
+// fetches the source URL.
+func (a *App) parseOrFetchSource(sourceURL string, hwidProfile sources.HWIDProfile, rawBody, rawContentType, rawFinalURL string) (sources.ParseResult, error) {
+	if strings.TrimSpace(rawBody) != "" {
+		metadata := sources.Metadata{
+			ContentType: strings.TrimSpace(rawContentType), SourceFinalURL: strings.TrimSpace(rawFinalURL),
+		}
+		return sources.ParseRawBody(sourceURL, rawBody, metadata, a.externalProfileFingerprintKeys())
+	}
+	return sources.Fetch(context.Background(), a.sourceClient(), sourceURL, hwidProfile, a.externalProfileFingerprintKeys())
+}
+
 func (a *App) apiV1PreviewSource(w http.ResponseWriter, r *http.Request) {
 	var req model.ExternalSourcePreviewRequest
 	if err := httpapi.ReadJSON(r, &req); err != nil {
@@ -236,15 +248,7 @@ func (a *App) apiV1PreviewSource(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	hwidProfile := sources.NormalizeHWIDProfile(req.PassHWID, req.HWIDVersion, req.HWIDModelName, req.HWIDValue)
-	metadata := sources.Metadata{
-		ContentType: strings.TrimSpace(req.RawContentType), SourceFinalURL: strings.TrimSpace(req.RawFinalURL),
-	}
-	var parsed sources.ParseResult
-	if strings.TrimSpace(req.RawBody) != "" {
-		parsed, err = sources.ParseRawBody(sourceURL, req.RawBody, metadata, a.externalProfileFingerprintKeys())
-	} else {
-		parsed, err = sources.Fetch(context.Background(), a.sourceClient(), sourceURL, hwidProfile, a.externalProfileFingerprintKeys())
-	}
+	parsed, err := a.parseOrFetchSource(sourceURL, hwidProfile, req.RawBody, req.RawContentType, req.RawFinalURL)
 	if err != nil {
 		httpapi.WriteFieldError(w, r, http.StatusBadRequest, "source_preview_failed", err.Error(), "source_url")
 		return
@@ -261,6 +265,31 @@ func (a *App) apiV1PreviewSource(w http.ResponseWriter, r *http.Request) {
 		},
 		"warnings": sources.NonNilWarnings(parsed.Warnings), "result_counts": parsed.Counts, "keys": parsed.Items,
 	})
+}
+
+// ensureKeyCategory creates the key category when missing and returns its id
+// as a nullable SQL argument (nil when no category is requested). Error
+// messages are safe to return to the client.
+func ensureKeyCategory(tx *sql.Tx, keyCategory string) (any, error) {
+	if keyCategory == "" {
+		return nil, nil
+	}
+	var nextCategoryOrder int64
+	if err := tx.QueryRow(`SELECT COALESCE(MAX(sort_order), 0) + 1 FROM key_categories`).Scan(&nextCategoryOrder); err != nil {
+		return nil, errors.New("failed to save key category")
+	}
+	if _, err := tx.Exec(`
+			INSERT INTO key_categories(name, color, sort_order, updated_at)
+			VALUES(?, '#d8b33d', ?, CURRENT_TIMESTAMP)
+			ON CONFLICT(name) DO NOTHING
+		`, keyCategory, nextCategoryOrder); err != nil {
+		return nil, errors.New("failed to save key category")
+	}
+	var resolvedID int64
+	if err := tx.QueryRow(`SELECT id FROM key_categories WHERE name = ?`, keyCategory).Scan(&resolvedID); err != nil {
+		return nil, errors.New("failed to resolve key category")
+	}
+	return resolvedID, nil
 }
 
 func (a *App) apiV1CreateSource(w http.ResponseWriter, r *http.Request) {
@@ -289,15 +318,7 @@ func (a *App) apiV1CreateSource(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	hwidProfile := sources.NormalizeHWIDProfile(req.PassHWID, req.HWIDVersion, req.HWIDModelName, req.HWIDValue)
-	metadata := sources.Metadata{
-		ContentType: strings.TrimSpace(req.RawContentType), SourceFinalURL: strings.TrimSpace(req.RawFinalURL),
-	}
-	var parsed sources.ParseResult
-	if strings.TrimSpace(req.RawBody) != "" {
-		parsed, err = sources.ParseRawBody(sourceURL, req.RawBody, metadata, a.externalProfileFingerprintKeys())
-	} else {
-		parsed, err = sources.Fetch(context.Background(), a.sourceClient(), sourceURL, hwidProfile, a.externalProfileFingerprintKeys())
-	}
+	parsed, err := a.parseOrFetchSource(sourceURL, hwidProfile, req.RawBody, req.RawContentType, req.RawFinalURL)
 	if err != nil {
 		httpapi.WriteFieldError(w, r, http.StatusBadRequest, "source_import_failed", err.Error(), "source_url")
 		return
@@ -328,27 +349,10 @@ func (a *App) apiV1CreateSource(w http.ResponseWriter, r *http.Request) {
 		httpapi.WriteV1Error(w, r, http.StatusInternalServerError, "source_category_failed", "failed to resolve source category")
 		return
 	}
-	var keyCategoryID any
-	if keyCategory != "" {
-		var nextCategoryOrder int64
-		if err := tx.QueryRow(`SELECT COALESCE(MAX(sort_order), 0) + 1 FROM key_categories`).Scan(&nextCategoryOrder); err != nil {
-			httpapi.WriteV1Error(w, r, http.StatusInternalServerError, "key_category_failed", "failed to save key category")
-			return
-		}
-		if _, err := tx.Exec(`
-			INSERT INTO key_categories(name, color, sort_order, updated_at)
-			VALUES(?, '#d8b33d', ?, CURRENT_TIMESTAMP)
-			ON CONFLICT(name) DO NOTHING
-		`, keyCategory, nextCategoryOrder); err != nil {
-			httpapi.WriteV1Error(w, r, http.StatusInternalServerError, "key_category_failed", "failed to save key category")
-			return
-		}
-		var resolvedID int64
-		if err := tx.QueryRow(`SELECT id FROM key_categories WHERE name = ?`, keyCategory).Scan(&resolvedID); err != nil {
-			httpapi.WriteV1Error(w, r, http.StatusInternalServerError, "key_category_failed", "failed to resolve key category")
-			return
-		}
-		keyCategoryID = resolvedID
+	keyCategoryID, err := ensureKeyCategory(tx, keyCategory)
+	if err != nil {
+		httpapi.WriteV1Error(w, r, http.StatusInternalServerError, "key_category_failed", err.Error())
+		return
 	}
 
 	result, err := tx.Exec(`

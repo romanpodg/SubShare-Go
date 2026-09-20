@@ -236,71 +236,17 @@ func (a *App) apiUpdateAdmin(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Update password if provided
-	if passwordValue != "" {
-		passwordHash, err := a.passwordHasher().Hash(passwordValue)
-		if err != nil {
-			if adminpassword.IsPolicyError(err) {
-				httpapi.WriteError(w, r, http.StatusBadRequest, err.Error())
-				return
-			}
-			log.Printf("apiUpdateAdmin: password hashing failed")
-			httpapi.WriteError(w, r, http.StatusInternalServerError, "failed to hash password")
-			return
-		}
-		_, err = a.db.Exec(`UPDATE admins SET password_hash = ? WHERE id = ?`, passwordHash, id)
-		if err != nil {
-			log.Printf("apiUpdateAdmin password update: %v", err)
-			httpapi.WriteError(w, r, http.StatusInternalServerError, "failed to update password")
-			return
-		}
-		// Invalidate all active sessions for this admin since password changed, except the current one
-		cookie, err := r.Cookie(model.AdminSessionCookieName)
-		if err == nil && cookie.Value != "" {
-			_, _ = a.db.Exec(`DELETE FROM admin_sessions WHERE admin_id = ? AND id != ?`, id, hashSessionID(cookie.Value))
-		} else {
-			_, _ = a.db.Exec(`DELETE FROM admin_sessions WHERE admin_id = ?`, id)
-		}
+	if passwordValue != "" && !a.updateAdminPassword(w, r, id, passwordValue) {
+		return
 	}
 
 	// Update role if provided
 	if role != "" {
-		normalizedRole, roleOK := normalizeAdminRole(role)
-		if !roleOK {
-			httpapi.WriteError(w, r, http.StatusBadRequest, "invalid role")
+		normalizedRole, ok := a.updateAdminRole(w, r, id, session.AdminID, currentRole, role)
+		if !ok {
 			return
 		}
 		role = normalizedRole
-
-		// Prevent changing own role
-		if id == session.AdminID {
-			httpapi.WriteError(w, r, http.StatusBadRequest, "you cannot change your own role")
-			return
-		}
-
-		// Prevent changing role of the last owner
-		if isOwnerRole(currentRole) && !isOwnerRole(role) {
-			var superAdminCount int
-			err = a.db.QueryRow(`SELECT COUNT(*) FROM admins WHERE role IN ('owner', 'super_admin')`).Scan(&superAdminCount)
-			if err != nil {
-				log.Printf("apiUpdateAdmin count super admins: %v", err)
-				httpapi.WriteError(w, r, http.StatusInternalServerError, "database error")
-				return
-			}
-			if superAdminCount <= 1 {
-				httpapi.WriteError(w, r, http.StatusBadRequest, "cannot demote the only remaining super admin")
-				return
-			}
-		}
-
-		_, err = a.db.Exec(`UPDATE admins SET role = ? WHERE id = ?`, role, id)
-		if err != nil {
-			log.Printf("apiUpdateAdmin role update: %v", err)
-			httpapi.WriteError(w, r, http.StatusInternalServerError, "failed to update role")
-			return
-		}
-
-		// Invalidate all sessions for the updated admin since role changed
-		_, _ = a.db.Exec(`DELETE FROM admin_sessions WHERE admin_id = ?`, id)
 	}
 
 	a.recordAuditEvent(r, "admin.update", "admin", strconv.FormatInt(id, 10), map[string]any{
@@ -308,6 +254,79 @@ func (a *App) apiUpdateAdmin(w http.ResponseWriter, r *http.Request) {
 		"password_changed": passwordValue != "",
 	})
 	httpapi.WriteMessage(w, "administrator updated successfully")
+}
+
+// updateAdminPassword hashes and stores the new password and invalidates the
+// admin's other sessions. It returns false after writing an error response.
+func (a *App) updateAdminPassword(w http.ResponseWriter, r *http.Request, id int64, passwordValue string) bool {
+	passwordHash, err := a.passwordHasher().Hash(passwordValue)
+	if err != nil {
+		if adminpassword.IsPolicyError(err) {
+			httpapi.WriteError(w, r, http.StatusBadRequest, err.Error())
+			return false
+		}
+		log.Printf("apiUpdateAdmin: password hashing failed")
+		httpapi.WriteError(w, r, http.StatusInternalServerError, "failed to hash password")
+		return false
+	}
+	_, err = a.db.Exec(`UPDATE admins SET password_hash = ? WHERE id = ?`, passwordHash, id)
+	if err != nil {
+		log.Printf("apiUpdateAdmin password update: %v", err)
+		httpapi.WriteError(w, r, http.StatusInternalServerError, "failed to update password")
+		return false
+	}
+	// Invalidate all active sessions for this admin since password changed, except the current one
+	cookie, err := r.Cookie(model.AdminSessionCookieName)
+	if err == nil && cookie.Value != "" {
+		_, _ = a.db.Exec(`DELETE FROM admin_sessions WHERE admin_id = ? AND id != ?`, id, hashSessionID(cookie.Value))
+	} else {
+		_, _ = a.db.Exec(`DELETE FROM admin_sessions WHERE admin_id = ?`, id)
+	}
+	return true
+}
+
+// updateAdminRole validates and stores the new role and invalidates the
+// admin's sessions. It returns the normalized role, or false after writing an
+// error response.
+func (a *App) updateAdminRole(w http.ResponseWriter, r *http.Request, id, sessionAdminID int64, currentRole, role string) (string, bool) {
+	normalizedRole, roleOK := normalizeAdminRole(role)
+	if !roleOK {
+		httpapi.WriteError(w, r, http.StatusBadRequest, "invalid role")
+		return "", false
+	}
+	role = normalizedRole
+
+	// Prevent changing own role
+	if id == sessionAdminID {
+		httpapi.WriteError(w, r, http.StatusBadRequest, "you cannot change your own role")
+		return "", false
+	}
+
+	// Prevent changing role of the last owner
+	if isOwnerRole(currentRole) && !isOwnerRole(role) {
+		var superAdminCount int
+		err := a.db.QueryRow(`SELECT COUNT(*) FROM admins WHERE role IN ('owner', 'super_admin')`).Scan(&superAdminCount)
+		if err != nil {
+			log.Printf("apiUpdateAdmin count super admins: %v", err)
+			httpapi.WriteError(w, r, http.StatusInternalServerError, "database error")
+			return "", false
+		}
+		if superAdminCount <= 1 {
+			httpapi.WriteError(w, r, http.StatusBadRequest, "cannot demote the only remaining super admin")
+			return "", false
+		}
+	}
+
+	_, err := a.db.Exec(`UPDATE admins SET role = ? WHERE id = ?`, role, id)
+	if err != nil {
+		log.Printf("apiUpdateAdmin role update: %v", err)
+		httpapi.WriteError(w, r, http.StatusInternalServerError, "failed to update role")
+		return "", false
+	}
+
+	// Invalidate all sessions for the updated admin since role changed
+	_, _ = a.db.Exec(`DELETE FROM admin_sessions WHERE admin_id = ?`, id)
+	return role, true
 }
 
 func (a *App) apiDeleteAdmin(w http.ResponseWriter, r *http.Request) {
@@ -402,6 +421,61 @@ func (a *App) apiListUsers(w http.ResponseWriter, r *http.Request) {
 	httpapi.WriteJSON(w, http.StatusOK, map[string]any{"users": users})
 }
 
+// createUserInput is the validated, normalized form of a CreateUserRequest.
+type createUserInput struct {
+	name           string
+	email          string
+	activationCode string
+	status         string
+	blockedReason  string
+	issueDays      int
+}
+
+// validateCreateUserRequest normalizes the request and returns a 400 message
+// when it is invalid.
+func validateCreateUserRequest(req model.CreateUserRequest) (createUserInput, string) {
+	in := createUserInput{
+		name:           strings.TrimSpace(req.Name),
+		email:          strings.TrimSpace(req.Email),
+		activationCode: strings.TrimSpace(req.ActivationCode),
+		issueDays:      req.IssueDays,
+	}
+	status, ok := model.NormalizeUserStatus(req.Status)
+	if !ok {
+		return in, "invalid subscription status"
+	}
+	in.status = status
+
+	if in.issueDays <= 0 {
+		in.issueDays = 30
+	}
+	if in.issueDays > 3650 {
+		return in, "issue days must be between 1 and 3650"
+	}
+
+	in.blockedReason = strings.TrimSpace(req.BlockedReason)
+	if in.status != model.UserStatusBlocked {
+		in.blockedReason = ""
+	}
+
+	if in.name == "" {
+		return in, "name is required"
+	}
+	if in.activationCode == "" || strings.Contains(in.activationCode, "/") {
+		return in, "activation code is required"
+	}
+	if len(in.name) > 255 {
+		return in, "name is too long (max 255 characters)"
+	}
+	if len(in.email) > 255 {
+		return in, "email is too long (max 255 characters)"
+	}
+	if len(in.activationCode) > 128 {
+		return in, "activation code is too long (max 128 characters)"
+	}
+	return in, ""
+}
+
 func (a *App) apiCreateUser(w http.ResponseWriter, r *http.Request) {
 	var req model.CreateUserRequest
 	if err := httpapi.ReadJSON(r, &req); err != nil {
@@ -409,49 +483,12 @@ func (a *App) apiCreateUser(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	name := strings.TrimSpace(req.Name)
-	email := strings.TrimSpace(req.Email)
-	activationCode := strings.TrimSpace(req.ActivationCode)
-	status, ok := model.NormalizeUserStatus(req.Status)
-	if !ok {
-		httpapi.WriteError(w, r, http.StatusBadRequest, "invalid subscription status")
+	in, msg := validateCreateUserRequest(req)
+	if msg != "" {
+		httpapi.WriteError(w, r, http.StatusBadRequest, msg)
 		return
 	}
-
-	issueDays := req.IssueDays
-	if issueDays <= 0 {
-		issueDays = 30
-	}
-	if issueDays > 3650 {
-		httpapi.WriteError(w, r, http.StatusBadRequest, "issue days must be between 1 and 3650")
-		return
-	}
-
-	blockedReason := strings.TrimSpace(req.BlockedReason)
-	if status != model.UserStatusBlocked {
-		blockedReason = ""
-	}
-
-	if name == "" {
-		httpapi.WriteError(w, r, http.StatusBadRequest, "name is required")
-		return
-	}
-	if activationCode == "" || strings.Contains(activationCode, "/") {
-		httpapi.WriteError(w, r, http.StatusBadRequest, "activation code is required")
-		return
-	}
-	if len(name) > 255 {
-		httpapi.WriteError(w, r, http.StatusBadRequest, "name is too long (max 255 characters)")
-		return
-	}
-	if len(email) > 255 {
-		httpapi.WriteError(w, r, http.StatusBadRequest, "email is too long (max 255 characters)")
-		return
-	}
-	if len(activationCode) > 128 {
-		httpapi.WriteError(w, r, http.StatusBadRequest, "activation code is too long (max 128 characters)")
-		return
-	}
+	name, email, activationCode, status, blockedReason, issueDays := in.name, in.email, in.activationCode, in.status, in.blockedReason, in.issueDays
 
 	legacyToken, err := generateToken(24)
 	if err != nil {
@@ -820,6 +857,46 @@ func (a *App) apiGetSubscriptionSettings(w http.ResponseWriter, r *http.Request)
 	httpapi.WriteJSON(w, http.StatusOK, settings)
 }
 
+// normalizeSettingsURL accepts an empty value or an absolute URL.
+func normalizeSettingsURL(raw string, field string) (string, error) {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return "", nil
+	}
+	parsed, err := url.ParseRequestURI(raw)
+	if err != nil || parsed.Scheme == "" || parsed.Host == "" {
+		return "", errors.New(field + " must be a valid absolute URL")
+	}
+	return raw, nil
+}
+
+func normalizeSettingsTimeZone(raw string) (string, error) {
+	timeZone := strings.TrimSpace(raw)
+	if timeZone == "" {
+		timeZone = "Europe/Moscow"
+	}
+	if len(timeZone) > 64 {
+		return "", errors.New("time_zone is too long (max 64 characters)")
+	}
+	if _, err := time.LoadLocation(timeZone); err != nil {
+		return "", errors.New("time_zone must be a valid IANA timezone")
+	}
+	return timeZone, nil
+}
+
+func normalizeSettingsLanguage(raw string) (string, error) {
+	language := strings.ToLower(strings.TrimSpace(raw))
+	if language == "" {
+		language = "ru"
+	}
+	switch language {
+	case "ru", "en":
+		return language, nil
+	default:
+		return "", errors.New("language must be one of: ru, en")
+	}
+}
+
 func (a *App) apiUpdateSubscriptionSettings(w http.ResponseWriter, r *http.Request) {
 	var req model.UpdateSubscriptionSettingsRequest
 	if err := httpapi.ReadJSON(r, &req); err != nil {
@@ -845,25 +922,14 @@ func (a *App) apiUpdateSubscriptionSettings(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
-	normalizeURL := func(raw string, field string) (string, bool) {
-		raw = strings.TrimSpace(raw)
-		if raw == "" {
-			return "", true
-		}
-		parsed, err := url.ParseRequestURI(raw)
-		if err != nil || parsed.Scheme == "" || parsed.Host == "" {
-			httpapi.WriteError(w, r, http.StatusBadRequest, field+" must be a valid absolute URL")
-			return "", false
-		}
-		return raw, true
-	}
-
-	infoURL, ok := normalizeURL(req.InfoURL, "info_url")
-	if !ok {
+	infoURL, err := normalizeSettingsURL(req.InfoURL, "info_url")
+	if err != nil {
+		httpapi.WriteError(w, r, http.StatusBadRequest, err.Error())
 		return
 	}
-	extraURL, ok := normalizeURL(req.ExtraURL, "extra_url")
-	if !ok {
+	extraURL, err := normalizeSettingsURL(req.ExtraURL, "extra_url")
+	if err != nil {
+		httpapi.WriteError(w, r, http.StatusBadRequest, err.Error())
 		return
 	}
 
@@ -878,27 +944,15 @@ func (a *App) apiUpdateSubscriptionSettings(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
-	timeZone := strings.TrimSpace(req.TimeZone)
-	if timeZone == "" {
-		timeZone = "Europe/Moscow"
-	}
-	if len(timeZone) > 64 {
-		httpapi.WriteError(w, r, http.StatusBadRequest, "time_zone is too long (max 64 characters)")
-		return
-	}
-	if _, err := time.LoadLocation(timeZone); err != nil {
-		httpapi.WriteError(w, r, http.StatusBadRequest, "time_zone must be a valid IANA timezone")
+	timeZone, err := normalizeSettingsTimeZone(req.TimeZone)
+	if err != nil {
+		httpapi.WriteError(w, r, http.StatusBadRequest, err.Error())
 		return
 	}
 
-	language := strings.ToLower(strings.TrimSpace(req.Language))
-	if language == "" {
-		language = "ru"
-	}
-	switch language {
-	case "ru", "en":
-	default:
-		httpapi.WriteError(w, r, http.StatusBadRequest, "language must be one of: ru, en")
+	language, err := normalizeSettingsLanguage(req.Language)
+	if err != nil {
+		httpapi.WriteError(w, r, http.StatusBadRequest, err.Error())
 		return
 	}
 
@@ -1151,18 +1205,27 @@ func (a *App) handleSubscription(w http.ResponseWriter, r *http.Request) {
 		a.incrementSubscriptionMetric(responseType, "render_failed")
 		return
 	}
+	body, responseType = a.encodeSubscriptionBody(w.Header(), responseType, body, settings)
+	_, _ = w.Write([]byte(body))
+	a.incrementSubscriptionMetric(responseType, "success")
+}
+
+// encodeSubscriptionBody sets the content headers for the response type and
+// returns the final body together with the effective response type used for
+// metrics. An empty response type falls back to the installation defaults.
+func (a *App) encodeSubscriptionBody(header http.Header, responseType, body string, settings model.SubscriptionSettings) (string, string) {
 	switch responseType {
 	case "base64":
 		body = delivery.EncodeBase64(body)
-		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+		header.Set("Content-Type", "text/plain; charset=utf-8")
 	case "plain":
-		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+		header.Set("Content-Type", "text/plain; charset=utf-8")
 	case "mihomo":
-		w.Header().Set("Content-Type", "application/yaml; charset=utf-8")
-		w.Header().Set("Content-Disposition", fmt.Sprintf(`attachment; filename="%s.yaml"`, sanitizeSubscriptionFilenamePart(settings.Title)))
+		header.Set("Content-Type", "application/yaml; charset=utf-8")
+		header.Set("Content-Disposition", fmt.Sprintf(`attachment; filename="%s.yaml"`, sanitizeSubscriptionFilenamePart(settings.Title)))
 	case "sing-box", "xray-json":
-		w.Header().Set("Content-Type", "application/json; charset=utf-8")
-		w.Header().Set("Content-Disposition", fmt.Sprintf(`attachment; filename="%s.json"`, sanitizeSubscriptionFilenamePart(settings.Title)))
+		header.Set("Content-Type", "application/json; charset=utf-8")
+		header.Set("Content-Disposition", fmt.Sprintf(`attachment; filename="%s.json"`, sanitizeSubscriptionFilenamePart(settings.Title)))
 	default:
 		if a.subscriptionBodyEncoding == "base64" && settings.SubscriptionFormat != model.SubscriptionFormatXrayJSON {
 			body = base64.StdEncoding.EncodeToString([]byte(body))
@@ -1173,8 +1236,7 @@ func (a *App) handleSubscription(w http.ResponseWriter, r *http.Request) {
 			responseType = "plain"
 		}
 	}
-	_, _ = w.Write([]byte(body))
-	a.incrementSubscriptionMetric(responseType, "success")
+	return body, responseType
 }
 
 // writeGeneratedOrDeny renders the subscription for a prepared request and

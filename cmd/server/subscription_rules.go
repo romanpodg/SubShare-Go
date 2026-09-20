@@ -150,26 +150,8 @@ func validateResponseRuleInput(input responseRuleInput) (responseRuleInput, erro
 		return input, fmt.Errorf("too many conditions")
 	}
 	for index := range input.Conditions {
-		condition := &input.Conditions[index]
-		condition.HeaderName = strings.ToLower(strings.TrimSpace(condition.HeaderName))
-		condition.Operator = strings.ToUpper(strings.TrimSpace(condition.Operator))
-		condition.Value = strings.TrimSpace(condition.Value)
-		if condition.HeaderName == "" || len(condition.HeaderName) > 80 ||
-			strings.ContainsAny(condition.HeaderName, "\r\n:") {
-			return input, fmt.Errorf("invalid condition header name")
-		}
-		switch condition.Operator {
-		case "EQUALS", "NOT_EQUALS", "CONTAINS", "NOT_CONTAINS", "STARTS_WITH", "NOT_STARTS_WITH", "ENDS_WITH", "NOT_ENDS_WITH", "REGEX", "NOT_REGEX":
-		default:
-			return input, fmt.Errorf("unsupported condition operator")
-		}
-		if condition.Value == "" || len(condition.Value) > 255 {
-			return input, fmt.Errorf("condition value must contain 1..255 characters")
-		}
-		if condition.Operator == "REGEX" || condition.Operator == "NOT_REGEX" {
-			if _, err := regexp.Compile(condition.Value); err != nil {
-				return input, fmt.Errorf("invalid condition regex")
-			}
+		if err := normalizeResponseRuleCondition(&input.Conditions[index]); err != nil {
+			return input, err
 		}
 	}
 	if len(input.Headers) > 30 {
@@ -184,6 +166,32 @@ func validateResponseRuleInput(input responseRuleInput) (responseRuleInput, erro
 		}
 	}
 	return input, nil
+}
+
+// normalizeResponseRuleCondition trims and upper/lower-cases the condition in
+// place and validates its operator and value.
+func normalizeResponseRuleCondition(condition *responseRuleCondition) error {
+	condition.HeaderName = strings.ToLower(strings.TrimSpace(condition.HeaderName))
+	condition.Operator = strings.ToUpper(strings.TrimSpace(condition.Operator))
+	condition.Value = strings.TrimSpace(condition.Value)
+	if condition.HeaderName == "" || len(condition.HeaderName) > 80 ||
+		strings.ContainsAny(condition.HeaderName, "\r\n:") {
+		return fmt.Errorf("invalid condition header name")
+	}
+	switch condition.Operator {
+	case "EQUALS", "NOT_EQUALS", "CONTAINS", "NOT_CONTAINS", "STARTS_WITH", "NOT_STARTS_WITH", "ENDS_WITH", "NOT_ENDS_WITH", "REGEX", "NOT_REGEX":
+	default:
+		return fmt.Errorf("unsupported condition operator")
+	}
+	if condition.Value == "" || len(condition.Value) > 255 {
+		return fmt.Errorf("condition value must contain 1..255 characters")
+	}
+	if condition.Operator == "REGEX" || condition.Operator == "NOT_REGEX" {
+		if _, err := regexp.Compile(condition.Value); err != nil {
+			return fmt.Errorf("invalid condition regex")
+		}
+	}
+	return nil
 }
 
 func safeCustomResponseHeader(key, value string) bool {

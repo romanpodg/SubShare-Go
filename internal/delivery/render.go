@@ -348,20 +348,8 @@ func RenderPlain(entries []Entry, format string, templateData TemplateData) (Gen
 	names := &UniqueNames{}
 	for _, entry := range entries {
 		if entry.Kind == model.KeyKindInformational {
-			textTemplate := strings.TrimSpace(entry.TemplateText)
-			if textTemplate == "" {
-				textTemplate = strings.TrimSpace(entry.Label)
-			}
-			rendered := RenderInfoTemplate(textTemplate, templateData)
-			if strings.TrimSpace(rendered) == "" {
-				continue
-			}
-			if format == model.SubscriptionFormatXrayJSON {
-				if info := InformationalXrayJSON(rendered); strings.TrimSpace(info) != "" {
-					lines = append(lines, info)
-				}
-			} else {
-				lines = append(lines, InformationalVLESSURL(rendered))
+			if line, ok := plainInformationalLine(entry, format, templateData); ok {
+				lines = append(lines, line)
 			}
 			continue
 		}
@@ -397,6 +385,22 @@ func RenderPlain(entries []Entry, format string, templateData TemplateData) (Gen
 	result.Body = strings.Join(lines, "\n")
 	result.GeneratedCount = len(lines)
 	return result, nil
+}
+
+func plainInformationalLine(entry Entry, format string, templateData TemplateData) (string, bool) {
+	textTemplate := strings.TrimSpace(entry.TemplateText)
+	if textTemplate == "" {
+		textTemplate = strings.TrimSpace(entry.Label)
+	}
+	rendered := RenderInfoTemplate(textTemplate, templateData)
+	if strings.TrimSpace(rendered) == "" {
+		return "", false
+	}
+	if format == model.SubscriptionFormatXrayJSON {
+		info := InformationalXrayJSON(rendered)
+		return info, strings.TrimSpace(info) != ""
+	}
+	return InformationalVLESSURL(rendered), true
 }
 
 func projectEntryShareLinks(entry Entry, names *UniqueNames) ([]string, []Exclusion) {
@@ -702,25 +706,7 @@ func singBoxLegacyOutbound(draft profileconfig.LinkConfigurationDraft, name stri
 	case "trojan":
 		outbound["password"] = draft.Identifier
 	}
-	security := strings.ToLower(strings.TrimSpace(draft.Security))
-	if security == "tls" || security == "reality" {
-		tlsOptions := map[string]any{"enabled": true, "insecure": draft.AllowInsecure}
-		if draft.SNI != "" {
-			tlsOptions["server_name"] = draft.SNI
-		}
-		if draft.Fingerprint != "" {
-			tlsOptions["utls"] = map[string]any{"enabled": true, "fingerprint": draft.Fingerprint}
-		}
-		if security == "reality" {
-			reality := map[string]any{"enabled": true}
-			if draft.PublicKey != "" {
-				reality["public_key"] = draft.PublicKey
-			}
-			if draft.ShortID != "" {
-				reality["short_id"] = draft.ShortID
-			}
-			tlsOptions["reality"] = reality
-		}
+	if tlsOptions := singBoxLegacyTLS(draft); tlsOptions != nil {
 		outbound["tls"] = tlsOptions
 	}
 	switch strings.TrimSpace(draft.Network) {
@@ -741,6 +727,31 @@ func singBoxLegacyOutbound(draft profileconfig.LinkConfigurationDraft, name stri
 		outbound["transport"] = transport
 	}
 	return outbound
+}
+
+func singBoxLegacyTLS(draft profileconfig.LinkConfigurationDraft) map[string]any {
+	security := strings.ToLower(strings.TrimSpace(draft.Security))
+	if security != "tls" && security != "reality" {
+		return nil
+	}
+	tlsOptions := map[string]any{"enabled": true, "insecure": draft.AllowInsecure}
+	if draft.SNI != "" {
+		tlsOptions["server_name"] = draft.SNI
+	}
+	if draft.Fingerprint != "" {
+		tlsOptions["utls"] = map[string]any{"enabled": true, "fingerprint": draft.Fingerprint}
+	}
+	if security == "reality" {
+		reality := map[string]any{"enabled": true}
+		if draft.PublicKey != "" {
+			reality["public_key"] = draft.PublicKey
+		}
+		if draft.ShortID != "" {
+			reality["short_id"] = draft.ShortID
+		}
+		tlsOptions["reality"] = reality
+	}
+	return tlsOptions
 }
 
 var mihomoShadowsocksMethods = map[string]struct{}{
@@ -768,150 +779,174 @@ var xrayShadowsocksMethods = map[string]struct{}{
 func mihomoProxy(profile *profiles.Profile, name string) (map[string]any, string) {
 	switch data := profile.Data.(type) {
 	case profiles.ShadowsocksData:
-		if _, ok := mihomoShadowsocksMethods[strings.ToLower(data.Method)]; !ok {
-			return nil, ReasonClientVersion
-		}
-		proxy := map[string]any{"name": name, "type": "ss", "server": profile.Server, "port": portNumber(profile.Port), "cipher": data.Method, "password": data.Password.Reveal(), "udp": true}
-		if data.Plugin != nil {
-			plugin, options, ok := mihomoShadowsocksPlugin(data.Plugin)
-			if !ok {
-				return nil, ReasonPlugin
-			}
-			proxy["plugin"] = plugin
-			if len(options) > 0 {
-				proxy["plugin-opts"] = options
-			}
-		}
-		return proxy, ""
+		return mihomoShadowsocks(profile, data, name)
 	case profiles.Hysteria2Data:
-		proxy := map[string]any{"name": name, "type": "hysteria2", "server": profile.Server, "password": data.Authentication.Reveal(), "sni": data.SNI, "skip-cert-verify": data.Insecure}
-		if profile.Port.Kind == profiles.PortExpression {
-			proxy["ports"] = profile.Port.Expression
-		} else {
-			proxy["port"] = portNumber(profile.Port)
-		}
-		if data.CertificateSHA256 != "" {
-			proxy["fingerprint"] = data.CertificateSHA256
-		}
-		if data.ObfuscationType != "" {
-			proxy["obfs"] = data.ObfuscationType
-			proxy["obfs-password"] = data.ObfuscationPassword.Reveal()
-		}
-		return proxy, ""
+		return mihomoHysteria2(profile, data, name), ""
 	case profiles.TUICData:
-		if data.Generation != 5 {
-			return nil, ReasonCompatibility
-		}
-		if tuicHasFieldClass(data, profiles.TUICProvenanceSingBox) {
-			return nil, ReasonUnrepresentable
-		}
-		proxy := map[string]any{"name": name, "type": "tuic", "server": profile.Server, "port": portNumber(profile.Port), "uuid": data.UUID.Reveal(), "password": data.Password.Reveal(), "congestion-controller": data.CongestionController, "udp-relay-mode": data.UDPRelayMode}
-		if data.SNI != "" {
-			proxy["sni"] = data.SNI
-		}
-		if len(data.ALPN) > 0 {
-			proxy["alpn"] = append([]string(nil), data.ALPN...)
-		}
-		if data.SkipCertificateVerification {
-			proxy["skip-cert-verify"] = true
-		}
-		if data.DisableSNI {
-			proxy["disable-sni"] = true
-		}
-		if data.ZeroRTT {
-			proxy["reduce-rtt"] = true
-		}
-		if data.Heartbeat != "" {
-			value, ok := durationMilliseconds(data.Heartbeat)
-			if !ok {
-				return nil, ReasonUnrepresentable
-			}
-			proxy["heartbeat-interval"] = value
-		}
-		if data.RequestTimeout != "" {
-			value, ok := durationMilliseconds(data.RequestTimeout)
-			if !ok {
-				return nil, ReasonUnrepresentable
-			}
-			proxy["request-timeout"] = value
-		}
-		if data.FastOpen {
-			proxy["fast-open"] = true
-		}
-		if data.MaxOpenStreams > 0 {
-			proxy["max-open-streams"] = data.MaxOpenStreams
-		}
-		if data.MaxUDPRelayPacketSize > 0 {
-			proxy["max-udp-relay-packet-size"] = data.MaxUDPRelayPacketSize
-		}
-		return proxy, ""
+		return mihomoTUIC(profile, data, name)
 	default:
 		return nil, ReasonUnsupportedProtocol
 	}
 }
 
+func mihomoShadowsocks(profile *profiles.Profile, data profiles.ShadowsocksData, name string) (map[string]any, string) {
+	if _, ok := mihomoShadowsocksMethods[strings.ToLower(data.Method)]; !ok {
+		return nil, ReasonClientVersion
+	}
+	proxy := map[string]any{"name": name, "type": "ss", "server": profile.Server, "port": portNumber(profile.Port), "cipher": data.Method, "password": data.Password.Reveal(), "udp": true}
+	if data.Plugin != nil {
+		plugin, options, ok := mihomoShadowsocksPlugin(data.Plugin)
+		if !ok {
+			return nil, ReasonPlugin
+		}
+		proxy["plugin"] = plugin
+		if len(options) > 0 {
+			proxy["plugin-opts"] = options
+		}
+	}
+	return proxy, ""
+}
+
+func mihomoHysteria2(profile *profiles.Profile, data profiles.Hysteria2Data, name string) map[string]any {
+	proxy := map[string]any{"name": name, "type": "hysteria2", "server": profile.Server, "password": data.Authentication.Reveal(), "sni": data.SNI, "skip-cert-verify": data.Insecure}
+	if profile.Port.Kind == profiles.PortExpression {
+		proxy["ports"] = profile.Port.Expression
+	} else {
+		proxy["port"] = portNumber(profile.Port)
+	}
+	if data.CertificateSHA256 != "" {
+		proxy["fingerprint"] = data.CertificateSHA256
+	}
+	if data.ObfuscationType != "" {
+		proxy["obfs"] = data.ObfuscationType
+		proxy["obfs-password"] = data.ObfuscationPassword.Reveal()
+	}
+	return proxy
+}
+
+func mihomoTUIC(profile *profiles.Profile, data profiles.TUICData, name string) (map[string]any, string) {
+	if data.Generation != 5 {
+		return nil, ReasonCompatibility
+	}
+	if tuicHasFieldClass(data, profiles.TUICProvenanceSingBox) {
+		return nil, ReasonUnrepresentable
+	}
+	proxy := map[string]any{"name": name, "type": "tuic", "server": profile.Server, "port": portNumber(profile.Port), "uuid": data.UUID.Reveal(), "password": data.Password.Reveal(), "congestion-controller": data.CongestionController, "udp-relay-mode": data.UDPRelayMode}
+	if data.SNI != "" {
+		proxy["sni"] = data.SNI
+	}
+	if len(data.ALPN) > 0 {
+		proxy["alpn"] = append([]string(nil), data.ALPN...)
+	}
+	if data.SkipCertificateVerification {
+		proxy["skip-cert-verify"] = true
+	}
+	if data.DisableSNI {
+		proxy["disable-sni"] = true
+	}
+	if data.ZeroRTT {
+		proxy["reduce-rtt"] = true
+	}
+	if data.Heartbeat != "" {
+		value, ok := durationMilliseconds(data.Heartbeat)
+		if !ok {
+			return nil, ReasonUnrepresentable
+		}
+		proxy["heartbeat-interval"] = value
+	}
+	if data.RequestTimeout != "" {
+		value, ok := durationMilliseconds(data.RequestTimeout)
+		if !ok {
+			return nil, ReasonUnrepresentable
+		}
+		proxy["request-timeout"] = value
+	}
+	if data.FastOpen {
+		proxy["fast-open"] = true
+	}
+	if data.MaxOpenStreams > 0 {
+		proxy["max-open-streams"] = data.MaxOpenStreams
+	}
+	if data.MaxUDPRelayPacketSize > 0 {
+		proxy["max-udp-relay-packet-size"] = data.MaxUDPRelayPacketSize
+	}
+	return proxy, ""
+}
+
 func singBoxOutbound(profile *profiles.Profile, name string) (map[string]any, string) {
 	switch data := profile.Data.(type) {
 	case profiles.ShadowsocksData:
-		if _, ok := singBoxShadowsocksMethods[strings.ToLower(data.Method)]; !ok {
-			return nil, ReasonClientVersion
-		}
-		outbound := map[string]any{"type": "shadowsocks", "tag": name, "server": profile.Server, "server_port": portNumber(profile.Port), "method": data.Method, "password": data.Password.Reveal()}
-		if data.Plugin != nil {
-			plugin, ok := singBoxShadowsocksPlugin(data.Plugin)
-			if !ok {
-				return nil, ReasonPlugin
-			}
-			outbound["plugin"] = plugin
-			if data.Plugin.Options.IsSet() {
-				outbound["plugin_opts"] = data.Plugin.Options.Reveal()
-			}
-		}
-		return outbound, ""
+		return singBoxShadowsocks(profile, data, name)
 	case profiles.Hysteria2Data:
-		if data.ObfuscationType == "gecko" {
-			return nil, ReasonClientVersion
-		}
-		if data.CertificateSHA256 != "" {
-			return nil, ReasonUnrepresentable
-		}
-		outbound := map[string]any{"type": "hysteria2", "tag": name, "server": profile.Server, "password": data.Authentication.Reveal(), "tls": map[string]any{"enabled": true, "server_name": data.SNI, "insecure": data.Insecure}}
-		if profile.Port.Kind == profiles.PortExpression {
-			outbound["server_ports"] = singBoxPortRanges(profile.Port)
-		} else {
-			outbound["server_port"] = portNumber(profile.Port)
-		}
-		if data.ObfuscationType != "" {
-			outbound["obfs"] = map[string]any{"type": data.ObfuscationType, "password": data.ObfuscationPassword.Reveal()}
-		}
-		return outbound, ""
+		return singBoxHysteria2(profile, data, name)
 	case profiles.TUICData:
-		if data.Generation != 5 {
-			return nil, ReasonCompatibility
-		}
-		if tuicHasFieldClass(data, profiles.TUICProvenanceMihomo) {
-			return nil, ReasonUnrepresentable
-		}
-		outbound := map[string]any{"type": "tuic", "tag": name, "server": profile.Server, "server_port": portNumber(profile.Port), "uuid": data.UUID.Reveal(), "password": data.Password.Reveal(), "congestion_control": data.CongestionController, "tls": map[string]any{"enabled": true, "server_name": data.SNI, "insecure": data.SkipCertificateVerification}}
-		if data.UDPOverStream {
-			outbound["udp_over_stream"] = true
-		} else {
-			outbound["udp_relay_mode"] = data.UDPRelayMode
-		}
-		if data.ZeroRTT {
-			outbound["zero_rtt_handshake"] = true
-		}
-		if data.Heartbeat != "" {
-			outbound["heartbeat"] = data.Heartbeat
-		}
-		tlsOptions := outbound["tls"].(map[string]any)
-		if len(data.ALPN) > 0 {
-			tlsOptions["alpn"] = append([]string(nil), data.ALPN...)
-		}
-		return outbound, ""
+		return singBoxTUIC(profile, data, name)
 	default:
 		return nil, ReasonUnsupportedProtocol
 	}
+}
+
+func singBoxShadowsocks(profile *profiles.Profile, data profiles.ShadowsocksData, name string) (map[string]any, string) {
+	if _, ok := singBoxShadowsocksMethods[strings.ToLower(data.Method)]; !ok {
+		return nil, ReasonClientVersion
+	}
+	outbound := map[string]any{"type": "shadowsocks", "tag": name, "server": profile.Server, "server_port": portNumber(profile.Port), "method": data.Method, "password": data.Password.Reveal()}
+	if data.Plugin != nil {
+		plugin, ok := singBoxShadowsocksPlugin(data.Plugin)
+		if !ok {
+			return nil, ReasonPlugin
+		}
+		outbound["plugin"] = plugin
+		if data.Plugin.Options.IsSet() {
+			outbound["plugin_opts"] = data.Plugin.Options.Reveal()
+		}
+	}
+	return outbound, ""
+}
+
+func singBoxHysteria2(profile *profiles.Profile, data profiles.Hysteria2Data, name string) (map[string]any, string) {
+	if data.ObfuscationType == "gecko" {
+		return nil, ReasonClientVersion
+	}
+	if data.CertificateSHA256 != "" {
+		return nil, ReasonUnrepresentable
+	}
+	outbound := map[string]any{"type": "hysteria2", "tag": name, "server": profile.Server, "password": data.Authentication.Reveal(), "tls": map[string]any{"enabled": true, "server_name": data.SNI, "insecure": data.Insecure}}
+	if profile.Port.Kind == profiles.PortExpression {
+		outbound["server_ports"] = singBoxPortRanges(profile.Port)
+	} else {
+		outbound["server_port"] = portNumber(profile.Port)
+	}
+	if data.ObfuscationType != "" {
+		outbound["obfs"] = map[string]any{"type": data.ObfuscationType, "password": data.ObfuscationPassword.Reveal()}
+	}
+	return outbound, ""
+}
+
+func singBoxTUIC(profile *profiles.Profile, data profiles.TUICData, name string) (map[string]any, string) {
+	if data.Generation != 5 {
+		return nil, ReasonCompatibility
+	}
+	if tuicHasFieldClass(data, profiles.TUICProvenanceMihomo) {
+		return nil, ReasonUnrepresentable
+	}
+	outbound := map[string]any{"type": "tuic", "tag": name, "server": profile.Server, "server_port": portNumber(profile.Port), "uuid": data.UUID.Reveal(), "password": data.Password.Reveal(), "congestion_control": data.CongestionController, "tls": map[string]any{"enabled": true, "server_name": data.SNI, "insecure": data.SkipCertificateVerification}}
+	if data.UDPOverStream {
+		outbound["udp_over_stream"] = true
+	} else {
+		outbound["udp_relay_mode"] = data.UDPRelayMode
+	}
+	if data.ZeroRTT {
+		outbound["zero_rtt_handshake"] = true
+	}
+	if data.Heartbeat != "" {
+		outbound["heartbeat"] = data.Heartbeat
+	}
+	tlsOptions := outbound["tls"].(map[string]any)
+	if len(data.ALPN) > 0 {
+		tlsOptions["alpn"] = append([]string(nil), data.ALPN...)
+	}
+	return outbound, ""
 }
 
 func portNumber(port profiles.PortSpec) int {
@@ -1049,133 +1084,150 @@ func mihomoShadowsocksPlugin(plugin *profiles.ShadowsocksPlugin) (string, map[st
 }
 
 func xrayJSONForEntryWithNames(entry Entry, names *UniqueNames) ([]string, *Exclusion) {
-	scheme := profileconfig.SupportedConfigScheme(entry.Raw)
-	if scheme == "ss" {
-		profile, exclusion := structuredProfile(entry, "xray-json")
-		if exclusion != nil {
-			return nil, exclusion
-		}
-		data := profile.Data.(profiles.ShadowsocksData)
-		if data.Plugin != nil {
-			return nil, &Exclusion{entry.SafeRef(), "shadowsocks", "xray-json", ReasonPlugin}
-		}
-		if _, ok := xrayShadowsocksMethods[strings.ToLower(data.Method)]; !ok {
-			return nil, &Exclusion{entry.SafeRef(), "shadowsocks", "xray-json", ReasonClientVersion}
-		}
-		tag := profileName(entry, profile, names)
-		payload, err := json.Marshal(map[string]any{"outbounds": []any{map[string]any{
-			"tag":      tag,
-			"protocol": "shadowsocks",
-			"settings": map[string]any{
-				"address":  profile.Server,
-				"port":     portNumber(profile.Port),
-				"method":   data.Method,
-				"password": data.Password.Reveal(),
-			},
-		}}})
-		if err != nil {
-			return nil, &Exclusion{entry.SafeRef(), "shadowsocks", "xray-json", ReasonSerialization}
-		}
-		return []string{string(payload)}, nil
-	}
-	if scheme == "hysteria2" || scheme == "hy2" {
-		profile, exclusion := structuredProfile(entry, "xray-json")
-		if exclusion != nil {
-			return nil, exclusion
-		}
-		data := profile.Data.(profiles.Hysteria2Data)
-		if data.ObfuscationType == "gecko" {
-			// Xray enables Gecko through FinalMask's packetSize. The Hysteria URI
-			// model does not carry that required value, so guessing one would
-			// change wire behavior.
-			return nil, &Exclusion{entry.SafeRef(), "hysteria2", "xray-json", ReasonUnrepresentable}
-		}
-		if data.Insecure {
-			// Xray v26.3.27 and v26.7.28 reject the removed allowInsecure
-			// setting. A URI that disables certificate verification cannot be
-			// safely translated into a certificate pin or peer-name constraint.
-			return nil, &Exclusion{entry.SafeRef(), "hysteria2", "xray-json", ReasonUnrepresentable}
-		}
-		stream := map[string]any{
-			"method":   "hysteria",
-			"security": "tls",
-			"hysteriaSettings": map[string]any{
-				"version": 2,
-				"auth":    data.Authentication.Reveal(),
-			},
-		}
-		tlsSettings := map[string]any{}
-		if data.SNI != "" {
-			tlsSettings["serverName"] = data.SNI
-		}
-		if data.CertificateSHA256 != "" {
-			tlsSettings["pinnedPeerCertSha256"] = data.CertificateSHA256
-		}
-		if len(tlsSettings) > 0 {
-			stream["tlsSettings"] = tlsSettings
-		}
-		finalMask := map[string]any{}
-		if profile.Port.Kind == profiles.PortExpression {
-			finalMask["quicParams"] = map[string]any{"udpHop": map[string]any{
-				"ports": profile.Port.Expression,
-			}}
-		}
-		if data.ObfuscationType == "salamander" {
-			finalMask["udp"] = []any{map[string]any{
-				"type": "salamander",
-				"settings": map[string]any{
-					"password": data.ObfuscationPassword.Reveal(),
-				},
-			}}
-		}
-		if len(finalMask) > 0 {
-			stream["finalmask"] = finalMask
-		}
-		payload, err := json.Marshal(map[string]any{"outbounds": []any{map[string]any{
-			"tag":      profileName(entry, profile, names),
-			"protocol": "hysteria",
-			"settings": map[string]any{
-				"version": 2,
-				"address": profile.Server,
-				"port":    portNumber(profile.Port),
-			},
-			"streamSettings": stream,
-		}}})
-		if err != nil {
-			return nil, &Exclusion{entry.SafeRef(), "hysteria2", "xray-json", ReasonSerialization}
-		}
-		return []string{string(payload)}, nil
-	}
-	if scheme == "tuic" {
-		profile, err := profiles.Parse(entry.Raw)
-		protocol := SafeProtocolName(entry.Raw, entry.StoredProtocol)
-		if err == nil {
-			protocol = string(profile.Protocol)
-			if data, ok := profile.Data.(profiles.TUICData); ok && data.Generation == 4 {
-				return nil, &Exclusion{entry.SafeRef(), protocol, "xray-json", ReasonCompatibility}
-			}
-		}
-		return nil, &Exclusion{entry.SafeRef(), protocol, "xray-json", ReasonUnsupportedProtocol}
-	}
-	if scheme == model.SubscriptionFormatXrayJSON {
-		if !json.Valid([]byte(entry.Raw)) {
-			return nil, &Exclusion{entry.SafeRef(), "xray-json", "xray-json", ReasonInvalidStored}
-		}
-		var value any
-		if err := json.Unmarshal([]byte(entry.Raw), &value); err != nil {
-			return nil, &Exclusion{entry.SafeRef(), "xray-json", "xray-json", ReasonInvalidStored}
-		}
-		normalized, err := json.Marshal(value)
-		if err != nil {
-			return nil, &Exclusion{entry.SafeRef(), "xray-json", "xray-json", ReasonSerialization}
-		}
-		return []string{string(normalized)}, nil
+	switch scheme := profileconfig.SupportedConfigScheme(entry.Raw); scheme {
+	case "ss":
+		return xrayShadowsocksOutbound(entry, names)
+	case "hysteria2", "hy2":
+		return xrayHysteria2Outbound(entry, names)
+	case "tuic":
+		return nil, xrayTUICExclusion(entry)
+	case model.SubscriptionFormatXrayJSON:
+		return xrayNormalizedStored(entry)
 	}
 	converted, err := NormalizeForOutput(entry.Raw, model.SubscriptionFormatXrayJSON, firstNonEmpty(entry.ClientDisplayName, entry.Label))
 	if err != nil {
 		return nil, &Exclusion{entry.SafeRef(), SafeProtocolName(entry.Raw, entry.StoredProtocol), "xray-json", ReasonInvalidStored}
 	}
 	return []string{converted}, nil
+}
+
+func xrayShadowsocksOutbound(entry Entry, names *UniqueNames) ([]string, *Exclusion) {
+	profile, exclusion := structuredProfile(entry, "xray-json")
+	if exclusion != nil {
+		return nil, exclusion
+	}
+	data := profile.Data.(profiles.ShadowsocksData)
+	if data.Plugin != nil {
+		return nil, &Exclusion{entry.SafeRef(), "shadowsocks", "xray-json", ReasonPlugin}
+	}
+	if _, ok := xrayShadowsocksMethods[strings.ToLower(data.Method)]; !ok {
+		return nil, &Exclusion{entry.SafeRef(), "shadowsocks", "xray-json", ReasonClientVersion}
+	}
+	tag := profileName(entry, profile, names)
+	payload, err := json.Marshal(map[string]any{"outbounds": []any{map[string]any{
+		"tag":      tag,
+		"protocol": "shadowsocks",
+		"settings": map[string]any{
+			"address":  profile.Server,
+			"port":     portNumber(profile.Port),
+			"method":   data.Method,
+			"password": data.Password.Reveal(),
+		},
+	}}})
+	if err != nil {
+		return nil, &Exclusion{entry.SafeRef(), "shadowsocks", "xray-json", ReasonSerialization}
+	}
+	return []string{string(payload)}, nil
+}
+
+func xrayHysteria2Outbound(entry Entry, names *UniqueNames) ([]string, *Exclusion) {
+	profile, exclusion := structuredProfile(entry, "xray-json")
+	if exclusion != nil {
+		return nil, exclusion
+	}
+	data := profile.Data.(profiles.Hysteria2Data)
+	if data.ObfuscationType == "gecko" {
+		// Xray enables Gecko through FinalMask's packetSize. The Hysteria URI
+		// model does not carry that required value, so guessing one would
+		// change wire behavior.
+		return nil, &Exclusion{entry.SafeRef(), "hysteria2", "xray-json", ReasonUnrepresentable}
+	}
+	if data.Insecure {
+		// Xray v26.3.27 and v26.7.28 reject the removed allowInsecure
+		// setting. A URI that disables certificate verification cannot be
+		// safely translated into a certificate pin or peer-name constraint.
+		return nil, &Exclusion{entry.SafeRef(), "hysteria2", "xray-json", ReasonUnrepresentable}
+	}
+	payload, err := json.Marshal(map[string]any{"outbounds": []any{map[string]any{
+		"tag":      profileName(entry, profile, names),
+		"protocol": "hysteria",
+		"settings": map[string]any{
+			"version": 2,
+			"address": profile.Server,
+			"port":    portNumber(profile.Port),
+		},
+		"streamSettings": xrayHysteria2Stream(profile, data),
+	}}})
+	if err != nil {
+		return nil, &Exclusion{entry.SafeRef(), "hysteria2", "xray-json", ReasonSerialization}
+	}
+	return []string{string(payload)}, nil
+}
+
+func xrayHysteria2Stream(profile *profiles.Profile, data profiles.Hysteria2Data) map[string]any {
+	stream := map[string]any{
+		"method":   "hysteria",
+		"security": "tls",
+		"hysteriaSettings": map[string]any{
+			"version": 2,
+			"auth":    data.Authentication.Reveal(),
+		},
+	}
+	tlsSettings := map[string]any{}
+	if data.SNI != "" {
+		tlsSettings["serverName"] = data.SNI
+	}
+	if data.CertificateSHA256 != "" {
+		tlsSettings["pinnedPeerCertSha256"] = data.CertificateSHA256
+	}
+	if len(tlsSettings) > 0 {
+		stream["tlsSettings"] = tlsSettings
+	}
+	finalMask := map[string]any{}
+	if profile.Port.Kind == profiles.PortExpression {
+		finalMask["quicParams"] = map[string]any{"udpHop": map[string]any{
+			"ports": profile.Port.Expression,
+		}}
+	}
+	if data.ObfuscationType == "salamander" {
+		finalMask["udp"] = []any{map[string]any{
+			"type": "salamander",
+			"settings": map[string]any{
+				"password": data.ObfuscationPassword.Reveal(),
+			},
+		}}
+	}
+	if len(finalMask) > 0 {
+		stream["finalmask"] = finalMask
+	}
+	return stream
+}
+
+func xrayTUICExclusion(entry Entry) *Exclusion {
+	profile, err := profiles.Parse(entry.Raw)
+	protocol := SafeProtocolName(entry.Raw, entry.StoredProtocol)
+	if err == nil {
+		protocol = string(profile.Protocol)
+		if data, ok := profile.Data.(profiles.TUICData); ok && data.Generation == 4 {
+			return &Exclusion{entry.SafeRef(), protocol, "xray-json", ReasonCompatibility}
+		}
+	}
+	return &Exclusion{entry.SafeRef(), protocol, "xray-json", ReasonUnsupportedProtocol}
+}
+
+func xrayNormalizedStored(entry Entry) ([]string, *Exclusion) {
+	if !json.Valid([]byte(entry.Raw)) {
+		return nil, &Exclusion{entry.SafeRef(), "xray-json", "xray-json", ReasonInvalidStored}
+	}
+	var value any
+	if err := json.Unmarshal([]byte(entry.Raw), &value); err != nil {
+		return nil, &Exclusion{entry.SafeRef(), "xray-json", "xray-json", ReasonInvalidStored}
+	}
+	normalized, err := json.Marshal(value)
+	if err != nil {
+		return nil, &Exclusion{entry.SafeRef(), "xray-json", "xray-json", ReasonSerialization}
+	}
+	return []string{string(normalized)}, nil
 }
 
 func ApplyExclusionHeaders(headers interface{ Set(string, string) }, exclusions []Exclusion) {

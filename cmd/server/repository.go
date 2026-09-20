@@ -53,102 +53,10 @@ func (a *App) listUsers() ([]model.User, error) {
 
 	var out []model.User
 	for rows.Next() {
-		var u model.User
-		var status sql.NullString
-		var timeZone sql.NullString
-		var language sql.NullString
-		var activationCode sql.NullString
-		var subscriptionID sql.NullString
-		var subscriptionName sql.NullString
-		var subscriptionRefreshHours sql.NullInt64
-		var subscriptionInfoURL sql.NullString
-		var subscriptionExtraURL sql.NullString
-		var subscriptionExtraStatus sql.NullString
-		var activationUsedAt sql.NullTime
-		var startsAt sql.NullTime
-		var expiresAt sql.NullTime
-		var blockedReason sql.NullString
-		var maxDevices sql.NullInt64
-		var connectedDevices sql.NullInt64
-		var connectedHWIDs sql.NullString
-		var assignedKeyIDs sql.NullString
-		if err := rows.Scan(
-			&u.ID,
-			&u.Name,
-			&u.Email,
-			&u.Token,
-			&timeZone,
-			&language,
-			&activationCode,
-			&subscriptionID,
-			&subscriptionName,
-			&subscriptionRefreshHours,
-			&subscriptionInfoURL,
-			&subscriptionExtraURL,
-			&subscriptionExtraStatus,
-			&activationUsedAt,
-			&status,
-			&startsAt,
-			&expiresAt,
-			&blockedReason,
-			&maxDevices,
-			&connectedDevices,
-			&connectedHWIDs,
-			&u.KeyAssignmentMode,
-			&u.CreatedAt,
-			&assignedKeyIDs,
-		); err != nil {
+		u, err := scanUserRow(rows)
+		if err != nil {
 			return nil, err
 		}
-		u.ActivationCode = strings.TrimSpace(activationCode.String)
-		u.TimeZone = strings.TrimSpace(timeZone.String)
-		if u.TimeZone == "" {
-			u.TimeZone = "Europe/Moscow"
-		}
-		u.Language = strings.TrimSpace(language.String)
-		if u.Language == "" {
-			u.Language = "ru"
-		}
-		u.SubscriptionID = strings.TrimSpace(subscriptionID.String)
-		u.SubscriptionName = strings.TrimSpace(subscriptionName.String)
-		u.SubscriptionRefreshHours = 12
-		if subscriptionRefreshHours.Valid && subscriptionRefreshHours.Int64 > 0 {
-			u.SubscriptionRefreshHours = int(subscriptionRefreshHours.Int64)
-		}
-		u.SubscriptionInfoURL = strings.TrimSpace(subscriptionInfoURL.String)
-		u.SubscriptionExtraURL = strings.TrimSpace(subscriptionExtraURL.String)
-		u.SubscriptionExtraStatus = strings.TrimSpace(subscriptionExtraStatus.String)
-		location, locationErr := time.LoadLocation(u.TimeZone)
-		if locationErr != nil {
-			location = time.UTC
-		}
-		if activationUsedAt.Valid {
-			u.ActivationUsedAt = activationUsedAt.Time.In(location).Format("02/01/2006 15:04")
-		}
-		u.Status = model.NormalizeStoredStatus(status.String)
-		u.StartsAtInput = formatDateTimeInputInLocation(startsAt, location)
-		u.ExpiresAtInput = formatDateTimeInputInLocation(expiresAt, location)
-		u.BlockedReason = strings.TrimSpace(blockedReason.String)
-		u.MaxDevices = 0
-		if maxDevices.Valid && maxDevices.Int64 > 0 {
-			u.MaxDevices = int(maxDevices.Int64)
-		}
-		if connectedDevices.Valid && connectedDevices.Int64 > 0 {
-			u.ConnectedDeviceCount = int(connectedDevices.Int64)
-		}
-		u.EffectiveStatus = model.EffectiveUserStatus(
-			u.Status,
-			expiresAt.Time,
-			expiresAt.Valid,
-			u.ConnectedDeviceCount,
-			u.MaxDevices,
-			time.Now(),
-		)
-		rawHWIDs := strings.TrimSpace(connectedHWIDs.String)
-		if rawHWIDs != "" {
-			u.ConnectedHWIDs = strings.Split(rawHWIDs, "||")
-		}
-		u.AssignedKeyIDs = strings.TrimSpace(assignedKeyIDs.String)
 		out = append(out, u)
 	}
 	if err := rows.Err(); err != nil {
@@ -159,70 +67,8 @@ func (a *App) listUsers() ([]model.User, error) {
 		return out, nil
 	}
 
-	deviceRows, err := a.db.Query(`
-		SELECT user_id, hwid, normalized_hwid, device_name, device_model, platform, os_version, app_name, app_version, user_agent, created_at, last_seen_at
-		FROM user_devices
-		ORDER BY last_seen_at DESC
-	`)
+	devicesByUser, err := a.loadConnectedDevicesByUser()
 	if err != nil {
-		return nil, err
-	}
-	defer deviceRows.Close()
-
-	devicesByUser := make(map[int64][]model.ConnectedDevice)
-	for deviceRows.Next() {
-		var userID int64
-		var hwid sql.NullString
-		var normalizedHWID sql.NullString
-		var deviceName sql.NullString
-		var deviceModel sql.NullString
-		var platform sql.NullString
-		var osVersion sql.NullString
-		var appName sql.NullString
-		var appVersion sql.NullString
-		var userAgent sql.NullString
-		var createdAt sql.NullTime
-		var lastSeenAt sql.NullTime
-
-		if err := deviceRows.Scan(&userID, &hwid, &normalizedHWID, &deviceName, &deviceModel, &platform, &osVersion, &appName, &appVersion, &userAgent, &createdAt, &lastSeenAt); err != nil {
-			return nil, err
-		}
-
-		parsed := ParseDeviceInfo(hwid.String, userAgent.String, nil, nil)
-		normalizedID := strings.TrimSpace(normalizedHWID.String)
-		if normalizedID == "" {
-			normalizedID = parsed.NormalizedID
-		}
-		app := firstNonEmpty(strings.TrimSpace(appName.String), parsed.ClientApp)
-		appVersionText := firstNonEmpty(strings.TrimSpace(appVersion.String), parsed.ClientVersion)
-		platformText := firstNonEmpty(strings.TrimSpace(platform.String), parsed.Platform)
-		osVersionText := firstNonEmpty(strings.TrimSpace(osVersion.String), parsed.OSVersion)
-		deviceModelText := firstNonEmpty(strings.TrimSpace(deviceModel.String), parsed.DeviceModel)
-		deviceBrandText := firstNonEmpty(parsed.DeviceBrand)
-
-		device := model.ConnectedDevice{
-			HWID:           strings.TrimSpace(hwid.String),
-			NormalizedHWID: normalizedID,
-			DeviceName:     strings.TrimSpace(deviceName.String),
-			DeviceModel:    deviceModelText,
-			DeviceBrand:    deviceBrandText,
-			Platform:       platformText,
-			OSVersion:      osVersionText,
-			AppName:        app,
-			AppVersion:     appVersionText,
-			ClientApp:      parsed.ClientApp,
-			ClientVersion:  parsed.ClientVersion,
-			UserAgent:      strings.TrimSpace(userAgent.String),
-		}
-		if createdAt.Valid {
-			device.CreatedAt = createdAt.Time.Local().Format("2006-01-02 15:04:05")
-		}
-		if lastSeenAt.Valid {
-			device.LastSeenAt = lastSeenAt.Time.Local().Format("2006-01-02 15:04:05")
-		}
-		devicesByUser[userID] = append(devicesByUser[userID], device)
-	}
-	if err := deviceRows.Err(); err != nil {
 		return nil, err
 	}
 
@@ -238,6 +84,190 @@ func (a *App) listUsers() ([]model.User, error) {
 	}
 
 	return out, nil
+}
+
+// scanUserRow reads one row of the listUsers query and derives the display
+// fields (localized inputs, effective status, split HWIDs).
+func scanUserRow(rows *sql.Rows) (model.User, error) {
+	var u model.User
+	var status sql.NullString
+	var timeZone sql.NullString
+	var language sql.NullString
+	var activationCode sql.NullString
+	var subscriptionID sql.NullString
+	var subscriptionName sql.NullString
+	var subscriptionRefreshHours sql.NullInt64
+	var subscriptionInfoURL sql.NullString
+	var subscriptionExtraURL sql.NullString
+	var subscriptionExtraStatus sql.NullString
+	var activationUsedAt sql.NullTime
+	var startsAt sql.NullTime
+	var expiresAt sql.NullTime
+	var blockedReason sql.NullString
+	var maxDevices sql.NullInt64
+	var connectedDevices sql.NullInt64
+	var connectedHWIDs sql.NullString
+	var assignedKeyIDs sql.NullString
+	if err := rows.Scan(
+		&u.ID,
+		&u.Name,
+		&u.Email,
+		&u.Token,
+		&timeZone,
+		&language,
+		&activationCode,
+		&subscriptionID,
+		&subscriptionName,
+		&subscriptionRefreshHours,
+		&subscriptionInfoURL,
+		&subscriptionExtraURL,
+		&subscriptionExtraStatus,
+		&activationUsedAt,
+		&status,
+		&startsAt,
+		&expiresAt,
+		&blockedReason,
+		&maxDevices,
+		&connectedDevices,
+		&connectedHWIDs,
+		&u.KeyAssignmentMode,
+		&u.CreatedAt,
+		&assignedKeyIDs,
+	); err != nil {
+		return u, err
+	}
+	u.ActivationCode = strings.TrimSpace(activationCode.String)
+	u.TimeZone = strings.TrimSpace(timeZone.String)
+	if u.TimeZone == "" {
+		u.TimeZone = "Europe/Moscow"
+	}
+	u.Language = strings.TrimSpace(language.String)
+	if u.Language == "" {
+		u.Language = "ru"
+	}
+	u.SubscriptionID = strings.TrimSpace(subscriptionID.String)
+	u.SubscriptionName = strings.TrimSpace(subscriptionName.String)
+	u.SubscriptionRefreshHours = 12
+	if subscriptionRefreshHours.Valid && subscriptionRefreshHours.Int64 > 0 {
+		u.SubscriptionRefreshHours = int(subscriptionRefreshHours.Int64)
+	}
+	u.SubscriptionInfoURL = strings.TrimSpace(subscriptionInfoURL.String)
+	u.SubscriptionExtraURL = strings.TrimSpace(subscriptionExtraURL.String)
+	u.SubscriptionExtraStatus = strings.TrimSpace(subscriptionExtraStatus.String)
+	location, locationErr := time.LoadLocation(u.TimeZone)
+	if locationErr != nil {
+		location = time.UTC
+	}
+	if activationUsedAt.Valid {
+		u.ActivationUsedAt = activationUsedAt.Time.In(location).Format("02/01/2006 15:04")
+	}
+	u.Status = model.NormalizeStoredStatus(status.String)
+	u.StartsAtInput = formatDateTimeInputInLocation(startsAt, location)
+	u.ExpiresAtInput = formatDateTimeInputInLocation(expiresAt, location)
+	u.BlockedReason = strings.TrimSpace(blockedReason.String)
+	u.MaxDevices = 0
+	if maxDevices.Valid && maxDevices.Int64 > 0 {
+		u.MaxDevices = int(maxDevices.Int64)
+	}
+	if connectedDevices.Valid && connectedDevices.Int64 > 0 {
+		u.ConnectedDeviceCount = int(connectedDevices.Int64)
+	}
+	u.EffectiveStatus = model.EffectiveUserStatus(
+		u.Status,
+		expiresAt.Time,
+		expiresAt.Valid,
+		u.ConnectedDeviceCount,
+		u.MaxDevices,
+		time.Now(),
+	)
+	rawHWIDs := strings.TrimSpace(connectedHWIDs.String)
+	if rawHWIDs != "" {
+		u.ConnectedHWIDs = strings.Split(rawHWIDs, "||")
+	}
+	u.AssignedKeyIDs = strings.TrimSpace(assignedKeyIDs.String)
+	return u, nil
+}
+
+// loadConnectedDevicesByUser returns every user device grouped by user id,
+// most recently seen first.
+func (a *App) loadConnectedDevicesByUser() (map[int64][]model.ConnectedDevice, error) {
+	deviceRows, err := a.db.Query(`
+		SELECT user_id, hwid, normalized_hwid, device_name, device_model, platform, os_version, app_name, app_version, user_agent, created_at, last_seen_at
+		FROM user_devices
+		ORDER BY last_seen_at DESC
+	`)
+	if err != nil {
+		return nil, err
+	}
+	defer deviceRows.Close()
+
+	devicesByUser := make(map[int64][]model.ConnectedDevice)
+	for deviceRows.Next() {
+		userID, device, err := scanConnectedDevice(deviceRows)
+		if err != nil {
+			return nil, err
+		}
+		devicesByUser[userID] = append(devicesByUser[userID], device)
+	}
+	if err := deviceRows.Err(); err != nil {
+		return nil, err
+	}
+	return devicesByUser, nil
+}
+
+// scanConnectedDevice reads one user_devices row, filling gaps in the stored
+// metadata from the user agent.
+func scanConnectedDevice(deviceRows *sql.Rows) (int64, model.ConnectedDevice, error) {
+	var userID int64
+	var hwid sql.NullString
+	var normalizedHWID sql.NullString
+	var deviceName sql.NullString
+	var deviceModel sql.NullString
+	var platform sql.NullString
+	var osVersion sql.NullString
+	var appName sql.NullString
+	var appVersion sql.NullString
+	var userAgent sql.NullString
+	var createdAt sql.NullTime
+	var lastSeenAt sql.NullTime
+
+	if err := deviceRows.Scan(&userID, &hwid, &normalizedHWID, &deviceName, &deviceModel, &platform, &osVersion, &appName, &appVersion, &userAgent, &createdAt, &lastSeenAt); err != nil {
+		return 0, model.ConnectedDevice{}, err
+	}
+
+	parsed := ParseDeviceInfo(hwid.String, userAgent.String, nil, nil)
+	normalizedID := strings.TrimSpace(normalizedHWID.String)
+	if normalizedID == "" {
+		normalizedID = parsed.NormalizedID
+	}
+	app := firstNonEmpty(strings.TrimSpace(appName.String), parsed.ClientApp)
+	appVersionText := firstNonEmpty(strings.TrimSpace(appVersion.String), parsed.ClientVersion)
+	platformText := firstNonEmpty(strings.TrimSpace(platform.String), parsed.Platform)
+	osVersionText := firstNonEmpty(strings.TrimSpace(osVersion.String), parsed.OSVersion)
+	deviceModelText := firstNonEmpty(strings.TrimSpace(deviceModel.String), parsed.DeviceModel)
+	deviceBrandText := firstNonEmpty(parsed.DeviceBrand)
+
+	device := model.ConnectedDevice{
+		HWID:           strings.TrimSpace(hwid.String),
+		NormalizedHWID: normalizedID,
+		DeviceName:     strings.TrimSpace(deviceName.String),
+		DeviceModel:    deviceModelText,
+		DeviceBrand:    deviceBrandText,
+		Platform:       platformText,
+		OSVersion:      osVersionText,
+		AppName:        app,
+		AppVersion:     appVersionText,
+		ClientApp:      parsed.ClientApp,
+		ClientVersion:  parsed.ClientVersion,
+		UserAgent:      strings.TrimSpace(userAgent.String),
+	}
+	if createdAt.Valid {
+		device.CreatedAt = createdAt.Time.Local().Format("2006-01-02 15:04:05")
+	}
+	if lastSeenAt.Valid {
+		device.LastSeenAt = lastSeenAt.Time.Local().Format("2006-01-02 15:04:05")
+	}
+	return userID, device, nil
 }
 
 func (a *App) getSubscriptionSettings() (model.SubscriptionSettings, error) {

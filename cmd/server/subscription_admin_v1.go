@@ -33,6 +33,87 @@ func normalizeAbsoluteHTTPURL(raw, field string) (string, error) {
 	return parsed.String(), nil
 }
 
+// The applyPatch* helpers implement PATCH semantics for one field each: an
+// unset field leaves the target untouched, null clears it, a value replaces it.
+
+func applyPatchStatus(field model.OptionalString, target *string) error {
+	if !field.Set {
+		return nil
+	}
+	if field.Null {
+		return errors.New("status cannot be null")
+	}
+	normalized, valid := model.NormalizeUserStatus(field.Value)
+	if !valid {
+		return errors.New("invalid subscription status")
+	}
+	*target = normalized
+	return nil
+}
+
+func applyPatchTime(field model.OptionalString, target *sql.NullTime, fieldName string, location *time.Location) error {
+	if !field.Set {
+		return nil
+	}
+	if field.Null || strings.TrimSpace(field.Value) == "" {
+		*target = sql.NullTime{}
+		return nil
+	}
+	parsed, parseErr := parseOptionalDateTimeInLocation(field.Value, location)
+	if parseErr != nil {
+		return fmt.Errorf("invalid %s datetime", fieldName)
+	}
+	*target = parsed
+	return nil
+}
+
+func applyPatchString(field model.OptionalString, target *sql.NullString, maxRunes int, fieldName string) error {
+	if !field.Set {
+		return nil
+	}
+	if field.Null {
+		*target = sql.NullString{}
+		return nil
+	}
+	value := strings.TrimSpace(field.Value)
+	if len([]rune(value)) > maxRunes {
+		return fmt.Errorf("%s is too long", fieldName)
+	}
+	*target = sql.NullString{String: value, Valid: value != ""}
+	return nil
+}
+
+func applyPatchURL(field model.OptionalString, target *sql.NullString, fieldName string) error {
+	if !field.Set {
+		return nil
+	}
+	if field.Null || strings.TrimSpace(field.Value) == "" {
+		*target = sql.NullString{}
+		return nil
+	}
+	value, normalizeErr := normalizeAbsoluteHTTPURL(field.Value, fieldName)
+	if normalizeErr != nil {
+		return normalizeErr
+	}
+	*target = sql.NullString{String: value, Valid: true}
+	return nil
+}
+
+func applyPatchRefreshHours(field model.OptionalInt, target *int) error {
+	if !field.Set {
+		return nil
+	}
+	if field.Null || field.Value == 0 {
+		*target = 0
+		return nil
+	}
+	if field.Value < 1 || field.Value > 720 {
+		return errors.New("subscription_refresh_hours must be between 1 and 720")
+	}
+	*target = field.Value
+	return nil
+}
+
 func (a *App) apiV1PatchUserSubscription(w http.ResponseWriter, r *http.Request) {
 	id, ok := httpapi.PathID(w, r, "id")
 	if !ok {
@@ -68,42 +149,19 @@ func (a *App) apiV1PatchUserSubscription(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	if input.Status.Set {
-		if input.Status.Null {
-			httpapi.WriteV1Error(w, r, http.StatusBadRequest, "status_invalid", "status cannot be null")
-			return
-		}
-		normalized, valid := model.NormalizeUserStatus(input.Status.Value)
-		if !valid {
-			httpapi.WriteV1Error(w, r, http.StatusBadRequest, "status_invalid", "invalid subscription status")
-			return
-		}
-		status = normalized
+	if err := applyPatchStatus(input.Status, &status); err != nil {
+		httpapi.WriteV1Error(w, r, http.StatusBadRequest, "status_invalid", err.Error())
+		return
 	}
 	location, locationErr := time.LoadLocation(timeZone)
 	if locationErr != nil {
 		location = time.UTC
 	}
-	applyTime := func(field model.OptionalString, target *sql.NullTime, fieldName string) error {
-		if !field.Set {
-			return nil
-		}
-		if field.Null || strings.TrimSpace(field.Value) == "" {
-			*target = sql.NullTime{}
-			return nil
-		}
-		parsed, parseErr := parseOptionalDateTimeInLocation(field.Value, location)
-		if parseErr != nil {
-			return fmt.Errorf("invalid %s datetime", fieldName)
-		}
-		*target = parsed
-		return nil
-	}
-	if err := applyTime(input.StartsAt, &startsAt, "starts_at"); err != nil {
+	if err := applyPatchTime(input.StartsAt, &startsAt, "starts_at", location); err != nil {
 		httpapi.WriteV1Error(w, r, http.StatusBadRequest, "starts_at_invalid", err.Error())
 		return
 	}
-	if err := applyTime(input.ExpiresAt, &expiresAt, "expires_at"); err != nil {
+	if err := applyPatchTime(input.ExpiresAt, &expiresAt, "expires_at", location); err != nil {
 		httpapi.WriteV1Error(w, r, http.StatusBadRequest, "expires_at_invalid", err.Error())
 		return
 	}
@@ -112,65 +170,29 @@ func (a *App) apiV1PatchUserSubscription(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	applyString := func(field model.OptionalString, target *sql.NullString, maxRunes int, fieldName string) error {
-		if !field.Set {
-			return nil
-		}
-		if field.Null {
-			*target = sql.NullString{}
-			return nil
-		}
-		value := strings.TrimSpace(field.Value)
-		if len([]rune(value)) > maxRunes {
-			return fmt.Errorf("%s is too long", fieldName)
-		}
-		*target = sql.NullString{String: value, Valid: value != ""}
-		return nil
-	}
-	if err := applyString(input.BlockedReason, &blockedReason, 255, "blocked_reason"); err != nil {
+	if err := applyPatchString(input.BlockedReason, &blockedReason, 255, "blocked_reason"); err != nil {
 		httpapi.WriteV1Error(w, r, http.StatusBadRequest, "blocked_reason_invalid", err.Error())
 		return
 	}
-	if err := applyString(input.SubscriptionName, &name, 120, "subscription_name"); err != nil {
+	if err := applyPatchString(input.SubscriptionName, &name, 120, "subscription_name"); err != nil {
 		httpapi.WriteV1Error(w, r, http.StatusBadRequest, "subscription_name_invalid", err.Error())
 		return
 	}
-	if err := applyString(input.SubscriptionExtraStatus, &extraStatus, 255, "subscription_extra_status"); err != nil {
+	if err := applyPatchString(input.SubscriptionExtraStatus, &extraStatus, 255, "subscription_extra_status"); err != nil {
 		httpapi.WriteV1Error(w, r, http.StatusBadRequest, "subscription_extra_status_invalid", err.Error())
 		return
 	}
-	applyURL := func(field model.OptionalString, target *sql.NullString, fieldName string) error {
-		if !field.Set {
-			return nil
-		}
-		if field.Null || strings.TrimSpace(field.Value) == "" {
-			*target = sql.NullString{}
-			return nil
-		}
-		value, normalizeErr := normalizeAbsoluteHTTPURL(field.Value, fieldName)
-		if normalizeErr != nil {
-			return normalizeErr
-		}
-		*target = sql.NullString{String: value, Valid: true}
-		return nil
-	}
-	if err := applyURL(input.SubscriptionInfoURL, &infoURL, "subscription_info_url"); err != nil {
+	if err := applyPatchURL(input.SubscriptionInfoURL, &infoURL, "subscription_info_url"); err != nil {
 		httpapi.WriteV1Error(w, r, http.StatusBadRequest, "subscription_info_url_invalid", err.Error())
 		return
 	}
-	if err := applyURL(input.SubscriptionExtraURL, &extraURL, "subscription_extra_url"); err != nil {
+	if err := applyPatchURL(input.SubscriptionExtraURL, &extraURL, "subscription_extra_url"); err != nil {
 		httpapi.WriteV1Error(w, r, http.StatusBadRequest, "subscription_extra_url_invalid", err.Error())
 		return
 	}
-	if input.SubscriptionRefreshHours.Set {
-		if input.SubscriptionRefreshHours.Null || input.SubscriptionRefreshHours.Value == 0 {
-			refreshHours = 0
-		} else if input.SubscriptionRefreshHours.Value < 1 || input.SubscriptionRefreshHours.Value > 720 {
-			httpapi.WriteV1Error(w, r, http.StatusBadRequest, "subscription_refresh_invalid", "subscription_refresh_hours must be between 1 and 720")
-			return
-		} else {
-			refreshHours = input.SubscriptionRefreshHours.Value
-		}
+	if err := applyPatchRefreshHours(input.SubscriptionRefreshHours, &refreshHours); err != nil {
+		httpapi.WriteV1Error(w, r, http.StatusBadRequest, "subscription_refresh_invalid", err.Error())
+		return
 	}
 	if status != model.UserStatusBlocked {
 		blockedReason = sql.NullString{}
