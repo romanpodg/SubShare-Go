@@ -213,14 +213,6 @@ func apiTokenAllows(scopes []string, method, path string) bool {
 	}
 }
 
-func (a *App) mustCSRFToken(r *http.Request) string {
-	session, _, ok := a.adminSessionFromRequest(r)
-	if !ok {
-		return ""
-	}
-	return session.CSRFToken
-}
-
 func isUnsafeHTTPMethod(method string) bool {
 	return method == http.MethodPost || method == http.MethodPut || method == http.MethodPatch || method == http.MethodDelete
 }

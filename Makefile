@@ -1,4 +1,4 @@
-.PHONY: build run clean frontend backend all
+.PHONY: build run clean frontend backend all lint
 
 BUILD_DIR ?= .cache
 SERVER_BIN ?= $(BUILD_DIR)/subshare
@@ -22,3 +22,6 @@ clean:
 tidy:
 	go mod tidy
 	go vet ./cmd/server/...
+
+lint:
+	golangci-lint run ./...

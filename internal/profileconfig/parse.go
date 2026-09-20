@@ -385,7 +385,7 @@ func ParseLinkConfiguration(raw string) (LinkConfigurationDraft, error) {
 		if networkRaw == "" {
 			networkRaw = AnyToString(payload["type"])
 		}
-		security := "none"
+		var security string
 		if strings.EqualFold(AnyToString(payload["tls"]), "tls") {
 			security = "tls"
 		} else {

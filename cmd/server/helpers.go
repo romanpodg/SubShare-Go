@@ -114,10 +114,6 @@ func parseOptionalDateTimeInLocation(raw string, location *time.Location) (sql.N
 	return sql.NullTime{}, lastErr
 }
 
-func formatDateTimeInput(value sql.NullTime) string {
-	return formatDateTimeInputInLocation(value, time.Local)
-}
-
 func formatDateTimeInputInLocation(value sql.NullTime, location *time.Location) string {
 	if !value.Valid {
 		return ""
@@ -139,13 +135,6 @@ func nullTimeValue(value sql.NullTime) any {
 func nullStringValue(value string) any {
 	value = strings.TrimSpace(value)
 	if value == "" {
-		return nil
-	}
-	return value
-}
-
-func nullInt64Value(value int64) any {
-	if value <= 0 {
 		return nil
 	}
 	return value

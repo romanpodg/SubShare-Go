@@ -67,34 +67,6 @@ func formatNullableTime(value sql.NullTime) string {
 	return value.Time.Local().Format("2006-01-02 15:04:05")
 }
 
-func sourceRowToModel(row externalSourceRow) model.ExternalSubscriptionSource {
-	return model.ExternalSubscriptionSource{
-		ID:                  row.ID,
-		Name:                row.Name,
-		Category:            row.Category,
-		KeyCategory:         row.KeyCategory,
-		KeyInsertMode:       row.KeyInsertMode,
-		SourceURL:           row.SourceURL,
-		Enabled:             row.Enabled,
-		ApplyRemoteMetadata: row.ApplyRemoteMetadata,
-		PassHWID:            row.PassHWID,
-		HWIDVersion:         row.HWIDVersion,
-		HWIDModelName:       row.HWIDModelName,
-		HWIDValue:           row.HWIDValue,
-		LastImportCount:     row.LastImportCount,
-		ImportStatus:        row.ImportStatus,
-		LastError:           row.LastError,
-		LastSyncedAt:        formatNullableTime(row.LastSyncedAt),
-		MetaTitle:           row.MetaTitle,
-		MetaRefreshHours:    row.MetaRefreshHours,
-		MetaSupportURL:      row.MetaSupportURL,
-		MetaWebPageURL:      row.MetaWebPageURL,
-		MetaAnnounce:        row.MetaAnnounce,
-		CreatedAt:           formatNullableTime(row.CreatedAt),
-		UpdatedAt:           formatNullableTime(row.UpdatedAt),
-	}
-}
-
 func (a *App) listExternalSourceCategories() ([]model.ExternalSourceCategory, error) {
 	rows, err := a.db.Query(`SELECT name FROM external_source_categories ORDER BY LOWER(name), name`)
 	if err != nil {

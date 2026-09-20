@@ -40,10 +40,6 @@ func (a *App) upsertKeyCategory(category string) error {
 	return err
 }
 
-func (a *App) listKeyCategories() ([]model.KeyCategory, error) {
-	return a.keyService().ListCategories(context.Background())
-}
-
 // --- Auth API ---
 
 func (a *App) apiLogin(w http.ResponseWriter, r *http.Request) {

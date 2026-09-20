@@ -287,10 +287,6 @@ func htmlText(input string, vars map[string]string) string {
 	return html.EscapeString(applyTemplate(input, vars))
 }
 
-func htmlAttr(input string, vars map[string]string) string {
-	return html.EscapeString(applyTemplate(input, vars))
-}
-
 func cssVar(theme map[string]string, key string, fallback string) string {
 	value := strings.TrimSpace(theme[key])
 	if value == "" {

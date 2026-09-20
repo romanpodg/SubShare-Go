@@ -32,8 +32,8 @@ import (
 )
 
 const (
-	MaxBodyBytes = 10 << 20 // 10 MB
-	MaxImportItems           = 10000
+	MaxBodyBytes   = 10 << 20 // 10 MB
+	MaxImportItems = 10000
 )
 
 type Metadata struct {
@@ -1806,11 +1806,4 @@ func NormalizeRemoteProfileTitle(raw string) (string, []string) {
 		return name, nil
 	}
 	return name, []string{"Remote profile title exceeded 64 characters and was shortened."}
-}
-
-func nullString(s string) any {
-	if s == "" {
-		return nil
-	}
-	return s
 }
