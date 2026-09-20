@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"github.com/romanpodg/SubShare-Go/internal/delivery"
 	"net/http"
 	"strings"
 
@@ -100,7 +101,7 @@ func (a *App) buildCapabilitiesMap(parsed *profiles.Profile) map[string]map[stri
 	if parsed == nil {
 		return caps
 	}
-	matrix := subscriptionCapabilityMatrix()
+	matrix := delivery.CapabilityMatrix()
 	for _, item := range matrix {
 		if strings.EqualFold(item.Protocol, string(parsed.Protocol)) {
 			for fmtName, outCap := range item.Outputs {
@@ -119,11 +120,11 @@ func (a *App) buildCapabilitiesMap(parsed *profiles.Profile) map[string]map[stri
 			// Apply TUIC v4 overrides
 			if parsed.Protocol == profiles.ProtocolTUIC && parsed.Data != nil {
 				if tuicData, ok := parsed.Data.(profiles.TUICData); ok && tuicData.Generation == 4 {
-					caps["mihomo"] = map[string]any{"status": string(capabilityUnsupported), "reason_code": generationReasonCompatibility}
-					caps["sing-box"] = map[string]any{"status": string(capabilityUnsupported), "reason_code": generationReasonCompatibility}
-					caps["xray-json"] = map[string]any{"status": string(capabilityUnsupported), "reason_code": generationReasonCompatibility}
-					caps["plain"] = map[string]any{"status": string(capabilityCompatibility), "reason_code": "raw_delivery_only"}
-					caps["base64"] = map[string]any{"status": string(capabilityCompatibility), "reason_code": "raw_delivery_only"}
+					caps["mihomo"] = map[string]any{"status": string(delivery.CapabilityUnsupported), "reason_code": delivery.ReasonCompatibility}
+					caps["sing-box"] = map[string]any{"status": string(delivery.CapabilityUnsupported), "reason_code": delivery.ReasonCompatibility}
+					caps["xray-json"] = map[string]any{"status": string(delivery.CapabilityUnsupported), "reason_code": delivery.ReasonCompatibility}
+					caps["plain"] = map[string]any{"status": string(delivery.CapabilityCompatibility), "reason_code": "raw_delivery_only"}
+					caps["base64"] = map[string]any{"status": string(delivery.CapabilityCompatibility), "reason_code": "raw_delivery_only"}
 				}
 			}
 			break

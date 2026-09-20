@@ -3,8 +3,8 @@ package main
 import (
 	"context"
 	"database/sql"
-	"encoding/json"
 	"fmt"
+	"github.com/romanpodg/SubShare-Go/internal/delivery"
 	"github.com/romanpodg/SubShare-Go/internal/profileconfig"
 	"net/http"
 	"net/url"
@@ -161,26 +161,6 @@ func boolToInt(value bool) int {
 	return 0
 }
 
-func containsLegacySubscriptionBodyMarkers(body string) bool {
-	legacyMarkers := []string{
-		"#profile-desc:",
-		"#profile-status:",
-		"#description:",
-		"#happ-provider-id:",
-		"#happ-no-limit-mode:",
-		"#happ-no-limit-mode-xhttp-only:",
-		"#happ-mandatory-hwid:",
-		"#happ-notify-expiration:",
-		"#happ-hide-server-settings:",
-	}
-	for _, marker := range legacyMarkers {
-		if strings.Contains(body, marker) {
-			return true
-		}
-	}
-	return false
-}
-
 func (a *App) checkAndPersistKey(ctx context.Context, keyID int64, rawURL string) error {
 	status, checkErr, latency := checkConfigurationAvailabilityContext(ctx, rawURL)
 	return a.keyService().SaveHealthCheckResult(ctx, keyID, status, checkErr, latency)
@@ -232,17 +212,8 @@ func validOriginHost(host string) bool {
 	return err == nil && parsed.Host == host && parsed.Hostname() != ""
 }
 
-type subscriptionTemplateData struct {
-	UserName       string
-	Telegram       string
-	SubscriptionID string
-	ExpiryDate     string
-	ExpiryDateTime string
-	RealKeysCount  int
-}
-
-func (a *App) buildSubscriptionTemplateData(subscriptionID string, subscriptionFormat string) (subscriptionTemplateData, error) {
-	out := subscriptionTemplateData{
+func (a *App) buildSubscriptionTemplateData(subscriptionID string, subscriptionFormat string) (delivery.TemplateData, error) {
+	out := delivery.TemplateData{
 		SubscriptionID: strings.TrimSpace(subscriptionID),
 	}
 	format, ok := model.NormalizeSubscriptionFormat(subscriptionFormat)
@@ -287,88 +258,4 @@ func (a *App) buildSubscriptionTemplateData(subscriptionID string, subscriptionF
 	out.RealKeysCount = realCount
 
 	return out, nil
-}
-
-func renderInfoTemplate(template string, data subscriptionTemplateData) string {
-	text := strings.TrimSpace(template)
-	if text == "" {
-		return ""
-	}
-	replacements := map[string]string{
-		"{user_name}":       data.UserName,
-		"{telegram}":        data.Telegram,
-		"{subscription_id}": data.SubscriptionID,
-		"{expires_date}":    data.ExpiryDate,
-		"{expires_at}":      data.ExpiryDateTime,
-		"{real_keys_count}": fmt.Sprintf("%d", data.RealKeysCount),
-	}
-	for key, value := range replacements {
-		text = strings.ReplaceAll(text, key, strings.TrimSpace(value))
-	}
-	return strings.TrimSpace(text)
-}
-
-func buildInformationalVLESSURL(displayText string) string {
-	displayText = strings.TrimSpace(displayText)
-	if displayText == "" {
-		displayText = "Info"
-	}
-	return "vless://00000000-0000-0000-0000-000000000000@info.invalid:443?type=tcp&security=none#" + url.QueryEscape(displayText)
-}
-
-func buildInformationalXrayJSON(displayText string) string {
-	displayText = strings.TrimSpace(displayText)
-	if displayText == "" {
-		displayText = "Info"
-	}
-
-	description := displayText
-	if newline := strings.Index(description, "\n"); newline >= 0 {
-		description = strings.TrimSpace(description[:newline])
-	}
-	if description == "" {
-		description = "Informational key"
-	}
-
-	payload := map[string]any{
-		"remarks": displayText,
-		"meta": map[string]any{
-			"serverDescription": description,
-			"informational":     true,
-		},
-		"log": map[string]any{
-			"loglevel": "warning",
-		},
-		"inbounds": []any{},
-		"outbounds": []any{
-			map[string]any{
-				"tag":      "proxy",
-				"protocol": "vless",
-				"settings": map[string]any{
-					"vnext": []any{
-						map[string]any{
-							"address": "info.invalid",
-							"port":    443,
-							"users": []any{
-								map[string]any{
-									"id":         "00000000-0000-0000-0000-000000000000",
-									"encryption": "none",
-								},
-							},
-						},
-					},
-				},
-				"streamSettings": map[string]any{
-					"network":  "tcp",
-					"security": "none",
-				},
-			},
-		},
-	}
-
-	encoded, err := json.Marshal(payload)
-	if err != nil {
-		return ""
-	}
-	return string(encoded)
 }

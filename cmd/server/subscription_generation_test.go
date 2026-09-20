@@ -6,6 +6,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"github.com/romanpodg/SubShare-Go/internal/delivery"
 	"log"
 	"net/http"
 	"net/http/httptest"
@@ -33,7 +34,7 @@ const (
 func TestShareURIWithDisplayNameCoversAllSupportedProtocols(t *testing.T) {
 	items := []string{externalTestVLESS, externalTestVMess, externalTestTrojan, deliverySSClean, deliveryHY2, deliveryTUICSingBox}
 	for _, raw := range items {
-		link, err := shareURIWithDisplayName(raw, "Subscriber name")
+		link, err := delivery.ShareURIWithDisplayName(raw, "Subscriber name")
 		if err != nil {
 			t.Fatalf("rename %s: %v", profileconfig.SupportedConfigScheme(raw), err)
 		}
@@ -159,7 +160,7 @@ func decodeObject(t *testing.T, raw string) map[string]any {
 	return result
 }
 
-func exclusionCodes(exclusions []generationExclusion) map[string]bool {
+func exclusionCodes(exclusions []delivery.Exclusion) map[string]bool {
 	result := make(map[string]bool)
 	for _, exclusion := range exclusions {
 		result[exclusion.Reason] = true
@@ -168,7 +169,7 @@ func exclusionCodes(exclusions []generationExclusion) map[string]bool {
 }
 
 func TestSubscriptionCapabilityMatrixIsCompleteAndVersionPinned(t *testing.T) {
-	matrix := subscriptionCapabilityMatrix()
+	matrix := delivery.CapabilityMatrix()
 	if len(matrix) != 7 {
 		t.Fatalf("capability profiles = %d, want 7", len(matrix))
 	}
@@ -191,15 +192,15 @@ func TestSubscriptionCapabilityMatrixIsCompleteAndVersionPinned(t *testing.T) {
 				}
 				switch output {
 				case "mihomo":
-					if claim.TargetVersion != targetMihomoVersion || claim.MinimumVersion != targetMihomoVersion {
+					if claim.TargetVersion != delivery.TargetMihomoVersion || claim.MinimumVersion != delivery.TargetMihomoVersion {
 						t.Fatal("Mihomo capability is not pinned to the validated exact release")
 					}
 				case "sing-box":
-					if claim.TargetVersion != targetSingBoxVersion || claim.MinimumVersion != targetSingBoxVersion {
+					if claim.TargetVersion != delivery.TargetSingBoxVersion || claim.MinimumVersion != delivery.TargetSingBoxVersion {
 						t.Fatal("sing-box capability is not pinned to the validated exact release")
 					}
 				case "xray-json":
-					if claim.TargetVersion != targetXrayCurrentVersion || claim.MinimumVersion != targetXrayMinimumVersion {
+					if claim.TargetVersion != delivery.TargetXrayCurrentVersion || claim.MinimumVersion != delivery.TargetXrayMinimumVersion {
 						t.Fatal("Xray capability does not expose its validated minimum/current policy")
 					}
 				}
@@ -209,7 +210,7 @@ func TestSubscriptionCapabilityMatrixIsCompleteAndVersionPinned(t *testing.T) {
 	if len(want) != 0 {
 		t.Fatalf("missing capability profiles: %#v", want)
 	}
-	find := func(protocol, generation, output string) outputCapability {
+	find := func(protocol, generation, output string) delivery.OutputCapability {
 		t.Helper()
 		for _, capability := range matrix {
 			if capability.Protocol == protocol && capability.Generation == generation {
@@ -221,15 +222,15 @@ func TestSubscriptionCapabilityMatrixIsCompleteAndVersionPinned(t *testing.T) {
 			}
 		}
 		t.Fatalf("missing capability %s/%s", protocol, generation)
-		return outputCapability{}
+		return delivery.OutputCapability{}
 	}
-	if got := find("hysteria2", "2", "xray-json"); got.Status != capabilityConditional || got.TargetVersion != targetXrayCurrentVersion || got.MinimumVersion != targetXrayMinimumVersion || got.SyntaxValidation != "official_binary" || got.RuntimeInteroperability != "not_tested" {
+	if got := find("hysteria2", "2", "xray-json"); got.Status != delivery.CapabilityConditional || got.TargetVersion != delivery.TargetXrayCurrentVersion || got.MinimumVersion != delivery.TargetXrayMinimumVersion || got.SyntaxValidation != "official_binary" || got.RuntimeInteroperability != "not_tested" {
 		t.Fatalf("Hysteria 2 Xray capability = %#v", got)
 	}
-	if got := find("tuic", "5", "xray-json"); got.Status != capabilityUnsupported || got.ReasonCode != generationReasonUnsupportedProtocol {
+	if got := find("tuic", "5", "xray-json"); got.Status != delivery.CapabilityUnsupported || got.ReasonCode != delivery.ReasonUnsupportedProtocol {
 		t.Fatalf("TUIC v5 Xray capability = %#v", got)
 	}
-	if got := find("tuic", "4", "plain"); got.Status != capabilityCompatibility || got.ReasonCode != "raw_delivery_only" {
+	if got := find("tuic", "4", "plain"); got.Status != delivery.CapabilityCompatibility || got.ReasonCode != "raw_delivery_only" {
 		t.Fatalf("TUIC v4 plain capability = %#v", got)
 	}
 	encoded, err := json.Marshal(matrix)
@@ -237,7 +238,7 @@ func TestSubscriptionCapabilityMatrixIsCompleteAndVersionPinned(t *testing.T) {
 		t.Fatal(err)
 	}
 	text := string(encoded)
-	for _, version := range []string{targetMihomoVersion, targetSingBoxVersion, targetXrayMinimumVersion, targetXrayCurrentVersion} {
+	for _, version := range []string{delivery.TargetMihomoVersion, delivery.TargetSingBoxVersion, delivery.TargetXrayMinimumVersion, delivery.TargetXrayCurrentVersion} {
 		if !strings.Contains(text, version) {
 			t.Errorf("target version %q is absent", version)
 		}
@@ -253,14 +254,14 @@ func TestCapabilityAPIUsesBackendMatrixAndRejectsClientOverride(t *testing.T) {
 	app := newIntegrationApp(t)
 	recorder := httptest.NewRecorder()
 	app.apiV1GetSubscriptionDeliverySettings(recorder, httptest.NewRequest(http.MethodGet, "/api/v1/subscription-delivery-settings", nil))
-	if recorder.Code != http.StatusOK || !strings.Contains(recorder.Body.String(), targetMihomoVersion) || !strings.Contains(recorder.Body.String(), generationReasonUnsafeControl) {
+	if recorder.Code != http.StatusOK || !strings.Contains(recorder.Body.String(), delivery.TargetMihomoVersion) || !strings.Contains(recorder.Body.String(), delivery.ReasonUnsafeControl) {
 		t.Fatalf("capability response status=%d or required metadata absent", recorder.Code)
 	}
 	var settings subscriptionDeliverySettingsResponse
 	if err := json.Unmarshal(recorder.Body.Bytes(), &settings); err != nil {
 		t.Fatalf("decode capability response: %v", err)
 	}
-	if !reflect.DeepEqual(settings.GenerationExclusionReasonCodes, generationExclusionReasonCodes()) {
+	if !reflect.DeepEqual(settings.GenerationExclusionReasonCodes, delivery.ExclusionReasonCodes()) {
 		t.Fatalf("exclusion code catalog = %#v", settings.GenerationExclusionReasonCodes)
 	}
 
@@ -517,7 +518,7 @@ func TestDeliveryDedupIsSemanticCurrentKeyAndPersistenceReadOnly(t *testing.T) {
 	before := loadState()
 
 	generated, _, _, _, err := app.generateSelectedSubscription("subscription-token", "plain")
-	expectedWinner, expectedErr := shareURIWithDisplayName(firstRaw, "first")
+	expectedWinner, expectedErr := delivery.ShareURIWithDisplayName(firstRaw, "first")
 	if err != nil || expectedErr != nil || generated.Body != expectedWinner {
 		t.Fatalf("semantic winner mismatch (err=%v)", err)
 	}
@@ -572,7 +573,7 @@ func TestUnsafeAndMalformedStoredRowsAreSafelyExcluded(t *testing.T) {
 		t.Fatalf("safe partial output mismatch exclusions=%d err=%v", len(generated.Exclusions), err)
 	}
 	codes := exclusionCodes(generated.Exclusions)
-	if !codes[generationReasonUnsafeControl] || !codes[generationReasonInvalidStored] {
+	if !codes[delivery.ReasonUnsafeControl] || !codes[delivery.ReasonInvalidStored] {
 		t.Fatalf("unexpected exclusion codes: %#v", codes)
 	}
 	formatted := strings.Join([]string{logs.String(), generated.Exclusions[0].Error(), generated.Exclusions[1].Error()}, " ")
@@ -589,7 +590,7 @@ func TestUnsafeAndMalformedStoredRowsAreSafelyExcluded(t *testing.T) {
 	if recorder.Code != http.StatusOK || recorder.Body.String() != deliverySSClean {
 		t.Fatalf("safe partial handler status=%d or body mismatch", recorder.Code)
 	}
-	if recorder.Header().Get("SubShare-Excluded-Count") != "2" || !strings.Contains(recorder.Header().Get("SubShare-Exclusion-Codes"), generationReasonUnsafeControl) {
+	if recorder.Header().Get("SubShare-Excluded-Count") != "2" || !strings.Contains(recorder.Header().Get("SubShare-Exclusion-Codes"), delivery.ReasonUnsafeControl) {
 		t.Fatalf("safe exclusion headers: %#v", recorder.Header())
 	}
 	var auditMetadata string
@@ -614,7 +615,7 @@ func TestSubscriptionControlValidationRejectsCRLFNULAndDEL(t *testing.T) {
 		{"del", "ss://safe\x7fsecond"},
 	} {
 		t.Run(test.name, func(t *testing.T) {
-			if !hasUnsafeSubscriptionControl(test.raw) {
+			if !delivery.HasUnsafeControl(test.raw) {
 				t.Fatal("unsafe control was accepted")
 			}
 		})
@@ -630,10 +631,10 @@ func TestStructuredDeliveryWithOnlyExcludedProfilesReturnsAllExcludedFailure(t *
 	if err != nil {
 		t.Fatal(err)
 	}
-	if denyCode != http.StatusUnprocessableEntity || denyReason != generationReasonAllExcluded || generated.Body != "" || generated.GeneratedCount != 0 {
+	if denyCode != http.StatusUnprocessableEntity || denyReason != delivery.ReasonAllExcluded || generated.Body != "" || generated.GeneratedCount != 0 {
 		t.Fatalf("empty structured result code=%d reason=%q or non-empty body", denyCode, denyReason)
 	}
-	if len(generated.Exclusions) != 1 || generated.Exclusions[0].Reason != generationReasonCompatibility {
+	if len(generated.Exclusions) != 1 || generated.Exclusions[0].Reason != delivery.ReasonCompatibility {
 		t.Fatalf("empty structured exclusions = %#v", generated.Exclusions)
 	}
 }
@@ -651,31 +652,31 @@ func TestStructuredDeliveryAllExcludedHandlerPolicy(t *testing.T) {
 		{
 			name: "TUIC v5 requested as Xray", userAgent: "xray-core",
 			raw: validationTUICBasic, protocol: "tuic", compatibility: "full",
-			reason:    generationReasonUnsupportedProtocol,
+			reason:    delivery.ReasonUnsupportedProtocol,
 			forbidden: []string{"synthetic-password", "tuic-basic.example", "TUIC-basic"},
 		},
 		{
 			name: "TUIC v4 requested as Mihomo", userAgent: "mihomo",
 			raw: externalTestTUICV4, protocol: "tuic", compatibility: "read_only",
-			reason:    generationReasonCompatibility,
+			reason:    delivery.ReasonCompatibility,
 			forbidden: []string{"legacy-token-value", "legacy.example", "Legacy"},
 		},
 		{
 			name: "Shadowsocks plugin requested as Xray", userAgent: "xray-core",
 			raw: deliverySSPlugin, protocol: "shadowsocks", compatibility: "full",
-			reason:    generationReasonPlugin,
+			reason:    delivery.ReasonPlugin,
 			forbidden: []string{"shadow-password", "ss.example", "SS-plugin"},
 		},
 		{
 			name: "Hysteria insecure requested as Xray", userAgent: "xray-core",
 			raw: "hy2://synthetic-auth@unsafe-tls.example:443?insecure=1#Unsafe-TLS", protocol: "hysteria2", compatibility: "full",
-			reason:    generationReasonUnrepresentable,
+			reason:    delivery.ReasonUnrepresentable,
 			forbidden: []string{"synthetic-auth", "unsafe-tls.example", "Unsafe-TLS"},
 		},
 		{
 			name: "malformed stored profile", userAgent: "xray-core",
 			raw: "hysteria2://synthetic-auth@malformed.example:0#Malformed", protocol: "hysteria2", compatibility: "full",
-			reason:    generationReasonInvalidStored,
+			reason:    delivery.ReasonInvalidStored,
 			forbidden: []string{"synthetic-auth", "malformed.example", "Malformed"},
 		},
 	}
@@ -694,11 +695,11 @@ func TestStructuredDeliveryAllExcludedHandlerPolicy(t *testing.T) {
 			if recorder.Code != http.StatusUnprocessableEntity {
 				t.Fatalf("status=%d, want 422", recorder.Code)
 			}
-			var payload subscriptionGenerationFailure
+			var payload delivery.Failure
 			if err := json.Unmarshal(recorder.Body.Bytes(), &payload); err != nil {
 				t.Fatalf("decode safe all-excluded response: %v", err)
 			}
-			if payload.ErrorCode != generationReasonAllExcluded || payload.EligibleCount != 1 || payload.ExcludedCount != 1 || payload.ExclusionCounts[test.reason] != 1 {
+			if payload.ErrorCode != delivery.ReasonAllExcluded || payload.EligibleCount != 1 || payload.ExcludedCount != 1 || payload.ExclusionCounts[test.reason] != 1 {
 				t.Fatalf("unexpected safe all-excluded summary: code=%q eligible=%d excluded=%d", payload.ErrorCode, payload.EligibleCount, payload.ExcludedCount)
 			}
 			if recorder.Header().Get("SubShare-Excluded-Count") != "1" || recorder.Header().Get("SubShare-Exclusion-Codes") != test.reason || recorder.Header().Get("SubShare-Exclusion-Counts") != test.reason+"=1" {
@@ -726,10 +727,10 @@ func TestStructuredDeliveryMixedAndNoEligiblePolicies(t *testing.T) {
 		request.Header.Set("User-Agent", "xray-core")
 		recorder := httptest.NewRecorder()
 		app.handleSubscription(recorder, request)
-		if recorder.Code != http.StatusOK || recorder.Header().Get("SubShare-Excluded-Count") != "1" || recorder.Header().Get("SubShare-Exclusion-Codes") != generationReasonUnsupportedProtocol {
+		if recorder.Code != http.StatusOK || recorder.Header().Get("SubShare-Excluded-Count") != "1" || recorder.Header().Get("SubShare-Exclusion-Codes") != delivery.ReasonUnsupportedProtocol {
 			t.Fatalf("mixed response status=%d or exclusion summary mismatch", recorder.Code)
 		}
-		if err := validateGeneratedStructuredBody("xray-json", recorder.Body.String()); err != nil {
+		if err := delivery.ValidateStructuredBody("xray-json", recorder.Body.String()); err != nil {
 			t.Fatal("mixed response did not retain its supported Xray profile")
 		}
 	})
@@ -749,24 +750,24 @@ func TestStructuredDeliveryMixedAndNoEligiblePolicies(t *testing.T) {
 }
 
 func TestExclusionHeadersAreAggregatedDeterministicallyAndBounded(t *testing.T) {
-	exclusions := make([]generationExclusion, 0, 1500)
+	exclusions := make([]delivery.Exclusion, 0, 1500)
 	for index := 0; index < 1000; index++ {
-		exclusions = append(exclusions, generationExclusion{Reason: generationReasonUnsupportedProtocol})
+		exclusions = append(exclusions, delivery.Exclusion{Reason: delivery.ReasonUnsupportedProtocol})
 	}
 	for index := 0; index < 500; index++ {
-		exclusions = append(exclusions, generationExclusion{Reason: generationReasonCompatibility})
+		exclusions = append(exclusions, delivery.Exclusion{Reason: delivery.ReasonCompatibility})
 	}
 	first := http.Header{}
 	second := http.Header{}
-	applyGenerationExclusionHeaders(first, exclusions)
-	applyGenerationExclusionHeaders(second, append([]generationExclusion(nil), exclusions...))
+	delivery.ApplyExclusionHeaders(first, exclusions)
+	delivery.ApplyExclusionHeaders(second, append([]delivery.Exclusion(nil), exclusions...))
 	if !reflect.DeepEqual(first, second) {
 		t.Fatal("exclusion headers were not deterministic")
 	}
-	if first.Get("SubShare-Excluded-Count") != "1500" || first.Get("SubShare-Exclusion-Codes") != generationReasonCompatibility+","+generationReasonUnsupportedProtocol {
+	if first.Get("SubShare-Excluded-Count") != "1500" || first.Get("SubShare-Exclusion-Codes") != delivery.ReasonCompatibility+","+delivery.ReasonUnsupportedProtocol {
 		t.Fatal("exclusion headers were not aggregated in stable order")
 	}
-	if first.Get("SubShare-Exclusion-Counts") != generationReasonCompatibility+"=500,"+generationReasonUnsupportedProtocol+"=1000" {
+	if first.Get("SubShare-Exclusion-Counts") != delivery.ReasonCompatibility+"=500,"+delivery.ReasonUnsupportedProtocol+"=1000" {
 		t.Fatal("exclusion count summary mismatch")
 	}
 	if len(first.Get("SubShare-Exclusion-Counts")) > 512 {
@@ -775,7 +776,7 @@ func TestExclusionHeadersAreAggregatedDeterministicallyAndBounded(t *testing.T) 
 }
 
 func TestMihomoMappingsAndSafeExclusions(t *testing.T) {
-	entries := []deliveryEntry{
+	entries := []delivery.Entry{
 		{ID: 1, Raw: deliverySSPlugin, Kind: model.KeyKindReal},
 		{ID: 2, Raw: deliveryHY2, Kind: model.KeyKindReal},
 		{ID: 3, Raw: deliveryTUICMihomo, Kind: model.KeyKindReal},
@@ -786,11 +787,11 @@ func TestMihomoMappingsAndSafeExclusions(t *testing.T) {
 		{ID: 8, Raw: "tuic://33333333-3333-4333-8333-333333333333:tuic-password@tuic.example:443?server_name=tls.example&congestion_control=bbr&udp_relay_mode=quic&zero_rtt_handshake=true&heartbeat=10s#Alias", Kind: model.KeyKindReal},
 		{ID: 9, Raw: deliverySSXrayAlias, Kind: model.KeyKindReal},
 	}
-	first, err := renderMihomoEntries(entries)
+	first, err := delivery.RenderMihomo(entries)
 	if err != nil {
 		t.Fatal(err)
 	}
-	second, err := renderMihomoEntries(entries)
+	second, err := delivery.RenderMihomo(entries)
 	if err != nil || first.Body != second.Body {
 		t.Fatalf("Mihomo output is not deterministic: %v", err)
 	}
@@ -824,7 +825,7 @@ func TestMihomoMappingsAndSafeExclusions(t *testing.T) {
 		t.Fatal("Mihomo TUIC aliases were not normalized")
 	}
 	codes := exclusionCodes(first.Exclusions)
-	if !codes[generationReasonClientVersion] || !codes[generationReasonCompatibility] || !codes[generationReasonUnrepresentable] || !codes[generationReasonAmbiguous] {
+	if !codes[delivery.ReasonClientVersion] || !codes[delivery.ReasonCompatibility] || !codes[delivery.ReasonUnrepresentable] || !codes[delivery.ReasonAmbiguous] {
 		t.Fatalf("Mihomo exclusions: %#v", first.Exclusions)
 	}
 	for _, exclusion := range first.Exclusions {
@@ -835,7 +836,7 @@ func TestMihomoMappingsAndSafeExclusions(t *testing.T) {
 }
 
 func TestSingBoxMappingsProvenanceAndExclusions(t *testing.T) {
-	entries := []deliveryEntry{
+	entries := []delivery.Entry{
 		{ID: 1, Raw: deliverySSPlugin, Kind: model.KeyKindReal},
 		{ID: 2, Raw: "hysteria2://auth@[2001:db8::2]:443,5000-5002?sni=hy.example&insecure=1&obfs=salamander&obfs-password=secret#HY", Kind: model.KeyKindReal},
 		{ID: 3, Raw: deliveryTUICSingBox, Kind: model.KeyKindReal},
@@ -844,7 +845,7 @@ func TestSingBoxMappingsProvenanceAndExclusions(t *testing.T) {
 		{ID: 6, Raw: externalTestTUICV4, Kind: model.KeyKindReal},
 		{ID: 7, Raw: "hysteria2://auth@hy.example:443?obfs=gecko&obfs-password=gecko-secret", Kind: model.KeyKindReal},
 	}
-	generated, err := renderSingBoxEntries(entries)
+	generated, err := delivery.RenderSingBox(entries)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -869,13 +870,13 @@ func TestSingBoxMappingsProvenanceAndExclusions(t *testing.T) {
 		t.Fatal("Mihomo-only field leaked into sing-box")
 	}
 	codes := exclusionCodes(generated.Exclusions)
-	if !codes[generationReasonUnrepresentable] || !codes[generationReasonCompatibility] || !codes[generationReasonClientVersion] {
+	if !codes[delivery.ReasonUnrepresentable] || !codes[delivery.ReasonCompatibility] || !codes[delivery.ReasonClientVersion] {
 		t.Fatalf("sing-box exclusions: %#v", generated.Exclusions)
 	}
 }
 
 func TestXrayPartialOutputPreservesLegacyAndSupportsPluginFreeShadowsocks(t *testing.T) {
-	entries := []deliveryEntry{
+	entries := []delivery.Entry{
 		{ID: 1, Raw: externalTestVLESS, Kind: model.KeyKindReal},
 		{ID: 2, Raw: externalTestVMess, Kind: model.KeyKindReal},
 		{ID: 3, Raw: externalTestTrojan, Kind: model.KeyKindReal},
@@ -887,7 +888,7 @@ func TestXrayPartialOutputPreservesLegacyAndSupportsPluginFreeShadowsocks(t *tes
 		{ID: 9, Raw: deliverySSXrayAlias, Kind: model.KeyKindReal},
 		{ID: 10, Raw: "hysteria2://auth@hy.example:443?obfs=gecko&obfs-password=gecko-secret", Kind: model.KeyKindReal},
 	}
-	generated, err := renderXrayEntries(entries)
+	generated, err := delivery.RenderXray(entries)
 	if err != nil || !json.Valid([]byte(generated.Body)) {
 		t.Fatalf("Xray output invalid: err=%v", err)
 	}
@@ -923,19 +924,19 @@ func TestXrayPartialOutputPreservesLegacyAndSupportsPluginFreeShadowsocks(t *tes
 		t.Fatal("Xray mapping invented a URI-absent UDP hop interval")
 	}
 	codes := exclusionCodes(generated.Exclusions)
-	if !codes[generationReasonPlugin] || !codes[generationReasonUnsupportedProtocol] || !codes[generationReasonCompatibility] || !codes[generationReasonUnrepresentable] {
+	if !codes[delivery.ReasonPlugin] || !codes[delivery.ReasonUnsupportedProtocol] || !codes[delivery.ReasonCompatibility] || !codes[delivery.ReasonUnrepresentable] {
 		t.Fatalf("Xray exclusions: %#v", generated.Exclusions)
 	}
 }
 
 func TestXrayRejectsRemovedInsecureTLSField(t *testing.T) {
-	generated, err := renderXrayEntries([]deliveryEntry{{
+	generated, err := delivery.RenderXray([]delivery.Entry{{
 		ID: 1, Raw: "hy2://synthetic-auth@xray-insecure.example:443?insecure=1", Kind: model.KeyKindReal,
 	}})
 	if err != nil {
 		t.Fatalf("Xray insecure exclusion failed: %v", err)
 	}
-	if generated.GeneratedCount != 0 || generated.Body != "[]" || len(generated.Exclusions) != 1 || generated.Exclusions[0].Reason != generationReasonUnrepresentable {
+	if generated.GeneratedCount != 0 || generated.Body != "[]" || len(generated.Exclusions) != 1 || generated.Exclusions[0].Reason != delivery.ReasonUnrepresentable {
 		t.Fatal("removed Xray allowInsecure field was not safely excluded")
 	}
 	if strings.Contains(generated.Exclusions[0].Error(), "synthetic-auth") {
@@ -944,14 +945,14 @@ func TestXrayRejectsRemovedInsecureTLSField(t *testing.T) {
 }
 
 func TestStructuredNamesAreSafeUniqueAndSerializationValidationRejectsInjection(t *testing.T) {
-	names := &uniqueNames{}
-	if first, second := names.next("node\nsecret", ""), names.next("node\nsecret", ""); first != "nodesecret" || second != "nodesecret (2)" {
+	names := &delivery.UniqueNames{}
+	if first, second := names.Next("node\nsecret", ""), names.Next("node\nsecret", ""); first != "nodesecret" || second != "nodesecret (2)" {
 		t.Fatalf("safe names = %q, %q", first, second)
 	}
-	if err := validateGeneratedStructuredBody("mihomo", "proxies:\n  - name: ["); err == nil {
+	if err := delivery.ValidateStructuredBody("mihomo", "proxies:\n  - name: ["); err == nil {
 		t.Fatal("invalid Mihomo YAML was accepted")
 	}
-	if err := validateGeneratedStructuredBody("sing-box", `{"outbounds":[`); err == nil {
+	if err := delivery.ValidateStructuredBody("sing-box", `{"outbounds":[`); err == nil {
 		t.Fatal("invalid sing-box JSON was accepted")
 	}
 }
@@ -976,7 +977,7 @@ func TestFinalStructuredTemplateValidationRejectsUnsafeTransforms(t *testing.T) 
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			if err := validateGeneratedStructuredBody(test.format, test.body); err == nil || err.Error() != generationReasonSerialization {
+			if err := delivery.ValidateStructuredBody(test.format, test.body); err == nil || err.Error() != delivery.ReasonSerialization {
 				t.Fatal("unsafe or structurally invalid templated output was accepted")
 			}
 		})
@@ -989,7 +990,7 @@ func TestFinalStructuredTemplateValidationRejectsUnsafeTransforms(t *testing.T) 
 	}
 	for format, body := range valid {
 		final := applyTemplateContent("{{subscription}}", body, "ignored")
-		if err := validateGeneratedStructuredBody(format, final); err != nil {
+		if err := delivery.ValidateStructuredBody(format, final); err != nil {
 			t.Fatalf("valid final %s template was rejected", format)
 		}
 	}

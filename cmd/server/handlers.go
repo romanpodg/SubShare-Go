@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/romanpodg/SubShare-Go/internal/delivery"
 	"github.com/romanpodg/SubShare-Go/internal/storage"
 	"io"
 	"log"
@@ -1164,7 +1165,7 @@ func (a *App) handleSubscription(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	delivery, denyCode, denyStatus, denyReason, err := a.prepareSubscriptionDelivery(r, subscriptionID, true)
+	prepared, denyCode, denyStatus, denyReason, err := a.prepareSubscriptionDelivery(r, subscriptionID, true)
 	if err != nil {
 		log.Printf("prepare subscription delivery: %v", err)
 		http.Error(w, "failed to load subscription", http.StatusInternalServerError)
@@ -1175,7 +1176,7 @@ func (a *App) handleSubscription(w http.ResponseWriter, r *http.Request) {
 		a.incrementSubscriptionMetric(denyStatus, "denied")
 		return
 	}
-	rule := delivery.Rule
+	rule := prepared.Rule
 	if (rule != nil && rule.ResponseType == "browser") || (rule == nil && isBrowserSubscriptionRequest(r)) {
 		a.renderSubscriptionBrowserPage(w, r, subscriptionID)
 		a.incrementSubscriptionMetric("browser", "success")
@@ -1191,10 +1192,10 @@ func (a *App) handleSubscription(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "failed to load subscription", http.StatusInternalServerError)
 		return
 	}
-	applyGenerationExclusionHeaders(w.Header(), generated.Exclusions)
+	delivery.ApplyExclusionHeaders(w.Header(), generated.Exclusions)
 	if denyCode != 0 {
-		if denyCode == http.StatusUnprocessableEntity && denyReason == generationReasonAllExcluded {
-			writeJSON(w, denyCode, generationFailurePayload(generated))
+		if denyCode == http.StatusUnprocessableEntity && denyReason == delivery.ReasonAllExcluded {
+			writeJSON(w, denyCode, delivery.FailurePayload(generated))
 			a.incrementSubscriptionMetric(generated.OutputFormat, "all_excluded")
 			return
 		}
@@ -1217,14 +1218,14 @@ func (a *App) handleSubscription(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "failed to load subscription", http.StatusInternalServerError)
 		return
 	}
-	if err := validateGeneratedStructuredBody(responseType, body); err != nil {
+	if err := delivery.ValidateStructuredBody(responseType, body); err != nil {
 		http.Error(w, "failed to render subscription format", http.StatusUnprocessableEntity)
 		a.incrementSubscriptionMetric(responseType, "render_failed")
 		return
 	}
 	switch responseType {
 	case "base64":
-		body = encodeBase64Subscription(body)
+		body = delivery.EncodeBase64(body)
 		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 	case "plain":
 		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
@@ -1385,7 +1386,7 @@ func (a *App) handleSubscriptionSubBody(w http.ResponseWriter, r *http.Request) 
 		http.Error(w, "failed to load subscription", http.StatusInternalServerError)
 		return
 	}
-	applyGenerationExclusionHeaders(w.Header(), generated.Exclusions)
+	delivery.ApplyExclusionHeaders(w.Header(), generated.Exclusions)
 	if denyCode != 0 {
 		status = remarkStatusFromReason(denyReason)
 		writeSubscriptionDenial(w, denyCode, status, a.subscriptionRemark(denyReason))
@@ -1400,7 +1401,7 @@ func (a *App) handleSubscriptionSubBody(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
-	_, _ = w.Write([]byte(encodeBase64Subscription(generated.Body)))
+	_, _ = w.Write([]byte(delivery.EncodeBase64(generated.Body)))
 	a.incrementSubscriptionMetric("subbody-base64", "success")
 }
 
@@ -1427,7 +1428,7 @@ func (a *App) handleSubscriptionSubBodyPlain(w http.ResponseWriter, r *http.Requ
 		http.Error(w, "failed to load subscription", http.StatusInternalServerError)
 		return
 	}
-	applyGenerationExclusionHeaders(w.Header(), generated.Exclusions)
+	delivery.ApplyExclusionHeaders(w.Header(), generated.Exclusions)
 	if denyCode != 0 {
 		status = remarkStatusFromReason(denyReason)
 		writeSubscriptionDenial(w, denyCode, status, a.subscriptionRemark(denyReason))
@@ -1448,22 +1449,6 @@ func (a *App) handleSubscriptionSubBodyPlain(w http.ResponseWriter, r *http.Requ
 	}
 	_, _ = w.Write([]byte(generated.Body))
 	a.incrementSubscriptionMetric("subbody-plain", "success")
-}
-
-func (a *App) buildSubscriptionBodyPlain(
-	r *http.Request,
-	subscriptionID string,
-) (string, model.SubscriptionSettings, int, string, error) {
-	return a.buildSubscriptionBodyPlainForFormat(r, subscriptionID, "")
-}
-
-func (a *App) buildSubscriptionBodyPlainForFormat(
-	r *http.Request,
-	subscriptionID string,
-	responseType string,
-) (string, model.SubscriptionSettings, int, string, error) {
-	generated, settings, denyCode, denyReason, err := a.generateSelectedSubscription(subscriptionID, responseType)
-	return generated.Body, settings, denyCode, denyReason, err
 }
 
 func isBrowserSubscriptionRequest(r *http.Request) bool {
@@ -1560,7 +1545,7 @@ func (a *App) apiGetSubscriptionInfo(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
 		return
 	}
-	delivery, denyCode, denyStatus, denyReason, err := a.prepareSubscriptionDelivery(r, subscriptionID, true)
+	prepared, denyCode, denyStatus, denyReason, err := a.prepareSubscriptionDelivery(r, subscriptionID, true)
 	if err != nil {
 		http.Error(w, "failed to load subscription info", http.StatusInternalServerError)
 		return
@@ -1571,7 +1556,7 @@ func (a *App) apiGetSubscriptionInfo(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.Header().Set("Subscription-Status", "active")
-	if providerID := strings.TrimSpace(delivery.Settings.ProviderID); providerID != "" {
+	if providerID := strings.TrimSpace(prepared.Settings.ProviderID); providerID != "" {
 		w.Header().Set("providerid", providerID)
 	}
 

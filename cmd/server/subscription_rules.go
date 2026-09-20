@@ -6,15 +6,12 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"github.com/romanpodg/SubShare-Go/internal/profileconfig"
+	"github.com/romanpodg/SubShare-Go/internal/delivery"
 	"net/http"
-	"net/url"
 	"regexp"
 	"strconv"
 	"strings"
 	"time"
-
-	"github.com/romanpodg/SubShare-Go/internal/model"
 )
 
 type subscriptionTemplate struct {
@@ -386,7 +383,7 @@ func renderTemplatePreview(input templateInput) (string, string, error) {
 	if input.Format == "base64" {
 		body = base64.StdEncoding.EncodeToString([]byte(body))
 	}
-	if err := validateGeneratedStructuredBody(input.Format, body); err != nil {
+	if err := delivery.ValidateStructuredBody(input.Format, body); err != nil {
 		return "", "", fmt.Errorf("rendered preview is not valid %s", input.Format)
 	}
 	return body, contentType, nil
@@ -637,118 +634,8 @@ func applyTemplateContent(content, subscriptionBody, title string) string {
 	return result
 }
 
-func parseVLESSForClient(raw string, index int) (map[string]any, url.Values, bool) {
-	parsed, err := url.Parse(strings.TrimSpace(raw))
-	if err != nil || !strings.EqualFold(parsed.Scheme, "vless") || parsed.User == nil || parsed.Hostname() == "" {
-		return nil, nil, false
-	}
-	port, err := strconv.Atoi(parsed.Port())
-	if err != nil || port < 1 || port > 65535 {
-		port = 443
-	}
-	name := strings.TrimSpace(parsed.Fragment)
-	if name == "" {
-		name = fmt.Sprintf("%s-%d", parsed.Hostname(), index+1)
-	}
-	return map[string]any{
-		"name":   name,
-		"server": parsed.Hostname(),
-		"port":   port,
-		"uuid":   parsed.User.Username(),
-	}, parsed.Query(), true
-}
-
-func splitSubscriptionEntries(raw string) []string {
-	lines := strings.Split(strings.ReplaceAll(raw, "\r\n", "\n"), "\n")
-	entries := make([]string, 0, len(lines))
-	var jsonBuffer strings.Builder
-	for _, line := range lines {
-		trimmed := strings.TrimSpace(line)
-		if trimmed == "" {
-			continue
-		}
-		if jsonBuffer.Len() > 0 || strings.HasPrefix(trimmed, "{") {
-			if jsonBuffer.Len() > 0 {
-				jsonBuffer.WriteByte('\n')
-			}
-			jsonBuffer.WriteString(trimmed)
-			if json.Valid([]byte(jsonBuffer.String())) {
-				entries = append(entries, jsonBuffer.String())
-				jsonBuffer.Reset()
-			}
-			continue
-		}
-		entries = append(entries, trimmed)
-	}
-	if jsonBuffer.Len() > 0 {
-		entries = append(entries, jsonBuffer.String())
-	}
-	return entries
-}
-
-func subscriptionDrafts(raw string) ([]profileconfig.LinkConfigurationDraft, error) {
-	entries := splitSubscriptionEntries(raw)
-	drafts := make([]profileconfig.LinkConfigurationDraft, 0, len(entries))
-	for _, entry := range entries {
-		var parsed []profileconfig.LinkConfigurationDraft
-		var err error
-		if profileconfig.SupportedConfigScheme(entry) == model.SubscriptionFormatXrayJSON {
-			parsed, err = profileconfig.ParseXrayJSONDrafts(entry)
-		} else {
-			var draft profileconfig.LinkConfigurationDraft
-			draft, err = profileconfig.ParseLinkConfiguration(entry)
-			if err == nil {
-				parsed = []profileconfig.LinkConfigurationDraft{draft}
-			}
-		}
-		if err != nil {
-			return nil, fmt.Errorf("parse subscription entry: %w", err)
-		}
-		drafts = append(drafts, parsed...)
-	}
-	if len(drafts) == 0 {
-		return nil, fmt.Errorf("subscription contains no supported configurations")
-	}
-	return drafts, nil
-}
-
-func draftDisplayName(draft profileconfig.LinkConfigurationDraft, index int) string {
-	if name := strings.TrimSpace(draft.Remark); name != "" {
-		return name
-	}
-	if name := strings.TrimSpace(draft.ServerDescription); name != "" {
-		return name
-	}
-	return fmt.Sprintf("%s-%d", draft.Server, index+1)
-}
-
-func applyMihomoTransport(proxy map[string]any, draft profileconfig.LinkConfigurationDraft) {
-	network := strings.TrimSpace(draft.Network)
-	if network == "" {
-		network = "tcp"
-	}
-	proxy["network"] = network
-	switch network {
-	case "ws":
-		options := map[string]any{}
-		if draft.Path != "" {
-			options["path"] = draft.Path
-		}
-		if draft.Host != "" {
-			options["headers"] = map[string]string{"Host": draft.Host}
-		}
-		if len(options) > 0 {
-			proxy["ws-opts"] = options
-		}
-	case "grpc":
-		if draft.GRPCServiceName != "" {
-			proxy["grpc-opts"] = map[string]string{"grpc-service-name": draft.GRPCServiceName}
-		}
-	}
-}
-
 func renderMihomoSubscription(raw string) (string, error) {
-	generated, err := renderMihomoEntries(syntheticDeliveryEntries(raw))
+	generated, err := delivery.RenderMihomo(delivery.SyntheticEntries(raw))
 	if err != nil {
 		return "", err
 	}
@@ -756,7 +643,7 @@ func renderMihomoSubscription(raw string) (string, error) {
 }
 
 func renderSingBoxSubscription(raw string) (string, error) {
-	generated, err := renderSingBoxEntries(syntheticDeliveryEntries(raw))
+	generated, err := delivery.RenderSingBox(delivery.SyntheticEntries(raw))
 	if err != nil {
 		return "", err
 	}

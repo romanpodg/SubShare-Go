@@ -3,6 +3,7 @@ package main
 import (
 	"encoding/json"
 	"fmt"
+	"github.com/romanpodg/SubShare-Go/internal/delivery"
 	"github.com/romanpodg/SubShare-Go/internal/storage"
 	"net/http"
 	"strings"
@@ -25,8 +26,8 @@ type subscriptionDeliverySettingsResponse struct {
 	subscriptionDeliverySettings
 	// Capabilities and GenerationExclusionReasonCodes are runtime response
 	// metadata. They are absent from the update DTO and cannot be persisted.
-	Capabilities                   []protocolCapability `json:"capabilities"`
-	GenerationExclusionReasonCodes []string             `json:"generation_exclusion_reason_codes,omitempty"`
+	Capabilities                   []delivery.ProtocolCapability `json:"capabilities"`
+	GenerationExclusionReasonCodes []string                      `json:"generation_exclusion_reason_codes,omitempty"`
 }
 
 var deliveryRemarkStatuses = []string{"expired", "paused", "blocked", "limited", "empty"}
@@ -105,8 +106,8 @@ func (a *App) apiV1GetSubscriptionDeliverySettings(w http.ResponseWriter, r *htt
 	}
 	writeJSON(w, http.StatusOK, subscriptionDeliverySettingsResponse{
 		subscriptionDeliverySettings:   settings,
-		Capabilities:                   subscriptionCapabilityMatrix(),
-		GenerationExclusionReasonCodes: generationExclusionReasonCodes(),
+		Capabilities:                   delivery.CapabilityMatrix(),
+		GenerationExclusionReasonCodes: delivery.ExclusionReasonCodes(),
 	})
 }
 
