@@ -76,9 +76,6 @@ func TestStorage_LegacyKeyCRUD(t *testing.T) {
 	if len(keys) != 1 || keys[0].ID != keyID || keys[0].URL != vlessURI {
 		t.Fatalf("ListLegacy returned unexpected key: %#v", keys)
 	}
-	if keys[0].URLShort == "" {
-		t.Fatalf("expected populated URLShort")
-	}
 
 	// 3. Update Legacy Key
 	updatedURI := "vless://22222222-2222-2222-2222-222222222222@example.com:8443?type=tcp#UpdatedStorage"

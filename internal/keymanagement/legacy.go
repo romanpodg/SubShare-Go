@@ -3,11 +3,12 @@ package keymanagement
 import (
 	"context"
 	"fmt"
+	"net"
+	"net/url"
 	"strings"
 
 	"github.com/romanpodg/SubShare-Go/internal/model"
 	"github.com/romanpodg/SubShare-Go/internal/profileconfig"
-	"github.com/romanpodg/SubShare-Go/internal/vless"
 )
 
 func NormalizeKeyCategory(raw string) string {
@@ -115,7 +116,7 @@ func (s *Service) UpdateLegacy(ctx context.Context, id int64, params UpdateLegac
 			builtURL = rawURL
 		} else {
 			var err error
-			builtURL, err = vless.BuildVLESSURL(params.UUID, params.Host, params.Port, params.Query, params.Fragment)
+			builtURL, err = buildVLESSURL(params.UUID, params.Host, params.Port, params.Query, params.Fragment)
 			if err != nil {
 				return "", invalidProfileURIError(err)
 			}
@@ -160,4 +161,29 @@ func (s *Service) UpdateLegacy(ctx context.Context, id int64, params UpdateLegac
 
 func (s *Service) DeleteLegacy(ctx context.Context, id int64) error {
 	return s.repo.DeleteLegacy(ctx, id)
+}
+
+// buildVLESSURL assembles a VLESS share link from the legacy structured edit
+// fields with proper escaping.
+func buildVLESSURL(uuid, host, port, query, fragment string) (string, error) {
+	uuid = strings.TrimSpace(uuid)
+	host = strings.TrimSpace(host)
+	port = strings.TrimSpace(port)
+	if uuid == "" {
+		return "", fmt.Errorf("uuid is required")
+	}
+	if host == "" {
+		return "", fmt.Errorf("host is required")
+	}
+	if port == "" {
+		port = "443"
+	}
+	built := &url.URL{
+		Scheme:   "vless",
+		User:     url.User(uuid),
+		Host:     net.JoinHostPort(host, port),
+		RawQuery: strings.TrimSpace(query),
+		Fragment: strings.TrimSpace(fragment),
+	}
+	return built.String(), nil
 }

@@ -14,7 +14,6 @@ import (
 	"github.com/romanpodg/SubShare-Go/internal/model"
 	"github.com/romanpodg/SubShare-Go/internal/profileconfig"
 	"github.com/romanpodg/SubShare-Go/internal/security/profilestorage"
-	"github.com/romanpodg/SubShare-Go/internal/vless"
 )
 
 // Repository is the SQLite adapter for keymanagement.Repository.
@@ -559,20 +558,9 @@ func (r *Repository) ListLegacy(ctx context.Context) ([]model.VLESSKey, error) {
 			key.Status = model.KeyStatusActive
 		}
 		key.StatusLabel = model.KeyStatusLabel(key.Status)
-		if key.Kind == model.KeyKindInformational {
-			key.URLShort = "Информационный ключ"
-			if key.TemplateText != "" {
-				key.URLShort = vless.TruncateMiddle(key.TemplateText, 88)
-			}
-		} else {
-			key.URLShort = vless.TruncateMiddle(key.URL, 88)
-		}
 		key.CheckStatus = model.NormalizeCheckStatus(checkStatus.String)
 		key.CheckStatusLabel = model.CheckStatusLabel(key.CheckStatus)
 		key.CheckError = strings.TrimSpace(checkError.String)
-		if key.Kind == model.KeyKindReal {
-			key.EditUUID, key.EditHost, key.EditPort, key.EditQuery, key.EditFragment, _ = vless.ParseVLESSParts(key.URL)
-		}
 		if latency.Valid {
 			key.LastLatencyMS = latency.Int64
 		}
