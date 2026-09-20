@@ -6,6 +6,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"github.com/romanpodg/SubShare-Go/internal/sources"
 	"log"
 	"net/http"
 	"net/http/httptest"
@@ -31,11 +32,11 @@ const (
 	externalTestXray   = `{"outbounds":[{"protocol":"vless","tag":"Xray","settings":{"vnext":[{"address":"xray.example","port":443,"users":[{"id":"44444444-4444-4444-8444-444444444444"}]}]}}]}`
 )
 
-func parseExternalTestBody(t *testing.T, body string) externalSubscriptionParseResult {
+func parseExternalTestBody(t *testing.T, body string) sources.ParseResult {
 	t.Helper()
-	parsed, err := parseExternalSubscriptionBody(body, [][]byte{externalTestFingerprintKey})
+	parsed, err := sources.ParseBody(body, [][]byte{externalTestFingerprintKey})
 	if err != nil {
-		t.Fatalf("parseExternalSubscriptionBody: %v", err)
+		t.Fatalf("ParseBody: %v", err)
 	}
 	return parsed
 }
@@ -43,7 +44,7 @@ func parseExternalTestBody(t *testing.T, body string) externalSubscriptionParseR
 func TestExternalProviderAnnouncementMetadataRemainsIndependent(t *testing.T) {
 	providerAnnouncement := "Сообщение внешнего провайдера"
 	encoded := "base64:" + base64.StdEncoding.EncodeToString([]byte(providerAnnouncement))
-	if got := decodeSubscriptionHeaderValue(encoded); got != providerAnnouncement {
+	if got := sources.DecodeHeaderValue(encoded); got != providerAnnouncement {
 		t.Fatalf("decoded provider announcement=%q", got)
 	}
 
@@ -54,12 +55,16 @@ func TestExternalProviderAnnouncementMetadataRemainsIndependent(t *testing.T) {
 	`, providerAnnouncement); err != nil {
 		t.Fatal(err)
 	}
-	sources, err := app.listExternalSources()
+	var sourceID int64
+	if err := app.db.QueryRow(`SELECT id FROM external_subscription_sources WHERE source_url = 'https://provider.example/subscription'`).Scan(&sourceID); err != nil {
+		t.Fatal(err)
+	}
+	source, err := app.getExternalSourceByID(sourceID)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(sources) != 1 || sources[0].MetaAnnounce != providerAnnouncement {
-		t.Fatalf("external meta_announce was not preserved: %#v", sources)
+	if source.MetaAnnounce != providerAnnouncement {
+		t.Fatalf("external meta_announce was not preserved: %#v", source)
 	}
 	settings, err := app.getSubscriptionSettings()
 	if err != nil {
@@ -96,7 +101,7 @@ func TestExternalProfileInputRecognitionAndMixedPartialSuccess(t *testing.T) {
 			t.Fatalf("key %d = %#v, want protocol %q", index, parsed.Keys[index], want)
 		}
 	}
-	if !containsWarningCode(parsed.Warnings, "partial_import") {
+	if !sources.ContainsWarningCode(parsed.Warnings, "partial_import") {
 		t.Fatalf("partial import warning missing: %#v", parsed.Warnings)
 	}
 }
@@ -109,10 +114,10 @@ func TestExternalProfileBase64AliasCompatibilityAndSafePreview(t *testing.T) {
 	}, "\n")
 	wrapped := base64.StdEncoding.EncodeToString([]byte(plain))
 	parsed := parseExternalTestBody(t, wrapped)
-	if len(parsed.Keys) != 3 || !containsWarningCode(parsed.Warnings, "base64_decoded") {
+	if len(parsed.Keys) != 3 || !sources.ContainsWarningCode(parsed.Warnings, "base64_decoded") {
 		t.Fatalf("unexpected base64 parse: keys=%d warnings=%#v", len(parsed.Keys), parsed.Warnings)
 	}
-	if parsed.Items[2].Status != externalStatusCompatibilityOnly || parsed.Items[2].Compatibility != "read_only" {
+	if parsed.Items[2].Status != sources.StatusCompatibilityOnly || parsed.Items[2].Compatibility != "read_only" {
 		t.Fatalf("TUIC v4 item = %#v", parsed.Items[2])
 	}
 	encoded, err := json.Marshal(parsed.Items)
@@ -134,7 +139,7 @@ func TestExternalProfileBase64AliasCompatibilityAndSafePreview(t *testing.T) {
 
 func TestExternalImporterBase64DetectionPolicy(t *testing.T) {
 	plain := parseExternalTestBody(t, externalTestSS)
-	if containsWarningCode(plain.Warnings, "base64_decoded") || len(plain.Keys) != 1 {
+	if sources.ContainsWarningCode(plain.Warnings, "base64_decoded") || len(plain.Keys) != 1 {
 		t.Fatalf("plain URI was treated as Base64: %#v", plain)
 	}
 
@@ -149,7 +154,7 @@ func TestExternalImporterBase64DetectionPolicy(t *testing.T) {
 	for name, encoded := range encodings {
 		t.Run(name, func(t *testing.T) {
 			parsed := parseExternalTestBody(t, encoded)
-			if len(parsed.Keys) != 2 || !containsWarningCode(parsed.Warnings, "base64_decoded") {
+			if len(parsed.Keys) != 2 || !sources.ContainsWarningCode(parsed.Warnings, "base64_decoded") {
 				t.Fatalf("Base64 policy result=%#v", parsed)
 			}
 		})
@@ -162,13 +167,13 @@ func TestExternalImporterBase64DetectionPolicy(t *testing.T) {
 		"unsupported decoded format": base64.RawStdEncoding.EncodeToString([]byte("provider-secret-without-a-supported-format")),
 	} {
 		t.Run(name, func(t *testing.T) {
-			_, err := parseExternalSubscriptionBody(encoded, [][]byte{externalTestFingerprintKey})
+			_, err := sources.ParseBody(encoded, [][]byte{externalTestFingerprintKey})
 			if err == nil || err.Error() != "invalid_base64_subscription" || strings.Contains(err.Error(), "provider-secret") {
 				t.Fatalf("malformed Base64 error=%v", err)
 			}
 		})
 	}
-	if _, err := parseExternalSubscriptionBody(strings.Repeat("A", maxExternalSubscriptionBodyBytes+1), [][]byte{externalTestFingerprintKey}); err == nil || err.Error() != "subscription_body_too_large" {
+	if _, err := sources.ParseBody(strings.Repeat("A", sources.MaxBodyBytes+1), [][]byte{externalTestFingerprintKey}); err == nil || err.Error() != "subscription_body_too_large" {
 		t.Fatalf("oversized encoded body error=%v", err)
 	}
 }
@@ -198,7 +203,7 @@ func TestExternalImporterDoesNotGuessProviderJSONOrSIP008(t *testing.T) {
 		if err != nil || strings.Contains(string(encoded), "secret") || strings.Contains(string(encoded), "ss.example") {
 			t.Fatalf("SIP008 rejection exposed input: json=%s err=%v", encoded, err)
 		}
-		if _, err := parseExternalSubscriptionFromRawBody("https://provider.example/sip008", body, externalSubscriptionMetadata{}, [][]byte{externalTestFingerprintKey}); err == nil || err.Error() != "unsupported_sip008_format" {
+		if _, err := sources.ParseRawBody("https://provider.example/sip008", body, sources.Metadata{}, [][]byte{externalTestFingerprintKey}); err == nil || err.Error() != "unsupported_sip008_format" {
 			t.Fatalf("SIP008 source-level error=%v", err)
 		}
 	}
@@ -357,7 +362,7 @@ func TestExternalImporterClassifiesHysteriaV1AndIdentifiableXrayFailures(t *test
 		t.Fatalf("malformed Hysteria2 diagnostic=%#v", malformedHysteria2)
 	}
 
-	diagnosticItems := append(append([]externalSafeImportItem{}, parsed.Items...), ambiguous.Items...)
+	diagnosticItems := append(append([]sources.ImportItem{}, parsed.Items...), ambiguous.Items...)
 	encoded, err := json.Marshal(diagnosticItems)
 	if err != nil || strings.Contains(string(encoded), "never-preview-this") || strings.Contains(string(encoded), "never-preview-this-either") {
 		t.Fatalf("Hysteria v1 preview leaked credentials: json=%s err=%v", encoded, err)
@@ -388,12 +393,12 @@ func TestExtractJSONSubscriptionLabelRejectsGenericRoutingTags(t *testing.T) {
 			"meta":      map[string]any{"serverDescription": "Human source name"},
 			"outbounds": []any{map[string]any{"tag": tag}},
 		}
-		if got := extractJSONSubscriptionLabel(root, "Fallback"); got != "Human source name" {
+		if got := sources.ExtractJSONLabel(root, "Fallback"); got != "Human source name" {
 			t.Fatalf("generic tag %q replaced human metadata: %q", tag, got)
 		}
 	}
 	root := map[string]any{"outbounds": []any{map[string]any{"tag": "Meaningful edge name"}}}
-	if got := extractJSONSubscriptionLabel(root, "Fallback"); got != "Meaningful edge name" {
+	if got := sources.ExtractJSONLabel(root, "Fallback"); got != "Meaningful edge name" {
 		t.Fatalf("meaningful outbound tag was discarded: %q", got)
 	}
 }
@@ -536,34 +541,34 @@ func TestExternalProfileConnectivityChangesRemainDistinct(t *testing.T) {
 		}
 	}
 	contradictory := parseExternalTestBody(t, "tuic://33333333-3333-4333-8333-333333333333:password@example.com:443?sni=first.example&server_name=second.example")
-	if contradictory.Counts.Ambiguous != 1 || !containsWarningCode(contradictory.Items[0].Warnings, profiles.WarningAmbiguousParameter) {
+	if contradictory.Counts.Ambiguous != 1 || !sources.ContainsWarningCode(contradictory.Items[0].Warnings, profiles.WarningAmbiguousParameter) {
 		t.Fatalf("contradictory TUIC aliases were not marked ambiguous: %#v", contradictory)
 	}
 }
 
 func TestExternalProfileFingerprintKeyAndSelectionIntegrity(t *testing.T) {
-	if _, err := parseExternalSubscriptionBody(externalTestSS, nil); err == nil || err.Error() != "profile_fingerprint_key_unavailable" {
+	if _, err := sources.ParseBody(externalTestSS, nil); err == nil || err.Error() != "profile_fingerprint_key_unavailable" {
 		t.Fatalf("nil fingerprint key error = %v", err)
 	}
 	parsed := parseExternalTestBody(t, externalTestSS+"\n"+externalTestHY2)
-	selected, err := filterExternalSelection(parsed, []string{parsed.Items[1].ItemRef})
+	selected, err := sources.FilterSelection(parsed, []string{parsed.Items[1].ItemRef})
 	if err != nil || len(selected.Keys) != 1 || selected.Keys[0].Protocol != "hysteria2" {
 		t.Fatalf("selection result=%#v err=%v", selected, err)
 	}
 	for _, refs := range [][]string{{"ir1_tampered"}, {parsed.Items[0].ItemRef, parsed.Items[0].ItemRef}} {
-		if _, err := filterExternalSelection(parsed, refs); err == nil {
+		if _, err := sources.FilterSelection(parsed, refs); err == nil {
 			t.Fatalf("tampered selection %#v was accepted", refs)
 		}
 	}
 
 	identical := parseExternalTestBody(t, externalTestSS+"\n"+externalTestSS)
-	if len(identical.Keys) != 1 || len(identical.Items) != 2 || identical.Items[1].Status != externalStatusDuplicate {
+	if len(identical.Keys) != 1 || len(identical.Items) != 2 || identical.Items[1].Status != sources.StatusDuplicate {
 		t.Fatalf("identical-line duplicate result = %#v", identical)
 	}
 	if identical.Items[0].ItemRef == identical.Items[1].ItemRef {
 		t.Fatalf("identical source lines share item reference %q", identical.Items[0].ItemRef)
 	}
-	if _, err := filterExternalSelection(identical, []string{identical.Items[1].ItemRef}); err == nil {
+	if _, err := sources.FilterSelection(identical, []string{identical.Items[1].ItemRef}); err == nil {
 		t.Fatal("duplicate-only preview occurrence was accepted for persistence")
 	}
 }
@@ -599,7 +604,7 @@ func insertHistoricalExternalProfile(t *testing.T, app *App, sourceID int64, raw
 			label, status, key_kind, external_source_id, external_key_ref, protocol,
 			profile_fingerprint, profile_schema_version, profile_compatibility
 		) VALUES('historical', 'active', 'real', ?, ?, ?, ?, 0, 'legacy')
-	`, sourceID, buildExternalKeyRef(raw), protocol, nullStringValue(fingerprint))
+	`, sourceID, sources.KeyRef(raw), protocol, nullStringValue(fingerprint))
 	if err != nil {
 		t.Fatalf("insert historical profile: %v", err)
 	}
@@ -883,7 +888,7 @@ func TestExternalProfilePersistenceAndSynchronization(t *testing.T) {
 		t.Fatalf("decrypt profile secret: %v", err)
 	}
 	raw := sec.Reveal()
-	if raw != externalTestSS || protocol != "shadowsocks" || !strings.HasPrefix(fingerprint, "pf1_") || schemaVersion != externalProfileSchemaVersion || compatibility != "full" || warningsJSON != "[]" {
+	if raw != externalTestSS || protocol != "shadowsocks" || !strings.HasPrefix(fingerprint, "pf1_") || schemaVersion != sources.ExternalProfileSchemaVersion || compatibility != "full" || warningsJSON != "[]" {
 		t.Fatalf("unexpected persisted profile: raw_equal=%v protocol=%q fingerprint=%q version=%d compatibility=%q warnings=%q", raw == externalTestSS, protocol, fingerprint, schemaVersion, compatibility, warningsJSON)
 	}
 
@@ -1017,7 +1022,7 @@ func TestExternalProfileConcurrentRetryDoesNotDuplicateAndHistoryCountsAreAccura
 	sourceID := seedExternalProfileSource(t, app, "https://provider.example/concurrent")
 	parsed := parseExternalTestBody(t, strings.Join([]string{externalTestVLESS, externalTestVMess, externalTestTrojan}, "\n"))
 
-	results := make(chan externalSyncResult, 2)
+	results := make(chan sources.SyncResult, 2)
 	errors := make(chan error, 2)
 	var wait sync.WaitGroup
 	for index := 0; index < 2; index++ {
@@ -1039,7 +1044,7 @@ func TestExternalProfileConcurrentRetryDoesNotDuplicateAndHistoryCountsAreAccura
 	}
 	addedTotal := 0
 	unchangedTotal := 0
-	var historyResult externalSyncResult
+	var historyResult sources.SyncResult
 	for result := range results {
 		addedTotal += result.Counts.Added
 		unchangedTotal += result.Counts.Unchanged
@@ -1061,7 +1066,7 @@ func TestExternalProfileConcurrentRetryDoesNotDuplicateAndHistoryCountsAreAccura
 	if err := app.db.QueryRow(`SELECT result_counts_json FROM source_sync_runs WHERE id = ?`, runID).Scan(&countsJSON); err != nil {
 		t.Fatalf("read sync history: %v", err)
 	}
-	var counts externalImportCounts
+	var counts sources.Counts
 	if err := json.Unmarshal([]byte(countsJSON), &counts); err != nil || counts.Added != 0 || counts.Updated != 0 || counts.Unchanged != 3 {
 		t.Fatalf("history counts=%#v json=%q err=%v", counts, countsJSON, err)
 	}
@@ -1072,7 +1077,7 @@ func TestExternalProfileLegacyRowWithoutFingerprintKeepsIDOnRename(t *testing.T)
 	sourceID := seedExternalProfileSource(t, app, "https://provider.example/legacy-fingerprint-backfill")
 	userID := seedSubscriptionUser(t, app, "active")
 	legacyID := insertAssignedDeliveryKey(t, app, userID, sourceID, "Old name", externalTestVLESS, "vless", "legacy", 1)
-	if _, err := app.db.Exec(`UPDATE vless_keys SET external_key_ref = ?, profile_fingerprint = NULL WHERE id = ?`, buildExternalKeyRef(externalTestVLESS), legacyID); err != nil {
+	if _, err := app.db.Exec(`UPDATE vless_keys SET external_key_ref = ?, profile_fingerprint = NULL WHERE id = ?`, sources.KeyRef(externalTestVLESS), legacyID); err != nil {
 		t.Fatalf("prepare legacy row: %v", err)
 	}
 
@@ -1106,7 +1111,7 @@ func TestExternalProfileKeyRotationMatchesPreviousFingerprint(t *testing.T) {
 	newKey := []byte("abcdef0123456789abcdef0123456789")
 	app.profileFingerprintOldKeys = [][]byte{append([]byte(nil), app.profileFingerprintKey...)}
 	app.profileFingerprintKey = newKey
-	rotated, err := parseExternalSubscriptionBody(externalTestTUIC, app.externalProfileFingerprintKeys())
+	rotated, err := sources.ParseBody(externalTestTUIC, app.externalProfileFingerprintKeys())
 	if err != nil {
 		t.Fatalf("parse rotated keyring: %v", err)
 	}
@@ -1462,7 +1467,7 @@ func TestExternalProfileUnsupportedProbeDoesNotAccumulateHealthFailures(t *testi
 
 func TestExternalProfileErrorsDoNotContainSecrets(t *testing.T) {
 	secret := "do-not-log-profile-secret"
-	parsed, err := parseExternalSubscriptionBody("tuic://not-a-uuid:"+secret+"@example.com:70000", [][]byte{externalTestFingerprintKey})
+	parsed, err := sources.ParseBody("tuic://not-a-uuid:"+secret+"@example.com:70000", [][]byte{externalTestFingerprintKey})
 	if err != nil {
 		t.Fatalf("partial parser should return an item: %v", err)
 	}

@@ -273,7 +273,7 @@ func (a *App) apiUpdateAdmin(w http.ResponseWriter, r *http.Request) {
 
 	session, _, _ := a.adminSessionFromRequest(r)
 
-	// Fetch current admin info
+	// sources.Fetch current admin info
 	var currentUsername string
 	var currentRole string
 	err = a.db.QueryRow(`SELECT username, role FROM admins WHERE id = ?`, id).Scan(&currentUsername, &currentRole)
@@ -378,7 +378,7 @@ func (a *App) apiDeleteAdmin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Fetch admin to delete
+	// sources.Fetch admin to delete
 	var role string
 	err = a.db.QueryRow(`SELECT role FROM admins WHERE id = ?`, id).Scan(&role)
 	if err != nil {

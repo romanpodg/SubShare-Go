@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"github.com/romanpodg/SubShare-Go/internal/sources"
 	"log"
 	"net/http"
 	"strconv"
@@ -278,7 +279,7 @@ func (a *App) startSourceSyncRun(sourceID int64) int64 {
 	return id
 }
 
-func (a *App) finishSourceSyncRun(id int64, result externalSyncResult, err error) {
+func (a *App) finishSourceSyncRun(id int64, result sources.SyncResult, err error) {
 	if id == 0 {
 		return
 	}
@@ -292,7 +293,7 @@ func (a *App) finishSourceSyncRun(id int64, result externalSyncResult, err error
 	`, result.Imported, result.Skipped, marshalExternalCounts(result.Counts), id)
 }
 
-func marshalExternalCounts(counts externalImportCounts) string {
+func marshalExternalCounts(counts sources.Counts) string {
 	payload, err := json.Marshal(counts)
 	if err != nil {
 		return "{}"
@@ -395,7 +396,7 @@ func (a *App) apiV1ListSourceSyncRuns(w http.ResponseWriter, r *http.Request) {
 			writeV1Error(w, r, http.StatusInternalServerError, "sync_runs_list_failed", "failed to load sync history")
 			return
 		}
-		var resultCounts externalImportCounts
+		var resultCounts sources.Counts
 		_ = json.Unmarshal([]byte(resultCountsJSON), &resultCounts)
 		items = append(items, map[string]any{
 			"id": id, "source_id": sourceID, "status": status, "imported_count": imported,
@@ -465,16 +466,16 @@ func (a *App) runQueuedSourceSync(jobID, sourceID, actorAdminID int64, requestID
 	source, err := a.getExternalSourceByID(sourceID)
 	if err != nil {
 		a.finishTrackedJob(jobID, err)
-		a.finishSourceSyncRun(runID, externalSyncResult{}, err)
+		a.finishSourceSyncRun(runID, sources.SyncResult{}, err)
 		return
 	}
 	a.markExternalSourceStatus(sourceID, "syncing", "")
-	hwidProfile := normalizeExternalHWIDProfile(source.PassHWID, source.HWIDVersion, source.HWIDModelName, source.HWIDValue)
-	parsed, err := fetchExternalSubscription(source.SourceURL, hwidProfile, a.externalProfileFingerprintKeys())
+	hwidProfile := sources.NormalizeHWIDProfile(source.PassHWID, source.HWIDVersion, source.HWIDModelName, source.HWIDValue)
+	parsed, err := sources.Fetch(context.Background(), a.sourceClient(), source.SourceURL, hwidProfile, a.externalProfileFingerprintKeys())
 	if err != nil {
 		a.markExternalSourceStatus(sourceID, "error", err.Error())
 		a.finishTrackedJob(jobID, err)
-		a.finishSourceSyncRun(runID, externalSyncResult{}, err)
+		a.finishSourceSyncRun(runID, sources.SyncResult{}, err)
 		return
 	}
 	syncResult, err := a.syncExternalSource(sourceID, parsed)

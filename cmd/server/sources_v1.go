@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"github.com/romanpodg/SubShare-Go/internal/sources"
 	"github.com/romanpodg/SubShare-Go/internal/storage"
 	"net/http"
 	"net/url"
@@ -188,7 +189,7 @@ func (a *App) apiV1ListSources(w http.ResponseWriter, r *http.Request) {
 			writeV1Error(w, r, http.StatusInternalServerError, "sources_list_failed", "failed to load sources")
 			return
 		}
-		item.Category = normalizeExternalSourceCategory(item.Category)
+		item.Category = sources.NormalizeCategory(item.Category)
 		item.KeyCategory = normalizeKeyCategory(item.KeyCategory)
 		item.SourceURLMasked = maskExternalSourceURL(item.SourceURLMasked)
 		item.Enabled = enabled != 0
@@ -241,27 +242,27 @@ func (a *App) apiV1PreviewSource(w http.ResponseWriter, r *http.Request) {
 		writeV1FieldError(w, r, http.StatusBadRequest, "validation_failed", "invalid request body", "")
 		return
 	}
-	sourceURL, err := validateExternalSourceURL(req.SourceURL)
+	sourceURL, err := sources.ValidateURL(req.SourceURL)
 	if err != nil {
 		writeV1FieldError(w, r, http.StatusBadRequest, "source_url_invalid", err.Error(), "source_url")
 		return
 	}
-	hwidProfile := normalizeExternalHWIDProfile(req.PassHWID, req.HWIDVersion, req.HWIDModelName, req.HWIDValue)
-	metadata := externalSubscriptionMetadata{
+	hwidProfile := sources.NormalizeHWIDProfile(req.PassHWID, req.HWIDVersion, req.HWIDModelName, req.HWIDValue)
+	metadata := sources.Metadata{
 		ContentType: strings.TrimSpace(req.RawContentType), SourceFinalURL: strings.TrimSpace(req.RawFinalURL),
 	}
-	var parsed externalSubscriptionParseResult
+	var parsed sources.ParseResult
 	if strings.TrimSpace(req.RawBody) != "" {
-		parsed, err = parseExternalSubscriptionFromRawBody(sourceURL, req.RawBody, metadata, a.externalProfileFingerprintKeys())
+		parsed, err = sources.ParseRawBody(sourceURL, req.RawBody, metadata, a.externalProfileFingerprintKeys())
 	} else {
-		parsed, err = fetchExternalSubscription(sourceURL, hwidProfile, a.externalProfileFingerprintKeys())
+		parsed, err = sources.Fetch(context.Background(), a.sourceClient(), sourceURL, hwidProfile, a.externalProfileFingerprintKeys())
 	}
 	if err != nil {
 		writeV1FieldError(w, r, http.StatusBadRequest, "source_preview_failed", err.Error(), "source_url")
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{
-		"source_url": sourceURL, "suggested_name": suggestExternalSourceName(sourceURL, parsed.Metadata),
+		"source_url": sourceURL, "suggested_name": sources.SuggestName(sourceURL, parsed.Metadata),
 		"detected_format": parsed.DetectedFormat, "key_count": len(parsed.Keys),
 		"metadata": map[string]any{
 			"title": parsed.Metadata.Title, "refresh_hours": parsed.Metadata.RefreshHours,
@@ -270,7 +271,7 @@ func (a *App) apiV1PreviewSource(w http.ResponseWriter, r *http.Request) {
 			"content_disp": parsed.Metadata.ContentDisp, "http_status": parsed.Metadata.HTTPStatusLabel,
 			"final_url": parsed.Metadata.SourceFinalURL,
 		},
-		"warnings": nonNilWarnings(parsed.Warnings), "result_counts": parsed.Counts, "keys": parsed.Items,
+		"warnings": sources.NonNilWarnings(parsed.Warnings), "result_counts": parsed.Counts, "keys": parsed.Items,
 	})
 }
 
@@ -280,7 +281,7 @@ func (a *App) apiV1CreateSource(w http.ResponseWriter, r *http.Request) {
 		writeV1FieldError(w, r, http.StatusBadRequest, "validation_failed", "invalid request body", "")
 		return
 	}
-	sourceURL, err := validateExternalSourceURL(req.SourceURL)
+	sourceURL, err := sources.ValidateURL(req.SourceURL)
 	if err != nil {
 		writeV1FieldError(w, r, http.StatusBadRequest, "source_url_invalid", err.Error(), "source_url")
 		return
@@ -294,26 +295,26 @@ func (a *App) apiV1CreateSource(w http.ResponseWriter, r *http.Request) {
 		writeV1FieldError(w, r, http.StatusConflict, "source_url_conflict", "source URL already exists", "source_url")
 		return
 	}
-	name, err := validateExternalSourceName(req.Name)
+	name, err := sources.ValidateName(req.Name)
 	if err != nil {
 		writeV1FieldError(w, r, http.StatusBadRequest, "source_name_invalid", err.Error(), "name")
 		return
 	}
-	hwidProfile := normalizeExternalHWIDProfile(req.PassHWID, req.HWIDVersion, req.HWIDModelName, req.HWIDValue)
-	metadata := externalSubscriptionMetadata{
+	hwidProfile := sources.NormalizeHWIDProfile(req.PassHWID, req.HWIDVersion, req.HWIDModelName, req.HWIDValue)
+	metadata := sources.Metadata{
 		ContentType: strings.TrimSpace(req.RawContentType), SourceFinalURL: strings.TrimSpace(req.RawFinalURL),
 	}
-	var parsed externalSubscriptionParseResult
+	var parsed sources.ParseResult
 	if strings.TrimSpace(req.RawBody) != "" {
-		parsed, err = parseExternalSubscriptionFromRawBody(sourceURL, req.RawBody, metadata, a.externalProfileFingerprintKeys())
+		parsed, err = sources.ParseRawBody(sourceURL, req.RawBody, metadata, a.externalProfileFingerprintKeys())
 	} else {
-		parsed, err = fetchExternalSubscription(sourceURL, hwidProfile, a.externalProfileFingerprintKeys())
+		parsed, err = sources.Fetch(context.Background(), a.sourceClient(), sourceURL, hwidProfile, a.externalProfileFingerprintKeys())
 	}
 	if err != nil {
 		writeV1FieldError(w, r, http.StatusBadRequest, "source_import_failed", err.Error(), "source_url")
 		return
 	}
-	parsed, err = filterExternalSelection(parsed, req.SelectedItemRefs)
+	parsed, err = sources.FilterSelection(parsed, req.SelectedItemRefs)
 	if err != nil {
 		writeV1FieldError(w, r, http.StatusBadRequest, "source_selection_invalid", err.Error(), "selected_item_refs")
 		return
@@ -322,7 +323,7 @@ func (a *App) apiV1CreateSource(w http.ResponseWriter, r *http.Request) {
 		writeV1FieldError(w, r, http.StatusBadRequest, "source_empty", "no keys to import", "source_url")
 		return
 	}
-	category := normalizeExternalSourceCategory(req.Category)
+	category := sources.NormalizeCategory(req.Category)
 	keyCategory := normalizeKeyCategory(req.KeyCategory)
 	tx, err := a.db.Begin()
 	if err != nil {
@@ -367,7 +368,7 @@ func (a *App) apiV1CreateSource(w http.ResponseWriter, r *http.Request) {
 			name, source_category_id, category, key_category_id, key_category, key_insert_mode, source_url, enabled, apply_remote_metadata,
 			pass_hwid, hwid_version, hwid_model_name, hwid_value, import_status, updated_at
 		) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'syncing', CURRENT_TIMESTAMP)
-	`, name, sourceCategoryID, category, keyCategoryID, keyCategory, normalizeKeyInsertMode(req.KeyInsertMode), sourceURL,
+	`, name, sourceCategoryID, category, keyCategoryID, keyCategory, sources.NormalizeKeyInsertMode(req.KeyInsertMode), sourceURL,
 		boolToInt(req.Enabled), boolToInt(req.ApplyRemoteMetadata), boolToInt(hwidProfile.PassHWID),
 		nullStringValue(hwidProfile.Version), nullStringValue(hwidProfile.ModelName), nullStringValue(hwidProfile.HWID))
 	if err != nil {
@@ -384,7 +385,7 @@ func (a *App) apiV1CreateSource(w http.ResponseWriter, r *http.Request) {
 		Name:                name,
 		Category:            category,
 		KeyCategory:         keyCategory,
-		KeyInsertMode:       normalizeKeyInsertMode(req.KeyInsertMode),
+		KeyInsertMode:       sources.NormalizeKeyInsertMode(req.KeyInsertMode),
 		SourceURL:           sourceURL,
 		Enabled:             req.Enabled,
 		ApplyRemoteMetadata: req.ApplyRemoteMetadata,
@@ -394,7 +395,7 @@ func (a *App) apiV1CreateSource(w http.ResponseWriter, r *http.Request) {
 		HWIDValue:           hwidProfile.HWID,
 		ImportStatus:        "syncing",
 	}
-	syncResult, err := a.syncExternalSourceTx(a.store().SourceSyncOn(context.Background(), tx), source, parsed)
+	syncResult, err := sources.Sync(a.store().SourceSyncOn(context.Background(), tx), source.syncTarget(), parsed, a.externalProfileFingerprintKeys())
 	if err != nil {
 		writeV1Error(w, r, http.StatusInternalServerError, "source_create_failed", "failed to save imported source")
 		return
@@ -413,7 +414,7 @@ func (a *App) apiV1CreateSource(w http.ResponseWriter, r *http.Request) {
 	})
 	writeJSON(w, http.StatusCreated, map[string]any{
 		"data": sourceDetailFromRow(row, syncResult.Imported), "imported_count": syncResult.Imported,
-		"skipped_count": syncResult.Skipped, "warnings": nonNilWarnings(parsed.Warnings),
+		"skipped_count": syncResult.Skipped, "warnings": sources.NonNilWarnings(parsed.Warnings),
 		"detected_format": parsed.DetectedFormat, "result_counts": syncResult.Counts, "items": syncResult.Items,
 	})
 }
@@ -437,17 +438,17 @@ func (a *App) apiV1UpdateSource(w http.ResponseWriter, r *http.Request) {
 		writeV1FieldError(w, r, http.StatusBadRequest, "validation_failed", "invalid request body", "")
 		return
 	}
-	name, err := validateExternalSourceName(req.Name)
+	name, err := sources.ValidateName(req.Name)
 	if err != nil {
 		writeV1FieldError(w, r, http.StatusBadRequest, "source_name_invalid", err.Error(), "name")
 		return
 	}
-	sourceURL, err := validateExternalSourceURL(req.SourceURL)
+	sourceURL, err := sources.ValidateURL(req.SourceURL)
 	if err != nil {
 		writeV1FieldError(w, r, http.StatusBadRequest, "source_url_invalid", err.Error(), "source_url")
 		return
 	}
-	category := normalizeExternalSourceCategory(req.Category)
+	category := sources.NormalizeCategory(req.Category)
 	keyCategory := normalizeKeyCategory(req.KeyCategory)
 	if err := a.upsertExternalSourceCategory(category); err != nil {
 		writeV1Error(w, r, http.StatusInternalServerError, "source_category_failed", "failed to save source category")
@@ -477,7 +478,7 @@ func (a *App) apiV1UpdateSource(w http.ResponseWriter, r *http.Request) {
 		    apply_remote_metadata = ?, pass_hwid = ?, hwid_version = ?, hwid_model_name = ?,
 		    hwid_value = ?, updated_at = CURRENT_TIMESTAMP
 		WHERE id = ?
-	`, name, category, keyCategory, normalizeKeyInsertMode(req.KeyInsertMode), sourceURL, boolToInt(req.Enabled),
+	`, name, category, keyCategory, sources.NormalizeKeyInsertMode(req.KeyInsertMode), sourceURL, boolToInt(req.Enabled),
 		boolToInt(req.ApplyRemoteMetadata), boolToInt(req.PassHWID), nullStringValue(strings.TrimSpace(req.HWIDVersion)),
 		nullStringValue(strings.TrimSpace(req.HWIDModelName)), nullStringValue(hwidValue), id)
 	if err != nil {

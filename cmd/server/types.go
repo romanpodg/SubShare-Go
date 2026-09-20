@@ -3,6 +3,7 @@ package main
 import (
 	"database/sql"
 	"github.com/romanpodg/SubShare-Go/internal/storage"
+	"net/http"
 	"sync"
 
 	adminpassword "github.com/romanpodg/SubShare-Go/internal/security/password"
@@ -25,6 +26,8 @@ type App struct {
 	storeOnce                 sync.Once
 	keyStore                  *storage.Repository
 	keysOnce                  sync.Once
+	sourceClientOnce          sync.Once
+	sourceHTTPClient          *http.Client
 	keyHandlers               *keyHandlers
 }
 
