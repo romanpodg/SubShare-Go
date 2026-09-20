@@ -73,7 +73,7 @@ func runConfigured(config configuration.Config) error {
 	app.registerRoutes(mux)
 	serveFrontend(mux)
 
-	var handler http.Handler = middleware.SecurityHeaders(middleware.RequestID(middleware.LogRequest(middleware.DeprecateLegacyAdminAPI(mux))))
+	handler := middleware.SecurityHeaders(middleware.RequestID(middleware.LogRequest(middleware.DeprecateLegacyAdminAPI(mux))))
 	if len(config.CORSOrigins) > 0 {
 		handler = middleware.CorsMiddleware(config.CORSOrigins, handler)
 	}

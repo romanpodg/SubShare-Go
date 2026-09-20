@@ -320,7 +320,7 @@ func safePageURL(input string, vars map[string]string, allowHapp bool, allowData
 		return ""
 	}
 	scheme := strings.ToLower(parsed.Scheme)
-	if scheme != "http" && scheme != "https" && !(allowHapp && scheme == "happ") {
+	if scheme != "http" && scheme != "https" && (!allowHapp || scheme != "happ") {
 		return ""
 	}
 	return html.EscapeString(value)

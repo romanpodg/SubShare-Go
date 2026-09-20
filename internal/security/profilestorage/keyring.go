@@ -277,9 +277,10 @@ func parseJSONObject(dec *json.Decoder) (map[string]any, error) {
 func parseJSONValue(dec *json.Decoder, tok json.Token) (any, error) {
 	switch v := tok.(type) {
 	case json.Delim:
-		if v == '{' {
+		switch v {
+		case '{':
 			return parseJSONObject(dec)
-		} else if v == '[' {
+		case '[':
 			var list []any
 			for dec.More() {
 				elemTok, err := dec.Token()
@@ -297,8 +298,9 @@ func parseJSONValue(dec *json.Decoder, tok json.Token) (any, error) {
 				return nil, err
 			}
 			return list, nil
+		default:
+			return nil, fmt.Errorf("unexpected delimiter %v", v)
 		}
-		return nil, fmt.Errorf("unexpected delimiter %v", v)
 	default:
 		return v, nil
 	}

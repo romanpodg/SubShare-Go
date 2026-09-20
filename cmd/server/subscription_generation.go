@@ -99,7 +99,7 @@ func (a *App) selectSubscriptionEntries(ctx subscriptionDeliveryContext, respons
 // the given format, as informational templates count them.
 func countsAsRealKey(row storage.DeliveryEntry, format string) bool {
 	return row.Kind == model.KeyKindReal && row.SecretError == nil &&
-		!(format == model.SubscriptionFormatLinks && profileconfig.SupportedConfigScheme(row.Raw) == model.SubscriptionFormatXrayJSON)
+		(format != model.SubscriptionFormatLinks || profileconfig.SupportedConfigScheme(row.Raw) != model.SubscriptionFormatXrayJSON)
 }
 
 func secretErrorCause(err error) string {

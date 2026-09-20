@@ -222,7 +222,7 @@ func normalizeCertificatePin(raw string) (string, error) {
 		return "", newError(ErrorInvalidProfile, ProtocolHysteria2, "certificate_sha256")
 	}
 	for _, char := range normalized {
-		if !((char >= '0' && char <= '9') || (char >= 'a' && char <= 'f')) {
+		if (char < '0' || char > '9') && (char < 'a' || char > 'f') {
 			return "", newError(ErrorInvalidProfile, ProtocolHysteria2, "certificate_sha256")
 		}
 	}
