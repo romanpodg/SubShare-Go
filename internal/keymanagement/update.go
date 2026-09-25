@@ -6,7 +6,6 @@ import (
 	"strings"
 
 	"github.com/romanpodg/SubShare-Go/internal/model"
-	"github.com/romanpodg/SubShare-Go/internal/profilepersistence"
 	"github.com/romanpodg/SubShare-Go/internal/profiles"
 )
 
@@ -19,156 +18,26 @@ func ApplyStructuredPatchToURI(protocol, currentURI, label string, patch *model.
 		return BuildURIFromStructuredCreate(protocol, label, patch)
 	}
 
-	if patch.Server != nil && patch.Server.Set && patch.Server.Operation == model.TriStateSet {
-		parsed.Server = patch.Server.Value
-	}
-	if patch.Port != nil && patch.Port.Set && patch.Port.Operation == model.TriStateSet {
+	parsed.Server = setString(patch.Server, parsed.Server)
+	if isSet(patch.Port) {
 		parsed.Port = profiles.PortSpec{Expression: patch.Port.Value, Kind: profiles.PortSingle, Explicit: true}
 	}
-	if patch.DisplayName != nil && patch.DisplayName.Set && patch.DisplayName.Operation == model.TriStateSet {
-		parsed.DisplayName = patch.DisplayName.Value
-	}
+	parsed.DisplayName = setString(patch.DisplayName, parsed.DisplayName)
 
 	switch data := parsed.Data.(type) {
 	case profiles.ShadowsocksData:
-		if patch.Shadowsocks != nil {
-			if patch.Shadowsocks.Method != nil && patch.Shadowsocks.Method.Set && patch.Shadowsocks.Method.Operation == model.TriStateSet {
-				data.Method = patch.Shadowsocks.Method.Value
-			}
-			if patch.Shadowsocks.Password != nil && patch.Shadowsocks.Password.Set {
-				if patch.Shadowsocks.Password.Operation == model.TriStateClear {
-					return "", fmt.Errorf("password cannot be cleared for real shadowsocks profile")
-				}
-				data.Password = profiles.NewSensitiveValue(patch.Shadowsocks.Password.Value)
-			}
-			if patch.Shadowsocks.PluginName != nil && patch.Shadowsocks.PluginName.Set {
-				if patch.Shadowsocks.PluginName.Operation == model.TriStateClear {
-					data.Plugin = nil
-					filteredQP := make([]profiles.QueryParameter, 0, len(parsed.QueryParameters))
-					for _, qp := range parsed.QueryParameters {
-						if strings.ToLower(qp.Key) != "plugin" {
-							filteredQP = append(filteredQP, qp)
-						}
-					}
-					parsed.QueryParameters = filteredQP
-				} else if patch.Shadowsocks.PluginName.Value != "" {
-					if data.Plugin == nil {
-						data.Plugin = &profiles.ShadowsocksPlugin{Name: patch.Shadowsocks.PluginName.Value}
-					} else {
-						data.Plugin.Name = patch.Shadowsocks.PluginName.Value
-					}
-				}
-			}
-			if patch.Shadowsocks.PluginOptions != nil && patch.Shadowsocks.PluginOptions.Set {
-				if patch.Shadowsocks.PluginOptions.Operation == model.TriStateClear {
-					if data.Plugin != nil {
-						data.Plugin.Options = profiles.NewSensitiveValue("")
-					}
-				} else if data.Plugin != nil {
-					data.Plugin.Options = profiles.NewSensitiveValue(patch.Shadowsocks.PluginOptions.Value)
-				}
-			}
+		if err := applyShadowsocksPatch(parsed, &data, patch.Shadowsocks); err != nil {
+			return "", err
 		}
 		parsed.Data = data
 	case profiles.Hysteria2Data:
-		if patch.Hysteria2 != nil {
-			if patch.Hysteria2.Authentication != nil && patch.Hysteria2.Authentication.Set {
-				if patch.Hysteria2.Authentication.Operation == model.TriStateClear {
-					return "", fmt.Errorf("authentication cannot be cleared for real hysteria2 profile")
-				}
-				data.Authentication = profiles.NewSensitiveValue(patch.Hysteria2.Authentication.Value)
-			}
-			if patch.Hysteria2.SNI != nil && patch.Hysteria2.SNI.Set {
-				if patch.Hysteria2.SNI.Operation == model.TriStateClear {
-					data.SNI = ""
-				} else {
-					data.SNI = patch.Hysteria2.SNI.Value
-				}
-			}
-			if patch.Hysteria2.Insecure != nil && patch.Hysteria2.Insecure.Set {
-				data.Insecure = patch.Hysteria2.Insecure.Value
-			}
-			if patch.Hysteria2.CertificateSHA256 != nil && patch.Hysteria2.CertificateSHA256.Set {
-				if patch.Hysteria2.CertificateSHA256.Operation == model.TriStateClear {
-					data.CertificateSHA256 = ""
-				} else {
-					data.CertificateSHA256 = patch.Hysteria2.CertificateSHA256.Value
-				}
-			}
-			if patch.Hysteria2.ObfuscationType != nil && patch.Hysteria2.ObfuscationType.Set {
-				if patch.Hysteria2.ObfuscationType.Operation == model.TriStateClear {
-					data.ObfuscationType = ""
-				} else {
-					data.ObfuscationType = patch.Hysteria2.ObfuscationType.Value
-				}
-			}
-			if patch.Hysteria2.ObfuscationPassword != nil && patch.Hysteria2.ObfuscationPassword.Set {
-				if patch.Hysteria2.ObfuscationPassword.Operation == model.TriStateClear {
-					data.ObfuscationPassword = profiles.NewSensitiveValue("")
-				} else {
-					data.ObfuscationPassword = profiles.NewSensitiveValue(patch.Hysteria2.ObfuscationPassword.Value)
-				}
-			}
+		if err := applyHysteria2Patch(&data, patch.Hysteria2); err != nil {
+			return "", err
 		}
 		parsed.Data = data
 	case profiles.TUICData:
-		if patch.TUIC != nil {
-			if patch.TUIC.UUID != nil && patch.TUIC.UUID.Set {
-				if patch.TUIC.UUID.Operation == model.TriStateClear {
-					return "", fmt.Errorf("uuid cannot be cleared for real tuic profile")
-				}
-				data.UUID = profiles.NewSensitiveValue(patch.TUIC.UUID.Value)
-			}
-			if patch.TUIC.Password != nil && patch.TUIC.Password.Set {
-				if patch.TUIC.Password.Operation == model.TriStateClear {
-					return "", fmt.Errorf("password cannot be cleared for real tuic profile")
-				}
-				data.Password = profiles.NewSensitiveValue(patch.TUIC.Password.Value)
-			}
-			if patch.TUIC.SNI != nil && patch.TUIC.SNI.Set {
-				if patch.TUIC.SNI.Operation == model.TriStateClear {
-					data.SNI = ""
-				} else {
-					data.SNI = patch.TUIC.SNI.Value
-				}
-			}
-			if patch.TUIC.ALPN != nil && patch.TUIC.ALPN.Set {
-				if patch.TUIC.ALPN.Operation == model.TriStateClear {
-					data.ALPN = []string{}
-				} else {
-					data.ALPN = patch.TUIC.ALPN.Value
-				}
-			}
-			if patch.TUIC.SkipCertVerify != nil && patch.TUIC.SkipCertVerify.Set {
-				data.SkipCertificateVerification = patch.TUIC.SkipCertVerify.Value
-			}
-			if patch.TUIC.CongestionController != nil && patch.TUIC.CongestionController.Set {
-				if patch.TUIC.CongestionController.Operation == model.TriStateClear {
-					data.CongestionController = ""
-				} else {
-					data.CongestionController = patch.TUIC.CongestionController.Value
-				}
-			}
-			if patch.TUIC.UDPRelayMode != nil && patch.TUIC.UDPRelayMode.Set {
-				if patch.TUIC.UDPRelayMode.Operation == model.TriStateClear {
-					data.UDPRelayMode = ""
-				} else {
-					data.UDPRelayMode = patch.TUIC.UDPRelayMode.Value
-				}
-			}
-			if patch.TUIC.UDPOverStream != nil && patch.TUIC.UDPOverStream.Set {
-				data.UDPOverStream = patch.TUIC.UDPOverStream.Value
-			}
-			if patch.TUIC.ZeroRTT != nil && patch.TUIC.ZeroRTT.Set {
-				data.ZeroRTT = patch.TUIC.ZeroRTT.Value
-			}
-			if patch.TUIC.Heartbeat != nil && patch.TUIC.Heartbeat.Set {
-				if patch.TUIC.Heartbeat.Operation == model.TriStateClear {
-					data.Heartbeat = ""
-				} else {
-					data.Heartbeat = patch.TUIC.Heartbeat.Value
-				}
-			}
+		if err := applyTUICPatch(&data, patch.TUIC); err != nil {
+			return "", err
 		}
 		parsed.Data = data
 	}
@@ -180,8 +49,130 @@ func ApplyStructuredPatchToURI(protocol, currentURI, label string, patch *model.
 	return res.URI.Reveal(), nil
 }
 
+func applyShadowsocksPatch(parsed *profiles.Profile, data *profiles.ShadowsocksData, p *model.ShadowsocksStructuredPatch) error {
+	if p == nil {
+		return nil
+	}
+	data.Method = setString(p.Method, data.Method)
+	if err := patchRequired(p.Password, &data.Password, "password", "shadowsocks"); err != nil {
+		return err
+	}
+	applyShadowsocksPluginName(parsed, data, p.PluginName)
+	if data.Plugin != nil {
+		patchSensitive(p.PluginOptions, &data.Plugin.Options)
+	}
+	return nil
+}
+
+func applyShadowsocksPluginName(parsed *profiles.Profile, data *profiles.ShadowsocksData, field *model.TriStatePatch[string]) {
+	if field == nil || !field.Set {
+		return
+	}
+	if field.Operation == model.TriStateClear {
+		data.Plugin = nil
+		filteredQP := make([]profiles.QueryParameter, 0, len(parsed.QueryParameters))
+		for _, qp := range parsed.QueryParameters {
+			if strings.ToLower(qp.Key) != "plugin" {
+				filteredQP = append(filteredQP, qp)
+			}
+		}
+		parsed.QueryParameters = filteredQP
+		return
+	}
+	if field.Value == "" {
+		return
+	}
+	if data.Plugin == nil {
+		data.Plugin = &profiles.ShadowsocksPlugin{Name: field.Value}
+		return
+	}
+	data.Plugin.Name = field.Value
+}
+
+func applyHysteria2Patch(data *profiles.Hysteria2Data, p *model.Hysteria2StructuredPatch) error {
+	if p == nil {
+		return nil
+	}
+	if err := patchRequired(p.Authentication, &data.Authentication, "authentication", "hysteria2"); err != nil {
+		return err
+	}
+	patchField(p.SNI, &data.SNI, "")
+	patchBool(p.Insecure, &data.Insecure)
+	patchField(p.CertificateSHA256, &data.CertificateSHA256, "")
+	patchField(p.ObfuscationType, &data.ObfuscationType, "")
+	patchSensitive(p.ObfuscationPassword, &data.ObfuscationPassword)
+	return nil
+}
+
+func applyTUICPatch(data *profiles.TUICData, p *model.TUICStructuredPatch) error {
+	if p == nil {
+		return nil
+	}
+	if err := patchRequired(p.UUID, &data.UUID, "uuid", "tuic"); err != nil {
+		return err
+	}
+	if err := patchRequired(p.Password, &data.Password, "password", "tuic"); err != nil {
+		return err
+	}
+	patchField(p.SNI, &data.SNI, "")
+	patchField(p.ALPN, &data.ALPN, []string{})
+	patchBool(p.SkipCertVerify, &data.SkipCertificateVerification)
+	patchField(p.CongestionController, &data.CongestionController, "")
+	patchField(p.UDPRelayMode, &data.UDPRelayMode, "")
+	patchBool(p.UDPOverStream, &data.UDPOverStream)
+	patchBool(p.ZeroRTT, &data.ZeroRTT)
+	patchField(p.Heartbeat, &data.Heartbeat, "")
+	return nil
+}
+
+// isSet reports whether the field carries an explicit "set" operation.
+func isSet[T any](field *model.TriStatePatch[T]) bool {
+	return field != nil && field.Set && field.Operation == model.TriStateSet
+}
+
+// patchField writes the patched value into dst: "clear" stores cleared, any
+// other present operation stores the value. Reports whether dst was touched.
+func patchField[T any](field *model.TriStatePatch[T], dst *T, cleared T) bool {
+	if field == nil || !field.Set {
+		return false
+	}
+	if field.Operation == model.TriStateClear {
+		*dst = cleared
+	} else {
+		*dst = field.Value
+	}
+	return true
+}
+
+// patchBool stores the patched value whenever the field is present, whatever
+// the operation says.
+func patchBool(field *model.TriStatePatch[bool], dst *bool) {
+	if field != nil && field.Set {
+		*dst = field.Value
+	}
+}
+
+func patchSensitive(field *model.TriStatePatch[string], dst *profiles.SensitiveValue) {
+	var value string
+	if patchField(field, &value, "") {
+		*dst = profiles.NewSensitiveValue(value)
+	}
+}
+
+// patchRequired is patchSensitive for fields a real profile cannot live without.
+func patchRequired(field *model.TriStatePatch[string], dst *profiles.SensitiveValue, what, proto string) error {
+	if field == nil || !field.Set {
+		return nil
+	}
+	if field.Operation == model.TriStateClear {
+		return fmt.Errorf("%s cannot be cleared for real %s profile", what, proto)
+	}
+	*dst = profiles.NewSensitiveValue(field.Value)
+	return nil
+}
+
 func (s *Service) UpdateLocal(ctx context.Context, params UpdateLocalParams) (*model.KeyProfileDetailResponse, error) {
-	key, decryptedURI, fetchErr := s.profileRepo.GetByID(ctx, params.ID)
+	key, decryptedURI, fetchErr := s.repo.GetByID(ctx, params.ID)
 	if fetchErr != nil {
 		return nil, fetchErr
 	}
@@ -216,43 +207,16 @@ func (s *Service) UpdateLocal(ctx context.Context, params UpdateLocalParams) (*m
 		return nil, ErrLabelTooLong
 	}
 
-	patchMode := strings.ToLower(strings.TrimSpace(params.PatchMode))
-	if patchMode == "" {
-		if params.RawURI != "" {
-			patchMode = "raw"
-		} else {
-			patchMode = "structured"
-		}
-	}
-	if patchMode != "raw" && patchMode != "structured" {
-		return nil, ErrInvalidPatchMode
-	}
-	if patchMode == "raw" && params.StructuredPatch != nil {
-		return nil, ErrMutuallyExclusiveMode
-	}
-	if patchMode == "structured" && strings.TrimSpace(params.RawURI) != "" {
-		return nil, ErrMutuallyExclusiveMode
+	patchMode, err := resolvePatchMode(params)
+	if err != nil {
+		return nil, err
 	}
 
 	newURI := decryptedURI
 	if kind == model.KeyKindReal {
-		if patchMode == "raw" {
-			newURI = strings.TrimSpace(params.RawURI)
-			if newURI == "" {
-				return nil, ErrRawURIRequired
-			}
-			if _, _, parseErr := validateStoredConfiguration(newURI); parseErr != nil {
-				return nil, invalidProfileURIError(parseErr)
-			}
-		} else {
-			if params.StructuredPatch == nil {
-				return nil, ErrStructuredPatchRequired
-			}
-			var err error
-			newURI, err = ApplyStructuredPatchToURI(key.Protocol, decryptedURI, label, params.StructuredPatch)
-			if err != nil {
-				return nil, err
-			}
+		newURI, err = resolveUpdatedURI(key.Protocol, decryptedURI, label, patchMode, params)
+		if err != nil {
+			return nil, err
 		}
 	}
 
@@ -261,7 +225,7 @@ func (s *Service) UpdateLocal(ctx context.Context, params UpdateLocalParams) (*m
 		storedProtocol = protocol
 	}
 
-	updatedKey, updatedURI, err := s.profileRepo.UpdateLocal(ctx, profilepersistence.UpdateProfileParams{
+	updatedKey, updatedURI, err := s.repo.UpdateLocal(ctx, UpdateProfileParams{
 		ID:                params.ID,
 		ExpectedRevision:  params.ProfileRevision,
 		Label:             label,
@@ -280,6 +244,48 @@ func (s *Service) UpdateLocal(ctx context.Context, params UpdateLocalParams) (*m
 
 	detail := BuildKeyProfileDetailResponse(*updatedKey, updatedURI, s.capabilityResolver)
 	return &detail, nil
+}
+
+// resolvePatchMode normalises the requested patch mode ("raw" or
+// "structured"), defaulting from the payload shape, and rejects mixed payloads.
+func resolvePatchMode(params UpdateLocalParams) (string, error) {
+	patchMode := strings.ToLower(strings.TrimSpace(params.PatchMode))
+	if patchMode == "" {
+		if params.RawURI != "" {
+			patchMode = "raw"
+		} else {
+			patchMode = "structured"
+		}
+	}
+	if patchMode != "raw" && patchMode != "structured" {
+		return "", ErrInvalidPatchMode
+	}
+	if patchMode == "raw" && params.StructuredPatch != nil {
+		return "", ErrMutuallyExclusiveMode
+	}
+	if patchMode == "structured" && strings.TrimSpace(params.RawURI) != "" {
+		return "", ErrMutuallyExclusiveMode
+	}
+	return patchMode, nil
+}
+
+// resolveUpdatedURI produces the new configuration for a real profile from
+// either the raw URI or the structured patch.
+func resolveUpdatedURI(protocol, currentURI, label, patchMode string, params UpdateLocalParams) (string, error) {
+	if patchMode == "raw" {
+		newURI := strings.TrimSpace(params.RawURI)
+		if newURI == "" {
+			return "", ErrRawURIRequired
+		}
+		if _, _, parseErr := validateStoredConfiguration(newURI); parseErr != nil {
+			return "", invalidProfileURIError(parseErr)
+		}
+		return newURI, nil
+	}
+	if params.StructuredPatch == nil {
+		return "", ErrStructuredPatchRequired
+	}
+	return ApplyStructuredPatchToURI(protocol, currentURI, label, params.StructuredPatch)
 }
 
 func (s *Service) updateSourceOwnedMetadata(ctx context.Context, key *model.VLESSKey, decryptedURI string, params UpdateLocalParams) (*model.KeyProfileDetailResponse, error) {
@@ -311,7 +317,7 @@ func (s *Service) updateSourceOwnedMetadata(ctx context.Context, key *model.VLES
 		}
 		clientDisplayName = &resolved
 	}
-	updatedKey, updatedURI, err := s.profileRepo.UpdateSourceOwnedMetadata(ctx, profilepersistence.UpdateSourceOwnedMetadataParams{
+	updatedKey, updatedURI, err := s.repo.UpdateSourceOwnedMetadata(ctx, UpdateSourceOwnedMetadataParams{
 		ID:                params.ID,
 		ExpectedRevision:  params.ProfileRevision,
 		Status:            status,

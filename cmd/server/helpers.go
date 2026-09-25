@@ -3,7 +3,6 @@ package main
 import (
 	"context"
 	"database/sql"
-	"encoding/json"
 	"fmt"
 	"net/http"
 	"net/url"
@@ -11,8 +10,6 @@ import (
 	"time"
 
 	"github.com/romanpodg/SubShare-Go/internal/middleware"
-	"github.com/romanpodg/SubShare-Go/internal/model"
-	"github.com/romanpodg/SubShare-Go/internal/security/profilestorage"
 )
 
 type deviceMeta struct {
@@ -117,10 +114,6 @@ func parseOptionalDateTimeInLocation(raw string, location *time.Location) (sql.N
 	return sql.NullTime{}, lastErr
 }
 
-func formatDateTimeInput(value sql.NullTime) string {
-	return formatDateTimeInputInLocation(value, time.Local)
-}
-
 func formatDateTimeInputInLocation(value sql.NullTime, location *time.Location) string {
 	if !value.Valid {
 		return ""
@@ -147,38 +140,11 @@ func nullStringValue(value string) any {
 	return value
 }
 
-func nullInt64Value(value int64) any {
-	if value <= 0 {
-		return nil
-	}
-	return value
-}
-
 func boolToInt(value bool) int {
 	if value {
 		return 1
 	}
 	return 0
-}
-
-func containsLegacySubscriptionBodyMarkers(body string) bool {
-	legacyMarkers := []string{
-		"#profile-desc:",
-		"#profile-status:",
-		"#description:",
-		"#happ-provider-id:",
-		"#happ-no-limit-mode:",
-		"#happ-no-limit-mode-xhttp-only:",
-		"#happ-mandatory-hwid:",
-		"#happ-notify-expiration:",
-		"#happ-hide-server-settings:",
-	}
-	for _, marker := range legacyMarkers {
-		if strings.Contains(body, marker) {
-			return true
-		}
-	}
-	return false
 }
 
 func (a *App) checkAndPersistKey(ctx context.Context, keyID int64, rawURL string) error {
@@ -230,171 +196,4 @@ func validOriginHost(host string) bool {
 	}
 	parsed, err := url.Parse("http://" + host)
 	return err == nil && parsed.Host == host && parsed.Hostname() != ""
-}
-
-type subscriptionTemplateData struct {
-	UserName       string
-	Telegram       string
-	SubscriptionID string
-	ExpiryDate     string
-	ExpiryDateTime string
-	RealKeysCount  int
-}
-
-func (a *App) buildSubscriptionTemplateData(subscriptionID string, subscriptionFormat string) (subscriptionTemplateData, error) {
-	out := subscriptionTemplateData{
-		SubscriptionID: strings.TrimSpace(subscriptionID),
-	}
-	format, ok := model.NormalizeSubscriptionFormat(subscriptionFormat)
-	if !ok {
-		format = model.SubscriptionFormatLinks
-	}
-
-	var name sql.NullString
-	var email sql.NullString
-	var expiresAt sql.NullTime
-	err := a.db.QueryRow(
-		`SELECT name, email, expires_at FROM users WHERE subscription_id = ?`,
-		subscriptionID,
-	).Scan(&name, &email, &expiresAt)
-	if err != nil {
-		return out, err
-	}
-
-	out.UserName = strings.TrimSpace(name.String)
-	telegram := strings.TrimPrefix(strings.TrimSpace(email.String), "@")
-	out.Telegram = telegram
-	if expiresAt.Valid {
-		local := expiresAt.Time.Local()
-		out.ExpiryDate = local.Format("02/01/2006")
-		out.ExpiryDateTime = local.Format("02/01/2006 15:04")
-	}
-
-	rows, err := a.db.Query(
-		`SELECT k.id, s.encrypted_url
-		 FROM users u
-		 JOIN user_keys uk ON uk.user_id = u.id
-		 JOIN vless_keys k ON k.id = uk.key_id
-		 LEFT JOIN vless_key_secrets s ON k.id = s.vless_key_id
-		 WHERE u.subscription_id = ?
-		   AND k.status = 'active'
-		   AND k.key_kind = 'real'
-		   AND COALESCE(k.health_failure_count, 0) < 3`,
-		subscriptionID,
-	)
-	if err != nil {
-		return out, err
-	}
-	defer rows.Close()
-
-	realCount := 0
-	for rows.Next() {
-		var id int64
-		var encURL sql.NullString
-		if err := rows.Scan(&id, &encURL); err != nil {
-			return out, err
-		}
-		if !encURL.Valid || encURL.String == "" {
-			continue
-		}
-		sec, err := profilestorage.Decrypt(encURL.String, a.profileKeyring, id)
-		if err != nil {
-			continue
-		}
-		rawURL := sec.Reveal()
-		if format == model.SubscriptionFormatLinks && supportedConfigScheme(rawURL) == model.SubscriptionFormatXrayJSON {
-			continue
-		}
-		realCount++
-	}
-	if err := rows.Err(); err != nil {
-		return out, err
-	}
-	out.RealKeysCount = realCount
-
-	return out, nil
-}
-
-func renderInfoTemplate(template string, data subscriptionTemplateData) string {
-	text := strings.TrimSpace(template)
-	if text == "" {
-		return ""
-	}
-	replacements := map[string]string{
-		"{user_name}":       data.UserName,
-		"{telegram}":        data.Telegram,
-		"{subscription_id}": data.SubscriptionID,
-		"{expires_date}":    data.ExpiryDate,
-		"{expires_at}":      data.ExpiryDateTime,
-		"{real_keys_count}": fmt.Sprintf("%d", data.RealKeysCount),
-	}
-	for key, value := range replacements {
-		text = strings.ReplaceAll(text, key, strings.TrimSpace(value))
-	}
-	return strings.TrimSpace(text)
-}
-
-func buildInformationalVLESSURL(displayText string) string {
-	displayText = strings.TrimSpace(displayText)
-	if displayText == "" {
-		displayText = "Info"
-	}
-	return "vless://00000000-0000-0000-0000-000000000000@info.invalid:443?type=tcp&security=none#" + url.QueryEscape(displayText)
-}
-
-func buildInformationalXrayJSON(displayText string) string {
-	displayText = strings.TrimSpace(displayText)
-	if displayText == "" {
-		displayText = "Info"
-	}
-
-	description := displayText
-	if newline := strings.Index(description, "\n"); newline >= 0 {
-		description = strings.TrimSpace(description[:newline])
-	}
-	if description == "" {
-		description = "Informational key"
-	}
-
-	payload := map[string]any{
-		"remarks": displayText,
-		"meta": map[string]any{
-			"serverDescription": description,
-			"informational":     true,
-		},
-		"log": map[string]any{
-			"loglevel": "warning",
-		},
-		"inbounds": []any{},
-		"outbounds": []any{
-			map[string]any{
-				"tag":      "proxy",
-				"protocol": "vless",
-				"settings": map[string]any{
-					"vnext": []any{
-						map[string]any{
-							"address": "info.invalid",
-							"port":    443,
-							"users": []any{
-								map[string]any{
-									"id":         "00000000-0000-0000-0000-000000000000",
-									"encryption": "none",
-								},
-							},
-						},
-					},
-				},
-				"streamSettings": map[string]any{
-					"network":  "tcp",
-					"security": "none",
-				},
-			},
-		},
-	}
-
-	encoded, err := json.Marshal(payload)
-	if err != nil {
-		return ""
-	}
-	return string(encoded)
 }

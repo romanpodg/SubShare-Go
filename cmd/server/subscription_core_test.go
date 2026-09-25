@@ -5,6 +5,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"errors"
+	"github.com/romanpodg/SubShare-Go/internal/httpapi"
 	"net/http"
 	"net/http/httptest"
 	"strconv"
@@ -110,7 +111,7 @@ func TestKeyAssignmentModesControlFutureKeys(t *testing.T) {
 
 	body := `{"label":"new","url":"vless://11111111-1111-1111-1111-111111111111@example.com:443?security=tls","status":"active","kind":"real"}`
 	recorder := httptest.NewRecorder()
-	app.apiCreateKey(recorder, httptest.NewRequest(http.MethodPost, "/api/v1/keys", strings.NewReader(body)))
+	app.keys().legacy.CreateKey(recorder, httptest.NewRequest(http.MethodPost, "/api/v1/keys", strings.NewReader(body)))
 	if recorder.Code != http.StatusOK {
 		t.Fatalf("create key status=%d body=%s", recorder.Code, recorder.Body.String())
 	}
@@ -202,12 +203,12 @@ func TestSubscriptionDeliveryStatePolicy(t *testing.T) {
 				test.setup(t, app)
 			}
 			request := httptest.NewRequest(http.MethodGet, "/sub/"+test.subID, nil)
-			_, code, status, reason, err := app.prepareSubscriptionDelivery(request, test.subID, false)
+			_, denial, err := app.prepareSubscriptionDelivery(request, test.subID, false)
 			if err != nil {
 				t.Fatalf("prepare: %v", err)
 			}
-			if code != test.wantCode || status != test.wantStatus || !strings.Contains(reason, test.wantReason) {
-				t.Fatalf("code=%d status=%q reason=%q", code, status, reason)
+			if denial.Code != test.wantCode || denial.Status != test.wantStatus || !strings.Contains(denial.Reason, test.wantReason) {
+				t.Fatalf("denial=%+v", denial)
 			}
 		})
 	}
@@ -217,40 +218,40 @@ func TestSubscriptionDevicePolicyMandatoryOptionalAndLimit(t *testing.T) {
 	app := newIntegrationApp(t)
 	seedSubscriptionUser(t, app, model.UserStatusActive)
 	optional := httptest.NewRequest(http.MethodGet, "/sub/subscription-token", nil)
-	if _, code, _, _, err := app.prepareSubscriptionDelivery(optional, "subscription-token", false); err != nil || code != 0 {
-		t.Fatalf("optional request denied: code=%d err=%v", code, err)
+	if _, denial, err := app.prepareSubscriptionDelivery(optional, "subscription-token", false); err != nil || denial.denied() {
+		t.Fatalf("optional request denied: %+v err=%v", denial, err)
 	}
 
 	if _, err := app.db.Exec(`UPDATE subscription_settings SET provider_id = 'ABCDEFGH', happ_mandatory_hwid = 1 WHERE id = 1`); err != nil {
 		t.Fatal(err)
 	}
-	if _, code, status, reason, err := app.prepareSubscriptionDelivery(optional, "subscription-token", false); err != nil || code != http.StatusForbidden || status != "limited" || !strings.Contains(reason, "required") {
-		t.Fatalf("mandatory HWID policy: code=%d status=%q reason=%q err=%v", code, status, reason, err)
+	if _, denial, err := app.prepareSubscriptionDelivery(optional, "subscription-token", false); err != nil || denial.Code != http.StatusForbidden || denial.Status != "limited" || !strings.Contains(denial.Reason, "required") {
+		t.Fatalf("mandatory HWID policy: %+v err=%v", denial, err)
 	}
 
 	firstDevice := httptest.NewRequest(http.MethodGet, "/sub/subscription-token?hwid=device-one", nil)
-	if _, code, _, _, err := app.prepareSubscriptionDelivery(firstDevice, "subscription-token", false); err != nil || code != 0 {
-		t.Fatalf("first device denied: code=%d err=%v", code, err)
+	if _, denial, err := app.prepareSubscriptionDelivery(firstDevice, "subscription-token", false); err != nil || denial.denied() {
+		t.Fatalf("first device denied: %+v err=%v", denial, err)
 	}
 	secondDevice := httptest.NewRequest(http.MethodGet, "/sub/subscription-token?hwid=device-two", nil)
-	if _, code, status, _, err := app.prepareSubscriptionDelivery(secondDevice, "subscription-token", false); err != nil || code != http.StatusForbidden || status != "limited" {
-		t.Fatalf("device limit not enforced: code=%d status=%q err=%v", code, status, err)
+	if _, denial, err := app.prepareSubscriptionDelivery(secondDevice, "subscription-token", false); err != nil || denial.Code != http.StatusForbidden || denial.Status != "limited" {
+		t.Fatalf("device limit not enforced: %+v err=%v", denial, err)
 	}
 	invalidDevice := httptest.NewRequest(http.MethodGet, "/sub/subscription-token?hwid="+strings.Repeat("x", 129), nil)
-	if _, code, _, reason, err := app.prepareSubscriptionDelivery(invalidDevice, "subscription-token", false); err != nil || code != http.StatusForbidden || reason != "invalid HWID" {
-		t.Fatalf("invalid HWID policy: code=%d reason=%q err=%v", code, reason, err)
+	if _, denial, err := app.prepareSubscriptionDelivery(invalidDevice, "subscription-token", false); err != nil || denial.Code != http.StatusForbidden || denial.Reason != "invalid HWID" {
+		t.Fatalf("invalid HWID policy: %+v err=%v", denial, err)
 	}
 }
 
 func TestEffectiveSettingsInheritanceAndDenialHeaders(t *testing.T) {
 	app := newIntegrationApp(t)
 	seedSubscriptionUser(t, app, model.UserStatusActive)
-	settings, _, _, err := app.effectiveSubscriptionSettings("subscription-token")
+	ctx, err := app.loadSubscriptionContext("subscription-token")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if settings.Title != "Personal title" || settings.RefreshHours != 24 || settings.InfoURL != "https://user.example/info" {
-		t.Fatalf("user overrides ignored: %#v", settings)
+	if ctx.Settings.Title != "Personal title" || ctx.Settings.RefreshHours != 24 || ctx.Settings.InfoURL != "https://user.example/info" {
+		t.Fatalf("user overrides ignored: %#v", ctx.Settings)
 	}
 	if _, err := app.db.Exec(`
 		UPDATE users SET subscription_name = NULL, subscription_refresh_hours = 0, subscription_info_url = NULL
@@ -258,16 +259,16 @@ func TestEffectiveSettingsInheritanceAndDenialHeaders(t *testing.T) {
 	`); err != nil {
 		t.Fatal(err)
 	}
-	settings, _, _, err = app.effectiveSubscriptionSettings("subscription-token")
+	ctx, err = app.loadSubscriptionContext("subscription-token")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if settings.Title != "AllKeys" || settings.RefreshHours != 12 {
-		t.Fatalf("global inheritance failed: %#v", settings)
+	if ctx.Settings.Title != "AllKeys" || ctx.Settings.RefreshHours != 12 {
+		t.Fatalf("global inheritance failed: %#v", ctx.Settings)
 	}
 
 	recorder := httptest.NewRecorder()
-	writeSubscriptionDenial(recorder, http.StatusGone, "expired", "expired")
+	writeSubscriptionDenial(recorder, deny(http.StatusGone, "expired", "expired"))
 	if recorder.Code != http.StatusGone || recorder.Header().Get("Subscription-Status") != "expired" {
 		t.Fatalf("denial headers missing: code=%d headers=%v", recorder.Code, recorder.Header())
 	}
@@ -357,9 +358,9 @@ func TestPrepareDeliveryRuleNotFoundNoMatchAndInvalidRule(t *testing.T) {
 			t.Fatal(err)
 		}
 		request := httptest.NewRequest(http.MethodGet, "/sub/subscription-token", nil)
-		_, code, status, _, err := app.prepareSubscriptionDelivery(request, "subscription-token", true)
-		if err != nil || code != http.StatusNotFound || status != "not-found" {
-			t.Fatalf("code=%d status=%q err=%v", code, status, err)
+		_, denial, err := app.prepareSubscriptionDelivery(request, "subscription-token", true)
+		if err != nil || denial.Code != http.StatusNotFound || denial.Status != "not-found" {
+			t.Fatalf("denial=%+v err=%v", denial, err)
 		}
 	})
 
@@ -370,9 +371,9 @@ func TestPrepareDeliveryRuleNotFoundNoMatchAndInvalidRule(t *testing.T) {
 			t.Fatal(err)
 		}
 		request := httptest.NewRequest(http.MethodGet, "/sub/subscription-token", nil)
-		delivery, code, _, _, err := app.prepareSubscriptionDelivery(request, "subscription-token", true)
-		if err != nil || code != 0 || delivery.Rule != nil {
-			t.Fatalf("code=%d rule=%#v err=%v", code, delivery.Rule, err)
+		prepared, denial, err := app.prepareSubscriptionDelivery(request, "subscription-token", true)
+		if err != nil || denial.denied() || prepared.Rule != nil {
+			t.Fatalf("denial=%+v rule=%#v err=%v", denial, prepared.Rule, err)
 		}
 	})
 
@@ -388,7 +389,7 @@ func TestPrepareDeliveryRuleNotFoundNoMatchAndInvalidRule(t *testing.T) {
 		}
 		ruleID, _ := result.LastInsertId()
 		request := httptest.NewRequest(http.MethodGet, "/sub/subscription-token", nil)
-		if _, _, _, _, err := app.prepareSubscriptionDelivery(request, "subscription-token", true); err == nil {
+		if _, _, err := app.prepareSubscriptionDelivery(request, "subscription-token", true); err == nil {
 			t.Fatal("invalid persisted rule did not fail closed")
 		}
 		var enabled, audits int
@@ -448,7 +449,7 @@ func TestStrictJSONRejectsUnknownTrailingAndOversizedBodies(t *testing.T) {
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			var request model.UpdateKeyAssignmentRequest
-			err := readJSONWithLimit(httptest.NewRecorder(), httptest.NewRequest(http.MethodPut, "/", bytes.NewBufferString(test.body)), &request, 128)
+			err := httpapi.ReadJSONWithLimit(httptest.NewRecorder(), httptest.NewRequest(http.MethodPut, "/", bytes.NewBufferString(test.body)), &request, 128)
 			if err == nil {
 				t.Fatal("invalid JSON body was accepted")
 			}

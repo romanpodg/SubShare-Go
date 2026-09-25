@@ -117,7 +117,7 @@ func TestRateLimiter_Wrap(t *testing.T) {
 
 	var errorCode int
 	var errorMsg string
-	writeErr := func(w http.ResponseWriter, code int, msg string) {
+	writeErr := func(w http.ResponseWriter, _ *http.Request, code int, msg string) {
 		errorCode = code
 		errorMsg = msg
 		w.WriteHeader(code)
@@ -361,7 +361,7 @@ func TestRequestID_Generated(t *testing.T) {
 
 	// Verify it is valid hex
 	for _, c := range id {
-		if !((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f')) {
+		if (c < '0' || c > '9') && (c < 'a' || c > 'f') {
 			t.Errorf("request ID contains non-hex character: %c", c)
 			break
 		}

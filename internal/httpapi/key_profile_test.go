@@ -29,67 +29,16 @@ func newTestKeyringForHTTPAPI(t *testing.T) *profilestorage.Keyring {
 
 func setupTestDB(t *testing.T) *sql.DB {
 	t.Helper()
-	dbPath := filepath.Join(t.TempDir(), "test_httpapi.db")
+	dbPath := filepath.Join(t.TempDir(), "test.db")
 	db, err := sql.Open("sqlite", filepath.ToSlash(dbPath))
 	if err != nil {
 		t.Fatalf("open db: %v", err)
 	}
-	schema := `
-		CREATE TABLE key_categories (
-			id INTEGER PRIMARY KEY AUTOINCREMENT,
-			name TEXT UNIQUE NOT NULL,
-			color TEXT NOT NULL DEFAULT '#4B5563',
-			sort_order INTEGER NOT NULL DEFAULT 0,
-			updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
-		);
-		CREATE TABLE external_subscription_sources (
-			id INTEGER PRIMARY KEY AUTOINCREMENT,
-			name TEXT NOT NULL,
-			key_category_id INTEGER,
-			key_category TEXT
-		);
-		CREATE TABLE vless_keys (
-			id INTEGER PRIMARY KEY AUTOINCREMENT,
-			label TEXT NOT NULL,
-			client_display_name TEXT,
-			url_blind_index TEXT,
-			category_id INTEGER,
-			category TEXT,
-			status TEXT NOT NULL DEFAULT 'active',
-			check_status TEXT NOT NULL DEFAULT 'unknown',
-			check_error TEXT,
-			last_checked_at DATETIME,
-			last_latency_ms INTEGER,
-			health_failure_count INTEGER NOT NULL DEFAULT 0,
-			key_kind TEXT NOT NULL DEFAULT 'real',
-			template_text TEXT,
-			sort_order INTEGER NOT NULL DEFAULT 0,
-			external_source_id INTEGER,
-			external_key_ref TEXT,
-			protocol TEXT NOT NULL DEFAULT 'vless',
-			profile_schema_version INTEGER NOT NULL DEFAULT 1,
-			profile_compatibility TEXT NOT NULL DEFAULT 'full',
-			profile_warnings_json TEXT NOT NULL DEFAULT '[]',
-			profile_revision INTEGER NOT NULL DEFAULT 1,
-			created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-			updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
-		);
-		CREATE TABLE vless_key_secrets (
-			vless_key_id INTEGER PRIMARY KEY REFERENCES vless_keys(id) ON DELETE CASCADE,
-			encrypted_url TEXT
-		);
-		CREATE TABLE users (
-			id INTEGER PRIMARY KEY AUTOINCREMENT,
-			key_assignment_mode TEXT NOT NULL DEFAULT 'all'
-		);
-		CREATE TABLE user_keys (
-			user_id INTEGER NOT NULL,
-			key_id INTEGER NOT NULL,
-			PRIMARY KEY (user_id, key_id)
-		);
-	`
-	if _, err := db.Exec(schema); err != nil {
-		t.Fatalf("seed schema: %v", err)
+	if _, err := db.Exec(`PRAGMA foreign_keys = ON`); err != nil {
+		t.Fatalf("enable foreign keys: %v", err)
+	}
+	if err := storage.MigrateWithKeyring(db, newTestKeyringForHTTPAPI(t)); err != nil {
+		t.Fatalf("migrate: %v", err)
 	}
 	return db
 }
@@ -105,9 +54,7 @@ func TestKeyProfileHandler_FullSuite(t *testing.T) {
 	db := setupTestDB(t)
 	defer db.Close()
 	kr := newTestKeyringForHTTPAPI(t)
-	profileRepo := storage.NewProfileRepository(db, kr)
-	keyRepo := storage.NewKeyRepository(db, kr)
-	svc := keymanagement.NewService(profileRepo, keyRepo, nil)
+	svc := keymanagement.NewService(storage.NewRepository(db, kr), nil)
 
 	var auditLog []auditRecord
 	recordAudit := func(r *http.Request, eventName, entityType, entityID string, metadata map[string]any) {

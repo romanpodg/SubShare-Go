@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"github.com/romanpodg/SubShare-Go/internal/delivery"
 	"io"
 	"os"
 	"os/exec"
@@ -75,15 +76,15 @@ func requireExternalBinaryVersion(t *testing.T, envName, expected string, args .
 	return binary
 }
 
-func requireNoGeneratorExclusions(exclusions []generationExclusion) error {
+func requireNoGeneratorExclusions(exclusions []delivery.Exclusion) error {
 	if len(exclusions) != 0 {
 		return errors.New(exclusions[0].Reason)
 	}
 	return nil
 }
 
-func completeMihomoValidationConfig(entries []deliveryEntry) ([]byte, error) {
-	generated, err := renderMihomoEntries(entries)
+func completeMihomoValidationConfig(entries []delivery.Entry) ([]byte, error) {
+	generated, err := delivery.RenderMihomo(entries)
 	if err != nil {
 		return nil, errors.New(externalValidationFixtureInvalid)
 	}
@@ -91,7 +92,7 @@ func completeMihomoValidationConfig(entries []deliveryEntry) ([]byte, error) {
 		return nil, exclusionErr
 	}
 	templated := applyTemplateContent("{{subscription}}", generated.Body, "Synthetic validation")
-	if err := validateGeneratedStructuredBody("mihomo", templated); err != nil {
+	if err := delivery.ValidateStructuredBody("mihomo", templated); err != nil {
 		return nil, errors.New(externalValidationFixtureInvalid)
 	}
 	var generatedRoot map[string]any
@@ -123,8 +124,8 @@ func completeMihomoValidationConfig(entries []deliveryEntry) ([]byte, error) {
 	}, "", "  ")
 }
 
-func completeSingBoxValidationConfig(entries []deliveryEntry) ([]byte, error) {
-	generated, err := renderSingBoxEntries(entries)
+func completeSingBoxValidationConfig(entries []delivery.Entry) ([]byte, error) {
+	generated, err := delivery.RenderSingBox(entries)
 	if err != nil {
 		return nil, errors.New(externalValidationFixtureInvalid)
 	}
@@ -132,7 +133,7 @@ func completeSingBoxValidationConfig(entries []deliveryEntry) ([]byte, error) {
 		return nil, exclusionErr
 	}
 	templated := applyTemplateContent("{{subscription}}", generated.Body, "Synthetic validation")
-	if err := validateGeneratedStructuredBody("sing-box", templated); err != nil {
+	if err := delivery.ValidateStructuredBody("sing-box", templated); err != nil {
 		return nil, errors.New(externalValidationFixtureInvalid)
 	}
 	var generatedRoot map[string]any
@@ -155,8 +156,8 @@ func completeSingBoxValidationConfig(entries []deliveryEntry) ([]byte, error) {
 	}, "", "  ")
 }
 
-func completeXrayValidationConfig(entries []deliveryEntry) ([]byte, error) {
-	generated, err := renderXrayEntries(entries)
+func completeXrayValidationConfig(entries []delivery.Entry) ([]byte, error) {
+	generated, err := delivery.RenderXray(entries)
 	if err != nil {
 		return nil, errors.New(externalValidationFixtureInvalid)
 	}
@@ -164,7 +165,7 @@ func completeXrayValidationConfig(entries []deliveryEntry) ([]byte, error) {
 		return nil, exclusionErr
 	}
 	templated := applyTemplateContent("{{subscription}}", generated.Body, "Synthetic validation")
-	if err := validateGeneratedStructuredBody("xray-json", templated); err != nil {
+	if err := delivery.ValidateStructuredBody("xray-json", templated); err != nil {
 		return nil, errors.New(externalValidationFixtureInvalid)
 	}
 	var documents []map[string]any
@@ -185,10 +186,10 @@ func completeXrayValidationConfig(entries []deliveryEntry) ([]byte, error) {
 	}, "", "  ")
 }
 
-func validationEntries(raw ...string) []deliveryEntry {
-	entries := make([]deliveryEntry, 0, len(raw))
+func validationEntries(raw ...string) []delivery.Entry {
+	entries := make([]delivery.Entry, 0, len(raw))
 	for index, item := range raw {
-		entries = append(entries, deliveryEntry{ID: int64(index + 1), Raw: item, Kind: model.KeyKindReal})
+		entries = append(entries, delivery.Entry{ID: int64(index + 1), Raw: item, Kind: model.KeyKindReal})
 	}
 	return entries
 }
@@ -318,7 +319,7 @@ func runExternalFixtureTable(t *testing.T, binary, extension string, fixtures []
 }
 
 func TestOfficialMihomoValidation(t *testing.T) {
-	binary := requireExternalBinaryVersion(t, "MIHOMO_BIN", "Mihomo Meta v"+targetMihomoVersion, "-v")
+	binary := requireExternalBinaryVersion(t, "MIHOMO_BIN", "Mihomo Meta v"+delivery.TargetMihomoVersion, "-v")
 	fixtures, err := buildMihomoExternalFixtures()
 	if err != nil {
 		t.Fatal(err.Error())
@@ -329,7 +330,7 @@ func TestOfficialMihomoValidation(t *testing.T) {
 }
 
 func TestOfficialSingBoxValidation(t *testing.T) {
-	binary := requireExternalBinaryVersion(t, "SING_BOX_BIN", "sing-box version "+targetSingBoxVersion, "version")
+	binary := requireExternalBinaryVersion(t, "SING_BOX_BIN", "sing-box version "+delivery.TargetSingBoxVersion, "version")
 	fixtures, err := buildSingBoxExternalFixtures()
 	if err != nil {
 		t.Fatal(err.Error())
@@ -340,7 +341,7 @@ func TestOfficialSingBoxValidation(t *testing.T) {
 }
 
 func TestOfficialXrayMinimumValidation(t *testing.T) {
-	binary := requireExternalBinaryVersion(t, "XRAY_26327_BIN", "Xray "+targetXrayMinimumVersion, "version")
+	binary := requireExternalBinaryVersion(t, "XRAY_26327_BIN", "Xray "+delivery.TargetXrayMinimumVersion, "version")
 	fixtures, err := buildXrayExternalFixtures()
 	if err != nil {
 		t.Fatal(err.Error())
@@ -351,7 +352,7 @@ func TestOfficialXrayMinimumValidation(t *testing.T) {
 }
 
 func TestOfficialXrayCurrentValidation(t *testing.T) {
-	binary := requireExternalBinaryVersion(t, "XRAY_CURRENT_BIN", "Xray "+targetXrayCurrentVersion, "version")
+	binary := requireExternalBinaryVersion(t, "XRAY_CURRENT_BIN", "Xray "+delivery.TargetXrayCurrentVersion, "version")
 	fixtures, err := buildXrayExternalFixtures()
 	if err != nil {
 		t.Fatal(err.Error())

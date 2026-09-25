@@ -46,26 +46,9 @@ func (hysteria2Adapter) Parse(raw string) (*Profile, error) {
 	if err := validateKnownParameterValues(parameters, hysteria2Aliases, ProtocolHysteria2); err != nil {
 		return nil, err
 	}
-	data := Hysteria2Data{Authentication: NewSensitiveValue(authentication)}
-	data.ObfuscationType, _ = firstParameter(parameters, hysteria2Aliases, "obfs")
-	data.ObfuscationType = strings.ToLower(strings.TrimSpace(data.ObfuscationType))
-	if hasParameter(parameters, hysteria2Aliases, "obfs") && data.ObfuscationType == "" {
-		return nil, newError(ErrorInvalidProfile, ProtocolHysteria2, "obfs")
-	}
-	if value, present := firstParameter(parameters, hysteria2Aliases, "obfs-password"); present {
-		data.ObfuscationPassword = NewSensitiveValue(value)
-	}
-	data.SNI, _ = firstParameter(parameters, hysteria2Aliases, "sni")
-	data.SNI = strings.ToLower(strings.TrimSpace(data.SNI))
-	if hasParameter(parameters, hysteria2Aliases, "sni") && data.SNI == "" {
-		return nil, newError(ErrorInvalidProfile, ProtocolHysteria2, "sni")
-	}
-	data.CertificateSHA256, _ = firstParameter(parameters, hysteria2Aliases, "pinSHA256")
-	if value, present := firstParameter(parameters, hysteria2Aliases, "insecure"); present {
-		data.Insecure, err = parseBoolean(value, ProtocolHysteria2, "insecure", true)
-		if err != nil {
-			return nil, err
-		}
+	data, err := parseHysteria2Options(parameters, authentication)
+	if err != nil {
+		return nil, err
 	}
 	warnings := duplicateWarnings(parameters, hysteria2Aliases)
 	if components.scheme == "hy2" {
@@ -90,6 +73,32 @@ func (hysteria2Adapter) Parse(raw string) (*Profile, error) {
 		return nil, err
 	}
 	return profile, nil
+}
+
+func parseHysteria2Options(parameters []QueryParameter, authentication string) (Hysteria2Data, error) {
+	data := Hysteria2Data{Authentication: NewSensitiveValue(authentication)}
+	data.ObfuscationType, _ = firstParameter(parameters, hysteria2Aliases, "obfs")
+	data.ObfuscationType = strings.ToLower(strings.TrimSpace(data.ObfuscationType))
+	if hasParameter(parameters, hysteria2Aliases, "obfs") && data.ObfuscationType == "" {
+		return Hysteria2Data{}, newError(ErrorInvalidProfile, ProtocolHysteria2, "obfs")
+	}
+	if value, present := firstParameter(parameters, hysteria2Aliases, "obfs-password"); present {
+		data.ObfuscationPassword = NewSensitiveValue(value)
+	}
+	data.SNI, _ = firstParameter(parameters, hysteria2Aliases, "sni")
+	data.SNI = strings.ToLower(strings.TrimSpace(data.SNI))
+	if hasParameter(parameters, hysteria2Aliases, "sni") && data.SNI == "" {
+		return Hysteria2Data{}, newError(ErrorInvalidProfile, ProtocolHysteria2, "sni")
+	}
+	data.CertificateSHA256, _ = firstParameter(parameters, hysteria2Aliases, "pinSHA256")
+	if value, present := firstParameter(parameters, hysteria2Aliases, "insecure"); present {
+		var err error
+		data.Insecure, err = parseBoolean(value, ProtocolHysteria2, "insecure", true)
+		if err != nil {
+			return Hysteria2Data{}, err
+		}
+	}
+	return data, nil
 }
 
 func (hysteria2Adapter) Validate(profile *Profile) error {
@@ -213,7 +222,7 @@ func normalizeCertificatePin(raw string) (string, error) {
 		return "", newError(ErrorInvalidProfile, ProtocolHysteria2, "certificate_sha256")
 	}
 	for _, char := range normalized {
-		if !((char >= '0' && char <= '9') || (char >= 'a' && char <= 'f')) {
+		if (char < '0' || char > '9') && (char < 'a' || char > 'f') {
 			return "", newError(ErrorInvalidProfile, ProtocolHysteria2, "certificate_sha256")
 		}
 	}

@@ -3,6 +3,7 @@ package main
 import (
 	"encoding/json"
 	"fmt"
+	"github.com/romanpodg/SubShare-Go/internal/httpapi"
 	"html"
 	"log"
 	"net/http"
@@ -286,10 +287,6 @@ func htmlText(input string, vars map[string]string) string {
 	return html.EscapeString(applyTemplate(input, vars))
 }
 
-func htmlAttr(input string, vars map[string]string) string {
-	return html.EscapeString(applyTemplate(input, vars))
-}
-
 func cssVar(theme map[string]string, key string, fallback string) string {
 	value := strings.TrimSpace(theme[key])
 	if value == "" {
@@ -323,7 +320,7 @@ func safePageURL(input string, vars map[string]string, allowHapp bool, allowData
 		return ""
 	}
 	scheme := strings.ToLower(parsed.Scheme)
-	if scheme != "http" && scheme != "https" && !(allowHapp && scheme == "happ") {
+	if scheme != "http" && scheme != "https" && (!allowHapp || scheme != "happ") {
 		return ""
 	}
 	return html.EscapeString(value)
@@ -357,132 +354,135 @@ func buttonClass(variant string) string {
 	}
 }
 
-func renderSubscriptionPageHTML(cfg model.SubscriptionPageConfig, panelSettings model.PanelSettings, pageTitle, faviconURL, panelLogoURL, subscriptionURL, importSubscriptionURL string) string {
-	vars := mergeTemplateVars(cfg, panelSettings, subscriptionURL, importSubscriptionURL)
-	theme := cfg.Theme
+// defaultIfBlank returns fallback when value is empty or whitespace.
+func defaultIfBlank(value, fallback string) string {
+	if strings.TrimSpace(value) == "" {
+		return fallback
+	}
+	return value
+}
 
-	var content strings.Builder
-	for _, block := range cfg.Blocks {
-		switch block.Type {
-		case "hero":
-			logoSrc := strings.TrimSpace(panelLogoURL)
-			if logoSrc == "" {
-				logoSrc = applyTemplate(block.Logo.Src, vars)
-			}
-			logoAlt := block.Logo.Alt
-			if strings.TrimSpace(logoAlt) == "" {
-				logoAlt = "logo"
-			}
+func renderHeroBlock(content *strings.Builder, block model.SubscriptionPageBlock, vars map[string]string, panelLogoURL string) {
+	logoSrc := strings.TrimSpace(panelLogoURL)
+	if logoSrc == "" {
+		logoSrc = applyTemplate(block.Logo.Src, vars)
+	}
+	logoAlt := defaultIfBlank(block.Logo.Alt, "logo")
 
-			content.WriteString(`<div class="hero">`)
-			content.WriteString(`<div class="brand">`)
-			content.WriteString(`<div class="fox-logo">`)
-			if strings.TrimSpace(logoSrc) != "" {
-				if src := safePageURL(logoSrc, vars, false, true); src != "" {
-					content.WriteString(`<img src="` + src + `" alt="` + htmlText(logoAlt, vars) + `">`)
-				}
-			}
-			content.WriteString(`</div>`)
-			content.WriteString(`<div class="brand-text">`)
-			content.WriteString(`<h1>` + htmlText(block.BrandTitle, vars) + `</h1>`)
-			content.WriteString(`<p>` + htmlText(block.BrandSubtitle, vars) + `</p>`)
-			content.WriteString(`</div></div>`)
-			if strings.TrimSpace(block.Subhead) != "" {
-				content.WriteString(`<div class="subhead">` + htmlText(block.Subhead, vars) + `</div>`)
-			}
-			if strings.TrimSpace(block.StatusBadge) != "" {
-				content.WriteString(`<div class="status-badge"><span class="status-dot"></span>` + htmlText(block.StatusBadge, vars) + `</div>`)
-			}
-			content.WriteString(`</div>`)
-
-		case "steps":
-			sectionID := strings.TrimSpace(block.ID)
-			if sectionID == "" {
-				sectionID = "subscription"
-			}
-			content.WriteString(`<section class="section" id="` + html.EscapeString(sectionID) + `">`)
-			content.WriteString(`<h2>` + htmlText(block.Title, vars) + `</h2>`)
-			content.WriteString(`<div class="steps">`)
-			for idx, step := range block.Steps {
-				content.WriteString(`<div class="step">`)
-				content.WriteString(`<div class="step-number">` + fmt.Sprintf("%d", idx+1) + `</div>`)
-				content.WriteString(`<div class="step-content">`)
-				content.WriteString(`<div class="step-title">` + htmlText(step.Title, vars) + `</div>`)
-				content.WriteString(`<div class="step-text">` + htmlText(step.Description, vars) + `</div>`)
-
-				switch step.Block.Type {
-				case "linkButtons":
-					if len(step.Block.Buttons) > 0 {
-						content.WriteString(`<div class="buttons">`)
-						for _, btn := range step.Block.Buttons {
-							href := applyTemplate(btn.Href, vars)
-							if strings.TrimSpace(href) == "" {
-								continue
-							}
-							safeHref := safePageURL(href, vars, false, false)
-							if safeHref == "" {
-								continue
-							}
-							content.WriteString(`<a class="` + buttonClass(btn.Variant) + `" href="` + safeHref + `"`)
-							if btn.External {
-								content.WriteString(` target="_blank" rel="noreferrer"`)
-							}
-							content.WriteString(`>`)
-							content.WriteString(buildButtonIconHTML(btn.Icon, vars))
-							content.WriteString(`<span>` + htmlText(btn.Label, vars) + `</span></a>`)
-						}
-						content.WriteString(`</div>`)
-					}
-				case "activation":
-					addLabel := step.Block.AddButtonLabel
-					if strings.TrimSpace(addLabel) == "" {
-						addLabel = "🦊 Добавить подписку в Happ"
-					}
-					manualLabel := step.Block.ManualLinkLabel
-					if strings.TrimSpace(manualLabel) == "" {
-						manualLabel = "🔗 Ссылка подписки:"
-					}
-					copyLabel := step.Block.CopyLabel
-					if strings.TrimSpace(copyLabel) == "" {
-						copyLabel = "📋 Копировать"
-					}
-
-					content.WriteString(`<div class="buttons">`)
-					if safeImportURL := safePageURL(importSubscriptionURL, vars, true, false); safeImportURL != "" {
-						content.WriteString(`<a id="btnAddHapp" class="button subscribe" href="` + safeImportURL + `">` + htmlText(addLabel, vars) + `</a>`)
-					}
-					content.WriteString(`</div>`)
-					content.WriteString(`<div class="sub-link-row" id="manualLinkRow" style="display: none;">`)
-					content.WriteString(`<span>` + htmlText(manualLabel, vars) + `</span>`)
-					content.WriteString(`<code id="plainSubUrl" style="font-size:0.75rem; color:var(--code-link-text); word-break:break-all;"></code>`)
-					content.WriteString(`<button class="copy-link" id="copySubBtn" type="button">` + htmlText(copyLabel, vars) + `</button>`)
-					content.WriteString(`</div>`)
-				}
-
-				content.WriteString(`</div></div>`)
-			}
-			content.WriteString(`</div></section>`)
-
-		case "footer":
-			content.WriteString(`<footer class="footer">`)
-			content.WriteString(`<span>` + htmlText(block.Copyright, vars) + `</span>`)
-			content.WriteString(`<div class="footer-right">`)
-			if block.FooterLink != nil && strings.TrimSpace(block.FooterLink.Href) != "" {
-				if safeHref := safePageURL(block.FooterLink.Href, vars, false, false); safeHref != "" {
-					content.WriteString(`<a class="footer-link" href="` + safeHref + `">` + htmlText(block.FooterLink.Label, vars) + `</a>`)
-				}
-			}
-			content.WriteString(`<div class="lang">` + htmlText(block.LanguageBadge, vars) + `</div></div></footer>`)
+	content.WriteString(`<div class="hero">`)
+	content.WriteString(`<div class="brand">`)
+	content.WriteString(`<div class="fox-logo">`)
+	if strings.TrimSpace(logoSrc) != "" {
+		if src := safePageURL(logoSrc, vars, false, true); src != "" {
+			content.WriteString(`<img src="` + src + `" alt="` + htmlText(logoAlt, vars) + `">`)
 		}
 	}
+	content.WriteString(`</div>`)
+	content.WriteString(`<div class="brand-text">`)
+	content.WriteString(`<h1>` + htmlText(block.BrandTitle, vars) + `</h1>`)
+	content.WriteString(`<p>` + htmlText(block.BrandSubtitle, vars) + `</p>`)
+	content.WriteString(`</div></div>`)
+	if strings.TrimSpace(block.Subhead) != "" {
+		content.WriteString(`<div class="subhead">` + htmlText(block.Subhead, vars) + `</div>`)
+	}
+	if strings.TrimSpace(block.StatusBadge) != "" {
+		content.WriteString(`<div class="status-badge"><span class="status-dot"></span>` + htmlText(block.StatusBadge, vars) + `</div>`)
+	}
+	content.WriteString(`</div>`)
+}
 
-	faviconTag := ""
-	if strings.TrimSpace(faviconURL) != "" {
-		if safeFaviconURL := safePageURL(faviconURL, vars, false, true); safeFaviconURL != "" {
-			faviconTag = `<link rel="icon" href="` + safeFaviconURL + `">`
+func renderStepsBlock(content *strings.Builder, block model.SubscriptionPageBlock, vars map[string]string, importSubscriptionURL string) {
+	sectionID := defaultIfBlank(strings.TrimSpace(block.ID), "subscription")
+	content.WriteString(`<section class="section" id="` + html.EscapeString(sectionID) + `">`)
+	content.WriteString(`<h2>` + htmlText(block.Title, vars) + `</h2>`)
+	content.WriteString(`<div class="steps">`)
+	for idx, step := range block.Steps {
+		content.WriteString(`<div class="step">`)
+		content.WriteString(`<div class="step-number">` + fmt.Sprintf("%d", idx+1) + `</div>`)
+		content.WriteString(`<div class="step-content">`)
+		content.WriteString(`<div class="step-title">` + htmlText(step.Title, vars) + `</div>`)
+		content.WriteString(`<div class="step-text">` + htmlText(step.Description, vars) + `</div>`)
+
+		switch step.Block.Type {
+		case "linkButtons":
+			renderLinkButtons(content, step.Block.Buttons, vars)
+		case "activation":
+			renderActivationBlock(content, step.Block, vars, importSubscriptionURL)
+		}
+
+		content.WriteString(`</div></div>`)
+	}
+	content.WriteString(`</div></section>`)
+}
+
+func renderLinkButtons(content *strings.Builder, buttons []model.SubscriptionPageButton, vars map[string]string) {
+	if len(buttons) == 0 {
+		return
+	}
+	content.WriteString(`<div class="buttons">`)
+	for _, btn := range buttons {
+		href := applyTemplate(btn.Href, vars)
+		if strings.TrimSpace(href) == "" {
+			continue
+		}
+		safeHref := safePageURL(href, vars, false, false)
+		if safeHref == "" {
+			continue
+		}
+		content.WriteString(`<a class="` + buttonClass(btn.Variant) + `" href="` + safeHref + `"`)
+		if btn.External {
+			content.WriteString(` target="_blank" rel="noreferrer"`)
+		}
+		content.WriteString(`>`)
+		content.WriteString(buildButtonIconHTML(btn.Icon, vars))
+		content.WriteString(`<span>` + htmlText(btn.Label, vars) + `</span></a>`)
+	}
+	content.WriteString(`</div>`)
+}
+
+func renderActivationBlock(content *strings.Builder, block model.SubscriptionPageStepBlock, vars map[string]string, importSubscriptionURL string) {
+	addLabel := defaultIfBlank(block.AddButtonLabel, "🦊 Добавить подписку в Happ")
+	manualLabel := defaultIfBlank(block.ManualLinkLabel, "🔗 Ссылка подписки:")
+	copyLabel := defaultIfBlank(block.CopyLabel, "📋 Копировать")
+
+	content.WriteString(`<div class="buttons">`)
+	if safeImportURL := safePageURL(importSubscriptionURL, vars, true, false); safeImportURL != "" {
+		content.WriteString(`<a id="btnAddHapp" class="button subscribe" href="` + safeImportURL + `">` + htmlText(addLabel, vars) + `</a>`)
+	}
+	content.WriteString(`</div>`)
+	content.WriteString(`<div class="sub-link-row" id="manualLinkRow" style="display: none;">`)
+	content.WriteString(`<span>` + htmlText(manualLabel, vars) + `</span>`)
+	content.WriteString(`<code id="plainSubUrl" style="font-size:0.75rem; color:var(--code-link-text); word-break:break-all;"></code>`)
+	content.WriteString(`<button class="copy-link" id="copySubBtn" type="button">` + htmlText(copyLabel, vars) + `</button>`)
+	content.WriteString(`</div>`)
+}
+
+func renderFooterBlock(content *strings.Builder, block model.SubscriptionPageBlock, vars map[string]string) {
+	content.WriteString(`<footer class="footer">`)
+	content.WriteString(`<span>` + htmlText(block.Copyright, vars) + `</span>`)
+	content.WriteString(`<div class="footer-right">`)
+	if block.FooterLink != nil && strings.TrimSpace(block.FooterLink.Href) != "" {
+		if safeHref := safePageURL(block.FooterLink.Href, vars, false, false); safeHref != "" {
+			content.WriteString(`<a class="footer-link" href="` + safeHref + `">` + htmlText(block.FooterLink.Label, vars) + `</a>`)
 		}
 	}
+	content.WriteString(`<div class="lang">` + htmlText(block.LanguageBadge, vars) + `</div></div></footer>`)
+}
 
+func faviconLinkTag(faviconURL string, vars map[string]string) string {
+	if strings.TrimSpace(faviconURL) == "" {
+		return ""
+	}
+	safeFaviconURL := safePageURL(faviconURL, vars, false, true)
+	if safeFaviconURL == "" {
+		return ""
+	}
+	return `<link rel="icon" href="` + safeFaviconURL + `">`
+}
+
+// activationCopyLabels returns the copy-button labels used by the page script,
+// taking the last activation block's overrides when present.
+func activationCopyLabels(cfg model.SubscriptionPageConfig, vars map[string]string) (string, string) {
 	copiedLabel := "✅ Скопировано"
 	copyLabel := "📋 Копировать"
 	for _, block := range cfg.Blocks {
@@ -501,8 +501,10 @@ func renderSubscriptionPageHTML(cfg model.SubscriptionPageConfig, panelSettings 
 			}
 		}
 	}
+	return copiedLabel, copyLabel
+}
 
-	return fmt.Sprintf(`<!DOCTYPE html>
+const subscriptionPageTemplate = `<!DOCTYPE html>
 <html lang="ru">
 <head>
   <meta charset="UTF-8">
@@ -883,9 +885,12 @@ func renderSubscriptionPageHTML(cfg model.SubscriptionPageConfig, panelSettings 
     }
   </script>
 </body>
-</html>`,
-		html.EscapeString(pageTitle),
-		faviconTag,
+</html>`
+
+// subscriptionPageThemeArgs returns the CSS custom property values for the
+// page template, in the order the template expects them.
+func subscriptionPageThemeArgs(theme map[string]string) []any {
+	return []any{
 		cssVar(theme, "pageBackground", "#f7f9fc"),
 		cssVar(theme, "cardBackground", "#ffffff"),
 		cssVar(theme, "textPrimary", "#0f172a"),
@@ -919,12 +924,38 @@ func renderSubscriptionPageHTML(cfg model.SubscriptionPageConfig, panelSettings 
 		cssVar(theme, "languageBadgeBackground", "#f1f5f9"),
 		cssVar(theme, "languageBadgeText", "#334155"),
 		cssVar(theme, "fontFamily", "'Inter', system-ui, -apple-system, 'Segoe UI', Roboto, Helvetica, sans-serif"),
+	}
+}
+
+func renderSubscriptionPageHTML(cfg model.SubscriptionPageConfig, panelSettings model.PanelSettings, pageTitle, faviconURL, panelLogoURL, subscriptionURL, importSubscriptionURL string) string {
+	vars := mergeTemplateVars(cfg, panelSettings, subscriptionURL, importSubscriptionURL)
+	theme := cfg.Theme
+
+	var content strings.Builder
+	for _, block := range cfg.Blocks {
+		switch block.Type {
+		case "hero":
+			renderHeroBlock(&content, block, vars, panelLogoURL)
+		case "steps":
+			renderStepsBlock(&content, block, vars, importSubscriptionURL)
+		case "footer":
+			renderFooterBlock(&content, block, vars)
+		}
+	}
+
+	faviconTag := faviconLinkTag(faviconURL, vars)
+	copiedLabel, copyLabel := activationCopyLabels(cfg, vars)
+
+	args := []any{html.EscapeString(pageTitle), faviconTag}
+	args = append(args, subscriptionPageThemeArgs(theme)...)
+	args = append(args,
 		content.String(),
 		inlineJSON(subscriptionURL),
 		inlineJSON(importSubscriptionURL),
 		inlineJSON(copiedLabel),
 		inlineJSON(copyLabel),
 	)
+	return fmt.Sprintf(subscriptionPageTemplate, args...)
 }
 
 func (a *App) apiGetSubscriptionPageConfig(w http.ResponseWriter, r *http.Request) {
@@ -934,7 +965,7 @@ func (a *App) apiGetSubscriptionPageConfig(w http.ResponseWriter, r *http.Reques
 	settings, err := a.getPanelSettings()
 	if err != nil {
 		log.Printf("apiGetSubscriptionPageConfig: %v", err)
-		writeError(w, http.StatusInternalServerError, "failed to load subscription page config")
+		httpapi.WriteError(w, r, http.StatusInternalServerError, "failed to load subscription page config")
 		return
 	}
 
@@ -944,7 +975,7 @@ func (a *App) apiGetSubscriptionPageConfig(w http.ResponseWriter, r *http.Reques
 		pretty = defaultSubscriptionPageConfigJSON
 	}
 
-	writeJSON(w, http.StatusOK, map[string]any{
+	httpapi.WriteJSON(w, http.StatusOK, map[string]any{
 		"config_json":         pretty,
 		"default_config_json": defaultSubscriptionPageConfigJSON,
 	})
@@ -952,22 +983,22 @@ func (a *App) apiGetSubscriptionPageConfig(w http.ResponseWriter, r *http.Reques
 
 func (a *App) apiUpdateSubscriptionPageConfig(w http.ResponseWriter, r *http.Request) {
 	var req model.UpdateSubscriptionPageConfigRequest
-	if err := readJSONWithLimit(w, r, &req, 1<<20); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid request body")
+	if err := httpapi.ReadJSONWithLimit(w, r, &req, 1<<20); err != nil {
+		httpapi.WriteError(w, r, http.StatusBadRequest, "invalid request body")
 		return
 	}
 
 	_, pretty, err := normalizeSubscriptionPageConfig(req.ConfigJSON)
 	if err != nil {
-		writeError(w, http.StatusBadRequest, "config_json must be a valid JSON config")
+		httpapi.WriteError(w, r, http.StatusBadRequest, "config_json must be a valid JSON config")
 		return
 	}
 
 	if err := a.updateSubscriptionPageConfig(pretty); err != nil {
 		log.Printf("apiUpdateSubscriptionPageConfig: %v", err)
-		writeError(w, http.StatusInternalServerError, "failed to save subscription page config")
+		httpapi.WriteError(w, r, http.StatusInternalServerError, "failed to save subscription page config")
 		return
 	}
 
-	writeJSON(w, http.StatusOK, map[string]any{"config_json": pretty})
+	httpapi.WriteJSON(w, http.StatusOK, map[string]any{"config_json": pretty})
 }

@@ -131,9 +131,47 @@ func LoadKeyringJSON(data []byte) (*Keyring, error) {
 		return nil, fmt.Errorf("%w: missing or empty keys map", ErrMissingKeyring)
 	}
 
-	keys := make(map[string][]byte, len(rawKeys))
 	seenMaterial := make(map[string]string)
+	keys, err := decodeEncryptionKeys(rawKeys, seenMaterial)
+	if err != nil {
+		return nil, err
+	}
 
+	if _, exists := keys[activeKeyID]; !exists {
+		return nil, fmt.Errorf("%w: active_key_id %q not found in keys map", ErrMissingKeyring, activeKeyID)
+	}
+
+	activeBIKID, _ := rawMap["active_blind_index_key_id"].(string)
+	if activeBIKID == "" || !validKeyIDRegex.MatchString(activeBIKID) {
+		return nil, fmt.Errorf("%w: invalid or missing active_blind_index_key_id", ErrMissingKeyring)
+	}
+
+	rawBIKeys, ok := rawMap["blind_index_keys"].(map[string]any)
+	if !ok || len(rawBIKeys) == 0 {
+		return nil, fmt.Errorf("%w: missing or empty blind_index_keys map", ErrMissingKeyring)
+	}
+
+	biKeys, err := decodeBlindIndexKeys(rawBIKeys, seenMaterial)
+	if err != nil {
+		return nil, err
+	}
+
+	if _, exists := biKeys[activeBIKID]; !exists {
+		return nil, fmt.Errorf("%w: active_blind_index_key_id %q not found in blind_index_keys map", ErrMissingKeyring, activeBIKID)
+	}
+
+	return &Keyring{
+		ActiveKeyID:           activeKeyID,
+		Keys:                  keys,
+		ActiveBlindIndexKeyID: activeBIKID,
+		BlindIndexKeys:        biKeys,
+	}, nil
+}
+
+// decodeEncryptionKeys validates the keys map. seenMaterial is shared with the
+// blind index decoder so identical material across the two maps is rejected.
+func decodeEncryptionKeys(rawKeys map[string]any, seenMaterial map[string]string) (map[string][]byte, error) {
+	keys := make(map[string][]byte, len(rawKeys))
 	for id, val := range rawKeys {
 		if !validKeyIDRegex.MatchString(id) {
 			return nil, fmt.Errorf("%w: invalid key ID syntax %q", ErrMissingKeyring, id)
@@ -156,21 +194,10 @@ func LoadKeyringJSON(data []byte) (*Keyring, error) {
 		seenMaterial[mHex] = id
 		keys[id] = decoded
 	}
+	return keys, nil
+}
 
-	if _, exists := keys[activeKeyID]; !exists {
-		return nil, fmt.Errorf("%w: active_key_id %q not found in keys map", ErrMissingKeyring, activeKeyID)
-	}
-
-	activeBIKID, _ := rawMap["active_blind_index_key_id"].(string)
-	if activeBIKID == "" || !validKeyIDRegex.MatchString(activeBIKID) {
-		return nil, fmt.Errorf("%w: invalid or missing active_blind_index_key_id", ErrMissingKeyring)
-	}
-
-	rawBIKeys, ok := rawMap["blind_index_keys"].(map[string]any)
-	if !ok || len(rawBIKeys) == 0 {
-		return nil, fmt.Errorf("%w: missing or empty blind_index_keys map", ErrMissingKeyring)
-	}
-
+func decodeBlindIndexKeys(rawBIKeys map[string]any, seenMaterial map[string]string) (map[string][]byte, error) {
 	biKeys := make(map[string][]byte, len(rawBIKeys))
 	for id, val := range rawBIKeys {
 		if !validKeyIDRegex.MatchString(id) {
@@ -194,17 +221,7 @@ func LoadKeyringJSON(data []byte) (*Keyring, error) {
 		seenMaterial[mHex] = id
 		biKeys[id] = decoded
 	}
-
-	if _, exists := biKeys[activeBIKID]; !exists {
-		return nil, fmt.Errorf("%w: active_blind_index_key_id %q not found in blind_index_keys map", ErrMissingKeyring, activeBIKID)
-	}
-
-	return &Keyring{
-		ActiveKeyID:           activeKeyID,
-		Keys:                  keys,
-		ActiveBlindIndexKeyID: activeBIKID,
-		BlindIndexKeys:        biKeys,
-	}, nil
+	return biKeys, nil
 }
 
 func parseStrictJSONMap(data []byte) (map[string]any, error) {
@@ -260,9 +277,10 @@ func parseJSONObject(dec *json.Decoder) (map[string]any, error) {
 func parseJSONValue(dec *json.Decoder, tok json.Token) (any, error) {
 	switch v := tok.(type) {
 	case json.Delim:
-		if v == '{' {
+		switch v {
+		case '{':
 			return parseJSONObject(dec)
-		} else if v == '[' {
+		case '[':
 			var list []any
 			for dec.More() {
 				elemTok, err := dec.Token()
@@ -280,8 +298,9 @@ func parseJSONValue(dec *json.Decoder, tok json.Token) (any, error) {
 				return nil, err
 			}
 			return list, nil
+		default:
+			return nil, fmt.Errorf("unexpected delimiter %v", v)
 		}
-		return nil, fmt.Errorf("unexpected delimiter %v", v)
 	default:
 		return v, nil
 	}

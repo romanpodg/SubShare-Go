@@ -31,8 +31,8 @@ func NewKeyAdministrationHandler(service *keymanagement.Service, audit AuditReco
 
 func (h *KeyAdministrationHandler) BulkUpdateKeys(w http.ResponseWriter, r *http.Request) {
 	var req model.BulkUpdateKeyStatusRequest
-	if err := readJSON(r, &req); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid request body")
+	if err := ReadJSON(r, &req); err != nil {
+		WriteError(w, r, http.StatusBadRequest, "invalid request body")
 		return
 	}
 
@@ -44,19 +44,19 @@ func (h *KeyAdministrationHandler) BulkUpdateKeys(w http.ResponseWriter, r *http
 		case errors.Is(err, keymanagement.ErrBulkKeyIDsRequired),
 			errors.Is(err, keymanagement.ErrInvalidBulkKeyID),
 			errors.Is(err, keymanagement.ErrDuplicateBulkKeyIDs):
-			writeError(w, http.StatusBadRequest, err.Error())
+			WriteError(w, r, http.StatusBadRequest, err.Error())
 		case errors.Is(err, keymanagement.ErrInvalidKeyStatus):
-			writeError(w, http.StatusBadRequest, "invalid key status")
+			WriteError(w, r, http.StatusBadRequest, "invalid key status")
 		case errors.Is(err, keymanagement.ErrBulkCategoryPersistence):
 			log.Printf("BulkUpdateKeys category: %v", err)
-			writeError(w, http.StatusInternalServerError, "failed to save key category")
+			WriteError(w, r, http.StatusInternalServerError, "failed to save key category")
 		default:
 			if id, ok := keymanagement.MissingKeyID(err); ok {
-				writeError(w, http.StatusNotFound, fmt.Sprintf("key not found: %d", id))
+				WriteError(w, r, http.StatusNotFound, fmt.Sprintf("key not found: %d", id))
 				return
 			}
 			log.Printf("BulkUpdateKeys: %v", err)
-			writeError(w, http.StatusInternalServerError, "failed to update keys")
+			WriteError(w, r, http.StatusInternalServerError, "failed to update keys")
 		}
 		return
 	}
@@ -65,13 +65,13 @@ func (h *KeyAdministrationHandler) BulkUpdateKeys(w http.ResponseWriter, r *http
 	if h.audit != nil {
 		h.audit(r, "keys.bulk_status", "key", "multiple", map[string]any{"count": updated, "status": status})
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"message": "keys updated", "updated": updated})
+	WriteJSON(w, http.StatusOK, map[string]any{"message": "keys updated", "updated": updated})
 }
 
 func (h *KeyAdministrationHandler) BulkDeleteKeys(w http.ResponseWriter, r *http.Request) {
 	var req model.BulkDeleteKeysRequest
-	if err := readJSON(r, &req); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid request body")
+	if err := ReadJSON(r, &req); err != nil {
+		WriteError(w, r, http.StatusBadRequest, "invalid request body")
 		return
 	}
 
@@ -81,14 +81,14 @@ func (h *KeyAdministrationHandler) BulkDeleteKeys(w http.ResponseWriter, r *http
 		case errors.Is(err, keymanagement.ErrBulkKeyIDsRequired),
 			errors.Is(err, keymanagement.ErrInvalidBulkKeyID),
 			errors.Is(err, keymanagement.ErrDuplicateBulkKeyIDs):
-			writeError(w, http.StatusBadRequest, err.Error())
+			WriteError(w, r, http.StatusBadRequest, err.Error())
 		default:
 			if id, ok := keymanagement.MissingKeyID(err); ok {
-				writeError(w, http.StatusNotFound, fmt.Sprintf("key not found: %d", id))
+				WriteError(w, r, http.StatusNotFound, fmt.Sprintf("key not found: %d", id))
 				return
 			}
 			log.Printf("BulkDeleteKeys: %v", err)
-			writeError(w, http.StatusInternalServerError, "failed to delete keys")
+			WriteError(w, r, http.StatusInternalServerError, "failed to delete keys")
 		}
 		return
 	}
@@ -96,37 +96,37 @@ func (h *KeyAdministrationHandler) BulkDeleteKeys(w http.ResponseWriter, r *http
 	if h.audit != nil {
 		h.audit(r, "keys.bulk_delete", "key", "multiple", map[string]any{"count": deleted})
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"message": "keys deleted", "deleted": deleted})
+	WriteJSON(w, http.StatusOK, map[string]any{"message": "keys deleted", "deleted": deleted})
 }
 
 func (h *KeyAdministrationHandler) CheckKey(w http.ResponseWriter, r *http.Request) {
-	id, ok := pathID(w, r, "id")
+	id, ok := PathID(w, r, "id")
 	if !ok {
 		return
 	}
 	target, err := h.service.GetHealthCheckTarget(r.Context(), id)
 	switch {
 	case errors.Is(err, keymanagement.ErrKeyNotFound):
-		writeError(w, http.StatusNotFound, "key not found")
+		WriteError(w, r, http.StatusNotFound, "key not found")
 		return
 	case errors.Is(err, keymanagement.ErrInformationalHealthCheck):
-		writeError(w, http.StatusBadRequest, "informational keys do not require checks")
+		WriteError(w, r, http.StatusBadRequest, "informational keys do not require checks")
 		return
 	case errors.Is(err, keymanagement.ErrCredentialMissing):
-		writeError(w, http.StatusInternalServerError, "missing profile key secret")
+		WriteError(w, r, http.StatusInternalServerError, "missing profile key secret")
 		return
 	case err != nil:
-		writeError(w, http.StatusInternalServerError, "failed to decrypt key")
+		WriteError(w, r, http.StatusInternalServerError, "failed to decrypt key")
 		return
 	}
 
 	if h.runtime.CheckKey == nil {
-		writeError(w, http.StatusInternalServerError, "failed to check key")
+		WriteError(w, r, http.StatusInternalServerError, "failed to check key")
 		return
 	}
 	if err := h.runtime.CheckKey(r.Context(), id, target.URL); err != nil {
 		log.Printf("CheckKey: %v", err)
-		writeError(w, http.StatusInternalServerError, "failed to check key")
+		WriteError(w, r, http.StatusInternalServerError, "failed to check key")
 		return
 	}
 	h.respondKeyCheck(w, r, id)
@@ -135,7 +135,7 @@ func (h *KeyAdministrationHandler) CheckKey(w http.ResponseWriter, r *http.Reque
 func (h *KeyAdministrationHandler) CheckAllKeys(w http.ResponseWriter, r *http.Request) {
 	targets, err := h.service.ListHealthCheckTargets(r.Context())
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to load keys")
+		WriteError(w, r, http.StatusInternalServerError, "failed to load keys")
 		return
 	}
 
@@ -172,7 +172,7 @@ func (h *KeyAdministrationHandler) CheckAllKeys(w http.ResponseWriter, r *http.R
 	results, err := h.service.ListHealthCheckResults(r.Context())
 	if err != nil {
 		h.finishJob(jobID, err)
-		writeError(w, http.StatusInternalServerError, "failed to load key checks")
+		WriteError(w, r, http.StatusInternalServerError, "failed to load key checks")
 		return
 	}
 
@@ -184,7 +184,7 @@ func (h *KeyAdministrationHandler) CheckAllKeys(w http.ResponseWriter, r *http.R
 	if h.audit != nil {
 		h.audit(r, "keys.health_check", "key", "all", map[string]any{"checked": len(eligibleTargets)})
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"checked": len(eligibleTargets), "keys": payloads})
+	WriteJSON(w, http.StatusOK, map[string]any{"checked": len(eligibleTargets), "keys": payloads})
 }
 
 func (h *KeyAdministrationHandler) QueueHealthCheck(w http.ResponseWriter, r *http.Request) {
@@ -193,19 +193,19 @@ func (h *KeyAdministrationHandler) QueueHealthCheck(w http.ResponseWriter, r *ht
 		jobID = h.runtime.QueueHealthJob(r)
 	}
 	if jobID == 0 {
-		writeV1Error(w, r, http.StatusInternalServerError, "job_queue_failed", "failed to queue key health check")
+		WriteV1Error(w, r, http.StatusInternalServerError, "job_queue_failed", "failed to queue key health check")
 		return
 	}
-	writeJSON(w, http.StatusAccepted, map[string]any{"job_id": jobID, "status": "queued"})
+	WriteJSON(w, http.StatusAccepted, map[string]any{"job_id": jobID, "status": "queued"})
 }
 
 func (h *KeyAdministrationHandler) respondKeyCheck(w http.ResponseWriter, r *http.Request, keyID int64) {
 	result, err := h.service.GetHealthCheckResult(r.Context(), keyID)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to load key check")
+		WriteError(w, r, http.StatusInternalServerError, "failed to load key check")
 		return
 	}
-	writeJSON(w, http.StatusOK, healthCheckPayload(result))
+	WriteJSON(w, http.StatusOK, healthCheckPayload(result))
 }
 
 func (h *KeyAdministrationHandler) finishJob(jobID int64, err error) {

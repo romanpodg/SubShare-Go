@@ -5,6 +5,8 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"github.com/romanpodg/SubShare-Go/internal/httpapi"
+	"github.com/romanpodg/SubShare-Go/internal/sources"
 	"log"
 	"net/http"
 	"strconv"
@@ -70,17 +72,7 @@ func executeKeyHealthCheckBatch(
 	var persistenceMu sync.Mutex
 
 	for _, target := range targets {
-		targetStatus, _ := model.NormalizeKeyStatus(target.Status)
-		if targetStatus != model.KeyStatusActive {
-			summary.SkippedDisabled++
-			continue
-		}
-		if kind, _ := model.NormalizeKeyKind(target.Kind); kind == model.KeyKindInformational {
-			summary.SkippedUnsupported++
-			continue
-		}
-		if target.Unreadable || strings.TrimSpace(target.URL) == "" {
-			summary.CheckFailed++
+		if summary.skipTarget(target) {
 			continue
 		}
 
@@ -89,66 +81,101 @@ func executeKeyHealthCheckBatch(
 		go func(item keymanagement.HealthCheckTarget) {
 			defer waitGroup.Done()
 			defer func() { <-semaphore }()
-			result := keyHealthCheckItemResult{}
-			defer func() {
-				if recover() != nil {
-					result = keyHealthCheckItemResult{checkFailed: true}
-				}
-				results <- result
-			}()
-
-			status, detail, latency, err := check(context.Background(), item.URL)
-			if err != nil {
-				result.checkFailed = true
-				return
-			}
-			result.status = model.NormalizeCheckStatus(status)
-			if result.status == "unsupported_check" {
-				result.unsupported = true
-			}
-			// SQLite has one writer. Keep probes concurrent, but serialize their
-			// short metadata updates so the batch does not contend with itself.
-			persistenceMu.Lock()
-			persistErr := persist(item.ID, result.status, detail, latency)
-			persistenceMu.Unlock()
-			if persistErr != nil {
-				log.Printf(
-					"background key check result persistence failed: key_id=%d health_state=%s latency_ms=%d error_type=%T err=%v",
-					item.ID,
-					result.status,
-					latency,
-					persistErr,
-					persistErr,
-				)
-				result.persistFailed = true
-			}
+			results <- checkKeyHealthTarget(item, check, persist, &persistenceMu)
 		}(target)
 	}
 
 	waitGroup.Wait()
 	close(results)
 	for result := range results {
-		summary.Checked++
-		if result.checkFailed {
-			summary.CheckFailed++
-			continue
-		}
-		if result.persistFailed {
-			summary.PersistFailed++
-		} else {
-			summary.PersistedOK++
-		}
-		if result.unsupported {
-			summary.SkippedUnsupported++
-		} else if result.status == "up" {
-			summary.Healthy++
-		} else if result.status == "down" {
-			summary.Unhealthy++
-		} else {
-			summary.CheckFailed++
-		}
+		summary.record(result)
 	}
 	return summary
+}
+
+// skipTarget counts a target that is not probed at all and reports whether it
+// was skipped.
+func (s *keyHealthCheckJobSummary) skipTarget(target keymanagement.HealthCheckTarget) bool {
+	targetStatus, _ := model.NormalizeKeyStatus(target.Status)
+	if targetStatus != model.KeyStatusActive {
+		s.SkippedDisabled++
+		return true
+	}
+	if kind, _ := model.NormalizeKeyKind(target.Kind); kind == model.KeyKindInformational {
+		s.SkippedUnsupported++
+		return true
+	}
+	if target.Unreadable || strings.TrimSpace(target.URL) == "" {
+		s.CheckFailed++
+		return true
+	}
+	return false
+}
+
+// record tallies one probed target.
+func (s *keyHealthCheckJobSummary) record(result keyHealthCheckItemResult) {
+	s.Checked++
+	if result.checkFailed {
+		s.CheckFailed++
+		return
+	}
+	if result.persistFailed {
+		s.PersistFailed++
+	} else {
+		s.PersistedOK++
+	}
+	switch {
+	case result.unsupported:
+		s.SkippedUnsupported++
+	case result.status == "up":
+		s.Healthy++
+	case result.status == "down":
+		s.Unhealthy++
+	default:
+		s.CheckFailed++
+	}
+}
+
+// checkKeyHealthTarget probes one key and persists the outcome. A panic in the
+// checker or persister is reported as a failed check.
+func checkKeyHealthTarget(
+	item keymanagement.HealthCheckTarget,
+	check keyHealthCheckExecutor,
+	persist keyHealthResultPersister,
+	persistenceMu *sync.Mutex,
+) (result keyHealthCheckItemResult) {
+	defer func() {
+		if recover() != nil {
+			result = keyHealthCheckItemResult{checkFailed: true}
+		}
+	}()
+
+	status, detail, latency, err := check(context.Background(), item.URL)
+	if err != nil {
+		result.checkFailed = true
+		return result
+	}
+	result.status = model.NormalizeCheckStatus(status)
+	if result.status == "unsupported_check" {
+		result.unsupported = true
+	}
+	// SQLite has one writer. Keep probes concurrent, but serialize their
+	// short metadata updates so the batch does not contend with itself.
+	persistenceMu.Lock()
+	persistErr := persist(item.ID, result.status, detail, latency)
+	persistenceMu.Unlock()
+	if persistErr != nil {
+		log.Printf(
+			"background key check result persistence failed: key_id=%d health_state=%s latency_ms=%d error_type=%T err=%v",
+			item.ID,
+			result.status,
+			latency,
+			persistErr,
+			persistErr,
+		)
+		result.persistFailed = true
+	}
+	return result
 }
 
 func keyHealthCheckJobStatus(summary keyHealthCheckJobSummary, fatalErr error) string {
@@ -278,7 +305,7 @@ func (a *App) startSourceSyncRun(sourceID int64) int64 {
 	return id
 }
 
-func (a *App) finishSourceSyncRun(id int64, result externalSyncResult, err error) {
+func (a *App) finishSourceSyncRun(id int64, result sources.SyncResult, err error) {
 	if id == 0 {
 		return
 	}
@@ -292,7 +319,7 @@ func (a *App) finishSourceSyncRun(id int64, result externalSyncResult, err error
 	`, result.Imported, result.Skipped, marshalExternalCounts(result.Counts), id)
 }
 
-func marshalExternalCounts(counts externalImportCounts) string {
+func marshalExternalCounts(counts sources.Counts) string {
 	payload, err := json.Marshal(counts)
 	if err != nil {
 		return "{}"
@@ -304,7 +331,7 @@ func (a *App) apiV1ListJobs(w http.ResponseWriter, r *http.Request) {
 	page, pageSize := parsePageParams(r)
 	var total int
 	if err := a.db.QueryRow(`SELECT COUNT(*) FROM background_jobs`).Scan(&total); err != nil {
-		writeV1Error(w, r, http.StatusInternalServerError, "jobs_list_failed", "failed to load jobs")
+		httpapi.WriteV1Error(w, r, http.StatusInternalServerError, "jobs_list_failed", "failed to load jobs")
 		return
 	}
 	rows, err := a.db.Query(`
@@ -312,7 +339,7 @@ func (a *App) apiV1ListJobs(w http.ResponseWriter, r *http.Request) {
 		FROM background_jobs ORDER BY id DESC LIMIT ? OFFSET ?
 	`, pageSize, (page-1)*pageSize)
 	if err != nil {
-		writeV1Error(w, r, http.StatusInternalServerError, "jobs_list_failed", "failed to load jobs")
+		httpapi.WriteV1Error(w, r, http.StatusInternalServerError, "jobs_list_failed", "failed to load jobs")
 		return
 	}
 	defer rows.Close()
@@ -322,7 +349,7 @@ func (a *App) apiV1ListJobs(w http.ResponseWriter, r *http.Request) {
 		var resultCountsJSON string
 		var runAfter, startedAt, finishedAt sql.NullTime
 		if err := rows.Scan(&item.ID, &item.Kind, &item.Status, &item.TargetType, &item.TargetID, &item.ErrorMessage, &resultCountsJSON, &runAfter, &startedAt, &finishedAt, &item.CreatedAt); err != nil {
-			writeV1Error(w, r, http.StatusInternalServerError, "jobs_list_failed", "failed to load jobs")
+			httpapi.WriteV1Error(w, r, http.StatusInternalServerError, "jobs_list_failed", "failed to load jobs")
 			return
 		}
 		item.RunAfter = nullTimePointer(runAfter)
@@ -335,11 +362,11 @@ func (a *App) apiV1ListJobs(w http.ResponseWriter, r *http.Request) {
 	if total > 0 {
 		totalPages = (total + pageSize - 1) / pageSize
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"data": items, "meta": pageMeta{Page: page, PageSize: pageSize, Total: total, TotalPages: totalPages}})
+	httpapi.WriteJSON(w, http.StatusOK, map[string]any{"data": items, "meta": pageMeta{Page: page, PageSize: pageSize, Total: total, TotalPages: totalPages}})
 }
 
 func (a *App) apiV1GetJob(w http.ResponseWriter, r *http.Request) {
-	jobID, ok := pathID(w, r, "id")
+	jobID, ok := httpapi.PathID(w, r, "id")
 	if !ok {
 		return
 	}
@@ -356,22 +383,22 @@ func (a *App) apiV1GetJob(w http.ResponseWriter, r *http.Request) {
 		&item.ErrorMessage, &resultCountsJSON, &runAfter, &startedAt, &finishedAt, &item.CreatedAt,
 	)
 	if errors.Is(err, sql.ErrNoRows) {
-		writeV1Error(w, r, http.StatusNotFound, "job_not_found", "job not found")
+		httpapi.WriteV1Error(w, r, http.StatusNotFound, "job_not_found", "job not found")
 		return
 	}
 	if err != nil {
-		writeV1Error(w, r, http.StatusInternalServerError, "job_load_failed", "failed to load job")
+		httpapi.WriteV1Error(w, r, http.StatusInternalServerError, "job_load_failed", "failed to load job")
 		return
 	}
 	item.RunAfter = nullTimePointer(runAfter)
 	item.StartedAt = nullTimePointer(startedAt)
 	item.FinishedAt = nullTimePointer(finishedAt)
 	decodeKeyHealthCheckJobCounts(&item, resultCountsJSON)
-	writeJSON(w, http.StatusOK, map[string]any{"data": item})
+	httpapi.WriteJSON(w, http.StatusOK, map[string]any{"data": item})
 }
 
 func (a *App) apiV1ListSourceSyncRuns(w http.ResponseWriter, r *http.Request) {
-	sourceID, ok := pathID(w, r, "id")
+	sourceID, ok := httpapi.PathID(w, r, "id")
 	if !ok {
 		return
 	}
@@ -380,7 +407,7 @@ func (a *App) apiV1ListSourceSyncRuns(w http.ResponseWriter, r *http.Request) {
 		FROM source_sync_runs WHERE source_id = ? ORDER BY id DESC LIMIT 50
 	`, sourceID)
 	if err != nil {
-		writeV1Error(w, r, http.StatusInternalServerError, "sync_runs_list_failed", "failed to load sync history")
+		httpapi.WriteV1Error(w, r, http.StatusInternalServerError, "sync_runs_list_failed", "failed to load sync history")
 		return
 	}
 	defer rows.Close()
@@ -392,10 +419,10 @@ func (a *App) apiV1ListSourceSyncRuns(w http.ResponseWriter, r *http.Request) {
 		var started time.Time
 		var finished sql.NullTime
 		if err := rows.Scan(&id, &status, &imported, &skipped, &resultCountsJSON, &errorMessage, &started, &finished); err != nil {
-			writeV1Error(w, r, http.StatusInternalServerError, "sync_runs_list_failed", "failed to load sync history")
+			httpapi.WriteV1Error(w, r, http.StatusInternalServerError, "sync_runs_list_failed", "failed to load sync history")
 			return
 		}
-		var resultCounts externalImportCounts
+		var resultCounts sources.Counts
 		_ = json.Unmarshal([]byte(resultCountsJSON), &resultCounts)
 		items = append(items, map[string]any{
 			"id": id, "source_id": sourceID, "status": status, "imported_count": imported,
@@ -403,34 +430,30 @@ func (a *App) apiV1ListSourceSyncRuns(w http.ResponseWriter, r *http.Request) {
 			"finished_at": nullTimePointer(finished),
 		})
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"data": items, "source_id": strconv.FormatInt(sourceID, 10)})
+	httpapi.WriteJSON(w, http.StatusOK, map[string]any{"data": items, "source_id": strconv.FormatInt(sourceID, 10)})
 }
 
 func (a *App) apiV1QueueSourceSync(w http.ResponseWriter, r *http.Request) {
-	sourceID, ok := pathID(w, r, "id")
+	sourceID, ok := httpapi.PathID(w, r, "id")
 	if !ok {
 		return
 	}
 	if _, err := a.getExternalSourceByID(sourceID); errors.Is(err, sql.ErrNoRows) {
-		writeV1Error(w, r, http.StatusNotFound, "source_not_found", "source not found")
+		httpapi.WriteV1Error(w, r, http.StatusNotFound, "source_not_found", "source not found")
 		return
 	} else if err != nil {
-		writeV1Error(w, r, http.StatusInternalServerError, "source_load_failed", "failed to load source")
+		httpapi.WriteV1Error(w, r, http.StatusInternalServerError, "source_load_failed", "failed to load source")
 		return
 	}
 	session, _, _ := a.adminSessionFromRequest(r)
 	requestID := requestIDFromRequest(r)
 	jobID := a.queueTrackedJob("source_sync", "external_source", strconv.FormatInt(sourceID, 10))
 	if jobID == 0 {
-		writeV1Error(w, r, http.StatusInternalServerError, "job_queue_failed", "failed to queue source synchronization")
+		httpapi.WriteV1Error(w, r, http.StatusInternalServerError, "job_queue_failed", "failed to queue source synchronization")
 		return
 	}
 	go a.runQueuedSourceSync(jobID, sourceID, session.AdminID, requestID)
-	writeJSON(w, http.StatusAccepted, map[string]any{"job_id": jobID, "status": "queued"})
-}
-
-func (a *App) apiV1QueueKeyHealthCheck(w http.ResponseWriter, r *http.Request) {
-	a.keyAdministrationHTTPHandler().QueueHealthCheck(w, r)
+	httpapi.WriteJSON(w, http.StatusAccepted, map[string]any{"job_id": jobID, "status": "queued"})
 }
 
 func (a *App) queueKeyHealthCheck(r *http.Request) int64 {
@@ -469,16 +492,16 @@ func (a *App) runQueuedSourceSync(jobID, sourceID, actorAdminID int64, requestID
 	source, err := a.getExternalSourceByID(sourceID)
 	if err != nil {
 		a.finishTrackedJob(jobID, err)
-		a.finishSourceSyncRun(runID, externalSyncResult{}, err)
+		a.finishSourceSyncRun(runID, sources.SyncResult{}, err)
 		return
 	}
 	a.markExternalSourceStatus(sourceID, "syncing", "")
-	hwidProfile := normalizeExternalHWIDProfile(source.PassHWID, source.HWIDVersion, source.HWIDModelName, source.HWIDValue)
-	parsed, err := fetchExternalSubscription(source.SourceURL, hwidProfile, a.externalProfileFingerprintKeys())
+	hwidProfile := sources.NormalizeHWIDProfile(source.PassHWID, source.HWIDVersion, source.HWIDModelName, source.HWIDValue)
+	parsed, err := sources.Fetch(context.Background(), a.sourceClient(), source.SourceURL, hwidProfile, a.externalProfileFingerprintKeys())
 	if err != nil {
 		a.markExternalSourceStatus(sourceID, "error", err.Error())
 		a.finishTrackedJob(jobID, err)
-		a.finishSourceSyncRun(runID, externalSyncResult{}, err)
+		a.finishSourceSyncRun(runID, sources.SyncResult{}, err)
 		return
 	}
 	syncResult, err := a.syncExternalSource(sourceID, parsed)
@@ -499,22 +522,22 @@ func (a *App) runQueuedSourceSync(jobID, sourceID, actorAdminID int64, requestID
 }
 
 func (a *App) apiV1RetryJob(w http.ResponseWriter, r *http.Request) {
-	jobID, ok := pathID(w, r, "id")
+	jobID, ok := httpapi.PathID(w, r, "id")
 	if !ok {
 		return
 	}
 	var kind, status, targetID string
 	err := a.db.QueryRow(`SELECT kind, status, target_id FROM background_jobs WHERE id = ?`, jobID).Scan(&kind, &status, &targetID)
 	if errors.Is(err, sql.ErrNoRows) {
-		writeV1Error(w, r, http.StatusNotFound, "job_not_found", "job not found")
+		httpapi.WriteV1Error(w, r, http.StatusNotFound, "job_not_found", "job not found")
 		return
 	}
 	if err != nil {
-		writeV1Error(w, r, http.StatusInternalServerError, "job_load_failed", "failed to load job")
+		httpapi.WriteV1Error(w, r, http.StatusInternalServerError, "job_load_failed", "failed to load job")
 		return
 	}
 	if status != "failed" {
-		writeV1Error(w, r, http.StatusConflict, "job_not_failed", "only failed jobs can be retried")
+		httpapi.WriteV1Error(w, r, http.StatusConflict, "job_not_failed", "only failed jobs can be retried")
 		return
 	}
 	targetType := ""
@@ -524,19 +547,19 @@ func (a *App) apiV1RetryJob(w http.ResponseWriter, r *http.Request) {
 		targetType = "external_source"
 		sourceID, err = strconv.ParseInt(strings.TrimSpace(targetID), 10, 64)
 		if err != nil || sourceID < 1 {
-			writeV1Error(w, r, http.StatusConflict, "job_target_invalid", "job target is invalid")
+			httpapi.WriteV1Error(w, r, http.StatusConflict, "job_target_invalid", "job target is invalid")
 			return
 		}
 	case "keys_health_check":
 		targetType = "key"
 	default:
-		writeV1Error(w, r, http.StatusConflict, "job_not_retryable", "this job type is not retryable")
+		httpapi.WriteV1Error(w, r, http.StatusConflict, "job_not_retryable", "this job type is not retryable")
 		return
 	}
 	session, _, _ := a.adminSessionFromRequest(r)
 	newJobID := a.queueTrackedJob(kind, targetType, targetID)
 	if newJobID == 0 {
-		writeV1Error(w, r, http.StatusInternalServerError, "job_queue_failed", "failed to retry job")
+		httpapi.WriteV1Error(w, r, http.StatusInternalServerError, "job_queue_failed", "failed to retry job")
 		return
 	}
 	switch kind {
@@ -545,5 +568,5 @@ func (a *App) apiV1RetryJob(w http.ResponseWriter, r *http.Request) {
 	case "keys_health_check":
 		go a.runQueuedKeyHealthCheck(newJobID, session.AdminID, requestIDFromRequest(r))
 	}
-	writeJSON(w, http.StatusAccepted, map[string]any{"job_id": newJobID, "retry_of": jobID, "status": "queued"})
+	httpapi.WriteJSON(w, http.StatusAccepted, map[string]any{"job_id": newJobID, "retry_of": jobID, "status": "queued"})
 }

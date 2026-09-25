@@ -3,6 +3,8 @@ package main
 import (
 	"encoding/base64"
 	"encoding/json"
+	"github.com/romanpodg/SubShare-Go/internal/delivery"
+	"github.com/romanpodg/SubShare-Go/internal/profileconfig"
 	"strings"
 	"testing"
 )
@@ -26,7 +28,7 @@ func firstOutbound(t *testing.T, raw string) map[string]any {
 
 func TestNormalizeConfigurationForSubscriptionOutput_VLESS(t *testing.T) {
 	raw := "vless://11111111-1111-1111-1111-111111111111@example.com:443?type=ws&security=tls&path=%2Fws&host=cdn.example.com&sni=example.com&alpn=h2,http%2F1.1#My%20Server"
-	converted, err := normalizeConfigurationForSubscriptionOutput(raw, "xray-json", "")
+	converted, err := delivery.NormalizeForOutput(raw, "xray-json", "")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -39,7 +41,7 @@ func TestNormalizeConfigurationForSubscriptionOutput_VLESS(t *testing.T) {
 
 func TestNormalizeConfigurationForSubscriptionOutput_Trojan(t *testing.T) {
 	raw := "trojan://my-password@example.com:443?security=tls&sni=example.com#Trojan"
-	converted, err := normalizeConfigurationForSubscriptionOutput(raw, "xray-json", "")
+	converted, err := delivery.NormalizeForOutput(raw, "xray-json", "")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -55,7 +57,7 @@ func TestNormalizeConfigurationForSubscriptionOutput_VMESS(t *testing.T) {
 	encoded := base64.StdEncoding.EncodeToString([]byte(payload))
 	raw := "vmess://" + encoded
 
-	converted, err := normalizeConfigurationForSubscriptionOutput(raw, "xray-json", "")
+	converted, err := delivery.NormalizeForOutput(raw, "xray-json", "")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -68,7 +70,7 @@ func TestNormalizeConfigurationForSubscriptionOutput_VMESS(t *testing.T) {
 
 func TestNormalizeConfigurationForSubscriptionOutput_BuildsFullClientTemplate(t *testing.T) {
 	raw := "vless://11111111-1111-1111-1111-111111111111@example.com:443?type=tcp&security=reality&pbk=pubKey123&sni=yahoo.com#Node"
-	converted, err := normalizeConfigurationForSubscriptionOutput(raw, "xray-json", "")
+	converted, err := delivery.NormalizeForOutput(raw, "xray-json", "")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -124,7 +126,7 @@ func TestNormalizeConfigurationForSubscriptionOutput_BuildsFullClientTemplate(t 
 
 func TestNormalizeConfigurationForSubscriptionOutput_PassthroughJSON(t *testing.T) {
 	raw := ` { "outbounds": [{"protocol":"vless","settings":{"vnext":[{"address":"example.com","port":443,"users":[{"id":"33333333-3333-3333-3333-333333333333"}]}]}}], "inbounds": [] } `
-	converted, err := normalizeConfigurationForSubscriptionOutput(raw, "xray-json", "")
+	converted, err := delivery.NormalizeForOutput(raw, "xray-json", "")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -139,7 +141,7 @@ func TestNormalizeConfigurationForSubscriptionOutput_PassthroughJSON(t *testing.
 
 func TestNormalizeConfigurationForSubscriptionOutput_KeepLinksMode(t *testing.T) {
 	raw := " vless://11111111-1111-1111-1111-111111111111@example.com:443 "
-	converted, err := normalizeConfigurationForSubscriptionOutput(raw, "links", "")
+	converted, err := delivery.NormalizeForOutput(raw, "links", "")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -149,7 +151,7 @@ func TestNormalizeConfigurationForSubscriptionOutput_KeepLinksMode(t *testing.T)
 }
 
 func TestNormalizeConfigurationForSubscriptionOutput_Invalid(t *testing.T) {
-	_, err := normalizeConfigurationForSubscriptionOutput("not-a-valid-config", "xray-json", "")
+	_, err := delivery.NormalizeForOutput("not-a-valid-config", "xray-json", "")
 	if err == nil {
 		t.Fatalf("expected error")
 	}
@@ -157,7 +159,7 @@ func TestNormalizeConfigurationForSubscriptionOutput_Invalid(t *testing.T) {
 
 func TestNormalizeConfigurationForSubscriptionOutput_RealityFieldsAndFallbackRemark(t *testing.T) {
 	raw := "vless://aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa@edge.example.com:443?type=tcp&security=reality&flow=xtls-rprx-vision&fp=chrome&pbk=pubkey123&sid=abcd1234&spx=%2Fprobe&sni=www.microsoft.com"
-	converted, err := normalizeConfigurationForSubscriptionOutput(raw, "xray-json", "Finland")
+	converted, err := delivery.NormalizeForOutput(raw, "xray-json", "Finland")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -201,7 +203,7 @@ func TestNormalizeConfigurationForSubscriptionOutput_RealityFieldsAndFallbackRem
 
 func TestNormalizeConfigurationForSubscriptionOutput_RealityPublicKeyKeepsPlus(t *testing.T) {
 	raw := "vless://aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa@edge.example.com:443?security=reality&pbk=AbCd+EfGh%2F123%3D%3D&sid=abcd1234&sni=www.microsoft.com#Reality"
-	converted, err := normalizeConfigurationForSubscriptionOutput(raw, "xray-json", "")
+	converted, err := delivery.NormalizeForOutput(raw, "xray-json", "")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -222,7 +224,7 @@ func TestNormalizeConfigurationForSubscriptionOutput_VmessSecurityAlterIDAndHead
 	encoded := base64.StdEncoding.EncodeToString([]byte(payload))
 	raw := "vmess://" + encoded
 
-	converted, err := normalizeConfigurationForSubscriptionOutput(raw, "xray-json", "")
+	converted, err := delivery.NormalizeForOutput(raw, "xray-json", "")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -269,11 +271,11 @@ func TestHealthCheckRejectsPrivateTargetsBeforeDial(t *testing.T) {
 
 func TestXrayOutboundCanRenderAsCanonicalShareLink(t *testing.T) {
 	raw := `{"outbounds":[{"protocol":"trojan","tag":"edge","settings":{"servers":[{"address":"edge.example","port":443,"password":"secret"}]},"streamSettings":{"network":"grpc","security":"tls","tlsSettings":{"serverName":"edge.example"},"grpcSettings":{"serviceName":"proxy"}}}]}`
-	drafts, err := parseXrayJSONDrafts(raw)
+	drafts, err := profileconfig.ParseXrayJSONDrafts(raw)
 	if err != nil || len(drafts) != 1 {
 		t.Fatalf("parse drafts: count=%d err=%v", len(drafts), err)
 	}
-	link, err := buildShareLinkFromDraft(drafts[0])
+	link, err := profileconfig.BuildShareLinkFromDraft(drafts[0])
 	if err != nil {
 		t.Fatalf("build link: %v", err)
 	}
@@ -295,7 +297,7 @@ func TestParseXrayJSONDraftsRejectsPartiallyInvalidSupportedOutbound(t *testing.
 		}]
 	}`
 
-	if _, err := parseXrayJSONDrafts(raw); err == nil {
+	if _, err := profileconfig.ParseXrayJSONDrafts(raw); err == nil {
 		t.Fatal("expected the invalid supported vnext entry to reject the complete Xray document")
 	}
 }

@@ -39,6 +39,13 @@ jobs:
       - name: Vet
         run: go vet ./...
 
+      - name: Lint
+        uses: golangci/golangci-lint-action@v8
+        with:
+          version: v2.13.2
+          # the complexity backlog is tracked, not blocking; new issues fail the build
+          only-new-issues: true
+
       - name: Build
         run: go build ./cmd/server
 
@@ -46,7 +53,7 @@ jobs:
         run: go test ./...
 
       - name: Migration compatibility test
-        run: go test ./cmd/server -run TestMigrateAppliesVersionedMigrationsIdempotently -count=1
+        run: go test ./internal/storage -run TestMigrateAppliesVersionedMigrationsIdempotently -count=1
 
       - name: Secret scan
         uses: gitleaks/gitleaks-action@v3

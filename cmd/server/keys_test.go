@@ -29,7 +29,7 @@ func TestSafeDetailEndpointNeverExposesSecrets(t *testing.T) {
 	req.Header.Set("Content-Type", "application/json")
 	req.AddCookie(&http.Cookie{Name: "subshare_admin_session", Value: sessionID})
 	rec := httptest.NewRecorder()
-	app.apiV1CreateKeyProfile(rec, req)
+	app.keys().profiles.CreateKeyProfile(rec, req)
 	if rec.Code != http.StatusCreated {
 		t.Fatalf("create status=%d body=%s", rec.Code, rec.Body.String())
 	}
@@ -39,7 +39,7 @@ func TestSafeDetailEndpointNeverExposesSecrets(t *testing.T) {
 	detailReq.SetPathValue("id", "1")
 	detailReq.AddCookie(&http.Cookie{Name: "subshare_admin_session", Value: sessionID})
 	detailRec := httptest.NewRecorder()
-	app.apiV1GetKey(detailRec, detailReq)
+	app.keys().profiles.GetKey(detailRec, detailReq)
 
 	if detailRec.Code != http.StatusOK {
 		t.Fatalf("get detail status=%d body=%s", detailRec.Code, detailRec.Body.String())
@@ -75,7 +75,7 @@ func TestRevealEndpointRequiresConcurrenyRevisionAndEmitsAuditEvent(t *testing.T
 	req.Header.Set("Content-Type", "application/json")
 	req.AddCookie(&http.Cookie{Name: "subshare_admin_session", Value: sessionID})
 	rec := httptest.NewRecorder()
-	app.apiV1CreateKeyProfile(rec, req)
+	app.keys().profiles.CreateKeyProfile(rec, req)
 
 	// Reveal mismatch revision -> 409
 	revealBody, _ := json.Marshal(map[string]any{
@@ -87,7 +87,7 @@ func TestRevealEndpointRequiresConcurrenyRevisionAndEmitsAuditEvent(t *testing.T
 	revealReq.Header.Set("Content-Type", "application/json")
 	revealReq.AddCookie(&http.Cookie{Name: "subshare_admin_session", Value: sessionID})
 	revealRec := httptest.NewRecorder()
-	app.apiV1RevealKey(revealRec, revealReq)
+	app.keys().profiles.RevealKey(revealRec, revealReq)
 
 	if revealRec.Code != http.StatusConflict {
 		t.Fatalf("reveal status=%d, want 409", revealRec.Code)
@@ -103,7 +103,7 @@ func TestRevealEndpointRequiresConcurrenyRevisionAndEmitsAuditEvent(t *testing.T
 	revealReq2.Header.Set("Content-Type", "application/json")
 	revealReq2.AddCookie(&http.Cookie{Name: "subshare_admin_session", Value: sessionID})
 	revealRec2 := httptest.NewRecorder()
-	app.apiV1RevealKey(revealRec2, revealReq2)
+	app.keys().profiles.RevealKey(revealRec2, revealReq2)
 
 	if revealRec2.Code != http.StatusOK {
 		t.Fatalf("reveal status=%d, want 200", revealRec2.Code)
@@ -135,7 +135,7 @@ func TestUpdateIncrementsProfileRevisionAndRejectsStale(t *testing.T) {
 	req.Header.Set("Content-Type", "application/json")
 	req.AddCookie(&http.Cookie{Name: "subshare_admin_session", Value: sessionID})
 	rec := httptest.NewRecorder()
-	app.apiV1CreateKeyProfile(rec, req)
+	app.keys().profiles.CreateKeyProfile(rec, req)
 
 	// Update with rev 1 -> 200
 	updateBody, _ := json.Marshal(map[string]any{
@@ -151,7 +151,7 @@ func TestUpdateIncrementsProfileRevisionAndRejectsStale(t *testing.T) {
 	upReq.Header.Set("Content-Type", "application/json")
 	upReq.AddCookie(&http.Cookie{Name: "subshare_admin_session", Value: sessionID})
 	upRec := httptest.NewRecorder()
-	app.apiV1UpdateKeyProfile(upRec, upReq)
+	app.keys().profiles.UpdateKeyProfile(upRec, upReq)
 
 	if upRec.Code != http.StatusOK {
 		t.Fatalf("update status=%d body=%s", upRec.Code, upRec.Body.String())
@@ -172,7 +172,7 @@ func TestUpdateIncrementsProfileRevisionAndRejectsStale(t *testing.T) {
 	upReq2.Header.Set("Content-Type", "application/json")
 	upReq2.AddCookie(&http.Cookie{Name: "subshare_admin_session", Value: sessionID})
 	upRec2 := httptest.NewRecorder()
-	app.apiV1UpdateKeyProfile(upRec2, upReq2)
+	app.keys().profiles.UpdateKeyProfile(upRec2, upReq2)
 
 	if upRec2.Code != http.StatusConflict {
 		t.Fatalf("stale update status=%d, want 409", upRec2.Code)
@@ -203,7 +203,7 @@ func TestSourceOwnedProfileMaterialIsImmutable(t *testing.T) {
 	upReq.Header.Set("Content-Type", "application/json")
 	upReq.AddCookie(&http.Cookie{Name: "subshare_admin_session", Value: sessionID})
 	upRec := httptest.NewRecorder()
-	app.apiV1UpdateKeyProfile(upRec, upReq)
+	app.keys().profiles.UpdateKeyProfile(upRec, upReq)
 
 	if upRec.Code != http.StatusForbidden {
 		t.Fatalf("source-owned update status=%d, want 403", upRec.Code)
@@ -234,7 +234,7 @@ func TestCloneKeyCreatesLocalUnlinkedRecordAtRevisionOne(t *testing.T) {
 	cloneReq.Header.Set("Content-Type", "application/json")
 	cloneReq.AddCookie(&http.Cookie{Name: "subshare_admin_session", Value: sessionID})
 	cloneRec := httptest.NewRecorder()
-	app.apiV1CloneKey(cloneRec, cloneReq)
+	app.keys().profiles.CloneKey(cloneRec, cloneReq)
 
 	if cloneRec.Code != http.StatusCreated {
 		t.Fatalf("clone status=%d body=%s", cloneRec.Code, cloneRec.Body.String())
@@ -269,7 +269,7 @@ func TestCreateAndUpdateRejectMutuallyExclusiveAndInvalidModes(t *testing.T) {
 	req.Header.Set("Content-Type", "application/json")
 	req.AddCookie(&http.Cookie{Name: "subshare_admin_session", Value: sessionID})
 	rec := httptest.NewRecorder()
-	app.apiV1CreateKeyProfile(rec, req)
+	app.keys().profiles.CreateKeyProfile(rec, req)
 
 	if rec.Code != http.StatusBadRequest {
 		t.Fatalf("create status=%d, want 400", rec.Code)
@@ -288,7 +288,7 @@ func TestCreateAndUpdateRejectMutuallyExclusiveAndInvalidModes(t *testing.T) {
 	req2.Header.Set("Content-Type", "application/json")
 	req2.AddCookie(&http.Cookie{Name: "subshare_admin_session", Value: sessionID})
 	rec2 := httptest.NewRecorder()
-	app.apiV1CreateKeyProfile(rec2, req2)
+	app.keys().profiles.CreateKeyProfile(rec2, req2)
 
 	if rec2.Code != http.StatusBadRequest {
 		t.Fatalf("tuic v4 structured create status=%d, want 400", rec2.Code)
@@ -311,7 +311,7 @@ func TestTriStateSemanticsInStructuredUpdate(t *testing.T) {
 	req.Header.Set("Content-Type", "application/json")
 	req.AddCookie(&http.Cookie{Name: "subshare_admin_session", Value: sessionID})
 	rec := httptest.NewRecorder()
-	app.apiV1CreateKeyProfile(rec, req)
+	app.keys().profiles.CreateKeyProfile(rec, req)
 
 	// Clear plugin name -> plugin becomes nil
 	updateBody, _ := json.Marshal(map[string]any{
@@ -333,7 +333,7 @@ func TestTriStateSemanticsInStructuredUpdate(t *testing.T) {
 	upReq.Header.Set("Content-Type", "application/json")
 	upReq.AddCookie(&http.Cookie{Name: "subshare_admin_session", Value: sessionID})
 	upRec := httptest.NewRecorder()
-	app.apiV1UpdateKeyProfile(upRec, upReq)
+	app.keys().profiles.UpdateKeyProfile(upRec, upReq)
 
 	if upRec.Code != http.StatusOK {
 		t.Fatalf("update status=%d body=%s", upRec.Code, upRec.Body.String())
@@ -356,7 +356,7 @@ func TestKeyEditorSchemaEndpointReturnsValidProtocolsAndExclusionReasons(t *test
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/key-editor-schema", nil)
 	req.AddCookie(&http.Cookie{Name: "subshare_admin_session", Value: sessionID})
 	rec := httptest.NewRecorder()
-	app.apiV1GetKeyEditorSchema(rec, req)
+	app.keys().profiles.GetKeyEditorSchema(rec, req)
 
 	if rec.Code != http.StatusOK {
 		t.Fatalf("schema status=%d body=%s", rec.Code, rec.Body.String())

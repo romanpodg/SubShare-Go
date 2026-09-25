@@ -1,6 +1,7 @@
 package main
 
 import (
+	"github.com/romanpodg/SubShare-Go/internal/sources"
 	"net/http"
 	"net/netip"
 	"net/url"
@@ -25,8 +26,8 @@ func TestValidateExternalSourceURLRejectsInternalTargets(t *testing.T) {
 		raw := raw
 		t.Run(raw, func(t *testing.T) {
 			t.Parallel()
-			if _, err := validateExternalSourceURL(raw); err == nil {
-				t.Fatalf("validateExternalSourceURL(%q) unexpectedly succeeded", raw)
+			if _, err := sources.ValidateURL(raw); err == nil {
+				t.Fatalf("ValidateURL(%q) unexpectedly succeeded", raw)
 			}
 		})
 	}
@@ -35,9 +36,9 @@ func TestValidateExternalSourceURLRejectsInternalTargets(t *testing.T) {
 func TestValidateExternalSourceURLAcceptsPublicHTTPURL(t *testing.T) {
 	t.Parallel()
 
-	got, err := validateExternalSourceURL("https://example.com/subscription")
+	got, err := sources.ValidateURL("https://example.com/subscription")
 	if err != nil {
-		t.Fatalf("validateExternalSourceURL: %v", err)
+		t.Fatalf("ValidateURL: %v", err)
 	}
 	if got != "https://example.com/subscription" {
 		t.Fatalf("unexpected normalized URL: %q", got)
@@ -64,8 +65,8 @@ func TestIsForbiddenExternalIP(t *testing.T) {
 		t.Run(test.raw, func(t *testing.T) {
 			t.Parallel()
 			address := netip.MustParseAddr(test.raw)
-			if got := isForbiddenExternalIP(address); got != test.forbidden {
-				t.Fatalf("isForbiddenExternalIP(%s) = %v, want %v", address, got, test.forbidden)
+			if got := sources.IsForbiddenIP(address); got != test.forbidden {
+				t.Fatalf("IsForbiddenIP(%s) = %v, want %v", address, got, test.forbidden)
 			}
 		})
 	}
@@ -73,7 +74,7 @@ func TestIsForbiddenExternalIP(t *testing.T) {
 
 func TestExternalClientRevalidatesRedirects(t *testing.T) {
 	t.Parallel()
-	client := newExternalSubscriptionHTTPClient()
+	client := sources.NewHTTPClient()
 	privateURL, _ := url.Parse("http://127.0.0.1/private")
 	request := &http.Request{URL: privateURL}
 	if err := client.CheckRedirect(request, []*http.Request{{}, {}}); err == nil {

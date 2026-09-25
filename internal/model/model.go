@@ -166,7 +166,6 @@ type VLESSKey struct {
 	Category                    string    `json:"category"`
 	Kind                        string    `json:"kind"`
 	TemplateText                string    `json:"template_text"`
-	URLShort                    string    `json:"url_short"`
 	Status                      string    `json:"status"`
 	StatusLabel                 string    `json:"status_label"`
 	CheckStatus                 string    `json:"check_status"`
@@ -174,11 +173,6 @@ type VLESSKey struct {
 	CheckError                  string    `json:"check_error"`
 	LastLatencyMS               int64     `json:"last_latency_ms"`
 	LastCheckedAtText           string    `json:"last_checked_at"`
-	EditUUID                    string    `json:"edit_uuid"`
-	EditHost                    string    `json:"edit_host"`
-	EditPort                    string    `json:"edit_port"`
-	EditQuery                   string    `json:"edit_query"`
-	EditFragment                string    `json:"edit_fragment"`
 	ExternalSourceID            int64     `json:"external_source_id"`
 	ExternalSourceName          string    `json:"external_source_name"`
 	ClientDisplayName           string    `json:"client_display_name"`

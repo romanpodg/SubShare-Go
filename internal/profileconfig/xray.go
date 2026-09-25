@@ -151,126 +151,155 @@ func ParseXrayJSONDrafts(raw string) ([]LinkConfigurationDraft, error) {
 		}
 		settings, _ := AsObject(outbound["settings"])
 		stream, _ := AsObject(outbound["streamSettings"])
-		base := LinkConfigurationDraft{
-			Protocol: protocol,
-			Remark:   AnyToString(outbound["tag"]),
-			Network:  NormalizeXrayNetwork(AnyToString(stream["network"])),
-			Security: NormalizeXraySecurity(AnyToString(stream["security"])),
-		}
-		if base.Network == "" {
-			base.Network = "tcp"
-		}
-		tlsSettings, _ := AsObject(stream["tlsSettings"])
-		realitySettings, _ := AsObject(stream["realitySettings"])
-		base.SNI = firstNonEmpty(AnyToString(realitySettings["serverName"]), AnyToString(tlsSettings["serverName"]))
-		base.Fingerprint = firstNonEmpty(AnyToString(realitySettings["fingerprint"]), AnyToString(tlsSettings["fingerprint"]))
-		base.ALPN = firstNonEmpty(xrayStringList(realitySettings["alpn"]), xrayStringList(tlsSettings["alpn"]))
-		base.PublicKey = AnyToString(realitySettings["publicKey"])
-		base.ShortID = AnyToString(realitySettings["shortId"])
-		base.SpiderX = AnyToString(realitySettings["spiderX"])
-		if insecure, ok := tlsSettings["allowInsecure"].(bool); ok {
-			base.AllowInsecure = insecure
-		}
-		wsSettings, _ := AsObject(stream["wsSettings"])
-		base.Path = AnyToString(wsSettings["path"])
-		if headers, ok := AsObject(wsSettings["headers"]); ok {
-			base.Host = AnyToString(headers["Host"])
-			if base.Host == "" {
-				base.Host = AnyToString(headers["host"])
-			}
-		}
-		grpcSettings, _ := AsObject(stream["grpcSettings"])
-		base.GRPCServiceName = firstNonEmpty(AnyToString(grpcSettings["serviceName"]), AnyToString(grpcSettings["service_name"]))
-		if base.Network == "grpc" {
-			base.Host = AnyToString(grpcSettings["authority"])
-		}
-		if base.Network == "httpupgrade" {
-			httpUpgradeSettings, _ := AsObject(stream["httpupgradeSettings"])
-			base.Path = AnyToString(httpUpgradeSettings["path"])
-			base.Host = AnyToString(httpUpgradeSettings["host"])
-		}
-		if base.Network == "xhttp" {
-			xhttpSettings, _ := AsObject(stream["xhttpSettings"])
-			base.Path = AnyToString(xhttpSettings["path"])
-			base.Host = AnyToString(xhttpSettings["host"])
-		}
-		if base.Network == "tcp" || base.Network == "raw" {
-			rawSettings, _ := AsObject(stream["rawSettings"])
-			if rawSettings == nil {
-				rawSettings, _ = AsObject(stream["tcpSettings"])
-			}
-			header, _ := AsObject(rawSettings["header"])
-			base.HeaderType = NormalizeHeaderType(AnyToString(header["type"]))
-			if request, ok := AsObject(header["request"]); ok {
-				base.Path = xrayStringList(request["path"])
-				if headers, ok := AsObject(request["headers"]); ok {
-					base.Host = firstNonEmpty(xrayStringList(headers["Host"]), xrayStringList(headers["host"]))
-				}
-			}
-		}
+		base := xrayStreamDraft(protocol, outbound, stream)
 
+		var parsed []LinkConfigurationDraft
+		var err error
 		switch protocol {
 		case "vless", "vmess":
-			nodes := AsArray(settings["vnext"])
-			if len(nodes) == 0 {
-				return nil, fmt.Errorf("XRAY-JSON outbound %d (%s) has no vnext servers", outboundIndex, protocol)
-			}
-			for nodeIndex, nodeRaw := range nodes {
-				node, ok := AsObject(nodeRaw)
-				if !ok {
-					return nil, fmt.Errorf("XRAY-JSON outbound %d (%s) vnext %d must be an object", outboundIndex, protocol, nodeIndex)
-				}
-				users := AsArray(node["users"])
-				if len(users) == 0 {
-					return nil, fmt.Errorf("XRAY-JSON outbound %d (%s) vnext %d has no users", outboundIndex, protocol, nodeIndex)
-				}
-				server := AnyToString(node["address"])
-				port, portErr := strconv.Atoi(AnyToPort(node["port"]))
-				if server == "" || portErr != nil || port <= 0 || port > 65535 {
-					return nil, fmt.Errorf("XRAY-JSON outbound %d (%s) vnext %d has invalid server or port", outboundIndex, protocol, nodeIndex)
-				}
-				for userIndex, userRaw := range users {
-					user, ok := AsObject(userRaw)
-					if !ok {
-						return nil, fmt.Errorf("XRAY-JSON outbound %d (%s) vnext %d user %d must be an object", outboundIndex, protocol, nodeIndex, userIndex)
-					}
-					draft := base
-					draft.Server = server
-					draft.Port = port
-					draft.Identifier = AnyToString(user["id"])
-					draft.Flow = AnyToString(user["flow"])
-					draft.Encryption = AnyToString(user["encryption"])
-					draft.VMessSecurity = AnyToString(user["security"])
-					draft.VMessAlterID = AnyToString(user["alterId"])
-					if draft.Identifier == "" {
-						return nil, fmt.Errorf("XRAY-JSON outbound %d (%s) vnext %d user %d has no id", outboundIndex, protocol, nodeIndex, userIndex)
-					}
-					drafts = append(drafts, draft)
-				}
-			}
+			parsed, err = xrayVnextDrafts(base, settings, outboundIndex, protocol)
 		case "trojan":
-			servers := AsArray(settings["servers"])
-			if len(servers) == 0 {
-				return nil, fmt.Errorf("XRAY-JSON outbound %d (trojan) has no servers", outboundIndex)
-			}
-			for serverIndex, serverRaw := range servers {
-				server, ok := AsObject(serverRaw)
-				if !ok {
-					return nil, fmt.Errorf("XRAY-JSON outbound %d (trojan) server %d must be an object", outboundIndex, serverIndex)
-				}
-				draft := base
-				draft.Server = AnyToString(server["address"])
-				draft.Port, _ = strconv.Atoi(AnyToPort(server["port"]))
-				draft.Identifier = AnyToString(server["password"])
-				if draft.Server == "" || draft.Port <= 0 || draft.Port > 65535 || draft.Identifier == "" {
-					return nil, fmt.Errorf("XRAY-JSON outbound %d (trojan) server %d is invalid", outboundIndex, serverIndex)
-				}
-				drafts = append(drafts, draft)
-			}
+			parsed, err = xrayTrojanDrafts(base, settings, outboundIndex)
 		}
+		if err != nil {
+			return nil, err
+		}
+		drafts = append(drafts, parsed...)
 	}
 	if len(drafts) == 0 {
 		return nil, fmt.Errorf("XRAY-JSON contains no supported outbound")
+	}
+	return drafts, nil
+}
+
+// xrayStreamDraft projects the outbound's streamSettings (transport and TLS/
+// REALITY) onto a draft that each server/user entry is then cloned from.
+func xrayStreamDraft(protocol string, outbound, stream map[string]any) LinkConfigurationDraft {
+	base := LinkConfigurationDraft{
+		Protocol: protocol,
+		Remark:   AnyToString(outbound["tag"]),
+		Network:  NormalizeXrayNetwork(AnyToString(stream["network"])),
+		Security: NormalizeXraySecurity(AnyToString(stream["security"])),
+	}
+	if base.Network == "" {
+		base.Network = "tcp"
+	}
+	tlsSettings, _ := AsObject(stream["tlsSettings"])
+	realitySettings, _ := AsObject(stream["realitySettings"])
+	base.SNI = firstNonEmpty(AnyToString(realitySettings["serverName"]), AnyToString(tlsSettings["serverName"]))
+	base.Fingerprint = firstNonEmpty(AnyToString(realitySettings["fingerprint"]), AnyToString(tlsSettings["fingerprint"]))
+	base.ALPN = firstNonEmpty(xrayStringList(realitySettings["alpn"]), xrayStringList(tlsSettings["alpn"]))
+	base.PublicKey = AnyToString(realitySettings["publicKey"])
+	base.ShortID = AnyToString(realitySettings["shortId"])
+	base.SpiderX = AnyToString(realitySettings["spiderX"])
+	if insecure, ok := tlsSettings["allowInsecure"].(bool); ok {
+		base.AllowInsecure = insecure
+	}
+	wsSettings, _ := AsObject(stream["wsSettings"])
+	base.Path = AnyToString(wsSettings["path"])
+	if headers, ok := AsObject(wsSettings["headers"]); ok {
+		base.Host = AnyToString(headers["Host"])
+		if base.Host == "" {
+			base.Host = AnyToString(headers["host"])
+		}
+	}
+	grpcSettings, _ := AsObject(stream["grpcSettings"])
+	base.GRPCServiceName = firstNonEmpty(AnyToString(grpcSettings["serviceName"]), AnyToString(grpcSettings["service_name"]))
+	switch base.Network {
+	case "grpc":
+		base.Host = AnyToString(grpcSettings["authority"])
+	case "httpupgrade":
+		httpUpgradeSettings, _ := AsObject(stream["httpupgradeSettings"])
+		base.Path = AnyToString(httpUpgradeSettings["path"])
+		base.Host = AnyToString(httpUpgradeSettings["host"])
+	case "xhttp":
+		xhttpSettings, _ := AsObject(stream["xhttpSettings"])
+		base.Path = AnyToString(xhttpSettings["path"])
+		base.Host = AnyToString(xhttpSettings["host"])
+	case "tcp", "raw":
+		applyXrayRawHeader(&base, stream)
+	}
+	return base
+}
+
+func applyXrayRawHeader(base *LinkConfigurationDraft, stream map[string]any) {
+	rawSettings, _ := AsObject(stream["rawSettings"])
+	if rawSettings == nil {
+		rawSettings, _ = AsObject(stream["tcpSettings"])
+	}
+	header, _ := AsObject(rawSettings["header"])
+	base.HeaderType = NormalizeHeaderType(AnyToString(header["type"]))
+	request, ok := AsObject(header["request"])
+	if !ok {
+		return
+	}
+	base.Path = xrayStringList(request["path"])
+	if headers, ok := AsObject(request["headers"]); ok {
+		base.Host = firstNonEmpty(xrayStringList(headers["Host"]), xrayStringList(headers["host"]))
+	}
+}
+
+func xrayVnextDrafts(base LinkConfigurationDraft, settings map[string]any, outboundIndex int, protocol string) ([]LinkConfigurationDraft, error) {
+	nodes := AsArray(settings["vnext"])
+	if len(nodes) == 0 {
+		return nil, fmt.Errorf("XRAY-JSON outbound %d (%s) has no vnext servers", outboundIndex, protocol)
+	}
+	drafts := make([]LinkConfigurationDraft, 0, len(nodes))
+	for nodeIndex, nodeRaw := range nodes {
+		node, ok := AsObject(nodeRaw)
+		if !ok {
+			return nil, fmt.Errorf("XRAY-JSON outbound %d (%s) vnext %d must be an object", outboundIndex, protocol, nodeIndex)
+		}
+		users := AsArray(node["users"])
+		if len(users) == 0 {
+			return nil, fmt.Errorf("XRAY-JSON outbound %d (%s) vnext %d has no users", outboundIndex, protocol, nodeIndex)
+		}
+		server := AnyToString(node["address"])
+		port, portErr := strconv.Atoi(AnyToPort(node["port"]))
+		if server == "" || portErr != nil || port <= 0 || port > 65535 {
+			return nil, fmt.Errorf("XRAY-JSON outbound %d (%s) vnext %d has invalid server or port", outboundIndex, protocol, nodeIndex)
+		}
+		for userIndex, userRaw := range users {
+			user, ok := AsObject(userRaw)
+			if !ok {
+				return nil, fmt.Errorf("XRAY-JSON outbound %d (%s) vnext %d user %d must be an object", outboundIndex, protocol, nodeIndex, userIndex)
+			}
+			draft := base
+			draft.Server = server
+			draft.Port = port
+			draft.Identifier = AnyToString(user["id"])
+			draft.Flow = AnyToString(user["flow"])
+			draft.Encryption = AnyToString(user["encryption"])
+			draft.VMessSecurity = AnyToString(user["security"])
+			draft.VMessAlterID = AnyToString(user["alterId"])
+			if draft.Identifier == "" {
+				return nil, fmt.Errorf("XRAY-JSON outbound %d (%s) vnext %d user %d has no id", outboundIndex, protocol, nodeIndex, userIndex)
+			}
+			drafts = append(drafts, draft)
+		}
+	}
+	return drafts, nil
+}
+
+func xrayTrojanDrafts(base LinkConfigurationDraft, settings map[string]any, outboundIndex int) ([]LinkConfigurationDraft, error) {
+	servers := AsArray(settings["servers"])
+	if len(servers) == 0 {
+		return nil, fmt.Errorf("XRAY-JSON outbound %d (trojan) has no servers", outboundIndex)
+	}
+	drafts := make([]LinkConfigurationDraft, 0, len(servers))
+	for serverIndex, serverRaw := range servers {
+		server, ok := AsObject(serverRaw)
+		if !ok {
+			return nil, fmt.Errorf("XRAY-JSON outbound %d (trojan) server %d must be an object", outboundIndex, serverIndex)
+		}
+		draft := base
+		draft.Server = AnyToString(server["address"])
+		draft.Port, _ = strconv.Atoi(AnyToPort(server["port"]))
+		draft.Identifier = AnyToString(server["password"])
+		if draft.Server == "" || draft.Port <= 0 || draft.Port > 65535 || draft.Identifier == "" {
+			return nil, fmt.Errorf("XRAY-JSON outbound %d (trojan) server %d is invalid", outboundIndex, serverIndex)
+		}
+		drafts = append(drafts, draft)
 	}
 	return drafts, nil
 }
@@ -572,142 +601,17 @@ func BuildXrayJSONFromLink(raw string, fallbackRemark string) (string, error) {
 		tag = "proxy"
 	}
 
+	streamSettings := map[string]any{
+		"network":  NormalizeXrayNetwork(draft.Network),
+		"security": NormalizeXraySecurity(draft.Security),
+	}
+	applyXrayTransportSettings(streamSettings, draft)
+	applyXraySecuritySettings(streamSettings, draft)
 	outbound := map[string]any{
-		"tag":      tag,
-		"protocol": draft.Protocol,
-		"settings": map[string]any{},
-		"streamSettings": map[string]any{
-			"network":  NormalizeXrayNetwork(draft.Network),
-			"security": NormalizeXraySecurity(draft.Security),
-		},
-	}
-
-	if draft.Protocol == "trojan" {
-		outbound["settings"] = map[string]any{
-			"servers": []any{
-				map[string]any{
-					"address":  draft.Server,
-					"port":     draft.Port,
-					"password": draft.Identifier,
-				},
-			},
-		}
-	} else {
-		userNode := map[string]any{
-			"id": draft.Identifier,
-		}
-		if draft.Protocol == "vless" {
-			userNode["encryption"] = firstNonEmpty(draft.Encryption, "none")
-			if flow := strings.TrimSpace(draft.Flow); flow != "" {
-				userNode["flow"] = flow
-			}
-		}
-		if draft.Protocol == "vmess" {
-			vmessSecurity := strings.TrimSpace(firstNonEmpty(draft.VMessSecurity, draft.Encryption))
-			if vmessSecurity == "" {
-				vmessSecurity = "auto"
-			}
-			userNode["security"] = vmessSecurity
-			alterIDRaw := strings.TrimSpace(draft.VMessAlterID)
-			if alterIDRaw != "" {
-				if alterID, convErr := strconv.Atoi(alterIDRaw); convErr == nil && alterID >= 0 {
-					userNode["alterId"] = alterID
-				} else {
-					userNode["alterId"] = alterIDRaw
-				}
-			}
-		}
-		outbound["settings"] = map[string]any{
-			"vnext": []any{
-				map[string]any{
-					"address": draft.Server,
-					"port":    draft.Port,
-					"users": []any{
-						userNode,
-					},
-				},
-			},
-		}
-	}
-
-	streamSettings, _ := AsObject(outbound["streamSettings"])
-	switch NormalizeXrayNetwork(draft.Network) {
-	case "tcp", "raw":
-		if rawSettings := BuildRawHeaderSettings(draft.HeaderType, draft.Host, draft.Path); len(rawSettings) > 0 {
-			// Keep both aliases for broader client compatibility.
-			streamSettings["tcpSettings"] = rawSettings
-			streamSettings["rawSettings"] = rawSettings
-		} else if NormalizeXrayNetwork(draft.Network) == "tcp" {
-			// Many clients expect tcpSettings to exist for tcp transport.
-			streamSettings["tcpSettings"] = map[string]any{}
-		}
-	case "ws":
-		wsSettings := map[string]any{
-			"path": draft.Path,
-		}
-		if host := strings.TrimSpace(draft.Host); host != "" {
-			wsSettings["headers"] = map[string]any{
-				"Host": host,
-			}
-		}
-		streamSettings["wsSettings"] = wsSettings
-	case "grpc":
-		grpcSettings := map[string]any{
-			"serviceName": firstNonEmpty(strings.TrimSpace(draft.GRPCServiceName), strings.TrimSpace(draft.Path)),
-		}
-		if authority := strings.TrimSpace(draft.Host); authority != "" {
-			grpcSettings["authority"] = authority
-		}
-		streamSettings["grpcSettings"] = grpcSettings
-	case "httpupgrade":
-		streamSettings["httpupgradeSettings"] = map[string]any{
-			"path": strings.TrimSpace(draft.Path),
-			"host": strings.TrimSpace(draft.Host),
-		}
-	case "xhttp":
-		streamSettings["xhttpSettings"] = map[string]any{
-			"path": strings.TrimSpace(draft.Path),
-			"host": strings.TrimSpace(draft.Host),
-		}
-	}
-
-	switch NormalizeXraySecurity(draft.Security) {
-	case "tls":
-		tlsSettings := map[string]any{}
-		if sni := strings.TrimSpace(draft.SNI); sni != "" {
-			tlsSettings["serverName"] = sni
-		}
-		if alpn := ParseCommaSeparatedValues(draft.ALPN); len(alpn) > 0 {
-			tlsSettings["alpn"] = alpn
-		}
-		if draft.AllowInsecure {
-			tlsSettings["allowInsecure"] = true
-		}
-		if fp := strings.TrimSpace(draft.Fingerprint); fp != "" {
-			tlsSettings["fingerprint"] = fp
-		}
-		streamSettings["tlsSettings"] = tlsSettings
-	case "reality":
-		realitySettings := map[string]any{}
-		if sni := strings.TrimSpace(draft.SNI); sni != "" {
-			realitySettings["serverName"] = sni
-		}
-		realitySettings["show"] = false
-		if fp := strings.TrimSpace(draft.Fingerprint); fp != "" {
-			realitySettings["fingerprint"] = fp
-		}
-		if publicKey := strings.TrimSpace(draft.PublicKey); publicKey != "" {
-			realitySettings["publicKey"] = publicKey
-			// Keep new and legacy names for better client compatibility.
-			realitySettings["password"] = publicKey
-		}
-		if shortID := strings.TrimSpace(draft.ShortID); shortID != "" {
-			realitySettings["shortId"] = shortID
-		}
-		if spiderX := strings.TrimSpace(draft.SpiderX); spiderX != "" {
-			realitySettings["spiderX"] = spiderX
-		}
-		streamSettings["realitySettings"] = realitySettings
+		"tag":            tag,
+		"protocol":       draft.Protocol,
+		"settings":       xrayOutboundSettings(draft),
+		"streamSettings": streamSettings,
 	}
 
 	config := map[string]any{
@@ -781,4 +685,141 @@ func BuildXrayJSONFromLink(raw string, fallbackRemark string) (string, error) {
 		return "", err
 	}
 	return string(encoded), nil
+}
+
+// xrayOutboundSettings renders the protocol-specific settings object: trojan
+// uses a servers list, vless/vmess a vnext list with one user.
+func xrayOutboundSettings(draft LinkConfigurationDraft) map[string]any {
+	if draft.Protocol == "trojan" {
+		return map[string]any{
+			"servers": []any{
+				map[string]any{
+					"address":  draft.Server,
+					"port":     draft.Port,
+					"password": draft.Identifier,
+				},
+			},
+		}
+	}
+	userNode := map[string]any{
+		"id": draft.Identifier,
+	}
+	if draft.Protocol == "vless" {
+		userNode["encryption"] = firstNonEmpty(draft.Encryption, "none")
+		if flow := strings.TrimSpace(draft.Flow); flow != "" {
+			userNode["flow"] = flow
+		}
+	}
+	if draft.Protocol == "vmess" {
+		vmessSecurity := strings.TrimSpace(firstNonEmpty(draft.VMessSecurity, draft.Encryption))
+		if vmessSecurity == "" {
+			vmessSecurity = "auto"
+		}
+		userNode["security"] = vmessSecurity
+		if alterIDRaw := strings.TrimSpace(draft.VMessAlterID); alterIDRaw != "" {
+			userNode["alterId"] = xrayAlterID(alterIDRaw)
+		}
+	}
+	return map[string]any{
+		"vnext": []any{
+			map[string]any{
+				"address": draft.Server,
+				"port":    draft.Port,
+				"users": []any{
+					userNode,
+				},
+			},
+		},
+	}
+}
+
+// xrayAlterID emits a JSON number when the value parses, otherwise the raw text.
+func xrayAlterID(raw string) any {
+	if alterID, convErr := strconv.Atoi(raw); convErr == nil && alterID >= 0 {
+		return alterID
+	}
+	return raw
+}
+
+func applyXrayTransportSettings(streamSettings map[string]any, draft LinkConfigurationDraft) {
+	switch NormalizeXrayNetwork(draft.Network) {
+	case "tcp", "raw":
+		if rawSettings := BuildRawHeaderSettings(draft.HeaderType, draft.Host, draft.Path); len(rawSettings) > 0 {
+			// Keep both aliases for broader client compatibility.
+			streamSettings["tcpSettings"] = rawSettings
+			streamSettings["rawSettings"] = rawSettings
+		} else if NormalizeXrayNetwork(draft.Network) == "tcp" {
+			// Many clients expect tcpSettings to exist for tcp transport.
+			streamSettings["tcpSettings"] = map[string]any{}
+		}
+	case "ws":
+		wsSettings := map[string]any{
+			"path": draft.Path,
+		}
+		if host := strings.TrimSpace(draft.Host); host != "" {
+			wsSettings["headers"] = map[string]any{
+				"Host": host,
+			}
+		}
+		streamSettings["wsSettings"] = wsSettings
+	case "grpc":
+		grpcSettings := map[string]any{
+			"serviceName": firstNonEmpty(strings.TrimSpace(draft.GRPCServiceName), strings.TrimSpace(draft.Path)),
+		}
+		if authority := strings.TrimSpace(draft.Host); authority != "" {
+			grpcSettings["authority"] = authority
+		}
+		streamSettings["grpcSettings"] = grpcSettings
+	case "httpupgrade":
+		streamSettings["httpupgradeSettings"] = map[string]any{
+			"path": strings.TrimSpace(draft.Path),
+			"host": strings.TrimSpace(draft.Host),
+		}
+	case "xhttp":
+		streamSettings["xhttpSettings"] = map[string]any{
+			"path": strings.TrimSpace(draft.Path),
+			"host": strings.TrimSpace(draft.Host),
+		}
+	}
+}
+
+func applyXraySecuritySettings(streamSettings map[string]any, draft LinkConfigurationDraft) {
+	switch NormalizeXraySecurity(draft.Security) {
+	case "tls":
+		tlsSettings := map[string]any{}
+		if sni := strings.TrimSpace(draft.SNI); sni != "" {
+			tlsSettings["serverName"] = sni
+		}
+		if alpn := ParseCommaSeparatedValues(draft.ALPN); len(alpn) > 0 {
+			tlsSettings["alpn"] = alpn
+		}
+		if draft.AllowInsecure {
+			tlsSettings["allowInsecure"] = true
+		}
+		if fp := strings.TrimSpace(draft.Fingerprint); fp != "" {
+			tlsSettings["fingerprint"] = fp
+		}
+		streamSettings["tlsSettings"] = tlsSettings
+	case "reality":
+		realitySettings := map[string]any{}
+		if sni := strings.TrimSpace(draft.SNI); sni != "" {
+			realitySettings["serverName"] = sni
+		}
+		realitySettings["show"] = false
+		if fp := strings.TrimSpace(draft.Fingerprint); fp != "" {
+			realitySettings["fingerprint"] = fp
+		}
+		if publicKey := strings.TrimSpace(draft.PublicKey); publicKey != "" {
+			realitySettings["publicKey"] = publicKey
+			// Keep new and legacy names for better client compatibility.
+			realitySettings["password"] = publicKey
+		}
+		if shortID := strings.TrimSpace(draft.ShortID); shortID != "" {
+			realitySettings["shortId"] = shortID
+		}
+		if spiderX := strings.TrimSpace(draft.SpiderX); spiderX != "" {
+			realitySettings["spiderX"] = spiderX
+		}
+		streamSettings["realitySettings"] = realitySettings
+	}
 }

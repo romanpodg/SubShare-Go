@@ -79,7 +79,7 @@ func TestRevealAuthorizationBoundary(t *testing.T) {
 		request.Header.Set("X-CSRF-Token", csrf)
 		recorder := httptest.NewRecorder()
 
-		app.requireAdmin(http.HandlerFunc(app.apiV1RevealKey)).ServeHTTP(recorder, request)
+		app.requireAdmin(http.HandlerFunc(app.keys().profiles.RevealKey)).ServeHTTP(recorder, request)
 
 		if recorder.Code != http.StatusForbidden || decodeJSONMap(t, recorder)["code"] != "viewer_read_only" {
 			t.Fatalf("status=%d body=%s", recorder.Code, recorder.Body.String())
@@ -94,7 +94,7 @@ func TestRevealAuthorizationBoundary(t *testing.T) {
 		request.Header.Set("Authorization", "Bearer "+rawToken)
 		recorder := httptest.NewRecorder()
 
-		app.requireAdmin(http.HandlerFunc(app.apiV1RevealKey)).ServeHTTP(recorder, request)
+		app.requireAdmin(http.HandlerFunc(app.keys().profiles.RevealKey)).ServeHTTP(recorder, request)
 
 		if recorder.Code != http.StatusForbidden || decodeJSONMap(t, recorder)["code"] != "token_scope_forbidden" {
 			t.Fatalf("status=%d body=%s", recorder.Code, recorder.Body.String())
@@ -109,7 +109,7 @@ func TestRevealAuthorizationBoundary(t *testing.T) {
 		request.Header.Set("Authorization", "Bearer "+rawToken)
 		recorder := httptest.NewRecorder()
 
-		app.requireAdmin(http.HandlerFunc(app.apiV1RevealKey)).ServeHTTP(recorder, request)
+		app.requireAdmin(http.HandlerFunc(app.keys().profiles.RevealKey)).ServeHTTP(recorder, request)
 
 		if recorder.Code != http.StatusNotFound || decodeJSONMap(t, recorder)["code"] != "key_not_found" {
 			t.Fatalf("status=%d body=%s", recorder.Code, recorder.Body.String())

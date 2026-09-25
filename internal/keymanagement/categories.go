@@ -5,7 +5,6 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/romanpodg/SubShare-Go/internal/keypersistence"
 	"github.com/romanpodg/SubShare-Go/internal/model"
 )
 
@@ -23,9 +22,9 @@ func NormalizeKeyCategoryColor(raw string) string {
 }
 
 func (s *Service) ListCategories(ctx context.Context) ([]model.KeyCategory, error) {
-	categories, err := s.keyRepo.ListKeyCategories(ctx)
+	categories, err := s.repo.ListKeyCategories(ctx)
 	if err != nil {
-		return nil, mapKeyPersistenceError(err)
+		return nil, err
 	}
 	if categories == nil {
 		categories = []model.KeyCategory{}
@@ -38,8 +37,8 @@ func (s *Service) EnsureCategory(ctx context.Context, rawName string) (int64, er
 	if name == "" {
 		return 0, nil
 	}
-	id, err := s.keyRepo.EnsureKeyCategory(ctx, name)
-	return id, mapKeyPersistenceError(err)
+	id, err := s.repo.EnsureKeyCategory(ctx, name)
+	return id, err
 }
 
 func (s *Service) CreateCategory(ctx context.Context, params CreateCategoryParams) (model.KeyCategory, error) {
@@ -50,11 +49,11 @@ func (s *Service) CreateCategory(ctx context.Context, params CreateCategoryParam
 	color := NormalizeKeyCategoryColor(params.Color)
 	name := NormalizeKeyCategory(rawName)
 
-	category, err := s.keyRepo.CreateKeyCategory(ctx, keypersistence.CreateCategoryParams{
+	category, err := s.repo.CreateKeyCategory(ctx, CreateCategoryParams{
 		Name:  name,
 		Color: color,
 	})
-	return category, mapKeyPersistenceError(err)
+	return category, err
 }
 
 func (s *Service) UpdateCategory(ctx context.Context, params UpdateCategoryParams) (model.KeyCategory, error) {
@@ -71,12 +70,12 @@ func (s *Service) UpdateCategory(ctx context.Context, params UpdateCategoryParam
 		return model.KeyCategory{}, ErrCategoryNameEmpty
 	}
 
-	category, err := s.keyRepo.UpdateKeyCategory(ctx, keypersistence.UpdateCategoryParams{
+	category, err := s.repo.UpdateKeyCategory(ctx, UpdateCategoryParams{
 		OldName: oldName,
 		NewName: newName,
 		Color:   color,
 	})
-	return category, mapKeyPersistenceError(err)
+	return category, err
 }
 
 func (s *Service) RenameCategory(ctx context.Context, params RenameCategoryParams) (model.KeyCategory, error) {
@@ -85,9 +84,9 @@ func (s *Service) RenameCategory(ctx context.Context, params RenameCategoryParam
 		return model.KeyCategory{}, ErrCategoryOldAndNewRequired
 	}
 	oldName := NormalizeKeyCategory(oldRaw)
-	currentColor, err := s.keyRepo.GetCategoryColor(ctx, oldName)
+	currentColor, err := s.repo.GetCategoryColor(ctx, oldName)
 	if err != nil {
-		return model.KeyCategory{}, mapKeyPersistenceError(err)
+		return model.KeyCategory{}, err
 	}
 
 	return s.UpdateCategory(ctx, UpdateCategoryParams{
@@ -104,10 +103,10 @@ func (s *Service) DeleteCategory(ctx context.Context, params DeleteCategoryParam
 		return ErrInvalidDeleteMode
 	}
 
-	return mapKeyPersistenceError(s.keyRepo.DeleteKeyCategory(ctx, keypersistence.DeleteCategoryParams{
+	return s.repo.DeleteKeyCategory(ctx, DeleteCategoryParams{
 		Name: name,
 		Mode: mode,
-	}))
+	})
 }
 
 func (s *Service) ReorderCategories(ctx context.Context, params ReorderCategoriesParams) error {
@@ -129,9 +128,9 @@ func (s *Service) ReorderCategories(ctx context.Context, params ReorderCategorie
 		normalized = append(normalized, value)
 	}
 
-	return mapKeyPersistenceError(s.keyRepo.ReorderKeyCategories(ctx, normalized))
+	return s.repo.ReorderKeyCategories(ctx, normalized)
 }
 
 func (s *Service) ReorderKeys(ctx context.Context, ids []int64) error {
-	return mapKeyPersistenceError(s.keyRepo.ReorderKeys(ctx, ids))
+	return s.repo.ReorderKeys(ctx, ids)
 }

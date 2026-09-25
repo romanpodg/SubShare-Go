@@ -3,9 +3,6 @@ package keymanagement
 import (
 	"errors"
 	"fmt"
-
-	"github.com/romanpodg/SubShare-Go/internal/keypersistence"
-	"github.com/romanpodg/SubShare-Go/internal/profilepersistence"
 )
 
 type KeyNotFoundError struct {
@@ -51,13 +48,13 @@ func (e KeyNotFoundError) Unwrap() error {
 }
 
 var (
-	ErrKeyNotFound                      = profilepersistence.ErrProfileNotFound
-	ErrProfileRevisionConflict          = profilepersistence.ErrProfileRevisionConflict
-	ErrSourceOwnedReadOnly              = profilepersistence.ErrSourceOwnedProfile
-	ErrStorageIntegrity                 = profilepersistence.ErrStorageIntegrity
-	ErrEncryptionUnavailable            = profilepersistence.ErrEncryptionUnavailable
+	ErrKeyNotFound                      = errors.New("key not found")
+	ErrProfileRevisionConflict          = errors.New("profile revision conflict")
+	ErrSourceOwnedReadOnly              = errors.New("profile is source-owned and read-only")
+	ErrStorageIntegrity                 = errors.New("key storage integrity error")
+	ErrEncryptionUnavailable            = errors.New("encryption key unavailable")
 	ErrBlindIndexUnavailable            = errors.New("blind index key unavailable")
-	ErrProfileCreateConflict            = profilepersistence.ErrProfileCreateConflict
+	ErrProfileCreateConflict            = errors.New("failed to create profile")
 	ErrInvalidInput                     = errors.New("label, valid status and kind are required")
 	ErrLabelTooLong                     = errors.New("label is too long")
 	ErrRawURIRequired                   = errors.New("raw_uri is required for real key in raw mode")
@@ -92,9 +89,9 @@ var (
 	ErrDuplicateBulkKeyIDs              = errors.New("ids list contains duplicates")
 	ErrBulkCategoryPersistence          = errors.New("failed to persist bulk key category")
 	ErrInformationalHealthCheck         = errors.New("informational keys do not require checks")
-	ErrInvalidKeyOrderCount             = keypersistence.ErrInvalidKeyOrderCount
-	ErrUnknownKeyInOrder                = keypersistence.ErrUnknownKeyInOrder
-	ErrDuplicateKeyInOrder              = keypersistence.ErrDuplicateKeyInOrder
+	ErrInvalidKeyOrderCount             = errors.New("ids list must include all keys")
+	ErrUnknownKeyInOrder                = errors.New("ids list contains unknown key")
+	ErrDuplicateKeyInOrder              = errors.New("ids list contains duplicates")
 )
 
 var ErrCredentialMissing = fmt.Errorf("%w: missing encrypted credential", ErrStorageIntegrity)

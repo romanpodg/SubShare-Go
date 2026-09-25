@@ -58,33 +58,8 @@ func validateHappRoutingConfig(configJSON string, requireName bool) error {
 		return fmt.Errorf("config_json must be a valid JSON object")
 	}
 	for name, raw := range fields {
-		isNull := string(raw) == "null"
-		if _, ok := routingStringFields[name]; ok {
-			var value string
-			if isNull || json.Unmarshal(raw, &value) != nil {
-				return fmt.Errorf("config_json field %s must be a string", name)
-			}
-			continue
-		}
-		if _, ok := routingBooleanFields[name]; ok {
-			var value bool
-			if isNull || json.Unmarshal(raw, &value) != nil {
-				return fmt.Errorf("config_json field %s must be a boolean", name)
-			}
-			continue
-		}
-		if _, ok := routingStringListFields[name]; ok {
-			var value []string
-			if isNull || json.Unmarshal(raw, &value) != nil {
-				return fmt.Errorf("config_json field %s must be an array of strings", name)
-			}
-			continue
-		}
-		if name == "DnsHosts" {
-			var value map[string]string
-			if err := json.Unmarshal(raw, &value); err != nil || value == nil {
-				return fmt.Errorf("config_json field DnsHosts must be an object with string values")
-			}
+		if err := validateHappRoutingField(name, raw); err != nil {
+			return err
 		}
 	}
 
@@ -93,6 +68,40 @@ func validateHappRoutingConfig(configJSON string, requireName bool) error {
 		raw, ok := fields["Name"]
 		if !ok || json.Unmarshal(raw, &name) != nil || strings.TrimSpace(name) == "" {
 			return fmt.Errorf("config_json field Name is required for automatic routing delivery")
+		}
+	}
+	return nil
+}
+
+// validateHappRoutingField checks one known config_json field against its
+// expected JSON type. Unknown fields are accepted.
+func validateHappRoutingField(name string, raw json.RawMessage) error {
+	isNull := string(raw) == "null"
+	if _, ok := routingStringFields[name]; ok {
+		var value string
+		if isNull || json.Unmarshal(raw, &value) != nil {
+			return fmt.Errorf("config_json field %s must be a string", name)
+		}
+		return nil
+	}
+	if _, ok := routingBooleanFields[name]; ok {
+		var value bool
+		if isNull || json.Unmarshal(raw, &value) != nil {
+			return fmt.Errorf("config_json field %s must be a boolean", name)
+		}
+		return nil
+	}
+	if _, ok := routingStringListFields[name]; ok {
+		var value []string
+		if isNull || json.Unmarshal(raw, &value) != nil {
+			return fmt.Errorf("config_json field %s must be an array of strings", name)
+		}
+		return nil
+	}
+	if name == "DnsHosts" {
+		var value map[string]string
+		if err := json.Unmarshal(raw, &value); err != nil || value == nil {
+			return fmt.Errorf("config_json field DnsHosts must be an object with string values")
 		}
 	}
 	return nil

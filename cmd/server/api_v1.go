@@ -1,8 +1,11 @@
 package main
 
 import (
+	"context"
 	"database/sql"
 	"encoding/json"
+	"github.com/romanpodg/SubShare-Go/internal/httpapi"
+	"github.com/romanpodg/SubShare-Go/internal/storage"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -59,21 +62,10 @@ func paginate[T any](items []T, page, pageSize int) ([]T, pageMeta) {
 	return items[start:end], pageMeta{Page: page, PageSize: pageSize, Total: total, TotalPages: totalPages}
 }
 
-func writeV1Error(w http.ResponseWriter, r *http.Request, status int, code, message string) {
-	requestID, _ := r.Context().Value(middleware.CtxKeyRequestID).(string)
-	writeJSON(w, status, map[string]any{
-		"error":        message,
-		"code":         code,
-		"message":      message,
-		"field_errors": map[string][]string{},
-		"request_id":   requestID,
-	})
-}
-
 func (a *App) apiV1BuildInfo(w http.ResponseWriter, _ *http.Request) {
 	var schemaVersion int
 	_ = a.db.QueryRow(`SELECT COALESCE(MAX(version), 0) FROM schema_migrations`).Scan(&schemaVersion)
-	writeJSON(w, http.StatusOK, map[string]any{
+	httpapi.WriteJSON(w, http.StatusOK, map[string]any{
 		"version":        version,
 		"commit":         commit,
 		"build_time":     buildTime,
@@ -109,7 +101,7 @@ func (a *App) apiV1Dashboard(w http.ResponseWriter, r *http.Request) {
 		       COALESCE(SUM(CASE WHEN effective_status = 'limited' THEN 1 ELSE 0 END), 0)
 		FROM effective_users
 	`).Scan(&userTotal, &userActive, &userExpired, &userPaused, &userBlocked, &userLimited); err != nil {
-		writeV1Error(w, r, http.StatusInternalServerError, "dashboard_users_failed", "failed to load dashboard users")
+		httpapi.WriteV1Error(w, r, http.StatusInternalServerError, "dashboard_users_failed", "failed to load dashboard users")
 		return
 	}
 	userCounts := map[string]int{
@@ -117,15 +109,9 @@ func (a *App) apiV1Dashboard(w http.ResponseWriter, r *http.Request) {
 		"paused": userPaused, "blocked": userBlocked, "limited": userLimited,
 	}
 
-	var keyTotal, keyUp, keyDown, keyUnknown int
-	if err := a.db.QueryRow(`
-		SELECT COUNT(*),
-		       COALESCE(SUM(CASE WHEN check_status = 'up' THEN 1 ELSE 0 END), 0),
-		       COALESCE(SUM(CASE WHEN check_status = 'down' THEN 1 ELSE 0 END), 0),
-		       COALESCE(SUM(CASE WHEN check_status IS NULL OR check_status = '' OR check_status = 'unknown' THEN 1 ELSE 0 END), 0)
-		FROM vless_keys
-	`).Scan(&keyTotal, &keyUp, &keyDown, &keyUnknown); err != nil {
-		writeV1Error(w, r, http.StatusInternalServerError, "dashboard_keys_failed", "failed to load dashboard keys")
+	keyCounts, err := storage.LoadKeyHealthCounts(context.Background(), a.db)
+	if err != nil {
+		httpapi.WriteV1Error(w, r, http.StatusInternalServerError, "dashboard_keys_failed", "failed to load dashboard keys")
 		return
 	}
 
@@ -156,10 +142,10 @@ func (a *App) apiV1Dashboard(w http.ResponseWriter, r *http.Request) {
 			backup["status"] = "error"
 		}
 	}
-	writeJSON(w, http.StatusOK, map[string]any{
+	httpapi.WriteJSON(w, http.StatusOK, map[string]any{
 		"users": userCounts,
 		"keys": map[string]int{
-			"total": keyTotal, "up": keyUp, "down": keyDown, "unknown": keyUnknown,
+			"total": keyCounts.Total, "up": keyCounts.Up, "down": keyCounts.Down, "unknown": keyCounts.Unknown,
 		},
 		"sources":             map[string]int{"total": sourceTotal, "errors": sourceErrors},
 		"devices":             devices,
@@ -185,7 +171,7 @@ type userSummary struct {
 func (a *App) apiV1ListUsers(w http.ResponseWriter, r *http.Request) {
 	users, err := a.listUsers()
 	if err != nil {
-		writeV1Error(w, r, http.StatusInternalServerError, "users_list_failed", "failed to load users")
+		httpapi.WriteV1Error(w, r, http.StatusInternalServerError, "users_list_failed", "failed to load users")
 		return
 	}
 	query := strings.ToLower(strings.TrimSpace(r.URL.Query().Get("query")))
@@ -215,32 +201,28 @@ func (a *App) apiV1ListUsers(w http.ResponseWriter, r *http.Request) {
 	}
 	page, pageSize := parsePageParams(r)
 	data, meta := paginate(items, page, pageSize)
-	writeJSON(w, http.StatusOK, map[string]any{"data": data, "meta": meta})
+	httpapi.WriteJSON(w, http.StatusOK, map[string]any{"data": data, "meta": meta})
 }
 
 func (a *App) apiV1GetUser(w http.ResponseWriter, r *http.Request) {
 	applySensitiveResponseHeaders(w)
-	id, ok := pathID(w, r, "id")
+	id, ok := httpapi.PathID(w, r, "id")
 	if !ok {
 		return
 	}
 	users, err := a.listUsers()
 	if err != nil {
-		writeV1Error(w, r, http.StatusInternalServerError, "user_load_failed", "failed to load user")
+		httpapi.WriteV1Error(w, r, http.StatusInternalServerError, "user_load_failed", "failed to load user")
 		return
 	}
 	for _, user := range users {
 		if user.ID == id {
 			user.Token = ""
-			writeJSON(w, http.StatusOK, map[string]any{"data": user})
+			httpapi.WriteJSON(w, http.StatusOK, map[string]any{"data": user})
 			return
 		}
 	}
-	writeV1Error(w, r, http.StatusNotFound, "user_not_found", "user not found")
-}
-
-func (a *App) apiV1ListKeys(w http.ResponseWriter, r *http.Request) {
-	a.keyQueryHTTPHandler().ListKeys(w, r)
+	httpapi.WriteV1Error(w, r, http.StatusNotFound, "user_not_found", "user not found")
 }
 
 type auditEvent struct {
@@ -284,19 +266,19 @@ func (a *App) apiV1ListAuditEvents(w http.ResponseWriter, r *http.Request) {
 	page, pageSize := parsePageParams(r)
 	var total int
 	if err := a.db.QueryRow(`SELECT COUNT(*) FROM audit_events`).Scan(&total); err != nil {
-		writeV1Error(w, r, http.StatusInternalServerError, "audit_list_failed", "failed to load audit events")
+		httpapi.WriteV1Error(w, r, http.StatusInternalServerError, "audit_list_failed", "failed to load audit events")
 		return
 	}
 	events, err := a.listAuditEvents(pageSize, (page-1)*pageSize)
 	if err != nil {
-		writeV1Error(w, r, http.StatusInternalServerError, "audit_list_failed", "failed to load audit events")
+		httpapi.WriteV1Error(w, r, http.StatusInternalServerError, "audit_list_failed", "failed to load audit events")
 		return
 	}
 	totalPages := 0
 	if total > 0 {
 		totalPages = (total + pageSize - 1) / pageSize
 	}
-	writeJSON(w, http.StatusOK, map[string]any{
+	httpapi.WriteJSON(w, http.StatusOK, map[string]any{
 		"data": events,
 		"meta": pageMeta{Page: page, PageSize: pageSize, Total: total, TotalPages: totalPages},
 	})

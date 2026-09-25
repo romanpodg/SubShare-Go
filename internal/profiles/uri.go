@@ -104,36 +104,11 @@ func parseAuthority(raw string, protocol Protocol, defaultPort string, allowExpr
 		return authorityParts{}, newError(ErrorInvalidAuthority, protocol, "host")
 	}
 
-	rawHost := ""
-	rawPort := ""
-	portSpecified := false
-	bracketedHost := false
-	if strings.HasPrefix(hostPort, "[") {
-		bracketedHost = true
-		closing := strings.IndexByte(hostPort, ']')
-		if closing <= 1 {
-			return authorityParts{}, newError(ErrorInvalidAuthority, protocol, "host")
-		}
-		rawHost = hostPort[1:closing]
-		tail := hostPort[closing+1:]
-		if tail != "" {
-			if !strings.HasPrefix(tail, ":") || len(tail) == 1 {
-				return authorityParts{}, newError(ErrorInvalidAuthority, protocol, "port")
-			}
-			portSpecified = true
-			rawPort = tail[1:]
-		}
-	} else {
-		switch strings.Count(hostPort, ":") {
-		case 0:
-			rawHost = hostPort
-		case 1:
-			portSpecified = true
-			rawHost, rawPort, _ = strings.Cut(hostPort, ":")
-		default:
-			return authorityParts{}, newError(ErrorInvalidAuthority, protocol, "host")
-		}
+	rawHost, rawPort, portSpecified, err := splitRawHostPort(hostPort, protocol)
+	if err != nil {
+		return authorityParts{}, err
 	}
+	bracketedHost := strings.HasPrefix(hostPort, "[")
 
 	host, err := url.PathUnescape(rawHost)
 	if err != nil {
@@ -164,6 +139,35 @@ func parseAuthority(raw string, protocol Protocol, defaultPort string, allowExpr
 	}
 	parts.port.Explicit = portSpecified
 	return parts, nil
+}
+
+// splitRawHostPort separates an authority's host and port without decoding.
+// Bracketed hosts are IPv6 literals; bare hosts may contain at most one colon.
+func splitRawHostPort(hostPort string, protocol Protocol) (rawHost, rawPort string, portSpecified bool, err error) {
+	if !strings.HasPrefix(hostPort, "[") {
+		switch strings.Count(hostPort, ":") {
+		case 0:
+			return hostPort, "", false, nil
+		case 1:
+			rawHost, rawPort, _ = strings.Cut(hostPort, ":")
+			return rawHost, rawPort, true, nil
+		default:
+			return "", "", false, newError(ErrorInvalidAuthority, protocol, "host")
+		}
+	}
+	closing := strings.IndexByte(hostPort, ']')
+	if closing <= 1 {
+		return "", "", false, newError(ErrorInvalidAuthority, protocol, "host")
+	}
+	rawHost = hostPort[1:closing]
+	tail := hostPort[closing+1:]
+	if tail == "" {
+		return rawHost, "", false, nil
+	}
+	if !strings.HasPrefix(tail, ":") || len(tail) == 1 {
+		return "", "", false, newError(ErrorInvalidAuthority, protocol, "port")
+	}
+	return rawHost, tail[1:], true, nil
 }
 
 func normalizeHost(raw string, protocol Protocol) (string, error) {

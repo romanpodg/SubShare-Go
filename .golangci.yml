@@ -1,0 +1,49 @@
+version: "2"
+
+run:
+  timeout: 5m
+  tests: true # unused/deadcode are only accurate with test files in scope
+
+linters:
+  default: standard # errcheck, govet, ineffassign, staticcheck, unused
+  enable:
+    - gocyclo   # cyclomatic complexity per function
+    - gocognit  # cognitive complexity per function
+    - funlen    # function length
+    - nestif    # deeply nested if blocks
+    - maintidx  # maintainability index per function
+  settings:
+    errcheck:
+      exclude-functions:
+        - (*database/sql.Tx).Rollback # deferred rollback after commit is idiomatic
+        - (*github.com/romanpodg/SubShare-Go/internal/storage.SourceSync).Rollback
+    gocyclo:
+      min-complexity: 20
+    gocognit:
+      min-complexity: 30
+    funlen:
+      lines: 120
+      statements: 80
+      ignore-comments: true
+    nestif:
+      min-complexity: 6
+    maintidx:
+      under: 20
+  exclusions:
+    generated: lax
+    rules:
+      # complexity budgets do not apply to tests
+      - path: _test\.go
+        linters: [gocyclo, gocognit, funlen, nestif, maintidx]
+    presets:
+      - comments
+      - common-false-positives
+      - std-error-handling
+
+formatters:
+  enable:
+    - gofmt
+
+issues:
+  max-issues-per-linter: 0
+  max-same-issues: 0

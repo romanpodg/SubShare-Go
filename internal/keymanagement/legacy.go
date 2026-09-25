@@ -3,12 +3,12 @@ package keymanagement
 import (
 	"context"
 	"fmt"
+	"net"
+	"net/url"
 	"strings"
 
-	"github.com/romanpodg/SubShare-Go/internal/keypersistence"
 	"github.com/romanpodg/SubShare-Go/internal/model"
 	"github.com/romanpodg/SubShare-Go/internal/profileconfig"
-	"github.com/romanpodg/SubShare-Go/internal/vless"
 )
 
 func NormalizeKeyCategory(raw string) string {
@@ -20,8 +20,8 @@ func NormalizeKeyCategory(raw string) string {
 }
 
 func (s *Service) ListLegacy(ctx context.Context) ([]model.VLESSKey, error) {
-	keys, err := s.keyRepo.ListLegacy(ctx)
-	return keys, mapKeyPersistenceError(err)
+	keys, err := s.repo.ListLegacy(ctx)
+	return keys, err
 }
 
 func (s *Service) CreateLegacy(ctx context.Context, params CreateLegacyParams) (int64, string, error) {
@@ -68,7 +68,7 @@ func (s *Service) CreateLegacy(ctx context.Context, params CreateLegacyParams) (
 		return 0, "", ErrTemplateTextTooLong
 	}
 
-	keyID, err := s.keyRepo.CreateLegacy(ctx, keypersistence.CreateLegacyKeyParams{
+	keyID, err := s.repo.CreateLegacy(ctx, CreateLegacyKeyParams{
 		Label:        label,
 		Status:       status,
 		Kind:         kind,
@@ -77,7 +77,7 @@ func (s *Service) CreateLegacy(ctx context.Context, params CreateLegacyParams) (
 		KeyURL:       keyURL,
 	})
 	if err != nil {
-		return 0, "", mapKeyPersistenceError(err)
+		return 0, "", err
 	}
 	return keyID, label, nil
 }
@@ -102,39 +102,22 @@ func (s *Service) UpdateLegacy(ctx context.Context, id int64, params UpdateLegac
 		return "", ErrLabelTooLong
 	}
 
-	_, existingURL, err := s.keyRepo.GetLegacyByID(ctx, id)
+	_, existingURL, err := s.repo.GetLegacyByID(ctx, id)
 	if err != nil {
-		return "", mapKeyPersistenceError(err)
+		return "", err
 	}
 
-	builtURL := ""
+	var builtURL string
 	if kind == model.KeyKindReal {
-		if rawURL := strings.TrimSpace(params.RawURL); rawURL != "" {
-			if err := profileconfig.ValidateRealConfigURL(rawURL); err != nil {
-				return "", invalidProfileURIError(err)
-			}
-			builtURL = rawURL
-		} else {
-			var err error
-			builtURL, err = vless.BuildVLESSURL(params.UUID, params.Host, params.Port, params.Query, params.Fragment)
-			if err != nil {
-				return "", invalidProfileURIError(err)
-			}
-		}
+		builtURL, err = buildLegacyRealURL(params)
 	} else {
 		if templateText == "" {
 			templateText = label
 		}
-		if existingURL != "" {
-			builtURL = strings.TrimSpace(existingURL)
-		}
-		if builtURL == "" {
-			token, err := generateToken(12)
-			if err != nil {
-				return "", fmt.Errorf("failed to generate key: %w", err)
-			}
-			builtURL = "info://" + token
-		}
+		builtURL, err = legacyInformationalURL(existingURL)
+	}
+	if err != nil {
+		return "", err
 	}
 
 	if len(builtURL) > 65535 {
@@ -144,7 +127,7 @@ func (s *Service) UpdateLegacy(ctx context.Context, id int64, params UpdateLegac
 		return "", ErrTemplateTextTooLong
 	}
 
-	if err := s.keyRepo.UpdateLegacy(ctx, keypersistence.UpdateLegacyKeyParams{
+	if err := s.repo.UpdateLegacy(ctx, UpdateLegacyKeyParams{
 		ID:           id,
 		Label:        label,
 		Status:       status,
@@ -153,12 +136,66 @@ func (s *Service) UpdateLegacy(ctx context.Context, id int64, params UpdateLegac
 		TemplateText: templateText,
 		BuiltURL:     builtURL,
 	}); err != nil {
-		return "", mapKeyPersistenceError(err)
+		return "", err
 	}
 
 	return label, nil
 }
 
+// buildLegacyRealURL takes the raw URL when one is supplied, otherwise
+// assembles a VLESS link from the structured legacy fields.
+func buildLegacyRealURL(params UpdateLegacyParams) (string, error) {
+	if rawURL := strings.TrimSpace(params.RawURL); rawURL != "" {
+		if err := profileconfig.ValidateRealConfigURL(rawURL); err != nil {
+			return "", invalidProfileURIError(err)
+		}
+		return rawURL, nil
+	}
+	builtURL, err := buildVLESSURL(params.UUID, params.Host, params.Port, params.Query, params.Fragment)
+	if err != nil {
+		return "", invalidProfileURIError(err)
+	}
+	return builtURL, nil
+}
+
+// legacyInformationalURL keeps the existing placeholder URL, minting a new
+// one only when there is none.
+func legacyInformationalURL(existingURL string) (string, error) {
+	if builtURL := strings.TrimSpace(existingURL); builtURL != "" {
+		return builtURL, nil
+	}
+	token, err := generateToken(12)
+	if err != nil {
+		return "", fmt.Errorf("failed to generate key: %w", err)
+	}
+	return "info://" + token, nil
+}
+
 func (s *Service) DeleteLegacy(ctx context.Context, id int64) error {
-	return mapKeyPersistenceError(s.keyRepo.DeleteLegacy(ctx, id))
+	return s.repo.DeleteLegacy(ctx, id)
+}
+
+// buildVLESSURL assembles a VLESS share link from the legacy structured edit
+// fields with proper escaping.
+func buildVLESSURL(uuid, host, port, query, fragment string) (string, error) {
+	uuid = strings.TrimSpace(uuid)
+	host = strings.TrimSpace(host)
+	port = strings.TrimSpace(port)
+	if uuid == "" {
+		return "", fmt.Errorf("uuid is required")
+	}
+	if host == "" {
+		return "", fmt.Errorf("host is required")
+	}
+	if port == "" {
+		port = "443"
+	}
+	built := &url.URL{
+		Scheme:   "vless",
+		User:     url.User(uuid),
+		Host:     net.JoinHostPort(host, port),
+		RawQuery: strings.TrimSpace(query),
+		Fragment: strings.TrimSpace(fragment),
+	}
+	return built.String(), nil
 }

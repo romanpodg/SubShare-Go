@@ -6,10 +6,10 @@ import (
 	"encoding/base64"
 	"errors"
 	"fmt"
+	"github.com/romanpodg/SubShare-Go/internal/keymanagement"
 	"path/filepath"
 	"testing"
 
-	"github.com/romanpodg/SubShare-Go/internal/profilepersistence"
 	"github.com/romanpodg/SubShare-Go/internal/security/profilestorage"
 )
 
@@ -60,68 +60,16 @@ func newTwoKeyKeyring(t *testing.T) (*profilestorage.Keyring, *profilestorage.Ke
 
 func setupTestDB(t *testing.T) *sql.DB {
 	t.Helper()
-	dbPath := filepath.Join(t.TempDir(), "test_repo.db")
+	dbPath := filepath.Join(t.TempDir(), "test.db")
 	db, err := sql.Open("sqlite", filepath.ToSlash(dbPath))
 	if err != nil {
 		t.Fatalf("open db: %v", err)
 	}
-	schema := `
-		CREATE TABLE key_categories (
-			id INTEGER PRIMARY KEY AUTOINCREMENT,
-			name TEXT UNIQUE NOT NULL,
-			color TEXT NOT NULL DEFAULT '#4B5563',
-			sort_order INTEGER NOT NULL DEFAULT 0,
-			updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
-		);
-		CREATE TABLE external_subscription_sources (
-			id INTEGER PRIMARY KEY AUTOINCREMENT,
-			name TEXT NOT NULL,
-			key_category_id INTEGER,
-			key_category TEXT
-		);
-		CREATE TABLE vless_keys (
-			id INTEGER PRIMARY KEY AUTOINCREMENT,
-			label TEXT NOT NULL,
-			client_display_name TEXT,
-			url_blind_index TEXT,
-			category_id INTEGER,
-			category TEXT,
-			status TEXT NOT NULL DEFAULT 'active',
-			check_status TEXT NOT NULL DEFAULT 'unknown',
-			check_error TEXT,
-			last_checked_at DATETIME,
-			last_latency_ms INTEGER,
-			key_kind TEXT NOT NULL DEFAULT 'real',
-			template_text TEXT,
-			sort_order INTEGER NOT NULL DEFAULT 0,
-			external_source_id INTEGER,
-			external_key_ref TEXT,
-			protocol TEXT NOT NULL DEFAULT 'vless',
-			profile_schema_version INTEGER NOT NULL DEFAULT 1,
-			profile_compatibility TEXT NOT NULL DEFAULT 'full',
-			profile_warnings_json TEXT NOT NULL DEFAULT '[]',
-			profile_revision INTEGER NOT NULL DEFAULT 1,
-			created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-			updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
-		);
-		CREATE TABLE vless_key_secrets (
-			vless_key_id INTEGER PRIMARY KEY REFERENCES vless_keys(id) ON DELETE CASCADE,
-			encrypted_url TEXT
-		);
-		CREATE UNIQUE INDEX idx_vless_keys_local_blind_index
-			ON vless_keys(url_blind_index) WHERE external_source_id IS NULL;
-		CREATE TABLE users (
-			id INTEGER PRIMARY KEY AUTOINCREMENT,
-			key_assignment_mode TEXT NOT NULL DEFAULT 'all'
-		);
-		CREATE TABLE user_keys (
-			user_id INTEGER NOT NULL,
-			key_id INTEGER NOT NULL,
-			PRIMARY KEY (user_id, key_id)
-		);
-	`
-	if _, err := db.Exec(schema); err != nil {
-		t.Fatalf("seed schema: %v", err)
+	if _, err := db.Exec(`PRAGMA foreign_keys = ON`); err != nil {
+		t.Fatalf("enable foreign keys: %v", err)
+	}
+	if err := MigrateWithKeyring(db, newTestKeyringForRepo(t)); err != nil {
+		t.Fatalf("migrate: %v", err)
 	}
 	return db
 }
@@ -131,14 +79,14 @@ func TestProfileRepository_Create_Update_Clone(t *testing.T) {
 	db := setupTestDB(t)
 	defer db.Close()
 	kr := newTestKeyringForRepo(t)
-	repo := NewProfileRepository(db, kr)
-	if _, err := db.Exec(`INSERT INTO users(key_assignment_mode) VALUES('all'), ('selected')`); err != nil {
+	repo := NewRepository(db, kr)
+	if _, err := db.Exec(`INSERT INTO users(name, token, key_assignment_mode) VALUES('u1', 'tok-1', 'all'), ('u2', 'tok-2', 'selected')`); err != nil {
 		t.Fatalf("seed key assignment modes: %v", err)
 	}
 
 	// 1. Create Local Profile
 	vlessURI := "vless://user1@example.com:443?encryption=none#Node1"
-	createdKey, decryptedURI, err := repo.CreateLocal(ctx, profilepersistence.CreateProfileParams{
+	createdKey, decryptedURI, err := repo.CreateLocal(ctx, keymanagement.CreateProfileParams{
 		Label:    "Key One",
 		Status:   "active",
 		Kind:     "real",
@@ -167,7 +115,7 @@ func TestProfileRepository_Create_Update_Clone(t *testing.T) {
 
 	// 2. Update Local Profile with correct revision
 	newURI := "vless://user1-updated@example.com:443?encryption=none#Node1Updated"
-	updatedKey, updatedURI, err := repo.UpdateLocal(ctx, profilepersistence.UpdateProfileParams{
+	updatedKey, updatedURI, err := repo.UpdateLocal(ctx, keymanagement.UpdateProfileParams{
 		ID:               createdKey.ID,
 		ExpectedRevision: 1,
 		Label:            "Key One Updated",
@@ -188,7 +136,7 @@ func TestProfileRepository_Create_Update_Clone(t *testing.T) {
 	}
 
 	// 3. Stale revision update conflict
-	_, _, err = repo.UpdateLocal(ctx, profilepersistence.UpdateProfileParams{
+	_, _, err = repo.UpdateLocal(ctx, keymanagement.UpdateProfileParams{
 		ID:               createdKey.ID,
 		ExpectedRevision: 1, // stale revision!
 		Label:            "Stale Edit",
@@ -197,7 +145,7 @@ func TestProfileRepository_Create_Update_Clone(t *testing.T) {
 		Protocol:         "vless",
 		NewURI:           newURI,
 	})
-	if !errors.Is(err, profilepersistence.ErrProfileRevisionConflict) {
+	if !errors.Is(err, keymanagement.ErrProfileRevisionConflict) {
 		t.Fatalf("expected ErrProfileRevisionConflict, got %v", err)
 	}
 
@@ -205,7 +153,7 @@ func TestProfileRepository_Create_Update_Clone(t *testing.T) {
 	if _, err := db.Exec(`UPDATE vless_keys SET external_source_id = 99 WHERE id = ?`, createdKey.ID); err != nil {
 		t.Fatalf("set external_source_id: %v", err)
 	}
-	_, _, err = repo.UpdateLocal(ctx, profilepersistence.UpdateProfileParams{
+	_, _, err = repo.UpdateLocal(ctx, keymanagement.UpdateProfileParams{
 		ID:               createdKey.ID,
 		ExpectedRevision: 2,
 		Label:            "Forbidden Edit",
@@ -214,7 +162,7 @@ func TestProfileRepository_Create_Update_Clone(t *testing.T) {
 		Protocol:         "vless",
 		NewURI:           newURI,
 	})
-	if !errors.Is(err, profilepersistence.ErrSourceOwnedProfile) {
+	if !errors.Is(err, keymanagement.ErrSourceOwnedReadOnly) {
 		t.Fatalf("expected ErrSourceOwnedProfile, got %v", err)
 	}
 
@@ -224,7 +172,7 @@ func TestProfileRepository_Create_Update_Clone(t *testing.T) {
 	}
 
 	// 5. Clone Local Profile
-	clonedKey, clonedURI, err := repo.CloneLocal(ctx, profilepersistence.CloneProfileParams{
+	clonedKey, clonedURI, err := repo.CloneLocal(ctx, keymanagement.CloneProfileParams{
 		ID:               createdKey.ID,
 		ExpectedRevision: 2,
 		NewLabel:         "Key One Copy",
@@ -257,7 +205,7 @@ func TestProfileRepository_Create_Update_Clone(t *testing.T) {
 
 	// 6. Metadata-only updates to a clone must retain its intentional
 	// non-canonical blind index instead of colliding with the source row.
-	updatedClone, updatedCloneURI, err := repo.UpdateLocal(ctx, profilepersistence.UpdateProfileParams{
+	updatedClone, updatedCloneURI, err := repo.UpdateLocal(ctx, keymanagement.UpdateProfileParams{
 		ID:               clonedKey.ID,
 		ExpectedRevision: 1,
 		Label:            "Key One Copy Renamed",
@@ -284,14 +232,14 @@ func TestProfileRepository_BlindIndexKeySeparation(t *testing.T) {
 	defer db.Close()
 
 	krBase, krDiffBIK, krDiffEnc := newTwoKeyKeyring(t)
-	repoBase := NewProfileRepository(db, krBase)
-	repoDiffBIK := NewProfileRepository(db, krDiffBIK)
-	repoDiffEnc := NewProfileRepository(db, krDiffEnc)
+	repoBase := NewRepository(db, krBase)
+	repoDiffBIK := NewRepository(db, krDiffBIK)
+	repoDiffEnc := NewRepository(db, krDiffEnc)
 
 	uri := "vless://secret-user@example.com:443?encryption=none#TestBlindIndex"
 
 	// Create key with base keyring (encKey: key-1, BIK: bik-1)
-	key1, _, err := repoBase.CreateLocal(ctx, profilepersistence.CreateProfileParams{
+	key1, _, err := repoBase.CreateLocal(ctx, keymanagement.CreateProfileParams{
 		Label:    "Key 1",
 		Status:   "active",
 		Kind:     "real",
@@ -313,7 +261,7 @@ func TestProfileRepository_BlindIndexKeySeparation(t *testing.T) {
 	}
 
 	// 2. Create key with diff BIK keyring (encKey: key-1, BIK: bik-2)
-	key2, _, err := repoDiffBIK.CreateLocal(ctx, profilepersistence.CreateProfileParams{
+	key2, _, err := repoDiffBIK.CreateLocal(ctx, keymanagement.CreateProfileParams{
 		Label:    "Key 2",
 		Status:   "active",
 		Kind:     "real",
@@ -342,7 +290,7 @@ func TestProfileRepository_BlindIndexKeySeparation(t *testing.T) {
 	}
 
 	// 3. Create key with diff Enc keyring (encKey: key-2, BIK: bik-1)
-	key3, _, err := repoDiffEnc.CreateLocal(ctx, profilepersistence.CreateProfileParams{
+	key3, _, err := repoDiffEnc.CreateLocal(ctx, keymanagement.CreateProfileParams{
 		Label:    "Key 3",
 		Status:   "active",
 		Kind:     "real",
@@ -388,9 +336,9 @@ func TestProfileRepository_ClientDisplayNameMetadataDoesNotRewriteSecretAndClone
 	ctx := context.Background()
 	db := setupTestDB(t)
 	defer db.Close()
-	repo := NewProfileRepository(db, newTestKeyringForRepo(t))
+	repo := NewRepository(db, newTestKeyringForRepo(t))
 	raw := "vless://11111111-1111-4111-8111-111111111111@example.com:443#Embedded"
-	created, _, err := repo.CreateLocal(ctx, profilepersistence.CreateProfileParams{
+	created, _, err := repo.CreateLocal(ctx, keymanagement.CreateProfileParams{
 		Label: "Panel", ClientDisplayName: "Subscriber", Status: "active", Kind: "real", Protocol: "vless", BuiltURI: raw,
 	})
 	if err != nil {
@@ -401,7 +349,7 @@ func TestProfileRepository_ClientDisplayNameMetadataDoesNotRewriteSecretAndClone
 		t.Fatal(err)
 	}
 	clientName := "Subscriber renamed"
-	updated, updatedRaw, err := repo.UpdateLocal(ctx, profilepersistence.UpdateProfileParams{
+	updated, updatedRaw, err := repo.UpdateLocal(ctx, keymanagement.UpdateProfileParams{
 		ID: created.ID, ExpectedRevision: 1, Label: "Panel", ClientDisplayName: &clientName,
 		Status: "active", Kind: "real", Protocol: "vless", NewURI: raw,
 	})
@@ -415,7 +363,7 @@ func TestProfileRepository_ClientDisplayNameMetadataDoesNotRewriteSecretAndClone
 	if updatedRaw != raw || envelopeAfter != envelopeBefore || updated.ClientDisplayName != clientName {
 		t.Fatalf("metadata update raw=%q envelope_changed=%v client=%q", updatedRaw, envelopeAfter != envelopeBefore, updated.ClientDisplayName)
 	}
-	clone, cloneRaw, err := repo.CloneLocal(ctx, profilepersistence.CloneProfileParams{ID: created.ID, ExpectedRevision: 2, NewLabel: "Panel clone"})
+	clone, cloneRaw, err := repo.CloneLocal(ctx, keymanagement.CloneProfileParams{ID: created.ID, ExpectedRevision: 2, NewLabel: "Panel clone"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -428,15 +376,15 @@ func TestProfileRepository_SourceLocalMetadataDoesNotRewriteSecret(t *testing.T)
 	ctx := context.Background()
 	db := setupTestDB(t)
 	defer db.Close()
-	repo := NewProfileRepository(db, newTestKeyringForRepo(t))
+	repo := NewRepository(db, newTestKeyringForRepo(t))
 	raw := "vless://11111111-1111-4111-8111-111111111111@example.com:443#Source%20name"
-	created, _, err := repo.CreateLocal(ctx, profilepersistence.CreateProfileParams{
+	created, _, err := repo.CreateLocal(ctx, keymanagement.CreateProfileParams{
 		Label: "Source name", Status: "active", Kind: "real", Protocol: "vless", BuiltURI: raw,
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := db.Exec(`INSERT INTO external_subscription_sources(id, name) VALUES(77, 'Provider')`); err != nil {
+	if _, err := db.Exec(`INSERT INTO external_subscription_sources(id, name, source_url) VALUES(77, 'Provider', 'https://provider.example/sub')`); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := db.Exec(`UPDATE vless_keys SET external_source_id = 77 WHERE id = ?`, created.ID); err != nil {
@@ -448,7 +396,7 @@ func TestProfileRepository_SourceLocalMetadataDoesNotRewriteSecret(t *testing.T)
 	}
 
 	override := "Subscriber override"
-	updated, updatedRaw, err := repo.UpdateSourceOwnedMetadata(ctx, profilepersistence.UpdateSourceOwnedMetadataParams{
+	updated, updatedRaw, err := repo.UpdateSourceOwnedMetadata(ctx, keymanagement.UpdateSourceOwnedMetadataParams{
 		ID: created.ID, ExpectedRevision: 1, Status: "non-active", ClientDisplayName: &override,
 	})
 	if err != nil {
@@ -465,7 +413,7 @@ func TestProfileRepository_SourceLocalMetadataDoesNotRewriteSecret(t *testing.T)
 		t.Fatal("client display-name override rewrote encrypted configuration")
 	}
 
-	clone, cloneRaw, err := repo.CloneLocal(ctx, profilepersistence.CloneProfileParams{
+	clone, cloneRaw, err := repo.CloneLocal(ctx, keymanagement.CloneProfileParams{
 		ID: created.ID, ExpectedRevision: 2, NewLabel: "Local clone",
 	})
 	if err != nil {
@@ -476,7 +424,7 @@ func TestProfileRepository_SourceLocalMetadataDoesNotRewriteSecret(t *testing.T)
 	}
 
 	empty := ""
-	reset, resetRaw, err := repo.UpdateSourceOwnedMetadata(ctx, profilepersistence.UpdateSourceOwnedMetadataParams{
+	reset, resetRaw, err := repo.UpdateSourceOwnedMetadata(ctx, keymanagement.UpdateSourceOwnedMetadataParams{
 		ID: created.ID, ExpectedRevision: 2, Status: "active", ClientDisplayName: &empty,
 	})
 	if err != nil {
@@ -495,7 +443,7 @@ func TestProfileRepository_SourceLocalMetadataDoesNotRewriteSecret(t *testing.T)
 	if err := db.QueryRow(`SELECT encrypted_url FROM vless_key_secrets WHERE vless_key_id = ?`, created.ID).Scan(&envelopeAfter); err != nil || envelopeAfter != envelopeBefore {
 		t.Fatalf("reset envelope changed=%v err=%v", envelopeAfter != envelopeBefore, err)
 	}
-	fallbackClone, fallbackCloneRaw, err := repo.CloneLocal(ctx, profilepersistence.CloneProfileParams{
+	fallbackClone, fallbackCloneRaw, err := repo.CloneLocal(ctx, keymanagement.CloneProfileParams{
 		ID: created.ID, ExpectedRevision: 3, NewLabel: "Fallback clone",
 	})
 	if err != nil {
@@ -515,15 +463,15 @@ func TestProfileRepository_SourceXrayUsesLabelAndClonePreservesEffectiveName(t *
 	db := setupTestDB(t)
 	defer db.Close()
 	keyring := newTestKeyringForRepo(t)
-	repo := NewProfileRepository(db, keyring)
+	repo := NewRepository(db, keyring)
 	raw := `{"outbounds":[{"tag":"proxy","protocol":"trojan","settings":{"servers":[{"address":"edge.example","port":443,"password":"secret"}]}}]}`
-	created, _, err := repo.CreateLocal(ctx, profilepersistence.CreateProfileParams{
+	created, _, err := repo.CreateLocal(ctx, keymanagement.CreateProfileParams{
 		Label: "🌟 Human source name", Status: "active", Kind: "real", Protocol: "xray-json", BuiltURI: raw,
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := db.Exec(`INSERT INTO external_subscription_sources(id, name) VALUES(88, 'Provider')`); err != nil {
+	if _, err := db.Exec(`INSERT INTO external_subscription_sources(id, name, source_url) VALUES(88, 'Provider', 'https://provider.example/sub')`); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := db.Exec(`UPDATE vless_keys SET external_source_id = 88 WHERE id = ?`, created.ID); err != nil {
@@ -541,12 +489,12 @@ func TestProfileRepository_SourceXrayUsesLabelAndClonePreservesEffectiveName(t *
 	if loadedRaw != raw || loaded.ClientDisplayName != "🌟 Human source name" || loaded.ClientDisplayNameOverridden {
 		t.Fatalf("source effective name=%q overridden=%v raw_changed=%v", loaded.ClientDisplayName, loaded.ClientDisplayNameOverridden, loadedRaw != raw)
 	}
-	list, err := NewKeyRepository(db, keyring).ListLegacy(ctx)
+	list, err := NewRepository(db, keyring).ListLegacy(ctx)
 	if err != nil || len(list) != 1 || list[0].ClientDisplayName != "🌟 Human source name" {
 		t.Fatalf("key list source name=%#v err=%v", list, err)
 	}
 
-	clone, cloneRaw, err := repo.CloneLocal(ctx, profilepersistence.CloneProfileParams{
+	clone, cloneRaw, err := repo.CloneLocal(ctx, keymanagement.CloneProfileParams{
 		ID: created.ID, ExpectedRevision: 1, NewLabel: "Local clone",
 	})
 	if err != nil {
@@ -570,16 +518,16 @@ func TestProfileRepository_ErrorClassifications(t *testing.T) {
 	db := setupTestDB(t)
 	defer db.Close()
 	kr := newTestKeyringForRepo(t)
-	repo := NewProfileRepository(db, kr)
+	repo := NewRepository(db, kr)
 
 	// 1. Get non-existent key -> ErrProfileNotFound
 	_, _, err := repo.GetByID(ctx, 999)
-	if !errors.Is(err, profilepersistence.ErrProfileNotFound) {
+	if !errors.Is(err, keymanagement.ErrKeyNotFound) {
 		t.Fatalf("expected ErrProfileNotFound on GetByID(999), got %v", err)
 	}
 
 	// 2. Update non-existent key -> ErrProfileNotFound
-	_, _, err = repo.UpdateLocal(ctx, profilepersistence.UpdateProfileParams{
+	_, _, err = repo.UpdateLocal(ctx, keymanagement.UpdateProfileParams{
 		ID:               999,
 		ExpectedRevision: 1,
 		Label:            "Non-existent",
@@ -588,22 +536,22 @@ func TestProfileRepository_ErrorClassifications(t *testing.T) {
 		Protocol:         "vless",
 		NewURI:           "vless://a@b.com:443#a",
 	})
-	if !errors.Is(err, profilepersistence.ErrProfileNotFound) {
+	if !errors.Is(err, keymanagement.ErrKeyNotFound) {
 		t.Fatalf("expected ErrProfileNotFound on UpdateLocal(999), got %v", err)
 	}
 
 	// 3. Clone non-existent key -> ErrProfileNotFound
-	_, _, err = repo.CloneLocal(ctx, profilepersistence.CloneProfileParams{
+	_, _, err = repo.CloneLocal(ctx, keymanagement.CloneProfileParams{
 		ID:               999,
 		ExpectedRevision: 1,
 		NewLabel:         "Clone non-existent",
 	})
-	if !errors.Is(err, profilepersistence.ErrProfileNotFound) {
+	if !errors.Is(err, keymanagement.ErrKeyNotFound) {
 		t.Fatalf("expected ErrProfileNotFound on CloneLocal(999), got %v", err)
 	}
 
 	// Create valid base key
-	createdKey, _, err := repo.CreateLocal(ctx, profilepersistence.CreateProfileParams{
+	createdKey, _, err := repo.CreateLocal(ctx, keymanagement.CreateProfileParams{
 		Label:    "Key Test",
 		Status:   "active",
 		Kind:     "real",
@@ -615,7 +563,7 @@ func TestProfileRepository_ErrorClassifications(t *testing.T) {
 	}
 
 	// 4. Update with stale revision -> ErrProfileRevisionConflict
-	_, _, err = repo.UpdateLocal(ctx, profilepersistence.UpdateProfileParams{
+	_, _, err = repo.UpdateLocal(ctx, keymanagement.UpdateProfileParams{
 		ID:               createdKey.ID,
 		ExpectedRevision: 99,
 		Label:            "Stale Revision",
@@ -624,7 +572,7 @@ func TestProfileRepository_ErrorClassifications(t *testing.T) {
 		Protocol:         "vless",
 		NewURI:           "vless://test@example.com:443#Stale",
 	})
-	if !errors.Is(err, profilepersistence.ErrProfileRevisionConflict) {
+	if !errors.Is(err, keymanagement.ErrProfileRevisionConflict) {
 		t.Fatalf("expected ErrProfileRevisionConflict on UpdateLocal stale rev, got %v", err)
 	}
 
@@ -635,12 +583,12 @@ func TestProfileRepository_ErrorClassifications(t *testing.T) {
 	}
 
 	// 5. Clone with stale revision -> ErrProfileRevisionConflict
-	_, _, err = repo.CloneLocal(ctx, profilepersistence.CloneProfileParams{
+	_, _, err = repo.CloneLocal(ctx, keymanagement.CloneProfileParams{
 		ID:               createdKey.ID,
 		ExpectedRevision: 99,
 		NewLabel:         "Stale Clone",
 	})
-	if !errors.Is(err, profilepersistence.ErrProfileRevisionConflict) {
+	if !errors.Is(err, keymanagement.ErrProfileRevisionConflict) {
 		t.Fatalf("expected ErrProfileRevisionConflict on CloneLocal stale rev, got %v", err)
 	}
 
@@ -648,15 +596,15 @@ func TestProfileRepository_ErrorClassifications(t *testing.T) {
 	if _, err := db.Exec(`DELETE FROM vless_key_secrets WHERE vless_key_id = ?`, createdKey.ID); err != nil {
 		t.Fatalf("delete secret row: %v", err)
 	}
-	if _, _, err = repo.GetByID(ctx, createdKey.ID); !errors.Is(err, profilepersistence.ErrStorageIntegrity) {
+	if _, _, err = repo.GetByID(ctx, createdKey.ID); !errors.Is(err, keymanagement.ErrStorageIntegrity) {
 		t.Fatalf("expected ErrStorageIntegrity on GetByID missing secret, got %v", err)
 	}
-	_, _, err = repo.CloneLocal(ctx, profilepersistence.CloneProfileParams{
+	_, _, err = repo.CloneLocal(ctx, keymanagement.CloneProfileParams{
 		ID:               createdKey.ID,
 		ExpectedRevision: 1,
 		NewLabel:         "Missing Secret Clone",
 	})
-	if !errors.Is(err, profilepersistence.ErrStorageIntegrity) {
+	if !errors.Is(err, keymanagement.ErrStorageIntegrity) {
 		t.Fatalf("expected ErrStorageIntegrity on CloneLocal missing secret, got %v", err)
 	}
 
@@ -664,15 +612,15 @@ func TestProfileRepository_ErrorClassifications(t *testing.T) {
 	if _, err := db.Exec(`INSERT INTO vless_key_secrets(vless_key_id, encrypted_url) VALUES(?, 'v1:key-1:corrupt_junk')`, createdKey.ID); err != nil {
 		t.Fatalf("insert corrupt secret: %v", err)
 	}
-	if _, _, err = repo.GetByID(ctx, createdKey.ID); !errors.Is(err, profilepersistence.ErrStorageIntegrity) {
+	if _, _, err = repo.GetByID(ctx, createdKey.ID); !errors.Is(err, keymanagement.ErrStorageIntegrity) {
 		t.Fatalf("expected ErrStorageIntegrity on GetByID corrupt ciphertext, got %v", err)
 	}
-	_, _, err = repo.CloneLocal(ctx, profilepersistence.CloneProfileParams{
+	_, _, err = repo.CloneLocal(ctx, keymanagement.CloneProfileParams{
 		ID:               createdKey.ID,
 		ExpectedRevision: 1,
 		NewLabel:         "Corrupt Clone",
 	})
-	if !errors.Is(err, profilepersistence.ErrStorageIntegrity) {
+	if !errors.Is(err, keymanagement.ErrStorageIntegrity) {
 		t.Fatalf("expected ErrStorageIntegrity on CloneLocal corrupt ciphertext, got %v", err)
 	}
 }

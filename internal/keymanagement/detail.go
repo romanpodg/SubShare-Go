@@ -189,7 +189,7 @@ func BuildKeyProfileDetailResponse(key model.VLESSKey, decryptedURI string, reso
 }
 
 func (s *Service) GetDetail(ctx context.Context, id int64) (*model.KeyProfileDetailResponse, error) {
-	key, decryptedURI, err := s.profileRepo.GetByID(ctx, id)
+	key, decryptedURI, err := s.repo.GetByID(ctx, id)
 	if err != nil {
 		return nil, err
 	}

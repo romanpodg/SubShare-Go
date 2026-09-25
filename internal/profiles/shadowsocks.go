@@ -27,76 +27,41 @@ func (shadowsocksAdapter) Parse(raw string) (*Profile, error) {
 		return nil, err
 	}
 
-	var authority authorityParts
-	var method string
-	var password string
-	style := ShadowsocksUserInfoBase64
+	var credential shadowsocksCredential
 	if legacy {
-		at := strings.LastIndexByte(legacyCredential, '@')
-		if at <= 0 || at == len(legacyCredential)-1 {
-			return nil, newError(ErrorInvalidAuthority, ProtocolShadowsocks, "legacy_authority")
-		}
-		method, password, err = splitShadowsocksCredential(legacyCredential[:at], false)
-		if err != nil {
-			return nil, err
-		}
-		authority, err = parseAuthority("x@"+legacyCredential[at+1:], ProtocolShadowsocks, "", false)
-		style = ShadowsocksUserInfoLegacy
+		credential, err = parseLegacyShadowsocksCredential(legacyCredential)
 	} else {
-		authority, err = parseAuthority(components.authority, ProtocolShadowsocks, "", false)
-		if err != nil {
-			return nil, err
-		}
-		if !authority.hasUserInfo || authority.rawUserInfo == "" {
-			return nil, newError(ErrorMissingCredential, ProtocolShadowsocks, "userinfo")
-		}
-		if strings.Contains(authority.rawUserInfo, ":") {
-			method, password, err = splitShadowsocksCredential(authority.rawUserInfo, true)
-			style = ShadowsocksUserInfoPlain
-		} else {
-			var decoded string
-			decoded, err = decodeBase64URL(authority.rawUserInfo)
-			if err == nil {
-				method, password, err = splitShadowsocksCredential(decoded, false)
-			}
-		}
+		credential, err = parseSIP002Credential(components.authority)
 	}
 	if err != nil {
 		return nil, err
 	}
-	if strings.HasPrefix(strings.ToLower(method), "2022-") {
-		if style != ShadowsocksUserInfoPlain {
+	if strings.HasPrefix(strings.ToLower(credential.method), "2022-") {
+		if credential.style != ShadowsocksUserInfoPlain {
 			return nil, newError(ErrorInvalidEncoding, ProtocolShadowsocks, "userinfo")
 		}
-		if err := validateShadowsocks2022Credential(method, password); err != nil {
+		if err := validateShadowsocks2022Credential(credential.method, credential.password); err != nil {
 			return nil, err
 		}
 	}
 
-	var plugin *ShadowsocksPlugin
-	if pluginValue, present := firstParameter(parameters, shadowsocksAliases, "plugin"); present {
-		parts := strings.Split(pluginValue, ";")
-		name := strings.TrimSpace(parts[0])
-		if name == "" {
-			return nil, newError(ErrorInvalidProfile, ProtocolShadowsocks, "plugin")
-		}
-		plugin = &ShadowsocksPlugin{Name: name}
-		if len(parts) > 1 {
-			plugin.Options = NewSensitiveValue(strings.Join(parts[1:], ";"))
-		}
+	plugin, err := parseShadowsocksPlugin(parameters)
+	if err != nil {
+		return nil, err
 	}
 
 	warnings := duplicateWarnings(parameters, shadowsocksAliases)
 	if legacy {
 		warnings = append(warnings, Warning{Code: WarningLegacyInput, Message: "legacy fully encoded Shadowsocks input was accepted"})
 	}
+	authority := credential.authority
 	profile := &Profile{
 		Protocol:               ProtocolShadowsocks,
 		Server:                 authority.host,
 		Port:                   authority.port,
 		DisplayName:            components.fragment,
 		OriginalURI:            NewSensitiveValue(raw),
-		Data:                   ShadowsocksData{Method: method, Password: NewSensitiveValue(password), Plugin: plugin, UserInfoStyle: style, LegacyInput: legacy},
+		Data:                   ShadowsocksData{Method: credential.method, Password: NewSensitiveValue(credential.password), Plugin: plugin, UserInfoStyle: credential.style, LegacyInput: legacy},
 		QueryParameters:        parameters,
 		UnknownQueryParameters: unknownParameters(parameters, shadowsocksAliases),
 		Warnings:               warnings,
@@ -106,6 +71,78 @@ func (shadowsocksAdapter) Parse(raw string) (*Profile, error) {
 		return nil, err
 	}
 	return profile, nil
+}
+
+type shadowsocksCredential struct {
+	authority authorityParts
+	method    string
+	password  string
+	style     ShadowsocksUserInfoStyle
+}
+
+// parseLegacyShadowsocksCredential handles the fully base64-encoded
+// method:password@host:port body.
+func parseLegacyShadowsocksCredential(legacyCredential string) (shadowsocksCredential, error) {
+	at := strings.LastIndexByte(legacyCredential, '@')
+	if at <= 0 || at == len(legacyCredential)-1 {
+		return shadowsocksCredential{}, newError(ErrorInvalidAuthority, ProtocolShadowsocks, "legacy_authority")
+	}
+	method, password, err := splitShadowsocksCredential(legacyCredential[:at], false)
+	if err != nil {
+		return shadowsocksCredential{}, err
+	}
+	authority, err := parseAuthority("x@"+legacyCredential[at+1:], ProtocolShadowsocks, "", false)
+	if err != nil {
+		return shadowsocksCredential{}, err
+	}
+	return shadowsocksCredential{authority: authority, method: method, password: password, style: ShadowsocksUserInfoLegacy}, nil
+}
+
+// parseSIP002Credential handles userinfo@host:port where userinfo is either
+// plain percent-encoded method:password or base64url(method:password).
+func parseSIP002Credential(rawAuthority string) (shadowsocksCredential, error) {
+	authority, err := parseAuthority(rawAuthority, ProtocolShadowsocks, "", false)
+	if err != nil {
+		return shadowsocksCredential{}, err
+	}
+	if !authority.hasUserInfo || authority.rawUserInfo == "" {
+		return shadowsocksCredential{}, newError(ErrorMissingCredential, ProtocolShadowsocks, "userinfo")
+	}
+	credential := shadowsocksCredential{authority: authority, style: ShadowsocksUserInfoBase64}
+	if strings.Contains(authority.rawUserInfo, ":") {
+		credential.style = ShadowsocksUserInfoPlain
+		credential.method, credential.password, err = splitShadowsocksCredential(authority.rawUserInfo, true)
+		if err != nil {
+			return shadowsocksCredential{}, err
+		}
+		return credential, nil
+	}
+	decoded, err := decodeBase64URL(authority.rawUserInfo)
+	if err != nil {
+		return shadowsocksCredential{}, err
+	}
+	credential.method, credential.password, err = splitShadowsocksCredential(decoded, false)
+	if err != nil {
+		return shadowsocksCredential{}, err
+	}
+	return credential, nil
+}
+
+func parseShadowsocksPlugin(parameters []QueryParameter) (*ShadowsocksPlugin, error) {
+	pluginValue, present := firstParameter(parameters, shadowsocksAliases, "plugin")
+	if !present {
+		return nil, nil
+	}
+	parts := strings.Split(pluginValue, ";")
+	name := strings.TrimSpace(parts[0])
+	if name == "" {
+		return nil, newError(ErrorInvalidProfile, ProtocolShadowsocks, "plugin")
+	}
+	plugin := &ShadowsocksPlugin{Name: name}
+	if len(parts) > 1 {
+		plugin.Options = NewSensitiveValue(strings.Join(parts[1:], ";"))
+	}
+	return plugin, nil
 }
 
 func splitShadowsocksURI(raw string) (uriComponents, string, bool, error) {

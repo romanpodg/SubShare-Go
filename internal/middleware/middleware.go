@@ -117,10 +117,10 @@ func (rl *RateLimiter) evictLocked(cutoff time.Time) {
 
 // Wrap wraps an http.HandlerFunc with rate limiting. It uses writeErrorFunc to
 // write error responses, allowing callers to provide their own error handler.
-func (rl *RateLimiter) Wrap(writeErrorFunc func(http.ResponseWriter, int, string), next http.HandlerFunc) http.HandlerFunc {
+func (rl *RateLimiter) Wrap(writeErrorFunc func(http.ResponseWriter, *http.Request, int, string), next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if !rl.Allow(ClientIP(r)) {
-			writeErrorFunc(w, http.StatusTooManyRequests, "too many requests, try again later")
+			writeErrorFunc(w, r, http.StatusTooManyRequests, "too many requests, try again later")
 			return
 		}
 		next(w, r)
@@ -191,37 +191,44 @@ func parseTrustedProxyNetworks(raw string) []*net.IPNet {
 }
 
 func clientIP(r *http.Request, trustedNetworks []*net.IPNet) string {
-	trusted := trustedProxy(r, trustedNetworks)
 	remoteHost, _, err := net.SplitHostPort(r.RemoteAddr)
 	if err != nil {
 		remoteHost = r.RemoteAddr
 	}
-
-	if trusted {
-		// Walk X-Forwarded-For right-to-left. Each trusted proxy appends the
-		// peer it saw, so the rightmost entries are the ones we can vouch for
-		// and the first non-trusted hop is the real client. Anything further
-		// left was supplied by the client and is forgeable, so reading the
-		// leftmost entry would let a caller choose its own rate-limit bucket.
-		if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
-			parts := strings.Split(xff, ",")
-			for index := len(parts) - 1; index >= 0; index-- {
-				candidate := strings.TrimSpace(parts[index])
-				parsed := net.ParseIP(candidate)
-				if parsed == nil {
-					break
-				}
-				if ipInNetworks(parsed, trustedNetworks) {
-					continue
-				}
-				return candidate
-			}
-		}
-		if xri := strings.TrimSpace(r.Header.Get("X-Real-IP")); net.ParseIP(xri) != nil {
-			return xri
+	if trustedProxy(r, trustedNetworks) {
+		if forwarded := forwardedClientIP(r, trustedNetworks); forwarded != "" {
+			return forwarded
 		}
 	}
 	return strings.TrimSpace(remoteHost)
+}
+
+// forwardedClientIP resolves the client address advertised by a trusted proxy,
+// or "" when the proxy headers carry nothing usable.
+func forwardedClientIP(r *http.Request, trustedNetworks []*net.IPNet) string {
+	// Walk X-Forwarded-For right-to-left. Each trusted proxy appends the
+	// peer it saw, so the rightmost entries are the ones we can vouch for
+	// and the first non-trusted hop is the real client. Anything further
+	// left was supplied by the client and is forgeable, so reading the
+	// leftmost entry would let a caller choose its own rate-limit bucket.
+	if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
+		parts := strings.Split(xff, ",")
+		for index := len(parts) - 1; index >= 0; index-- {
+			candidate := strings.TrimSpace(parts[index])
+			parsed := net.ParseIP(candidate)
+			if parsed == nil {
+				break
+			}
+			if ipInNetworks(parsed, trustedNetworks) {
+				continue
+			}
+			return candidate
+		}
+	}
+	if xri := strings.TrimSpace(r.Header.Get("X-Real-IP")); net.ParseIP(xri) != nil {
+		return xri
+	}
+	return ""
 }
 
 func ipInNetworks(ip net.IP, networks []*net.IPNet) bool {

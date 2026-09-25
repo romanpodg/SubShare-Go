@@ -18,7 +18,7 @@ func TestKeyAdministrationHandler_ContractsAndSecretSafety(t *testing.T) {
 	db := setupTestDB(t)
 	defer db.Close()
 	kr := newTestKeyringForHTTPAPI(t)
-	service := keymanagement.NewService(storage.NewProfileRepository(db, kr), storage.NewKeyRepository(db, kr), nil)
+	service := keymanagement.NewService(storage.NewRepository(db, kr), nil)
 
 	createReal := func(label, rawURL string) int64 {
 		t.Helper()
@@ -187,7 +187,7 @@ func TestKeyAdministrationHandler_QueueFailureUsesV1ErrorContract(t *testing.T) 
 	db := setupTestDB(t)
 	defer db.Close()
 	kr := newTestKeyringForHTTPAPI(t)
-	service := keymanagement.NewService(storage.NewProfileRepository(db, kr), storage.NewKeyRepository(db, kr), nil)
+	service := keymanagement.NewService(storage.NewRepository(db, kr), nil)
 	handler := NewKeyAdministrationHandler(service, nil, KeyAdministrationRuntime{})
 	recorder := httptest.NewRecorder()
 	handler.QueueHealthCheck(recorder, httptest.NewRequest(http.MethodPost, "/api/v1/keys/check-all", nil))

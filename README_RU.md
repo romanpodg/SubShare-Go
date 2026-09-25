@@ -576,6 +576,12 @@ SubShare распространяется на условиях [Unlicense](LICE
 
 ---
 
+## 💙 Благодарности
+
+Особая благодарность [Driics](https://github.com/Driics) за помощь в улучшении SubShare.
+
+---
+
 <div align="center">
 
 **SubShare — единый слой подписки для ваших VPN-профилей.**

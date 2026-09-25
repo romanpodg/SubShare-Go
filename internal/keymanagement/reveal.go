@@ -12,7 +12,7 @@ func (s *Service) Reveal(ctx context.Context, params RevealParams) (*RevealResul
 		return nil, ErrInvalidTarget
 	}
 
-	key, decryptedURI, err := s.profileRepo.GetByID(ctx, params.ID)
+	key, decryptedURI, err := s.repo.GetByID(ctx, params.ID)
 	if err != nil {
 		return nil, err
 	}

@@ -5,41 +5,19 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"github.com/romanpodg/SubShare-Go/internal/keymanagement"
 	"strings"
 
-	"github.com/romanpodg/SubShare-Go/internal/keypersistence"
 	"github.com/romanpodg/SubShare-Go/internal/model"
-	"github.com/romanpodg/SubShare-Go/internal/profilepersistence"
-	"github.com/romanpodg/SubShare-Go/internal/security/profilestorage"
 )
 
-type KeyRepository struct {
-	db          *sql.DB
-	credentials *credentialStore
-	categories  *categoryStore
-}
-
-func NewKeyRepository(db *sql.DB, keyring *profilestorage.Keyring) *KeyRepository {
-	return &KeyRepository{
-		db:          db,
-		credentials: newCredentialStore(keyring),
-		categories:  newCategoryStore(db),
-	}
-}
-
-func (r *KeyRepository) GetLegacyByID(ctx context.Context, id int64) (*model.VLESSKey, string, error) {
+func (r *Repository) GetLegacyByID(ctx context.Context, id int64) (*model.VLESSKey, string, error) {
 	key, rawURL, err := loadKeyByID(ctx, r.db, r.credentials, id)
 	if errors.Is(err, errCredentialMissing) {
-		return nil, "", fmt.Errorf("%w: %v", keypersistence.ErrCredentialMissing, err)
+		return nil, "", fmt.Errorf("%w: %v", keymanagement.ErrCredentialMissing, err)
 	}
-	if errors.Is(err, profilepersistence.ErrProfileNotFound) {
-		return nil, "", keypersistence.ErrKeyNotFound
-	}
-	if errors.Is(err, profilepersistence.ErrEncryptionUnavailable) {
-		return nil, "", fmt.Errorf("%w: %v", keypersistence.ErrEncryptionUnavailable, err)
-	}
-	if errors.Is(err, profilepersistence.ErrStorageIntegrity) {
-		return nil, "", fmt.Errorf("%w: %v", keypersistence.ErrStorageIntegrity, err)
+	if errors.Is(err, keymanagement.ErrKeyNotFound) || errors.Is(err, keymanagement.ErrEncryptionUnavailable) || errors.Is(err, keymanagement.ErrStorageIntegrity) {
+		return nil, "", err
 	}
 	if err != nil {
 		return nil, "", mapKeyCredentialError(err)
@@ -47,11 +25,11 @@ func (r *KeyRepository) GetLegacyByID(ctx context.Context, id int64) (*model.VLE
 	return key, rawURL, nil
 }
 
-func (r *KeyRepository) EnsureKeyCategory(ctx context.Context, name string) (int64, error) {
+func (r *Repository) EnsureKeyCategory(ctx context.Context, name string) (int64, error) {
 	return r.categories.ensure(ctx, name, "#d8b33d")
 }
 
-func (r *KeyRepository) BulkUpdateKeys(ctx context.Context, params keypersistence.BulkUpdateKeysParams) error {
+func (r *Repository) BulkUpdateKeys(ctx context.Context, params keymanagement.BulkKeyUpdate) error {
 	tx, err := r.db.BeginTx(ctx, nil)
 	if err != nil {
 		return fmt.Errorf("failed to start transaction: %w", err)
@@ -83,7 +61,7 @@ func (r *KeyRepository) BulkUpdateKeys(ctx context.Context, params keypersistenc
 			return fmt.Errorf("failed to count updated key %d: %w", id, rowsErr)
 		}
 		if affected == 0 {
-			return keypersistence.KeyNotFoundError{ID: id}
+			return keymanagement.KeyNotFoundError{ID: id}
 		}
 	}
 	if err := tx.Commit(); err != nil {
@@ -92,7 +70,7 @@ func (r *KeyRepository) BulkUpdateKeys(ctx context.Context, params keypersistenc
 	return nil
 }
 
-func (r *KeyRepository) BulkDeleteKeys(ctx context.Context, ids []int64) error {
+func (r *Repository) BulkDeleteKeys(ctx context.Context, ids []int64) error {
 	tx, err := r.db.BeginTx(ctx, nil)
 	if err != nil {
 		return fmt.Errorf("failed to start transaction: %w", err)
@@ -114,7 +92,7 @@ func (r *KeyRepository) BulkDeleteKeys(ctx context.Context, ids []int64) error {
 			return fmt.Errorf("failed to count deleted key %d: %w", id, rowsErr)
 		}
 		if affected == 0 {
-			return keypersistence.KeyNotFoundError{ID: id}
+			return keymanagement.KeyNotFoundError{ID: id}
 		}
 	}
 	if err := tx.Commit(); err != nil {
@@ -123,7 +101,7 @@ func (r *KeyRepository) BulkDeleteKeys(ctx context.Context, ids []int64) error {
 	return nil
 }
 
-func (r *KeyRepository) GetHealthCheckTarget(ctx context.Context, id int64) (keypersistence.HealthCheckTarget, error) {
+func (r *Repository) GetHealthCheckTarget(ctx context.Context, id int64) (keymanagement.HealthCheckTarget, error) {
 	var envelope sql.NullString
 	var kind string
 	err := r.db.QueryRowContext(ctx, `
@@ -133,22 +111,22 @@ func (r *KeyRepository) GetHealthCheckTarget(ctx context.Context, id int64) (key
 		WHERE k.id = ?
 	`, id).Scan(&envelope, &kind)
 	if errors.Is(err, sql.ErrNoRows) {
-		return keypersistence.HealthCheckTarget{}, keypersistence.ErrKeyNotFound
+		return keymanagement.HealthCheckTarget{}, keymanagement.ErrKeyNotFound
 	}
 	if err != nil {
-		return keypersistence.HealthCheckTarget{}, fmt.Errorf("failed to load key health target: %w", err)
+		return keymanagement.HealthCheckTarget{}, fmt.Errorf("failed to load key health target: %w", err)
 	}
 	if normalized, _ := model.NormalizeKeyKind(kind); normalized == model.KeyKindInformational {
-		return keypersistence.HealthCheckTarget{ID: id}, nil
+		return keymanagement.HealthCheckTarget{ID: id}, nil
 	}
 	rawURL, err := r.credentials.decrypt(envelope.String, id)
 	if err != nil {
-		return keypersistence.HealthCheckTarget{}, mapKeyCredentialError(err)
+		return keymanagement.HealthCheckTarget{}, mapKeyCredentialError(err)
 	}
-	return keypersistence.HealthCheckTarget{ID: id, URL: rawURL}, nil
+	return keymanagement.HealthCheckTarget{ID: id, URL: rawURL}, nil
 }
 
-func (r *KeyRepository) ListHealthCheckTargets(ctx context.Context) ([]keypersistence.HealthCheckTarget, error) {
+func (r *Repository) ListHealthCheckTargets(ctx context.Context) ([]keymanagement.HealthCheckTarget, error) {
 	rows, err := r.db.QueryContext(ctx, `
 		SELECT k.id, s.encrypted_url, k.key_kind, k.status
 		FROM vless_keys k
@@ -160,7 +138,7 @@ func (r *KeyRepository) ListHealthCheckTargets(ctx context.Context) ([]keypersis
 	}
 	defer rows.Close()
 
-	targets := make([]keypersistence.HealthCheckTarget, 0)
+	targets := make([]keymanagement.HealthCheckTarget, 0)
 	for rows.Next() {
 		var id int64
 		var envelope sql.NullString
@@ -168,7 +146,7 @@ func (r *KeyRepository) ListHealthCheckTargets(ctx context.Context) ([]keypersis
 		if err := rows.Scan(&id, &envelope, &kind, &status); err != nil {
 			return nil, fmt.Errorf("failed to scan key health target: %w", err)
 		}
-		target := keypersistence.HealthCheckTarget{ID: id, Status: status, Kind: kind}
+		target := keymanagement.HealthCheckTarget{ID: id, Status: status, Kind: kind}
 		normalizedStatus, _ := model.NormalizeKeyStatus(status)
 		if normalized, _ := model.NormalizeKeyKind(kind); normalized == model.KeyKindInformational || normalizedStatus != model.KeyStatusActive {
 			targets = append(targets, target)
@@ -189,7 +167,7 @@ func (r *KeyRepository) ListHealthCheckTargets(ctx context.Context) ([]keypersis
 	return targets, nil
 }
 
-func (r *KeyRepository) SaveHealthCheckResult(ctx context.Context, params keypersistence.SaveHealthCheckResultParams) error {
+func (r *Repository) SaveHealthCheckResult(ctx context.Context, params keymanagement.SaveHealthCheckResultParams) error {
 	result, err := r.db.ExecContext(ctx, `
 		UPDATE vless_keys
 		SET check_status = ?, check_error = ?, last_latency_ms = ?, last_checked_at = CURRENT_TIMESTAMP,
@@ -208,27 +186,27 @@ func (r *KeyRepository) SaveHealthCheckResult(ctx context.Context, params keyper
 		return fmt.Errorf("failed to count saved key health result: %w", err)
 	}
 	if affected == 0 {
-		return keypersistence.ErrKeyNotFound
+		return keymanagement.ErrKeyNotFound
 	}
 	return nil
 }
 
-func (r *KeyRepository) GetHealthCheckResult(ctx context.Context, id int64) (keypersistence.HealthCheckResult, error) {
+func (r *Repository) GetHealthCheckResult(ctx context.Context, id int64) (keymanagement.HealthCheckResult, error) {
 	row := r.db.QueryRowContext(ctx, `
 		SELECT id, check_status, check_error, last_checked_at, last_latency_ms
 		FROM vless_keys WHERE id = ?
 	`, id)
 	result, err := scanHealthCheckResult(row.Scan)
 	if errors.Is(err, sql.ErrNoRows) {
-		return keypersistence.HealthCheckResult{}, keypersistence.ErrKeyNotFound
+		return keymanagement.HealthCheckResult{}, keymanagement.ErrKeyNotFound
 	}
 	if err != nil {
-		return keypersistence.HealthCheckResult{}, fmt.Errorf("failed to load key health result: %w", err)
+		return keymanagement.HealthCheckResult{}, fmt.Errorf("failed to load key health result: %w", err)
 	}
 	return result, nil
 }
 
-func (r *KeyRepository) ListHealthCheckResults(ctx context.Context) ([]keypersistence.HealthCheckResult, error) {
+func (r *Repository) ListHealthCheckResults(ctx context.Context) ([]keymanagement.HealthCheckResult, error) {
 	rows, err := r.db.QueryContext(ctx, `
 		SELECT id, check_status, check_error, last_checked_at, last_latency_ms
 		FROM vless_keys
@@ -238,7 +216,7 @@ func (r *KeyRepository) ListHealthCheckResults(ctx context.Context) ([]keypersis
 		return nil, fmt.Errorf("failed to load key health results: %w", err)
 	}
 	defer rows.Close()
-	results := make([]keypersistence.HealthCheckResult, 0)
+	results := make([]keymanagement.HealthCheckResult, 0)
 	for rows.Next() {
 		result, scanErr := scanHealthCheckResult(rows.Scan)
 		if scanErr != nil {
@@ -254,8 +232,8 @@ func (r *KeyRepository) ListHealthCheckResults(ctx context.Context) ([]keypersis
 
 type scanFunc func(dest ...any) error
 
-func scanHealthCheckResult(scan scanFunc) (keypersistence.HealthCheckResult, error) {
-	var result keypersistence.HealthCheckResult
+func scanHealthCheckResult(scan scanFunc) (keymanagement.HealthCheckResult, error) {
+	var result keymanagement.HealthCheckResult
 	var status, detail sql.NullString
 	var checkedAt sql.NullTime
 	var latency sql.NullInt64
@@ -276,10 +254,10 @@ func scanHealthCheckResult(scan scanFunc) (keypersistence.HealthCheckResult, err
 
 func mapKeyCredentialError(err error) error {
 	if errors.Is(err, errCredentialMissing) {
-		return fmt.Errorf("%w: %v", keypersistence.ErrCredentialMissing, err)
+		return fmt.Errorf("%w: %v", keymanagement.ErrCredentialMissing, err)
 	}
 	if credentialKeyUnavailable(err) {
-		return fmt.Errorf("%w: %v", keypersistence.ErrEncryptionUnavailable, err)
+		return fmt.Errorf("%w: %v", keymanagement.ErrEncryptionUnavailable, err)
 	}
-	return fmt.Errorf("%w: %v", keypersistence.ErrStorageIntegrity, err)
+	return fmt.Errorf("%w: %v", keymanagement.ErrStorageIntegrity, err)
 }

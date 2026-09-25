@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"github.com/romanpodg/SubShare-Go/internal/httpapi"
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
@@ -157,9 +158,8 @@ func TestScopedBearerTokenCanReadDashboard(t *testing.T) {
 }
 
 func TestV1CompatibilityTransformsLegacyErrors(t *testing.T) {
-	app := newIntegrationApp(t)
-	handler := app.v1Compatibility(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		writeError(w, http.StatusBadRequest, "legacy validation failed")
+	handler := httpapi.V1Envelope(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		httpapi.WriteError(w, r, http.StatusBadRequest, "legacy validation failed")
 	}))
 	request := httptest.NewRequest(http.MethodPost, "/api/v1/users", nil)
 	recorder := httptest.NewRecorder()
