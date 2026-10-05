@@ -132,6 +132,17 @@ func nullTimeValue(value sql.NullTime) any {
 	return value.Time.UTC()
 }
 
+func positiveIntOrDefault(value sql.NullInt64, fallback int) int {
+	if value.Valid && value.Int64 > 0 {
+		return int(value.Int64)
+	}
+	return fallback
+}
+
+func nullIntBool(value sql.NullInt64) bool {
+	return value.Valid && value.Int64 != 0
+}
+
 func nullStringValue(value string) any {
 	value = strings.TrimSpace(value)
 	if value == "" {
