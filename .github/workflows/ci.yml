@@ -6,6 +6,10 @@ on:
   pull_request:
     branches: [main]
 
+permissions:
+  contents: read
+  pull-requests: read
+
 jobs:
   build:
     name: build
@@ -49,11 +53,50 @@ jobs:
       - name: Build
         run: go build ./cmd/server
 
+      - name: Install Go test reporter
+        run: go install gotest.tools/gotestsum@v1.13.0
+
       - name: Test
-        run: go test ./...
+        run: gotestsum --junitfile .cache/junit/go.xml -- -covermode=atomic -coverprofile=coverage.out ./...
 
       - name: Migration compatibility test
-        run: go test ./internal/storage -run TestMigrateAppliesVersionedMigrationsIdempotently -count=1
+        run: gotestsum --junitfile .cache/junit/migration.xml -- ./internal/storage -run TestMigrateAppliesVersionedMigrationsIdempotently -count=1
+
+      # Fork PRs have no repository secrets; tests still run, uploads are skipped.
+      - name: Upload Go coverage
+        if: ${{ !cancelled() && hashFiles('coverage.out') != '' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) }}
+        uses: codecov/codecov-action@v7
+        with:
+          token: ${{ secrets.CODECOV_TOKEN }}
+          files: coverage.out
+          disable_search: true
+          fail_ci_if_error: true
+          flags: backend
+          name: go-coverage
+
+      - name: Upload Go test results
+        if: ${{ !cancelled() && hashFiles('.cache/junit/go.xml') != '' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) }}
+        uses: codecov/codecov-action@v7
+        with:
+          token: ${{ secrets.CODECOV_TOKEN }}
+          report_type: test_results
+          files: .cache/junit/go.xml
+          disable_search: true
+          fail_ci_if_error: true
+          flags: backend
+          name: go-tests
+
+      - name: Upload migration test results
+        if: ${{ !cancelled() && hashFiles('.cache/junit/migration.xml') != '' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) }}
+        uses: codecov/codecov-action@v7
+        with:
+          token: ${{ secrets.CODECOV_TOKEN }}
+          report_type: test_results
+          files: .cache/junit/migration.xml
+          disable_search: true
+          fail_ci_if_error: true
+          flags: migration
+          name: migration-compatibility
 
       - name: Secret scan
         uses: gitleaks/gitleaks-action@v3
@@ -87,11 +130,36 @@ jobs:
 
       - name: Component tests
         working-directory: frontend
-        run: npm test
+        run: npm test -- --reporter=default --reporter=junit --outputFile.junit=../.cache/junit/vitest.xml
+
+      - name: Upload component test results
+        if: ${{ !cancelled() && hashFiles('.cache/junit/vitest.xml') != '' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) }}
+        uses: codecov/codecov-action@v7
+        with:
+          token: ${{ secrets.CODECOV_TOKEN }}
+          report_type: test_results
+          files: .cache/junit/vitest.xml
+          disable_search: true
+          fail_ci_if_error: true
+          flags: frontend-unit
+          name: vitest
 
       - name: Build
         working-directory: frontend
         run: npm run build
+
+      # Analyze the existing Turbopack static export without changing bundlers.
+      # Keep this Linux/macOS-only tool out of Windows frontend dependencies.
+      - name: Install bundle analyzer
+        if: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository }}
+        run: npm install --prefix "$RUNNER_TEMP/codecov-bundle" --ignore-scripts --no-package-lock --no-audit --no-fund @codecov/bundle-analyzer@2.0.1
+
+      - name: Upload frontend bundle analysis
+        if: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository }}
+        env:
+          CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
+          CODECOV_BUNDLE_ANALYZER_DIR: ${{ runner.temp }}/codecov-bundle
+        run: node scripts/codecov-bundle.cjs
 
       - name: Install Playwright Chromium
         working-directory: frontend
@@ -100,6 +168,18 @@ jobs:
       - name: E2E smoke
         working-directory: frontend
         run: npm run test:e2e
+
+      - name: Upload E2E test results
+        if: ${{ !cancelled() && hashFiles('frontend/test-results/playwright.xml') != '' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) }}
+        uses: codecov/codecov-action@v7
+        with:
+          token: ${{ secrets.CODECOV_TOKEN }}
+          report_type: test_results
+          files: frontend/test-results/playwright.xml
+          disable_search: true
+          fail_ci_if_error: true
+          flags: frontend-e2e
+          name: playwright
 
   deployment:
     name: docker deployment smoke

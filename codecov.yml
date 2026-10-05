@@ -1,0 +1,30 @@
+coverage:
+  status:
+    project:
+      default:
+        target: auto
+        threshold: 1%
+        informational: true
+        flags: [backend]
+    patch:
+      default:
+        target: auto
+        informational: true
+        flags: [backend]
+
+flags:
+  backend:
+    paths:
+      - cmd/
+      - internal/
+    carryforward: false
+
+# No production sources are excluded. Frontend tests/bundles are separate
+# analytics; the initial coverage baseline measures the Go backend only.
+comment:
+  layout: "diff, files"
+  behavior: default
+  require_changes: true
+
+github_checks:
+  annotations: true

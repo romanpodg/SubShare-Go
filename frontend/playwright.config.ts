@@ -7,7 +7,10 @@ export default defineConfig({
   timeout: 30_000,
   fullyParallel: true,
   retries: process.env.CI ? 2 : 0,
-  reporter: process.env.CI ? "github" : "list",
+  reporter: [
+    [process.env.CI ? "github" : "list"],
+    ["junit", { outputFile: "test-results/playwright.xml", includeProjectInTestName: true }],
+  ],
   use: {
     baseURL: "http://127.0.0.1:3100",
     trace: "retain-on-failure",
