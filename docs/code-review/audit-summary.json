@@ -4035,12 +4035,20 @@
     "nextBatchPriority": "P1",
     "nextBatchRemainingPrerequisites": [
       "Confirm hosted R03 checks in PR8, which the user explicitly asked to extend.",
-      "Prioritize a separate corrective decision for the reproduced disjoint PATCH lost update.",
+      "Review the conditional PATCH correction and its hosted race checks; the reproduced lost update is resolved.",
       "Keep R04 transaction-owned create/delete extraction distinct from the narrow retry correction."
     ],
-    "remainingCriticalRisk": "R02 removes destructive startup recovery. R03 confirms concurrent disjoint PATCH requests can both succeed while losing one change; a separate correction remains. OS I/O trigger frequency remains unmeasured.",
+    "remainingCriticalRisk": "The reproduced startup, create-retry and PATCH lost-update defects are corrected. R04/R05 command/policy work and other audit batches remain; OS I/O trigger frequency remains unmeasured.",
     "r02ExecutionRecord": "docs/code-review/r02-startup-safety.md",
     "r03ExecutionRecord": "docs/code-review/r03-user-mutations.md",
+    "patchConcurrencyExecutionRecord": "docs/code-review/subscription-patch-concurrency.md",
+    "patchConcurrencyLocalValidation": {
+      "fullSuiteResults": 821,
+      "optionalSkips": 5,
+      "maximumAttempts": 5,
+      "exhaustedConflictStatus": 409,
+      "hostedChecksSource": "https://github.com/romanpodg/SubShare-Go/pull/8/checks"
+    },
     "r03LocalValidation": {
       "characterizationCommit": "5d758a6",
       "pullRequest": "https://github.com/romanpodg/SubShare-Go/pull/8",
@@ -4075,6 +4083,10 @@
       "cmd/server/database_failure_test.go": 10.0,
       "cmd/server/handlers_users.go": 8.14,
       "cmd/server/user_creation.go": 10.0,
+      "cmd/server/subscription_admin_v1.go": 8.34,
+      "cmd/server/subscription_patch.go": 10.0,
+      "cmd/server/subscription_patch_policy.go": 10.0,
+      "cmd/server/subscription_patch_repository.go": 10.0,
       "cmd/server/main_startup_test.go": 10.0,
       "internal/storage/sqlite_startup_test.go": 10.0
     },
@@ -4117,6 +4129,6 @@
         "Bundle size/delta figures were unavailable in inspected results."
       ]
     },
-    "recommendedReviewBoundary": "PR7 is merged at 267811b. The user explicitly authorized continuing R03 within PR8; review its test stage and retry correction as separate commits, with the confirmed PATCH correction and R04 remaining distinct."
+    "recommendedReviewBoundary": "PR7 is merged at 267811b. The user authorized R03 and the PATCH correction within PR8; review the test stage, retry and conditional PATCH corrections as distinct commits. R04 is the next extraction."
   }
 }

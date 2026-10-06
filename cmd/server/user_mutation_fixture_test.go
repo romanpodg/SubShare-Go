@@ -89,8 +89,9 @@ func assertMutationResponse(t *testing.T, recorder *httptest.ResponseRecorder, p
 // before requests start. It preserves real SQL/transactions and adds controlled
 // begin/commit failures or an execution barrier for concurrent PATCH tests.
 type mutationSQLFaults struct {
-	beginErr, commitErr error
-	beforeExec          func(string)
+	beginErr, commitErr  error
+	patchRowsAffectedErr error
+	beforeExec           func(string)
 }
 
 type mutationSQLDriver struct{ faults *mutationSQLFaults }
@@ -132,8 +133,22 @@ func (c *mutationSQLConn) ExecContext(ctx context.Context, query string, args []
 	if c.faults.beforeExec != nil {
 		c.faults.beforeExec(query)
 	}
-	return c.Conn.(driver.ExecerContext).ExecContext(ctx, query, args)
+	result, err := c.Conn.(driver.ExecerContext).ExecContext(ctx, query, args)
+	if err != nil {
+		return nil, err
+	}
+	if c.faults.patchRowsAffectedErr != nil && isSubscriptionPatchWrite(query) {
+		return mutationSQLResult{result, c.faults.patchRowsAffectedErr}, nil
+	}
+	return result, nil
 }
+
+type mutationSQLResult struct {
+	driver.Result
+	err error
+}
+
+func (result mutationSQLResult) RowsAffected() (int64, error) { return 0, result.err }
 
 func (c *mutationSQLConn) QueryContext(ctx context.Context, query string, args []driver.NamedValue) (driver.Rows, error) {
 	return c.Conn.(driver.QueryerContext).QueryContext(ctx, query, args)

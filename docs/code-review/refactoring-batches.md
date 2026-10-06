@@ -6,13 +6,13 @@ Audit basis: `main`, `3ab25a5d7aa4f2a28069330406d74f697ac1f1c3`. **Original audi
 
 R01 was validated at **a438377** and merged through [PR #7](https://github.com/romanpodg/SubShare-Go/pull/7) at **267811b**. R02 is complete in [PR #8](https://github.com/romanpodg/SubShare-Go/pull/8), with source validated at **a896708** and all six checks passing; see its [execution record](r02-startup-safety.md). See the [current backlog status](refactoring-backlog.md#current-implementation-status--2026-10-06) for remaining audit items.
 
-The user explicitly requested R03 in that same PR, superseding the original one-PR-per-batch recommendation. Tests and the bounded retry correction remain separate commits; the [R03 record](r03-user-mutations.md) distinguishes implemented contracts, validation evidence and the remaining PATCH defect.
+The user explicitly requested R03 and the subsequent PATCH correction in that same PR, superseding the original one-PR-per-batch recommendation. Tests and corrections remain separate commits; the [R03 record](r03-user-mutations.md) and [PATCH record](subscription-patch-concurrency.md) distinguish contracts, validation evidence and remaining R04/R05 work.
 
 | Batch scope | Status | What remains |
 | --- | --- | --- |
 | R01 | Completed; Windows/Linux validated | Prerequisite for R02 |
 | R02 | Completed; Windows/Linux/deployment validated | PR #8 review and merge |
-| R03 | Test matrix and retry correction implemented; local validation complete | Hosted race/backend/deployment results in PR #8; separate corrective PATCH policy decision |
+| R03 | Test matrix, retry and PATCH corrections implemented; local validation complete | Hosted race/backend/deployment results in PR #8; R04 command boundary remains |
 | R05a/R05b | Partial production groundwork; R03 fixtures added | Review policy/command extractions against the new CAS/device fault and contention fixtures |
 | R04 and all R06–R23 sub-batches | Not started | Original scopes/dependencies below remain authoritative |
 

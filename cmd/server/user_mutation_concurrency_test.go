@@ -4,14 +4,13 @@ import (
 	"context"
 	"errors"
 	"net/http"
-	"strings"
-	"sync/atomic"
 	"testing"
 	"time"
 )
 
 type mutationConcurrentResult struct {
 	status  int
+	code    string
 	allowed bool
 	err     error
 }
@@ -102,27 +101,12 @@ func TestUserDeviceCommitFailureRetainsPreviousMetadata(t *testing.T) {
 	requireRepositoryEqual(t, "normalized device identity remains unique", mutationCount(t, f.app, "SELECT COUNT(*) FROM user_devices WHERE user_id = ?", id), 1)
 }
 
-// Characterize the existing lost-update defect, not a desired compatibility
-// requirement. Both PATCH requests read before either UPDATE is executed.
-func TestSubscriptionMutationCharacterizesDisjointPatchLostUpdate(t *testing.T) {
+// Both PATCH requests read before either UPDATE is executed. A stale writer
+// must reapply its patch to the winning state instead of replacing it.
+func TestSubscriptionMutationConcurrentPatchPreservesDisjointUpdates(t *testing.T) {
 	f, faults := newFaultedMutationFixture(t)
 	id := seedMutationSubscription(t, f.app)
-	var ready atomic.Int32
-	gate := make(chan struct{})
-	ctx, cancel := context.WithTimeout(t.Context(), 15*time.Second)
-	defer cancel()
-	faults.beforeExec = func(query string) {
-		if !strings.Contains(query, "subscription_name = ?") {
-			return
-		}
-		if ready.Add(1) == 2 {
-			close(gate)
-		}
-		select {
-		case <-gate:
-		case <-ctx.Done():
-		}
-	}
+	ready := synchronizeSubscriptionPatchWrites(t, faults)
 	path := "/api/v1/users/1/subscription"
 	results := runConcurrentMutations(t, []func() mutationConcurrentResult{
 		func() mutationConcurrentResult {
@@ -135,7 +119,7 @@ func TestSubscriptionMutationCharacterizesDisjointPatchLostUpdate(t *testing.T) 
 	for _, result := range results {
 		requireRepositoryEqual(t, "concurrent PATCH reports success", result.status, http.StatusOK)
 	}
-	requireRepositoryEqual(t, "PATCH overlap actually synchronized", ready.Load(), int32(2))
+	requireRepositoryEqual(t, "PATCH overlap actually synchronized", ready.Load() >= 2, true)
 	state := readMutationSubscription(t, f.app, id)
 	persisted := 0
 	if state.status == "paused" {
@@ -144,5 +128,7 @@ func TestSubscriptionMutationCharacterizesDisjointPatchLostUpdate(t *testing.T) 
 	if state.name == "changed title" {
 		persisted++
 	}
-	requireRepositoryEqual(t, "current whole-row PATCH loses one disjoint update", persisted, 1)
+	requireRepositoryEqual(t, "both disjoint PATCH updates preserved", persisted, 2)
+	requireRepositoryEqual(t, "paused status clears blocked reason after retry", state.reason, "")
+	assertMutationAudit(t, f.app, "user.subscription.update", 2)
 }

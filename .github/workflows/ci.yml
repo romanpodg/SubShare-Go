@@ -65,7 +65,7 @@ jobs:
       - name: Race-check user mutation concurrency
         run: >-
           go test -race ./cmd/server
-          -run '^(TestUserActivationConcurrentRequestsHaveOneWinner|TestUserDeviceConcurrentRegistrationsRespectLastSlot|TestSubscriptionMutationCharacterizesDisjointPatchLostUpdate)$'
+          -run '^(TestUserActivationConcurrentRequestsHaveOneWinner|TestUserDeviceConcurrentRegistrationsRespectLastSlot|TestSubscriptionMutationConcurrentPatch.*)$'
           -count=1
 
       # Fork PRs have no repository secrets; tests still run, uploads are skipped.

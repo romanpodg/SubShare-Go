@@ -12,7 +12,7 @@ Completed work:
 
 - **R01 complete:** portable startup/WAL characterization, WAL/DELETE restart, account/user/encrypted-profile/keyring retention, migration failure and retry, sidecar failures and I/O classification.
 - **R02 complete:** fail closed on initialization errors; remove destructive cleanup/retry and its obsolete error classifier; separate SQLite journal negotiation from connection pragmas. Crash-WAL, injected failure and second-process lock regressions protect accounts, encrypted profiles and keyring state. Windows checks and Linux/deployment CI pass.
-- **R03 implemented in the same PR, per user request:** registered user creation/deletion/activation routes, failure/rollback contracts, subscription PUT/PATCH compatibility and deterministic contention fixtures. A separate bounded retry correction prevents false create success after five collisions. See the [R03 execution record](r03-user-mutations.md) for coverage, current CI evidence and the confirmed PATCH lost-update follow-up. This does not complete R04/R05.
+- **R03 implemented in the same PR, per user request:** registered user creation/deletion/activation routes, failure/rollback contracts, subscription PUT/PATCH compatibility and deterministic contention fixtures. Separate corrections prevent false create success after five collisions and the reproduced PATCH lost update. See the [R03 record](r03-user-mutations.md) and [PATCH correction](subscription-patch-concurrency.md) for evidence and bounded conflict handling. This does not complete R04/R05.
 - **Existing repository refactoring retained:** e3ceaba separated user projection, settings, activation, subscription access and device persistence, factored transaction helpers and propagated RowsAffected errors. Repository Code Health is 10.00; helpers improved from 9.31 to 9.61. This is partial A01 progress, not completion of its mutation/fault/concurrency plan.
 - **Repository test maintainability fixed:** a438377 reorganized regression cases while retaining every assertion and state transition. Local Code Health improved from 4.05 to 10.00; the remote gate passes.
 - **Audit-prose scan false positive resolved:** 235408c documents one exact historical fingerprint exception; the scan and rules remain enabled.
@@ -20,7 +20,7 @@ Completed work:
 | Audit item | Status | Remaining work |
 | --- | --- | --- |
 | A00 / P0 | R01/R02 complete; PR #8 open | Review and merge R02; no production I/O trigger frequency is claimed |
-| A01 / P1 | R03 test matrix and retry correction implemented | Confirm hosted R03 checks; correct reproduced disjoint PATCH loss separately; R04 command boundary and R05a/R05b production policy work remain |
+| A01 / P1 | R03 test matrix, retry and PATCH corrections implemented | Review hosted checks; R04 command boundary and R05a/R05b production policy work remain |
 | A02 / P1 | Not started | R06–R08 encrypted profile faults, tri-state/revision/ownership contracts and adapter responsibilities |
 | A03 / P1 | Not started | R09/R10a/R10b preservation corpus, patch planning and transport/security phase |
 | A04 / P1 | Not started | R12/R13a/R13b response policy, persistence and HTTP delegation |
@@ -39,7 +39,7 @@ All six checks passed for a438377: backend, frontend, Docker smoke, CodeScene, C
 
 Codecov: project **48.02%** versus main **46.89%**; main.go **18.46%** versus **8.01%**; sqlite.go **64.70%** versus **60.78%**; whole-PR patch **80.09%**. Test Analytics: **848 passed, 5 skipped, no failures/errors**. Bundle upload/check passed; size/delta figures were unavailable in inspected results. Local statements remain **52.4%**, with unchanged coverage across 140 repository blocks. Optional snapshot/client fixtures and local race execution remain unverified. Passing frontend CI does not complete its planned refactoring.
 
-**Current review boundary:** the user explicitly requested continuing R03 within PR #8, superseding the earlier separate-PR recommendation. R03 characterization and the retry correction are separate commits in that PR. A00's corrective implementation and validation are complete. Prioritize the confirmed PATCH lost-update correction as a distinct change; R04's transaction-owned create/delete boundary remains the next extraction.
+**Current review boundary:** the user explicitly requested continuing R03 and fixing PATCH concurrency within PR #8, superseding the earlier separate-PR recommendation. Characterization and corrective changes remain reviewable as separate commits. A00's correction is complete, and the reproduced PATCH defect is resolved. R04's transaction-owned create/delete boundary remains the next extraction.
 
 ## P0
 
@@ -64,7 +64,7 @@ Codecov: project **48.02%** versus main **46.89%**; main.go **18.46%** versus **
 
 - **Module/file:** `cmd/server/handlers_users.go`, `repository.go`, `subscription_admin_v1.go`; read/policy/delivery callers remain explicit.
 - **Problem:** user HTTP validation and writes, status/date rules, global setting projection, activation CAS, assignment and HWID registration are coupled to SQL and mixed in a broad `App` boundary. Legacy PUT and v1 PATCH have distinct validation/timezone/optional-field handling that could drift.
-- **Evidence (original audit ranges):** create 96–173 and subscription PUT 226–334 in handlers; access 449–487, redemption 489–535, HWID 537–652 in repository; PATCH reads current fields then writes the whole set at 117–216 without revision comparison. R03 now reproduces disjoint PATCH loss deterministically: both requests report success while only one change survives. This remains a separately identified correctness defect, not a compatibility requirement. R03 also fixes the characterized false create success after retry exhaustion.
+- **Evidence (original audit ranges):** create 96–173 and subscription PUT 226–334 in handlers; access 449–487, redemption 489–535, HWID 537–652 in repository; PATCH read current fields then wrote the whole set at 117–216 without revision comparison. R03 reproduced disjoint PATCH loss deterministically. The subsequent correction conditionally compares/writes the snapshot and reapplies stale patches, replacing the defect assertion with preservation regressions. R03 also fixes the characterized false create success after retry exhaustion.
 - **CodeScene findings:** 8.00/6.33/7.67; repository Low Cohesion; `getSubscriptionSettings` CC 15, `registerHWID` CC 14/105 LoC, `scanUserRow` CC 13/99 LoC; PUT CC 18/98 LoC; repeated Bumpy Road.
 - **Git evidence:** handlers 1/1, 427; repository 24/16, 1,609; v1 subscription 5/5, 518. Handlers inherit behavior from `handlers.go` with 34 lifetime touches; their new path count is a lower-bound lineage signal.
 - **Coverage evidence:** CC 2.14%, 57.31%, 39.51%. Local create, legacy subscription PUT and activation redemption are 0%; HWID 59%, PATCH 50%. These are same-package gaps, not cross-package artifacts.
