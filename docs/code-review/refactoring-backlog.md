@@ -6,18 +6,19 @@ Coverage labeled **CC** is Codecov line coverage for this SHA. **Local** is CI-s
 
 ## Current implementation status — 2026-10-06
 
-Implementation validated at **a438377** in [PR #7](https://github.com/romanpodg/SubShare-Go/pull/7), from refactor/codehealth into main. The PR remains open and unmerged. This section updates the original audit; baseline measurements below still describe main at 3ab25a5.
+The R01 prerequisite was merged through [PR #7](https://github.com/romanpodg/SubShare-Go/pull/7) at **267811b**. R02 is implemented on `codex/sqlite-startup-data-safety`; see the [R02 execution record](r02-startup-safety.md) for the recovery contract, evidence and outstanding validation. Baseline measurements below still describe main at 3ab25a5; the R01 results below are historical evidence for a438377.
 
 Completed work:
 
-- **R01 complete:** portable startup/WAL characterization, WAL/DELETE restart, account/user/encrypted-profile/keyring retention, migration failure and retry, sidecar failures and I/O classification. The committed-WAL loss is demonstrated, not repaired.
+- **R01 complete:** portable startup/WAL characterization, WAL/DELETE restart, account/user/encrypted-profile/keyring retention, migration failure and retry, sidecar failures and I/O classification.
+- **R02 implemented:** fail closed on initialization errors; remove destructive cleanup/retry and its obsolete error classifier; separate SQLite journal negotiation from connection pragmas. Crash-WAL, injected failure and second-process lock regressions protect accounts, encrypted profiles and keyring state. Local validation and Linux CI status are recorded separately.
 - **Existing repository refactoring retained:** e3ceaba separated user projection, settings, activation, subscription access and device persistence, factored transaction helpers and propagated RowsAffected errors. Repository Code Health is 10.00; helpers improved from 9.31 to 9.61. This is partial A01 progress, not completion of its mutation/fault/concurrency plan.
 - **Repository test maintainability fixed:** a438377 reorganized regression cases while retaining every assertion and state transition. Local Code Health improved from 4.05 to 10.00; the remote gate passes.
 - **Audit-prose scan false positive resolved:** 235408c documents one exact historical fingerprint exception; the scan and rules remain enabled.
 
 | Audit item | Status | Remaining work |
 | --- | --- | --- |
-| A00 / P0 | Partial: R01 complete | **R02 next:** preserve committed DB/WAL on failure; agree recovery policy and add initializer/checkpoint/lock/permission/retry fault cases |
+| A00 / P0 | R01 complete; R02 implemented | Finish R02 validation and review; no production I/O trigger frequency is claimed |
 | A01 / P1 | Partial: extraction/regression groundwork | Finish R03 creation/deletion/route/failure/concurrency tests, R04 command boundary and R05a/R05b acceptance cases |
 | A02 / P1 | Not started | R06–R08 encrypted profile faults, tri-state/revision/ownership contracts and adapter responsibilities |
 | A03 / P1 | Not started | R09/R10a/R10b preservation corpus, patch planning and transport/security phase |
@@ -37,7 +38,7 @@ All six checks passed for a438377: backend, frontend, Docker smoke, CodeScene, C
 
 Codecov: project **48.02%** versus main **46.89%**; main.go **18.46%** versus **8.01%**; sqlite.go **64.70%** versus **60.78%**; whole-PR patch **80.09%**. Test Analytics: **848 passed, 5 skipped, no failures/errors**. Bundle upload/check passed; size/delta figures were unavailable in inspected results. Local statements remain **52.4%**, with unchanged coverage across 140 repository blocks. Optional snapshot/client fixtures and local race execution remain unverified. Passing frontend CI does not complete its planned refactoring.
 
-**Next review boundary:** merge the approved PR #7 after documentation checks, then use a separate PR for R02. R01 satisfies its test dependency; recovery-policy agreement and the fault seam remain required. Small follow-ups to this batch can stay in PR #7; do not start another audit batch here. A00 stays open until the corrective data-preservation change is validated.
+**Next review boundary:** review R02 as a separate corrective PR. The user's request to proceed with fixes authorizes this fail-closed correction. R03 user-mutation characterization is the next implementation batch after R02; do not combine it with the startup fix. A00 stays open until R02's required validation is complete.
 
 ## P0
 

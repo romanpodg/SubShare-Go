@@ -3,8 +3,6 @@ package storage
 import (
 	"context"
 	"database/sql"
-	"fmt"
-	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -117,46 +115,6 @@ func TestInitializeSQLiteAppliesConnectionPragmasAcrossThePool(t *testing.T) {
 		if busyTimeout != 5000 || foreignKeys != 1 {
 			t.Fatalf("connection %d pragmas: busy_timeout=%d foreign_keys=%d", index, busyTimeout, foreignKeys)
 		}
-	}
-}
-
-func TestCleanupSQLiteSidecars(t *testing.T) {
-	dir := t.TempDir()
-	dbPath := filepath.Join(dir, "test.db")
-	walPath := dbPath + "-wal"
-	shmPath := dbPath + "-shm"
-
-	if err := os.WriteFile(walPath, []byte("wal"), 0600); err != nil {
-		t.Fatalf("write wal: %v", err)
-	}
-	if err := os.WriteFile(shmPath, []byte("shm"), 0600); err != nil {
-		t.Fatalf("write shm: %v", err)
-	}
-
-	if err := CleanupSQLiteSidecars(dbPath); err != nil {
-		t.Fatalf("cleanup sidecars: %v", err)
-	}
-
-	if _, err := os.Stat(walPath); !os.IsNotExist(err) {
-		t.Fatalf("wal file still exists")
-	}
-	if _, err := os.Stat(shmPath); !os.IsNotExist(err) {
-		t.Fatalf("shm file still exists")
-	}
-}
-
-func TestIsRecoverableSQLiteIO(t *testing.T) {
-	if IsRecoverableSQLiteIO(nil) {
-		t.Fatal("nil error returned true")
-	}
-	if IsRecoverableSQLiteIO(sql.ErrNoRows) {
-		t.Fatal("normal sql errors returned true")
-	}
-	if !IsRecoverableSQLiteIO(fmt.Errorf("disk I/O error")) {
-		t.Fatal("disk I/O error was not identified as recoverable")
-	}
-	if !IsRecoverableSQLiteIO(fmt.Errorf("sqlite error (4874)")) {
-		t.Fatal("code 4874 error was not identified as recoverable")
 	}
 }
 
