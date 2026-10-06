@@ -105,7 +105,6 @@ func (a *App) apiCreateUser(w http.ResponseWriter, r *http.Request) {
 		httpapi.WriteError(w, r, http.StatusBadRequest, msg)
 		return
 	}
-	name, email, activationCode, status, blockedReason, issueDays := in.name, in.email, in.activationCode, in.status, in.blockedReason, in.issueDays
 
 	legacyToken, err := generateToken(24)
 	if err != nil {
@@ -120,7 +119,6 @@ func (a *App) apiCreateUser(w http.ResponseWriter, r *http.Request) {
 	}
 
 	now := time.Now().UTC()
-	expiresAt := now.AddDate(0, 0, issueDays)
 
 	tx, err := a.db.Begin()
 	if err != nil {
@@ -129,32 +127,12 @@ func (a *App) apiCreateUser(w http.ResponseWriter, r *http.Request) {
 	}
 	defer tx.Rollback()
 
-	var userID int64
-	for attempt := 0; attempt < 5; attempt++ {
-		var res sql.Result
-		res, err = tx.Exec(
-			`INSERT INTO users(name, email, token, activation_code, subscription_id, status, starts_at, expires_at, blocked_reason, max_devices) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, 1)`,
-			name, email, legacyToken, activationCode, subscriptionID, status, now, expiresAt, blockedReason,
-		)
-		if err == nil {
-			userID, _ = res.LastInsertId()
-			break
-		}
-
-		errText := strings.ToLower(err.Error())
-		if strings.Contains(errText, "users.subscription_id") || strings.Contains(errText, "idx_users_subscription_id") {
-			subscriptionID, err = generateToken(24)
-			if err != nil {
-				httpapi.WriteError(w, r, http.StatusInternalServerError, "failed to generate subscription token")
-				return
-			}
-			continue
-		}
-		break
-	}
+	userID, err := insertUserWithSubscriptionRetries(tx, createUserRecord{
+		input: in, legacyToken: legacyToken, subscriptionID: subscriptionID,
+		startsAt: now, expiresAt: now.AddDate(0, 0, in.issueDays),
+	})
 	if err != nil {
-		log.Printf("apiCreateUser: %v", err)
-		httpapi.WriteError(w, r, http.StatusConflict, "failed to create user (check activation code uniqueness)")
+		writeCreateUserInsertError(w, r, err)
 		return
 	}
 
@@ -168,7 +146,7 @@ func (a *App) apiCreateUser(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	a.recordAuditEvent(r, "user.create", "user", strconv.FormatInt(userID, 10), map[string]any{"name": name})
+	a.recordAuditEvent(r, "user.create", "user", strconv.FormatInt(userID, 10), map[string]any{"name": in.name})
 	httpapi.WriteMessage(w, "user created")
 }
 

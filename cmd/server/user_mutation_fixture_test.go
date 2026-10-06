@@ -71,6 +71,7 @@ func assertMutationResponse(t *testing.T, recorder *httptest.ResponseRecorder, p
 	payload := decodeJSONMap(t, recorder)
 	if want.status == http.StatusOK {
 		requireRepositoryEqual(t, "mutation success message", payload["message"], want.message)
+		requireRepositoryEqual(t, "mutation success envelope", len(payload), 1)
 		return
 	}
 	requireRepositoryEqual(t, "mutation error message", payload["error"], want.message)
@@ -113,10 +114,14 @@ func (d mutationSQLDriver) Open(name string) (driver.Conn, error) {
 }
 
 func (c *mutationSQLConn) Begin() (driver.Tx, error) {
+	return c.BeginTx(context.Background(), driver.TxOptions{})
+}
+
+func (c *mutationSQLConn) BeginTx(ctx context.Context, opts driver.TxOptions) (driver.Tx, error) {
 	if c.faults.beginErr != nil {
 		return nil, c.faults.beginErr
 	}
-	tx, err := c.Conn.Begin()
+	tx, err := c.Conn.(driver.ConnBeginTx).BeginTx(ctx, opts)
 	if err != nil {
 		return nil, err
 	}
@@ -138,7 +143,7 @@ func (tx *mutationSQLTx) Commit() error {
 	if tx.faults.commitErr != nil {
 		// Model a commit rejected with rollback, rather than leaving a fake
 		// driver's transaction open after database/sql marks it done.
-		_ = tx.Tx.Rollback()
+		_ = tx.Rollback()
 		return tx.faults.commitErr
 	}
 	return tx.Tx.Commit()

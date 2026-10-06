@@ -97,6 +97,13 @@ func TestSubscriptionMutationTimezoneAndDateContracts(t *testing.T) {
 
 func TestSubscriptionMutationValidationRetainsState(t *testing.T) {
 	for _, test := range []struct{ name, method, body, message string }{
+		{"PUT malformed", http.MethodPut, `{`, "invalid request body"},
+		{"PUT status", http.MethodPut, `{"status":"unknown"}`, "invalid subscription status"},
+		{"PUT starts", http.MethodPut, `{"starts_at":"bad-date"}`, "invalid starts_at datetime"},
+		{"PUT expires", http.MethodPut, `{"expires_at":"bad-date"}`, "invalid expires_at datetime"},
+		{"PUT range", http.MethodPut, `{"starts_at":"2028-01-01T00:00:00Z","expires_at":"2027-01-01T00:00:00Z"}`, "starts_at must be before expires_at"},
+		{"PUT refresh", http.MethodPut, `{"subscription_refresh_hours":721}`, "subscription_refresh_hours must be between 1 and 720"},
+		{"PUT extra status", http.MethodPut, mutationJSON(t, map[string]string{"subscription_extra_status": strings.Repeat("x", 256)}), "subscription_extra_status is too long (max 255 characters)"},
 		{"status", http.MethodPatch, `{"status":"unknown"}`, "invalid subscription status"},
 		{"null status", http.MethodPatch, `{"status":null}`, "status cannot be null"},
 		{"date", http.MethodPatch, `{"starts_at":"bad-date"}`, "invalid starts_at datetime"},
@@ -117,6 +124,44 @@ func TestSubscriptionMutationValidationRetainsState(t *testing.T) {
 			assertMutationAudit(t, f.app, "user.subscription.update", 0)
 		})
 	}
+}
+
+func TestSubscriptionMutationExplicitOverridesAreNormalized(t *testing.T) {
+	for _, method := range []string{http.MethodPut, http.MethodPatch} {
+		t.Run(method, func(t *testing.T) {
+			f := newUserMutationFixture(t)
+			id := seedMutationSubscription(t, f.app)
+			want := readMutationSubscription(t, f.app, id)
+			want.reason, want.name, want.refresh = "new reason", "changed title", 720
+			want.info, want.extra, want.extraStatus = "https://info.example/new", "https://extra.example/new", "new extra"
+			if method == http.MethodPut {
+				want.starts, want.expires = "", ""
+			}
+			path := "/api/v1/users/" + strconv.FormatInt(id, 10) + "/subscription"
+			body := `{"status":"blocked","blocked_reason":" new reason ","subscription_name":" changed title ","subscription_refresh_hours":720,
+				"subscription_info_url":" https://info.example/new ","subscription_extra_url":" https://extra.example/new ","subscription_extra_status":" new extra "}`
+			assertMutationResponse(t, f.request(method, path, body), path, mutationResponseWant{http.StatusOK, "subscription updated"})
+			requireRepositoryEqual(t, "explicit subscription overrides normalized", readMutationSubscription(t, f.app, id), want)
+		})
+	}
+}
+
+func TestSubscriptionMutationLegacyPutUsesSameReplacementContract(t *testing.T) {
+	f := newUserMutationFixture(t)
+	id := seedMutationSubscription(t, f.app)
+	path := "/api/admin/users/" + strconv.FormatInt(id, 10) + "/subscription"
+	assertMutationResponse(t, f.request(http.MethodPut, path, `{}`), path, mutationResponseWant{http.StatusOK, "subscription updated"})
+	requireRepositoryEqual(t, "legacy PUT replacement contract", readMutationSubscription(t, f.app, id), mutationSubscriptionState{status: "active", refresh: 12})
+}
+
+func TestUserSettingsRejectsInvalidTimezoneWithoutWrites(t *testing.T) {
+	f := newUserMutationFixture(t)
+	id := seedMutationSubscription(t, f.app)
+	path := "/api/v1/users/" + strconv.FormatInt(id, 10) + "/settings"
+	assertMutationResponse(t, f.request(http.MethodPut, path, `{"time_zone":"not-a-timezone"}`), path, mutationResponseWant{http.StatusBadRequest, "time_zone must be a valid IANA timezone"})
+	var zone string
+	requireRepositorySuccess(t, f.app.db.QueryRow("SELECT time_zone FROM users WHERE id = ?", id).Scan(&zone))
+	requireRepositoryEqual(t, "invalid timezone does not replace existing zone", zone, "America/New_York")
 }
 
 func TestSubscriptionMutationSQLFailureRetainsState(t *testing.T) {

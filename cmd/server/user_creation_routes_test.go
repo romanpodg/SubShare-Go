@@ -213,12 +213,19 @@ func TestUserCreationRetriesSubscriptionCollision(t *testing.T) {
 	requireRepositoryEqual(t, "bounded create retries", mutationCount(t, f.app, "SELECT count FROM create_attempts"), 5)
 }
 
-// Characterize the defect before the separate retry correction lands.
-func TestUserCreationCharacterizesExhaustedRetryFalseSuccess(t *testing.T) {
-	f := newUserMutationFixture(t)
-	installMutationSubscriptionCollisions(t, f.app, 5)
-	response := f.request(http.MethodPost, "/api/v1/users", `{"name":"Alice","activation_code":"custom-code"}`)
-	assertMutationResponse(t, response, "/api/v1/users", mutationResponseWant{status: http.StatusOK, message: "user created"})
-	assertMutationUserCounts(t, f.app, 0, 0)
-	assertMutationAudit(t, f.app, "user.create", 1)
+func TestUserCreationExhaustedRetriesReturnConflict(t *testing.T) {
+	for _, withKeys := range []bool{false, true} {
+		t.Run(fmt.Sprintf("existing_keys=%t", withKeys), func(t *testing.T) {
+			f := newUserMutationFixture(t)
+			if withKeys {
+				seedStartupEncryptedProfile(t, f.app.db, f.app.profileKeyring)
+			}
+			installMutationSubscriptionCollisions(t, f.app, 5)
+			response := f.request(http.MethodPost, "/api/v1/users", `{"name":"Alice","activation_code":"custom-code"}`)
+			assertMutationResponse(t, response, "/api/v1/users", mutationResponseWant{status: http.StatusConflict, message: "failed to create user (check activation code uniqueness)"})
+			assertMutationUserCounts(t, f.app, 0, 0)
+			assertMutationAudit(t, f.app, "user.create", 0)
+			requireRepositoryEqual(t, "failed retry side effects rolled back", mutationCount(t, f.app, "SELECT count FROM create_attempts"), 0)
+		})
+	}
 }
