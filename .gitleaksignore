@@ -1,1 +1,4 @@
 808a57e7b4634ded0fef9cbbc1577de3b26050ad:cmd/server/configuration_test.go:generic-api-key:215
+# False positive: ordinary A03 regression-risk prose in the preserved audit record.
+# Only this historical commit/file/rule/line is ignored; scanning remains enabled.
+9f16f83bd09bf247754dede7c615a7474d86d6f5:docs/code-review/refactoring-backlog.md:generic-api-key:64
