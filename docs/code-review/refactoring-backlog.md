@@ -14,7 +14,8 @@ Completed work:
 - **R02 complete:** fail closed on initialization errors; remove destructive cleanup/retry and its obsolete error classifier; separate SQLite journal negotiation from connection pragmas. Crash-WAL, injected failure and second-process lock regressions protect accounts, encrypted profiles and keyring state. Windows checks and Linux/deployment CI pass.
 - **R03 implemented in the same PR, per user request:** registered user creation/deletion/activation routes, failure/rollback contracts, subscription PUT/PATCH compatibility and deterministic contention fixtures. Separate corrections prevent false create success after five collisions and the reproduced PATCH lost update. See the [R03 record](r03-user-mutations.md) and [PATCH correction](subscription-patch-concurrency.md) for evidence and bounded conflict handling.
 - **R04 implemented in PR #8:** transaction-owned create and atomic delete commands, pure input validation and HTTP error mapping, with R03 parity tests and direct command assurance. Unknown deletion affected-row outcomes now return 500 instead of a false 404. See the [R04 record](r04-user-commands.md); R05 remains separate.
-- **PR #8 merged at d87b122; R05a implemented separately:** HTTP-independent activation redemption and pure input validation delegate to the existing conditional SQLite claim. Synchronized alias requests prove one winner and retained identity/timestamp; confirmation failures withhold the link, while existing access rules and crypto fallbacks remain compatible. See the [R05a record](r05a-activation-redemption.md); R05b remains next.
+- **PR #8 merged at d87b122; R05a implemented separately:** HTTP-independent activation redemption and pure input validation delegate to the existing conditional SQLite claim. Synchronized alias requests prove one winner and retained identity/timestamp; confirmation failures withhold the link, while existing access rules and crypto fallbacks remain compatible. See the [R05a record](r05a-activation-redemption.md); all six hosted checks passed at ddf7154.
+- **R05b implemented as the user-requested PR #9 continuation:** registration transaction ownership, pure normalization/capacity/access policy, SQL commands and request adaptation are separate from device projections. Synchronized final-slot/same-identity transactions and rollback/route fixtures preserve existing contracts. See the [R05b record](r05b-device-registration.md); R06 is next.
 - **Existing repository refactoring retained:** e3ceaba separated user projection, settings, activation, subscription access and device persistence, factored transaction helpers and propagated RowsAffected errors. Repository Code Health is 10.00; helpers improved from 9.31 to 9.61. This is partial A01 progress, not completion of its mutation/fault/concurrency plan.
 - **Repository test maintainability fixed:** a438377 reorganized regression cases while retaining every assertion and state transition. Local Code Health improved from 4.05 to 10.00; the remote gate passes.
 - **Audit-prose scan false positive resolved:** 235408c documents one exact historical fingerprint exception; the scan and rules remain enabled.
@@ -22,7 +23,7 @@ Completed work:
 | Audit item | Status | Remaining work |
 | --- | --- | --- |
 | A00 / P0 | R01/R02 complete; PR #8 merged | No production I/O trigger frequency is claimed |
-| A01 / P1 | R03/R04 merged; R05a command/policy boundary implemented | R05a PR review/hosted checks; R05b device-policy acceptance and other A01 boundaries remain |
+| A01 / P1 | R03/R04 merged; R05a validated; R05b command/policy boundary implemented | PR #9 review/continuation checks; other A01 mutation boundaries remain |
 | A02 / P1 | Not started | R06–R08 encrypted profile faults, tri-state/revision/ownership contracts and adapter responsibilities |
 | A03 / P1 | Not started | R09/R10a/R10b preservation corpus, patch planning and transport/security phase |
 | A04 / P1 | Not started | R12/R13a/R13b response policy, persistence and HTTP delegation |
@@ -41,7 +42,7 @@ All six checks passed for a438377: backend, frontend, Docker smoke, CodeScene, C
 
 Codecov: project **48.02%** versus main **46.89%**; main.go **18.46%** versus **8.01%**; sqlite.go **64.70%** versus **60.78%**; whole-PR patch **80.09%**. Test Analytics: **848 passed, 5 skipped, no failures/errors**. Bundle upload/check passed; size/delta figures were unavailable in inspected results. Local statements remain **52.4%**, with unchanged coverage across 140 repository blocks. Optional snapshot/client fixtures and local race execution remain unverified. Passing frontend CI does not complete its planned refactoring.
 
-**Current review boundary:** PR #8 is merged at d87b122. R05a starts a new PR at the user's request, with assurance tests committed before the activation command/policy extraction. A00 and the reproduced PATCH defect are resolved. R05b device policy is next; the broader A01 scope remains incomplete.
+**Current review boundary:** PR #8 is merged at d87b122. PR #9 contains R05a and the user-requested R05b continuation, each with assurance before extraction and an execution record. A00 and the reproduced PATCH defect are resolved. R06 profile fault/tri-state assurance is next; the broader A01 scope remains incomplete.
 
 ## P0
 

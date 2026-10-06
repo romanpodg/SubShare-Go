@@ -3982,8 +3982,8 @@
       "R02": "completed",
       "R03": "merged",
       "R04": "merged",
-      "R05a": "implemented_local_validated",
-      "R05b": "partial",
+      "R05a": "completed",
+      "R05b": "implemented_local_validated",
       "R06": "not_started",
       "R07a": "not_started",
       "R07b": "not_started",
@@ -4031,19 +4031,32 @@
         "scope": "Repository test maintainability, with assertions and transitions retained"
       }
     ],
-    "nextBatch": "R05b",
+    "nextBatch": "R06",
     "nextBatchPriority": "P1",
     "nextBatchRemainingPrerequisites": [
-      "Review R05a's separate activation command/policy PR and hosted race checks.",
-      "Inspect R05b's existing device policy/transaction extraction against R03's normalization, slot contention and fault fixtures."
+      "Review PR9's activation and user-requested device continuation with their hosted checks.",
+      "Inspect existing encrypted-profile service/adapter tests before adding R06's fault, tri-state, revision and ownership characterization."
     ],
-    "remainingCriticalRisk": "Startup, create-retry and PATCH lost-update corrections and R04 are merged in PR8. R05a is implemented separately; R05b device policy and other audit batches remain. OS I/O trigger frequency remains unmeasured.",
+    "remainingCriticalRisk": "Startup, create-retry and PATCH lost-update corrections and R04 are merged in PR8. R05a is validated and R05b is implemented in PR9. Other A01 boundaries and audit batches remain. OS I/O trigger frequency remains unmeasured.",
     "r02ExecutionRecord": "docs/code-review/r02-startup-safety.md",
     "r03ExecutionRecord": "docs/code-review/r03-user-mutations.md",
     "r04ExecutionRecord": "docs/code-review/r04-user-commands.md",
     "r05aExecutionRecord": "docs/code-review/r05a-activation-redemption.md",
     "r05aBaseCommit": "d87b122f99fc4976a62bf499d0fdf60a589fd9d9",
     "r05aCharacterizationCommit": "230540cbf784",
+    "r05bExecutionRecord": "docs/code-review/r05b-device-registration.md",
+    "r05bCharacterizationCommit": "9d745e8",
+    "r05bLocalValidation": {
+      "validatedSourceCommit": "a8d6582",
+      "pullRequest": "https://github.com/romanpodg/SubShare-Go/pull/9",
+      "fullSuiteResults": 887,
+      "optionalSkips": 5,
+      "localStatementCoverage": 55.9,
+      "registrationStatementCoverage": 100.0,
+      "deviceAccessStatementCoverage": 100.0,
+      "hostedChecksSource": "https://github.com/romanpodg/SubShare-Go/pull/9/checks",
+      "note": "Full atomic-coverage snapshot plus focused checks after the final policy readability adjustment."
+    },
     "r05aLocalValidation": {
       "validatedSourceCommit": "e361b18",
       "pullRequest": "https://github.com/romanpodg/SubShare-Go/pull/9",
@@ -4114,6 +4127,12 @@
       "cmd/server/activation_http.go": 10.0,
       "cmd/server/repository_activation.go": 10.0,
       "cmd/server/handlers_subscription.go": 7.79,
+      "cmd/server/device_registration.go": 10.0,
+      "cmd/server/device_registration_repository.go": 10.0,
+      "cmd/server/device_policy.go": 10.0,
+      "cmd/server/subscription_devices.go": 10.0,
+      "cmd/server/repository_devices.go": 10.0,
+      "cmd/server/subscription_delivery.go": 9.37,
       "cmd/server/subscription_admin_v1.go": 8.34,
       "cmd/server/subscription_patch.go": 10.0,
       "cmd/server/subscription_patch_policy.go": 10.0,
@@ -4160,6 +4179,6 @@
         "Bundle size/delta figures were unavailable in inspected results."
       ]
     },
-    "recommendedReviewBoundary": "PR8 is merged at d87b122. The user authorized a new PR for R05a; review its assurance and extraction commits separately. R05b device policy is next."
+    "recommendedReviewBoundary": "PR8 is merged at d87b122. PR9 contains R05a and the user-requested R05b continuation; review each assurance/extraction pair separately. R06 profile fault/tri-state tests are next."
   }
 }

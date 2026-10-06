@@ -30,4 +30,4 @@ CodeScene reviews report **10.00** for the command, policy, HTTP adapter, SQLite
 
 The Windows sandbox denies Go coverage metadata renames and localhost mock HTTP connections; final validation must use the approved unrestricted runner. Local race execution is unavailable because CGO is disabled and no C compiler is installed. Linux CI provides the race-enabled runner. Docker Desktop is not running locally; deployment validation belongs to hosted CI.
 
-R05a's command/policy extraction is implemented. R05b's device policy/transaction acceptance is next, and the broader A01 scope remains incomplete. The extraction can be reverted independently without converting stored data.
+R05a's command/policy extraction is implemented and all six hosted checks passed at ddf7154. The later user-requested [R05b continuation](r05b-device-registration.md) owns current device policy/transaction evidence; R06 is now next and the broader A01 scope remains incomplete. The activation extraction can be reverted independently without converting stored data.
