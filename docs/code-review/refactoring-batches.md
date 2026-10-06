@@ -6,15 +6,17 @@ Audit basis: `main`, `3ab25a5d7aa4f2a28069330406d74f697ac1f1c3`. **Original audi
 
 R01 was validated at **a438377** and merged through [PR #7](https://github.com/romanpodg/SubShare-Go/pull/7) at **267811b**. R02 is complete in [PR #8](https://github.com/romanpodg/SubShare-Go/pull/8), with source validated at **a896708** and all six checks passing; see its [execution record](r02-startup-safety.md). See the [current backlog status](refactoring-backlog.md#current-implementation-status--2026-10-06) for remaining audit items.
 
+The user explicitly requested R03 in that same PR, superseding the original one-PR-per-batch recommendation. Tests and the bounded retry correction remain separate commits; the [R03 record](r03-user-mutations.md) distinguishes implemented contracts, validation evidence and the remaining PATCH defect.
+
 | Batch scope | Status | What remains |
 | --- | --- | --- |
 | R01 | Completed; Windows/Linux validated | Prerequisite for R02 |
 | R02 | Completed; Windows/Linux/deployment validated | PR #8 review and merge |
-| R03 — partial groundwork | Partial groundwork from existing PR | Creation/deletion routes, mutation/assignment rollback and concurrent activation/device cases |
-| R05a/R05b | Partial groundwork from existing PR | Extraction/basic regression exists; finish R03 prerequisite and race/fault acceptance cases |
+| R03 | Test matrix and retry correction implemented; local validation complete | Hosted race/backend/deployment results in PR #8; separate corrective PATCH policy decision |
+| R05a/R05b | Partial production groundwork; R03 fixtures added | Review policy/command extractions against the new CAS/device fault and contention fixtures |
 | R04 and all R06–R23 sub-batches | Not started | Original scopes/dependencies below remain authoritative |
 
-Partial means acceptance criteria are not yet satisfied. The e3ceaba repository split predates R01 and does not complete A01. PR #7 is merged. The current corrective change is R02; R03 is the next separate batch. The original plan and R01 execution notes below are historical records.
+Partial means acceptance criteria are not yet satisfied. The e3ceaba repository split predates R01 and does not complete A01. PR #7 is merged. PR #8 now contains R02 and the user-requested R03 continuation. The retry insertion helper is narrow corrective groundwork, not completion of R04's transaction-owned command boundary. The original plan and R01 execution notes below are historical records.
 
 ## Ordered execution plan
 
@@ -24,7 +26,7 @@ The original recommended first batch was **R01**, tests only; its execution stat
 | --- | --- | --- | --- | --- | --- | --- |
 | R01 — completed, Windows/Linux validated | P0/A00 | Startup/WAL characterization in server and storage tests only | Existing initialization/cleanup/migration tests; disposable subprocess harness | Prove committed crash-WAL versus junk sidecars and normal startup; record destructive current helper behavior | None | G, M; Windows and Linux disposable subprocess runs |
 | R02 — completed | P0/A00 | `main.go` SQLite recovery branch, `storage/sqlite.go` cleanup contract | R01; initializer failure and real process-lock tests | **Corrective change:** fail closed and preserve committed data; separate journal negotiation from connection pragmas | R01 | G, M, D populated restart; failure injection |
-| R03 — partial groundwork | P1/A01 | User/legacy PUT/activation/device characterization tests | Existing subscription core/HTTP fixtures | Fill unexecuted creation/redemption and mutation-failure gaps | None; R02 preferred first | G, M, race-enabled isolated DB tests |
+| R03 — implemented | P1/A01 | User/legacy PUT/activation/device characterization tests and separate retry correction | Existing subscription core/HTTP fixtures plus registered routes and fault driver | Freeze mutation contracts; prove and correct exhausted create retries; characterize disjoint PATCH loss | R02 complete | G, M, race-enabled isolated DB tests |
 | R04 | P1/A01 | One user create/delete command boundary in `handlers_users.go` and repository helpers | R03 creation/defaults/assignments/rollback/cascade fixtures | Move command persistence out of HTTP while keeping one transaction | R03 | G, M; user-route response parity; C |
 | R05a — partial groundwork | P1/A01 | Activation redemption policy/CAS in `repository.go` and activation caller | R03 duplicate/expiry/concurrent redemption fixtures | Make one-time redemption atomic boundary explicit | R03; independent of R04 | G, M, race-enabled CAS tests; C |
 | R05b — partial groundwork | P1/A01 | HWID registration and access policy helpers | R03 limit/normalization/last-slot/failure fixtures | Isolate device registration transaction from read projection | R03; independent of R05a | G, M, race-enabled slot tests; C |

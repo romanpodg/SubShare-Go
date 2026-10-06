@@ -2,6 +2,8 @@
 
 **Historical evidence:** measurements and inventory below describe the original main commit 3ab25a5 and remain unchanged. See the [current backlog status](refactoring-backlog.md#current-implementation-status--2026-10-06) and [batch status](refactoring-batches.md#current-completion-and-next-batch) for progress. R01 merged at 267811b; the [R02 execution record](r02-startup-safety.md) owns current startup-safety evidence. audit-summary.json preserves its baseline fields and separates historical validation from R02 progress.
 
+The [R03 execution record](r03-user-mutations.md) owns current user-mutation evidence: registered routes and fault/contention fixtures, a separate create-retry correction, measured local coverage/health, and the reproduced disjoint PATCH defect. Original measurements below are not overwritten by these later changes.
+
 Analyzed Git-tracked source at `3ab25a5d7aa4f2a28069330406d74f697ac1f1c3`, branch `main`, 2026-10-06. This appendix contains summarized measurements and analyzer findings, not raw API responses, credentials or application data. Read [repository-audit.md](repository-audit.md) for semantic interpretation and limitations; [refactoring-backlog.md](refactoring-backlog.md) owns priorities. A file allocation identifies scope, not a separate issue for each file.
 
 ## Reproducible collection method

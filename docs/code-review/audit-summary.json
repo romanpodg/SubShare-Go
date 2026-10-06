@@ -3980,7 +3980,7 @@
     "batchStatus": {
       "R01": "completed",
       "R02": "completed",
-      "R03": "partial",
+      "R03": "implemented_local_validated",
       "R04": "not_started",
       "R05a": "partial",
       "R05b": "partial",
@@ -4031,13 +4031,30 @@
         "scope": "Repository test maintainability, with assertions and transitions retained"
       }
     ],
-    "nextBatch": "R03",
+    "nextBatch": "R04",
     "nextBatchPriority": "P1",
     "nextBatchRemainingPrerequisites": [
-      "Review and merge PR8; implement R03 as a separate user-mutation batch."
+      "Confirm hosted R03 checks in PR8, which the user explicitly asked to extend.",
+      "Prioritize a separate corrective decision for the reproduced disjoint PATCH lost update.",
+      "Keep R04 transaction-owned create/delete extraction distinct from the narrow retry correction."
     ],
-    "remainingCriticalRisk": "R02 removes destructive startup recovery and passes required validation. Underlying OS I/O trigger frequency remains unmeasured.",
+    "remainingCriticalRisk": "R02 removes destructive startup recovery. R03 confirms concurrent disjoint PATCH requests can both succeed while losing one change; a separate correction remains. OS I/O trigger frequency remains unmeasured.",
     "r02ExecutionRecord": "docs/code-review/r02-startup-safety.md",
+    "r03ExecutionRecord": "docs/code-review/r03-user-mutations.md",
+    "r03LocalValidation": {
+      "characterizationCommit": "5d758a6",
+      "pullRequest": "https://github.com/romanpodg/SubShare-Go/pull/8",
+      "fullSuiteResults": 793,
+      "optionalSkips": 5,
+      "localStatementCoverage": 55.2,
+      "createStatementCoverage": 88.6,
+      "deleteStatementCoverage": 100.0,
+      "activationStatementCoverage": 91.7,
+      "deviceRegistrationStatementCoverage": 100.0,
+      "insertStatementCoverage": 93.3,
+      "hostedChecksSource": "https://github.com/romanpodg/SubShare-Go/pull/8/checks",
+      "note": "Local coverage is the full-suite snapshot; final focused cases and hosted checks are separate evidence."
+    },
     "r02Validation": {
       "validatedSourceCommit": "a8967084e7790d44454b2381d4b67dfc069405f3",
       "pullRequest": "https://github.com/romanpodg/SubShare-Go/pull/8",
@@ -4056,6 +4073,8 @@
       "cmd/server/main.go": 9.57,
       "internal/storage/sqlite.go": 10.0,
       "cmd/server/database_failure_test.go": 10.0,
+      "cmd/server/handlers_users.go": 8.14,
+      "cmd/server/user_creation.go": 10.0,
       "cmd/server/main_startup_test.go": 10.0,
       "internal/storage/sqlite_startup_test.go": 10.0
     },
@@ -4098,6 +4117,6 @@
         "Bundle size/delta figures were unavailable in inspected results."
       ]
     },
-    "recommendedReviewBoundary": "PR7 is merged at 267811b. Review R02 as a separate corrective PR, then proceed with R03 in its own PR."
+    "recommendedReviewBoundary": "PR7 is merged at 267811b. The user explicitly authorized continuing R03 within PR8; review its test stage and retry correction as separate commits, with the confirmed PATCH correction and R04 remaining distinct."
   }
 }
