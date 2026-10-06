@@ -1,8 +1,43 @@
 # Refactoring Backlog
 
-Basis: `main` at `3ab25a5d7aa4f2a28069330406d74f697ac1f1c3`, 2026-10-06. The original audit backlog is retained below; subsequent implementation status is recorded in the execution section. Ranking combines source semantics, CodeScene categories/functions, Git activity, Codecov lines, local statement profiles, tests, architectural role, and regression blast radius. Evidence tables and full per-file findings are in [repository-audit.md](repository-audit.md) and [analysis-evidence.md](analysis-evidence.md).
+Basis: `main` at `3ab25a5d7aa4f2a28069330406d74f697ac1f1c3`, 2026-10-06. The original audit backlog is retained below; current progress is summarized below, with detailed execution records at the end. Ranking combines source semantics, CodeScene categories/functions, Git activity, Codecov lines, local statement profiles, tests, architectural role, and regression blast radius. Evidence tables and full per-file findings are in [repository-audit.md](repository-audit.md) and [analysis-evidence.md](analysis-evidence.md).
 
 Coverage labeled **CC** is Codecov line coverage for this SHA. **Local** is CI-style Go statement coverage; **cross** is supplemental uncached cross-package statement coverage. Frontend percentages are unavailable, not zero. Git entries are lifetime/recent touches, then recent added+deleted lines; recent starts 2026-04-06. File splits can hide historical activity. Completion requires behavior parity, not a specific score increase.
+
+## Current implementation status — 2026-10-06
+
+Implementation validated at **a438377** in [PR #7](https://github.com/romanpodg/SubShare-Go/pull/7), from refactor/codehealth into main. The PR remains open and unmerged. This section updates the original audit; baseline measurements below still describe main at 3ab25a5.
+
+Completed work:
+
+- **R01 complete:** portable startup/WAL characterization, WAL/DELETE restart, account/user/encrypted-profile/keyring retention, migration failure and retry, sidecar failures and I/O classification. The committed-WAL loss is demonstrated, not repaired.
+- **Existing repository refactoring retained:** e3ceaba separated user projection, settings, activation, subscription access and device persistence, factored transaction helpers and propagated RowsAffected errors. Repository Code Health is 10.00; helpers improved from 9.31 to 9.61. This is partial A01 progress, not completion of its mutation/fault/concurrency plan.
+- **Repository test maintainability fixed:** a438377 reorganized regression cases while retaining every assertion and state transition. Local Code Health improved from 4.05 to 10.00; the remote gate passes.
+- **Audit-prose scan false positive resolved:** 235408c documents one exact historical fingerprint exception; the scan and rules remain enabled.
+
+| Audit item | Status | Remaining work |
+| --- | --- | --- |
+| A00 / P0 | Partial: R01 complete | **R02 next:** preserve committed DB/WAL on failure; agree recovery policy and add initializer/checkpoint/lock/permission/retry fault cases |
+| A01 / P1 | Partial: extraction/regression groundwork | Finish R03 creation/deletion/route/failure/concurrency tests, R04 command boundary and R05a/R05b acceptance cases |
+| A02 / P1 | Not started | R06–R08 encrypted profile faults, tri-state/revision/ownership contracts and adapter responsibilities |
+| A03 / P1 | Not started | R09/R10a/R10b preservation corpus, patch planning and transport/security phase |
+| A04 / P1 | Not started | R12/R13a/R13b response policy, persistence and HTTP delegation |
+| A05 / P1 | Not started | R14/R15a/R15b queue/source lifecycle, overlap and source-create transaction |
+| A06 / P1 | Not started | R16a/R16b actual-route authorization matrix and guard evaluation |
+| A07 / P1 | Not started | R11a/R11b editor commands and draft/reveal/session lifetime |
+| A08 / P1 | Not started | R17a/R17b ordering/actions and shared presentation |
+| A09 / P2 | Not started | R18a/R18b Go/TS/OpenAPI contracts and request errors |
+| A10 / P2 | Not started | R19 backend Xray interpretation |
+| A11 / P2 | Not started | R20 supported-consumer check and unused declarations |
+| A12 / P2 | Not started | R21 branding save acknowledgment and reopen state |
+| A13 / P2 | Not started | R22a/R22b package measurement and backup/upgrade/restore failures |
+| A14 / P2 | Not started | R23 public-page renderer/config contracts |
+
+All six checks passed for a438377: backend, frontend, Docker smoke, CodeScene, Codecov patch and Codecov bundles. [Actions run 37429826449](https://github.com/romanpodg/SubShare-Go/actions/runs/37429826449) includes Go/migration/vet/lint/build/secret scanning, TypeScript/lint/Vitest/build/Playwright, restart persistence and configured uploads. [CodeScene analysis 7826153](https://codescene.io/projects/84883/delta/results/7826153) passed all three gates; both local deltas pass.
+
+Codecov: project **48.02%** versus main **46.89%**; main.go **18.46%** versus **8.01%**; sqlite.go **64.70%** versus **60.78%**; whole-PR patch **80.09%**. Test Analytics: **848 passed, 5 skipped, no failures/errors**. Bundle upload/check passed; size/delta figures were unavailable in inspected results. Local statements remain **52.4%**, with unchanged coverage across 140 repository blocks. Optional snapshot/client fixtures and local race execution remain unverified. Passing frontend CI does not complete its planned refactoring.
+
+**Next review boundary:** merge the approved PR #7 after documentation checks, then use a separate PR for R02. R01 satisfies its test dependency; recovery-policy agreement and the fault seam remain required. Small follow-ups to this batch can stay in PR #7; do not start another audit batch here. A00 stays open until the corrective data-preservation change is validated.
 
 ## P0
 
@@ -199,14 +234,14 @@ Priorities describe future engineering attention. P0/R02 and the identified A02/
 
 ## Execution status — R01 / PR #7 (2026-10-06)
 
-R01 (P0/A00, no prerequisites) is completed locally as tests only: the final Go/coverage suite, migration test, vet, build, lint and diff hygiene checks passed. The strict CodeScene failure belongs to the pre-existing PR test file and remains visible for review. See the [R01 execution record](refactoring-batches.md#r01-execution-record--pr-7-2026-10-06) for fixture design, validation, coverage and CodeScene evidence. `main.go` and `sqlite.go` remain unchanged at 9.57/9.92; the new test files each score 10.00. Existing initializer/cleanup/classifier/migration, keyring-bootstrap and administrator-bootstrap tests are retained.
+R01 (P0/A00, no prerequisites) is complete and Windows/Linux validated at a438377. The former repository-test CodeScene failure is resolved; all six PR checks pass. See the current status above and the R01 execution record for tests, coverage and limits. Startup production health remains 9.57/9.92; both new test files score 10.00. Existing initializer, migration and bootstrap tests are retained.
 
 Added characterization protects normal WAL/DELETE startup and restart, existing accounts/users/encrypted profiles/keyring, migration failure and later retry, directory errors, sidecar absence/junk, partial filesystem removal, and wrapped I/O classification. A disposable crash-WAL reference proves that the current cleanup helper removes a committed row; this is labeled a destructive observation to replace in R02, not a desired invariant.
 
 **A00 remains open.** R02's corrective recovery policy, fault-injection seam, checkpoint/close/lock/permission/automatic-retry scenarios and fail-closed contract are deliberately deferred. The R01 tests do not establish production trigger frequency or repair the loss hazard. Proposed contract: retain committed DB/WAL/keyring on failure; use demonstrably safe SQLite recovery or return an error without deleting recoverable state. No production, migration, security or API behavior changed.
 
-**PR-specific follow-up under A01:** the pre-existing PR commit added `cmd/server/repository_test.go`, whose local CodeScene score is 4.05 and service score is 4.06. PR #7's new-file health gate was already failing before R01. R01 adds no CodeScene warnings. Keep this gate visible for a separate review/test-maintainability decision; do not suppress checks or expand this batch to unrelated repository refactoring. Linux test/CI and Codecov results must be checked at the final PR head.
+**PR-specific follow-up under A01 — resolved:** the earlier test-health gate failed at local 4.05/service 4.06. The requested test-only correction in a438377 raises local health to 10.00 and passes the remote gate without suppression. A01 remains partial because mutation-route and concurrency/fault work is unfinished.
 
-**Linux CI follow-up:** Go/migration/vet/lint/build and all frontend checks passed on R01 head `9f16f83`; Codecov uploads succeeded. Docker smoke was blocked by a Gitleaks false positive in ordinary A03 audit prose. The correction uses one exact historical finding fingerprint in `.gitleaksignore`, preserving all rules and audit wording. See the execution record for the history-scan rationale; inspect current-head CI and Codecov before merge.
+**Linux CI follow-up — passed:** early run 37364737957 was blocked by an audit-prose scan false positive. The exact-fingerprint correction in 235408c resolved it; run 37429826449 at a438377 passes backend, frontend, Docker and all uploads/quality checks.
 
-**User-requested CodeScene follow-up (2026-10-06):** the reported PR #7 test-health failure is resolved locally by reorganizing only `cmd/server/repository_test.go`. Its score rose from 4.05 (service baseline 4.06) to 10.00, with no findings; both ordinary and strict `cs delta main` pass. Existing projection, access, activation, HWID and database-failure assertions are retained, including empty-to-populated reads and valid-to-invalid time-zone updates. This is a focused test-maintainability follow-up explicitly requested after R01, not implementation of A01 production work or another batch. No CodeScene suppression or production change is included; inspect the new PR head's checks.
+**User-requested CodeScene follow-up (2026-10-06):** the reported PR #7 test-health failure is resolved by reorganizing only `cmd/server/repository_test.go`. Its score rose from 4.05 (service baseline 4.06) to 10.00, with no findings; both ordinary and strict `cs delta main` pass. Existing projection, access, activation, HWID and database-failure assertions are retained, including empty-to-populated reads and valid-to-invalid time-zone updates. This is a focused test-maintainability follow-up explicitly requested after R01, not implementation of A01 production work or another batch. No CodeScene suppression or production change is included; all six remote checks pass at a438377.

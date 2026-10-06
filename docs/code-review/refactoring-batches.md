@@ -2,18 +2,32 @@
 
 Audit basis: `main`, `3ab25a5d7aa4f2a28069330406d74f697ac1f1c3`. **Original audit plan; execution status below.** The original audit changed no production code or tests. Backlog IDs refer to [refactoring-backlog.md](refactoring-backlog.md). Each row is an independently reviewable/revertible unit; do not combine unrelated rows into one change. Tests land before extraction, and corrective behavior changes are explicitly distinguished.
 
+## Current completion and next batch
+
+Validated code commit: **a438377**, [PR #7](https://github.com/romanpodg/SubShare-Go/pull/7). All six checks passed. See the [current backlog status](refactoring-backlog.md#current-implementation-status--2026-10-06) for completed work, remaining audit items and linked validation.
+
+| Batch scope | Status | What remains |
+| --- | --- | --- |
+| R01 | Completed; Windows/Linux validated | R02 owns the corrective WAL preservation change |
+| R02 — next, not started | Not started; next P0 batch | Agree recovery policy, add fault characterization, then correct unsafe retry |
+| R03 — partial groundwork | Partial groundwork from existing PR | Creation/deletion routes, mutation/assignment rollback and concurrent activation/device cases |
+| R05a/R05b | Partial groundwork from existing PR | Extraction/basic regression exists; finish R03 prerequisite and race/fault acceptance cases |
+| R04 and all R06–R23 sub-batches | Not started | Original scopes/dependencies below remain authoritative |
+
+Partial means acceptance criteria are not yet satisfied. The e3ceaba repository split predates R01 and does not complete A01. User review is approved; PR #7 remains open and unmerged. Merge this bounded change after documentation checks, then use one separate PR per further batch, starting R02. No additional batch has been started.
+
 ## Ordered execution plan
 
 The original recommended first batch was **R01**, tests only; its execution status is recorded below. Then address R02's recovery correctness before extensive refactoring. The remaining order favors poorly protected business/data boundaries before UI restructuring; independent lanes need not wait for unrelated batches.
 
 | Batch | Priority | Scope | Prerequisite Tests | Goal | Dependencies | Validation |
 | --- | --- | --- | --- | --- | --- | --- |
-| R01 — completed locally, tests only | P0/A00 | Startup/WAL characterization in server and storage tests only | Existing initialization/cleanup/migration tests; disposable subprocess harness | Prove committed crash-WAL versus junk sidecars and normal startup; record destructive current helper behavior | None | G, M; Windows and Linux disposable subprocess runs |
-| R02 | P0/A00 | `main.go` SQLite recovery branch, `storage/sqlite.go` cleanup contract | R01; add initializer/checkpoint/lock failure seam and tests before changing recovery policy | **Corrective change:** preserve recoverable DB/WAL or fail closed; separate from refactoring | R01 and agreed recovery contract | G, M, D populated restart; failure injection |
-| R03 | P1/A01 | User/legacy PUT/activation/device characterization tests | Existing subscription core/HTTP fixtures | Fill unexecuted creation/redemption and mutation-failure gaps | None; R02 preferred first | G, M, race-enabled isolated DB tests |
+| R01 — completed, Windows/Linux validated | P0/A00 | Startup/WAL characterization in server and storage tests only | Existing initialization/cleanup/migration tests; disposable subprocess harness | Prove committed crash-WAL versus junk sidecars and normal startup; record destructive current helper behavior | None | G, M; Windows and Linux disposable subprocess runs |
+| R02 — next, not started | P0/A00 | `main.go` SQLite recovery branch, `storage/sqlite.go` cleanup contract | R01; add initializer/checkpoint/lock failure seam and tests before changing recovery policy | **Corrective change:** preserve recoverable DB/WAL or fail closed; separate from refactoring | R01 and agreed recovery contract | G, M, D populated restart; failure injection |
+| R03 — partial groundwork | P1/A01 | User/legacy PUT/activation/device characterization tests | Existing subscription core/HTTP fixtures | Fill unexecuted creation/redemption and mutation-failure gaps | None; R02 preferred first | G, M, race-enabled isolated DB tests |
 | R04 | P1/A01 | One user create/delete command boundary in `handlers_users.go` and repository helpers | R03 creation/defaults/assignments/rollback/cascade fixtures | Move command persistence out of HTTP while keeping one transaction | R03 | G, M; user-route response parity; C |
-| R05a | P1/A01 | Activation redemption policy/CAS in `repository.go` and activation caller | R03 duplicate/expiry/concurrent redemption fixtures | Make one-time redemption atomic boundary explicit | R03; independent of R04 | G, M, race-enabled CAS tests; C |
-| R05b | P1/A01 | HWID registration and access policy helpers | R03 limit/normalization/last-slot/failure fixtures | Isolate device registration transaction from read projection | R03; independent of R05a | G, M, race-enabled slot tests; C |
+| R05a — partial groundwork | P1/A01 | Activation redemption policy/CAS in `repository.go` and activation caller | R03 duplicate/expiry/concurrent redemption fixtures | Make one-time redemption atomic boundary explicit | R03; independent of R04 | G, M, race-enabled CAS tests; C |
+| R05b — partial groundwork | P1/A01 | HWID registration and access policy helpers | R03 limit/normalization/last-slot/failure fixtures | Isolate device registration transaction from read projection | R03; independent of R05a | G, M, race-enabled slot tests; C |
 | R06 | P1/A02 | Profile service/adapter fault and tri-state characterization tests | Existing metadata/no-secret-rewrite/reveal tests | Lock revisions, ownership, ciphertext and rollback semantics | None | G, M; targeted service/adapter coverage |
 | R07a | P1/A02 | Category/order methods in `profile_repository.go`, same package/adapter | R06 category/reorder atomicity and assignment cases | Separate one independent responsibility; retain active seam | R06 | G, M; category HTTP fixtures; C |
 | R07b | P1/A02 | Safe read/projection methods in the same adapter | R06 corrupt/missing secret/source projection tests | Separate read mapping from encrypted commands | R06; R07a preferred | G, M; reveal/summary parity; C |
@@ -108,7 +122,7 @@ This goes first because the audit demonstrated committed-row loss, while existin
 
 ## R01 execution record — PR #7, 2026-10-06
 
-**Status: completed locally (tests only); inspect current PR checks before merge.** R01 is the single selected batch (P0/A00, no dependencies). R02 and every other batch remain unimplemented by this task. The existing PR head was `e3ceaba5960a7609b2da991670d69d52b793058f`; a normal merge of `origin/main` preserved it and produced the implementation baseline `21c0661f2ce46d9070bdd901e3e0f7ca3b7a7a9c`.
+**Status: completed (tests only), Windows/Linux validated; all six checks pass at a438377.** R01 is the single selected batch (P0/A00, no dependencies). R02 and every other batch remain unimplemented by this task. The existing PR head was `e3ceaba5960a7609b2da991670d69d52b793058f`; a normal merge of `origin/main` preserved it and produced the implementation baseline `21c0661f2ce46d9070bdd901e3e0f7ca3b7a7a9c`.
 
 ### Changes and protected behavior
 
@@ -124,7 +138,7 @@ This goes first because the audit demonstrated committed-row loss, while existin
 | `cmd/server/main.go` | 9.57 | 9.57 | Complex Method: `handleCLI` 353–386 (CC 13), `bootstrapKeyring` 390–421 (CC 10) |
 | `internal/storage/sqlite.go` | 9.92 | 9.92 | Bumpy Road Ahead: `ConfigureSQLitePragmas` 55–84 (2 bumps) |
 
-Both new test files score **10.00**, with no findings. `cs delta main` exits 0; `cs delta main --error-on-warnings` exits 1 solely for the previously committed `cmd/server/repository_test.go` (local score 4.05). `cs delta 21c0661f2ce46d9070bdd901e3e0f7ca3b7a7a9c --error-on-warnings` exits 0, with no issues introduced by R01. No production complexity was moved or degraded. PR #7's prior CodeScene check already failed its new-file health gate on `repository_test.go` (service score 4.06); no checks/exclusions were weakened.
+Both new test files score **10.00**, with no findings. `cs delta main` exits 0; the initial `cs delta main --error-on-warnings` exited 1 solely for the previously committed `cmd/server/repository_test.go` (local score 4.05). `cs delta 21c0661f2ce46d9070bdd901e3e0f7ca3b7a7a9c --error-on-warnings` exits 0, with no issues introduced by R01. No production complexity was moved or degraded. PR #7's prior CodeScene check already failed its new-file health gate on `repository_test.go` (service score 4.06); no checks/exclusions were weakened.
 
 Codecov public read-only GETs confirmed the audit/main baseline: project 46.89% lines; `main.go` 8.01%; `sqlite.go` 60.78%. The prior PR SHA has no available Codecov report (404), so those values are explicitly main baselines. Local CI-style package coverage rose from 52.2% to 52.4% statements; `openDatabase` 0% → 53.3%, `buildApp` 0% → 80%, and `CleanupSQLiteSidecars` 75% → 100%. Line and statement measurements are distinct. Automatic recovery/retry branches remain uncovered until the R02 seam is available.
 
@@ -134,17 +148,17 @@ This tests-only batch does not reproduce the production I/O trigger frequency, i
 
 Proposed R02 contract for separate review: startup must retain committed DB/WAL and keyring state on failure and return a useful error; it must fail closed when safe SQLite-supported recovery cannot be established. No unconditional WAL deletion. Preserve ordinary migrations, bootstrap and journal-mode behavior. Replace the R01 destructive observation with a preservation assertion when implementing that corrective policy. R02 still requires its separately reviewed contract; it was not started here.
 
-The existing PR's repository test health gate requires review outside R01. Linux execution of these portable fixtures and all deployment/frontend checks are provided by the current PR CI; inspect checks for the current head before merge. Local Windows race execution is unavailable (`CGO_ENABLED=0`); R01 adds no concurrency-policy change. Optional snapshot/client fixture skips remain unchanged. Ignored `.cache/r01/` holds raw local analyzer/coverage/JUnit output; none is committed. The complete pre-existing audit record is included with explicit user authorization, and its original main-checkout files remain untouched.
+The requested test-only follow-up resolved the repository-test gate. Linux startup fixtures, frontend checks and Docker restart/persistence validation passed in run 37429826449 at a438377. Local Windows race execution is unavailable (`CGO_ENABLED=0`); R01 adds no concurrency-policy change. Optional snapshot/client fixture skips remain unchanged. Ignored `.cache/r01/` holds raw local analyzer/coverage/JUnit output; none is committed. The complete pre-existing audit record is included with explicit user authorization, and its original main-checkout files remain untouched.
 
 ### Final local validation
 
-Windows: targeted R01 tests passed against unchanged production, followed by the full documented gotestsum/atomic-coverage workflow: 708 test results, 5 existing optional snapshot/client skips. Dedicated uncached migration compatibility: 1 pass. `go vet ./...`, `go build -o .cache/r01/server.exe ./cmd/server`, golangci-lint v2.13.2 with CI's new-issues policy (`run --new-from-rev=origin/main`, zero issues), and `git diff --check` passed. Final production and new-test CodeScene reviews match the table above; the strict delta failure is exclusively inherited from the existing PR. Tests/production checks were not disabled or weakened. Frontend and Docker runtime implementation are untouched; their existing Linux CI checks remain the deployment verification boundary.
+Windows: targeted R01 tests passed against unchanged production, followed by the full documented gotestsum/atomic-coverage workflow: 708 test results, 5 existing optional snapshot/client skips. Dedicated uncached migration compatibility: 1 pass. `go vet ./...`, `go build -o .cache/r01/server.exe ./cmd/server`, golangci-lint v2.13.2 with CI's new-issues policy (`run --new-from-rev=origin/main`, zero issues), and `git diff --check` passed. Final production and new-test CodeScene reviews match the table above; the initial strict delta failure was inherited and resolved by the later test follow-up. Tests/production checks were not disabled or weakened. Frontend and Docker runtime implementation are untouched; their existing Linux CI checks remain the deployment verification boundary.
 
 ### Linux CI follow-up and audit-prose secret-scan finding
 
 Actions run `37364737957`, attempt 3, executed the R01 head `9f16f83` after the initial hosted-runner cancellations. Go tests, the dedicated migration test, module tidiness, vet, lint and build passed. Frontend type checking, lint, Vitest, production build and Playwright passed. Go coverage, backend/migration/frontend JUnit and frontend bundle uploads succeeded. Docker smoke was skipped because the final backend step failed.
 
-The sole Gitleaks 8.24.3 finding was ordinary A03 regression-risk prose at backlog line 64, not a credential value. The same finding was reproduced locally with CI's version and exact history range before correction. Since CI scans existing commits, changing the sentence in a later commit would not remove that historical finding. `.gitleaksignore` therefore records only its exact commit/file/rule/line fingerprint, with an explanatory comment; the historical audit wording and all scanner rules remain intact. The full PR history scan passes with this exception; the staged correction also scans clean, while a separate synthetic-key control still fails as expected. Current-head CI still requires inspection. The unrelated inherited CodeScene gate remains visible; no production/test changes or other batches are included in this correction.
+The sole Gitleaks 8.24.3 finding was ordinary A03 regression-risk prose at backlog line 64, not a credential value. The same finding was reproduced locally with CI's version and exact history range before correction. Since CI scans existing commits, changing the sentence in a later commit would not remove that historical finding. `.gitleaksignore` therefore records only its exact commit/file/rule/line fingerprint, with an explanatory comment; the historical audit wording and all scanner rules remain intact. The full PR history scan passes with this exception; the staged correction also scans clean, while a separate synthetic-key control still fails as expected. Run 37429826449 later verified secret scanning and all CI checks; the requested test follow-up resolved the inherited CodeScene gate; no production/test changes or other batches are included in this correction.
 
 ### User-requested repository-test CodeScene follow-up
 
@@ -156,4 +170,4 @@ The list-users test now separates empty-to-populated reads, field/default/date p
 | --- | ---: | ---: | --- | --- |
 | `cmd/server/repository_test.go` | 4.05 / 4.06 | 10.00 | Overall Code Complexity, Complex Method (8 functions), Complex Conditional | None |
 
-The unchanged repository tests passed before restructuring. The full Go/atomic-coverage workflow passed with 711 results and 5 existing optional skips; aggregate statement coverage remains 52.4%. The final state-transition cases were rechecked uncached. Dedicated migration, vet, build and golangci-lint with CI's new-issues policy passed. `cs delta main`, `cs delta main --error-on-warnings` and diff hygiene passed. Raw analysis/coverage/JUnit output remains ignored. The new PR head still requires remote CI/CodeScene verification; the historical audit snapshot is unchanged.
+The unchanged repository tests passed before restructuring. The full Go/atomic-coverage workflow passed with 711 results and 5 existing optional skips; aggregate statement coverage remains 52.4%. The final state-transition cases were rechecked uncached. Dedicated migration, vet, build and golangci-lint with CI's new-issues policy passed. `cs delta main`, `cs delta main --error-on-warnings` and diff hygiene passed. Raw analysis/coverage/JUnit output remains ignored. Remote verification at a438377 passed all six checks, including three CodeScene gates and Codecov patch/bundles. Test Analytics reports 848 passed, 5 skipped and no failures/errors. Historical audit measurements are unchanged.
