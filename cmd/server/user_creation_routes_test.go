@@ -79,6 +79,8 @@ func TestUserCreationDurationAndStatusBoundaries(t *testing.T) {
 
 func TestUserCreationRejectsInvalidInputsWithoutWrites(t *testing.T) {
 	for _, test := range []struct{ name, body, message string }{
+		{"status precedes duration", `{"status":"invalid","issue_days":3651}`, "invalid subscription status"},
+		{"duration precedes required fields", `{"issue_days":3651}`, "issue days must be between 1 and 3650"},
 		{"malformed", "{", "invalid request body"},
 		{"unknown field", `{"name":"Alice","activation_code":"code","unknown":true}`, "invalid request body"},
 		{"trailing JSON", `{"name":"Alice","activation_code":"code"}{}`, "invalid request body"},

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"errors"
 	"net/http"
 	"strconv"
 	"testing"
@@ -14,6 +15,15 @@ func seedMutationDeletionState(t *testing.T, app *App) int64 {
 		INSERT INTO user_keys SELECT id, ? FROM users;
 		INSERT INTO user_devices(user_id, hwid, normalized_hwid) SELECT id, 'device', 'device' FROM users`, profile.id)
 	return userID
+}
+
+func TestUserDeletionUnknownAffectedRowsReturnsFailure(t *testing.T) {
+	f, faults := newFaultedMutationFixture(t)
+	id := seedMutationDeletionState(t, f.app)
+	faults.deleteRowsAffectedErr = errors.New("injected private delete diagnostic")
+	path := "/api/v1/users/" + strconv.FormatInt(id, 10)
+	assertMutationResponse(t, f.request(http.MethodDelete, path, ""), path, mutationResponseWant{http.StatusInternalServerError, "failed to delete user"})
+	assertMutationAudit(t, f.app, "user.delete", 0)
 }
 
 func TestUserDeletionRegisteredRoutesCascadeOnlyTarget(t *testing.T) {

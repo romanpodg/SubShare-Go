@@ -8,6 +8,8 @@
 
 **User-requested R03 continuation within PR #8:** the mutation route/fault/contention matrix and separate create-retry/PATCH corrections are implemented. [R03 evidence](r03-user-mutations.md) and the [PATCH correction](subscription-patch-concurrency.md) record local validation and link hosted checks. Concurrent disjoint PATCH loss is resolved by conditional snapshot writes and bounded revalidation. A01 is still incomplete; R04/R05 command/policy work remains. The user's same-PR instruction supersedes the earlier PR-boundary recommendation.
 
+**R04 continuation implemented:** [user mutation commands](r04-user-commands.md) now own the creation transaction and atomic deletion, with pure validation and HTTP-only response/audit work. R03 route contracts and new direct command checks pass. A01 remains incomplete; R05 policy acceptance and other mutation boundaries are the next scopes.
+
 See the [current backlog status](refactoring-backlog.md#current-implementation-status--2026-10-06) and [batch status](refactoring-batches.md#current-completion-and-next-batch) for completed/remaining work and final CodeScene/Codecov/CI evidence. Measurements below remain a historical baseline at 3ab25a5, not current scores or live check status.
 
 ## Original audit baseline

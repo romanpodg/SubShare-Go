@@ -22,4 +22,4 @@ The HTTP adapter delegates to three small implementation files: request orchestr
 
 An affected-row reporting error can occur after the database has applied a write; the handler returns a safe 500 rather than claiming success or automatically retrying an unknown outcome. The fault-driver test verifies response/audit handling, not rollback of an already applied driver operation. Ordinary SQL failure atomicity remains covered by R03.
 
-The reproduced PATCH lost-update defect is resolved. R04's transaction-owned user create/delete command extraction remains the next refactoring batch; this correction does not complete all A01/R05 work.
+The reproduced PATCH lost-update defect is resolved. The later [R04 user create/delete command extraction](r04-user-commands.md) is now implemented in the same PR; R05 and other A01 work remain separate.

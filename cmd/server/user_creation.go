@@ -4,12 +4,8 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
-	"log"
-	"net/http"
 	"strings"
 	"time"
-
-	"github.com/romanpodg/SubShare-Go/internal/httpapi"
 )
 
 var errCreateSubscriptionToken = errors.New("generate subscription token")
@@ -20,7 +16,7 @@ type createUserRecord struct {
 	startsAt, expiresAt         time.Time
 }
 
-// The caller owns the transaction, including key assignment and commit. Keep
+// The create command owns the transaction, including key assignment and commit. Keep
 // the last INSERT failure intact when retrying; a newly generated token is not
 // evidence that a user was created.
 func insertUserWithSubscriptionRetries(tx *sql.Tx, record createUserRecord) (int64, error) {
@@ -55,11 +51,18 @@ func isCreateSubscriptionCollision(err error) bool {
 	return strings.Contains(message, "users.subscription_id") || strings.Contains(message, "idx_users_subscription_id")
 }
 
-func writeCreateUserInsertError(w http.ResponseWriter, r *http.Request, err error) {
-	if errors.Is(err, errCreateSubscriptionToken) {
-		httpapi.WriteError(w, r, http.StatusInternalServerError, "failed to generate subscription token")
-		return
+func prepareCreateUserRecord(input createUserInput) (createUserRecord, error) {
+	legacyToken, err := generateToken(24)
+	if err != nil {
+		return createUserRecord{}, fmt.Errorf("%w: %w", errCreateUserToken, err)
 	}
-	log.Printf("apiCreateUser: %v", err)
-	httpapi.WriteError(w, r, http.StatusConflict, "failed to create user (check activation code uniqueness)")
+	subscriptionID, err := generateToken(24)
+	if err != nil {
+		return createUserRecord{}, fmt.Errorf("%w: %w", errCreateSubscriptionToken, err)
+	}
+	now := time.Now().UTC()
+	return createUserRecord{
+		input: input, legacyToken: legacyToken, subscriptionID: subscriptionID,
+		startsAt: now, expiresAt: now.AddDate(0, 0, input.issueDays),
+	}, nil
 }
