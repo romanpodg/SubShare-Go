@@ -133,7 +133,6 @@ func TestOpenDatabaseMigrationFailureCanBeRetriedWithoutLosingData(t *testing.T)
 	requireStartupEqual(t, "failed migration database", failed, (*sql.DB)(nil))
 	requireStartupEqual(t, "migration error returned", err != nil, true)
 	requireStartupEqual(t, "migration diagnostic", strings.Contains(err.Error(), "migrate db: check migration 0:"), true)
-	requireStartupEqual(t, "migration error does not trigger cleanup", storage.IsRecoverableSQLiteIO(err), false)
 	// Repair only the disposable fixture, then exercise a real startup retry.
 	repair, err := sql.Open("sqlite", filepath.ToSlash(path))
 	requireStartupSuccess(t, err)

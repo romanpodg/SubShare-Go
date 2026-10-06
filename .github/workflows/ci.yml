@@ -62,6 +62,12 @@ jobs:
       - name: Migration compatibility test
         run: gotestsum --junitfile .cache/junit/migration.xml -- ./internal/storage -run TestMigrateAppliesVersionedMigrationsIdempotently -count=1
 
+      - name: Race-check user mutation concurrency
+        run: >-
+          go test -race ./cmd/server
+          -run '^(TestUserActivationConcurrentRequestsHaveOneWinner|TestUserDeviceConcurrentRegistrationsRespectLastSlot|TestSubscriptionMutationConcurrentPatch.*)$'
+          -count=1
+
       # Fork PRs have no repository secrets; tests still run, uploads are skipped.
       - name: Upload Go coverage
         if: ${{ !cancelled() && hashFiles('coverage.out') != '' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) }}

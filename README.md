@@ -553,6 +553,10 @@ docker compose logs frontend
 
 Restore the original matching profile encryption keyring. Creating a new keyring cannot recover data encrypted with a lost key.
 
+**SQLite startup fails with an I/O or lock error**
+
+Startup stops without deleting database sidecars. Preserve the database, WAL and matching keys, resolve the filesystem or locking problem, then retry. See the [SQLite recovery guide](docs/sqlite-recovery.md).
+
 **Need backend diagnostics**
 
 ```bash

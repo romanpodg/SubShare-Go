@@ -125,94 +125,12 @@ func (a *App) apiV1PatchUserSubscription(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	var status string
-	var startsAt, expiresAt sql.NullTime
-	var blockedReason, name, infoURL, extraURL, extraStatus sql.NullString
-	var timeZone string
-	var refreshHours int
-	err := a.db.QueryRow(`
-		SELECT status, starts_at, expires_at, blocked_reason, subscription_name,
-		       subscription_refresh_hours, subscription_info_url,
-		       subscription_extra_url, subscription_extra_status,
-		       COALESCE(NULLIF(TRIM(time_zone), ''), 'UTC')
-		FROM users WHERE id = ?
-	`, id).Scan(
-		&status, &startsAt, &expiresAt, &blockedReason, &name, &refreshHours,
-		&infoURL, &extraURL, &extraStatus, &timeZone,
-	)
-	if errors.Is(err, sql.ErrNoRows) {
-		httpapi.WriteV1Error(w, r, http.StatusNotFound, "user_not_found", "user not found")
-		return
-	}
+	updated, err := a.patchUserSubscription(r.Context(), id, input)
 	if err != nil {
-		httpapi.WriteV1Error(w, r, http.StatusInternalServerError, "subscription_load_failed", "failed to load subscription")
+		writeSubscriptionPatchError(w, r, err)
 		return
 	}
-
-	if err := applyPatchStatus(input.Status, &status); err != nil {
-		httpapi.WriteV1Error(w, r, http.StatusBadRequest, "status_invalid", err.Error())
-		return
-	}
-	location, locationErr := time.LoadLocation(timeZone)
-	if locationErr != nil {
-		location = time.UTC
-	}
-	if err := applyPatchTime(input.StartsAt, &startsAt, "starts_at", location); err != nil {
-		httpapi.WriteV1Error(w, r, http.StatusBadRequest, "starts_at_invalid", err.Error())
-		return
-	}
-	if err := applyPatchTime(input.ExpiresAt, &expiresAt, "expires_at", location); err != nil {
-		httpapi.WriteV1Error(w, r, http.StatusBadRequest, "expires_at_invalid", err.Error())
-		return
-	}
-	if startsAt.Valid && expiresAt.Valid && startsAt.Time.After(expiresAt.Time) {
-		httpapi.WriteV1Error(w, r, http.StatusBadRequest, "date_range_invalid", "starts_at must be before expires_at")
-		return
-	}
-
-	if err := applyPatchString(input.BlockedReason, &blockedReason, 255, "blocked_reason"); err != nil {
-		httpapi.WriteV1Error(w, r, http.StatusBadRequest, "blocked_reason_invalid", err.Error())
-		return
-	}
-	if err := applyPatchString(input.SubscriptionName, &name, 120, "subscription_name"); err != nil {
-		httpapi.WriteV1Error(w, r, http.StatusBadRequest, "subscription_name_invalid", err.Error())
-		return
-	}
-	if err := applyPatchString(input.SubscriptionExtraStatus, &extraStatus, 255, "subscription_extra_status"); err != nil {
-		httpapi.WriteV1Error(w, r, http.StatusBadRequest, "subscription_extra_status_invalid", err.Error())
-		return
-	}
-	if err := applyPatchURL(input.SubscriptionInfoURL, &infoURL, "subscription_info_url"); err != nil {
-		httpapi.WriteV1Error(w, r, http.StatusBadRequest, "subscription_info_url_invalid", err.Error())
-		return
-	}
-	if err := applyPatchURL(input.SubscriptionExtraURL, &extraURL, "subscription_extra_url"); err != nil {
-		httpapi.WriteV1Error(w, r, http.StatusBadRequest, "subscription_extra_url_invalid", err.Error())
-		return
-	}
-	if err := applyPatchRefreshHours(input.SubscriptionRefreshHours, &refreshHours); err != nil {
-		httpapi.WriteV1Error(w, r, http.StatusBadRequest, "subscription_refresh_invalid", err.Error())
-		return
-	}
-	if status != model.UserStatusBlocked {
-		blockedReason = sql.NullString{}
-	}
-
-	_, err = a.db.Exec(`
-		UPDATE users
-		SET status = ?, starts_at = ?, expires_at = ?, blocked_reason = ?,
-		    subscription_name = ?, subscription_refresh_hours = ?,
-		    subscription_info_url = ?, subscription_extra_url = ?,
-		    subscription_extra_status = ?
-		WHERE id = ?
-	`, status, nullTimeValue(startsAt), nullTimeValue(expiresAt), nullStringValue(blockedReason.String),
-		nullStringValue(name.String), refreshHours, nullStringValue(infoURL.String),
-		nullStringValue(extraURL.String), nullStringValue(extraStatus.String), id)
-	if err != nil {
-		httpapi.WriteV1Error(w, r, http.StatusInternalServerError, "subscription_update_failed", "failed to update subscription")
-		return
-	}
-	a.recordAuditEvent(r, "user.subscription.update", "user", strconv.FormatInt(id, 10), map[string]any{"status": status})
+	a.recordAuditEvent(r, "user.subscription.update", "user", strconv.FormatInt(id, 10), map[string]any{"status": updated.status})
 	httpapi.WriteMessage(w, "subscription updated")
 }
 

@@ -80,34 +80,21 @@ func runConfigured(config configuration.Config) error {
 	return serve(config.ListenAddress, handler)
 }
 
-// openDatabase creates the DB directory and opens SQLite, retrying once after
-// clearing WAL sidecars when the first attempt fails with a recoverable I/O
-// error.
+// openDatabase creates the DB directory and lets SQLite recover its own WAL.
+// Failed initialization must never trigger filesystem cleanup: committed data
+// may still exist only in the WAL, even when closing the database failed.
 func openDatabase(config configuration.Config) (*sql.DB, error) {
+	return openDatabaseWithInitializer(config, initializeSQLiteWithJournalMode)
+}
+
+func openDatabaseWithInitializer(config configuration.Config, initialize func(string, string, *profilestorage.Keyring) (*sql.DB, error)) (*sql.DB, error) {
 	dbPath := config.DBPath
 
 	if err := os.MkdirAll(filepath.Dir(dbPath), 0o700); err != nil {
 		return nil, fmt.Errorf("create DB_PATH directory")
 	}
 
-	db, err := initializeSQLiteWithJournalMode(dbPath, config.SQLiteJournalMode, config.ProfileKeyring)
-	if err == nil {
-		return db, nil
-	}
-	if !storage.IsRecoverableSQLiteIO(err) {
-		return nil, err
-	}
-
-	log.Printf("SQLite startup failed (%v). Cleaning up WAL sidecars and retrying once...", err)
-	if cleanupErr := storage.CleanupSQLiteSidecars(dbPath); cleanupErr != nil {
-		return nil, fmt.Errorf("recover sqlite sidecars: %w", cleanupErr)
-	}
-
-	db, err = initializeSQLiteWithJournalMode(dbPath, config.SQLiteJournalMode, config.ProfileKeyring)
-	if err != nil {
-		return nil, fmt.Errorf("initialize sqlite after sidecar cleanup: %w", err)
-	}
-	return db, nil
+	return initialize(dbPath, config.SQLiteJournalMode, config.ProfileKeyring)
 }
 
 // buildApp verifies the database, seeds the owner account and assembles the

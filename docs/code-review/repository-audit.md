@@ -2,9 +2,13 @@
 
 ## Current implementation update — 2026-10-06
 
-[PR #7](https://github.com/romanpodg/SubShare-Go/pull/7) has user review approval and remains open/unmerged. At validated code commit **a438377**, R01 startup/WAL characterization is complete, repository test health is fixed and all six PR checks pass. The existing repository/settings/activation/device extraction is partial A01 progress.
+[PR #7](https://github.com/romanpodg/SubShare-Go/pull/7) is merged at **267811b**. Its R01 startup/WAL characterization, repository test health fixes and six passing checks are prerequisite evidence. The existing repository/settings/activation/device extraction is partial A01 progress.
 
-**The P0 WAL-loss defect remains unfixed.** R02 is the next separate corrective batch. R03/R05a/R05b have partial groundwork; R04 and all R06–R23 sub-batches remain unstarted. Merge this bounded PR after documentation checks, then use one PR per further batch.
+**R02 completes the P0 correction in [PR #8](https://github.com/romanpodg/SubShare-Go/pull/8):** initialization failures stop startup without application-side WAL deletion or automatic retry. Source at a896708 passes all six checks, including Linux backend and Docker restart validation. See the [execution record](r02-startup-safety.md) for evidence and limits. R03/R05a/R05b have partial groundwork; R04 and all R06–R23 sub-batches remain unstarted. Continue with one PR per batch.
+
+**User-requested R03 continuation within PR #8:** the mutation route/fault/contention matrix and separate create-retry/PATCH corrections are implemented. [R03 evidence](r03-user-mutations.md) and the [PATCH correction](subscription-patch-concurrency.md) record local validation and link hosted checks. Concurrent disjoint PATCH loss is resolved by conditional snapshot writes and bounded revalidation. A01 is still incomplete; R04/R05 command/policy work remains. The user's same-PR instruction supersedes the earlier PR-boundary recommendation.
+
+**R04 continuation implemented:** [user mutation commands](r04-user-commands.md) now own the creation transaction and atomic deletion, with pure validation and HTTP-only response/audit work. R03 route contracts and new direct command checks pass. A01 remains incomplete; R05 policy acceptance and other mutation boundaries are the next scopes.
 
 See the [current backlog status](refactoring-backlog.md#current-implementation-status--2026-10-06) and [batch status](refactoring-batches.md#current-completion-and-next-batch) for completed/remaining work and final CodeScene/Codecov/CI evidence. Measurements below remain a historical baseline at 3ab25a5, not current scores or live check status.
 

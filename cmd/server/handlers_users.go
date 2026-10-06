@@ -1,7 +1,6 @@
 package main
 
 import (
-	"context"
 	"database/sql"
 	"errors"
 	"fmt"
@@ -13,7 +12,6 @@ import (
 
 	"github.com/romanpodg/SubShare-Go/internal/httpapi"
 	"github.com/romanpodg/SubShare-Go/internal/model"
-	"github.com/romanpodg/SubShare-Go/internal/storage"
 )
 
 // --- Users API ---
@@ -38,61 +36,6 @@ func (a *App) apiListUsers(w http.ResponseWriter, r *http.Request) {
 	httpapi.WriteJSON(w, http.StatusOK, map[string]any{"users": users})
 }
 
-// createUserInput is the validated, normalized form of a CreateUserRequest.
-type createUserInput struct {
-	name           string
-	email          string
-	activationCode string
-	status         string
-	blockedReason  string
-	issueDays      int
-}
-
-// validateCreateUserRequest normalizes the request and returns a 400 message
-// when it is invalid.
-func validateCreateUserRequest(req model.CreateUserRequest) (createUserInput, string) {
-	in := createUserInput{
-		name:           strings.TrimSpace(req.Name),
-		email:          strings.TrimSpace(req.Email),
-		activationCode: strings.TrimSpace(req.ActivationCode),
-		issueDays:      req.IssueDays,
-	}
-	status, ok := model.NormalizeUserStatus(req.Status)
-	if !ok {
-		return in, "invalid subscription status"
-	}
-	in.status = status
-
-	if in.issueDays <= 0 {
-		in.issueDays = 30
-	}
-	if in.issueDays > 3650 {
-		return in, "issue days must be between 1 and 3650"
-	}
-
-	in.blockedReason = strings.TrimSpace(req.BlockedReason)
-	if in.status != model.UserStatusBlocked {
-		in.blockedReason = ""
-	}
-
-	if in.name == "" {
-		return in, "name is required"
-	}
-	if in.activationCode == "" || strings.Contains(in.activationCode, "/") {
-		return in, "activation code is required"
-	}
-	if len(in.name) > 255 {
-		return in, "name is too long (max 255 characters)"
-	}
-	if len(in.email) > 255 {
-		return in, "email is too long (max 255 characters)"
-	}
-	if len(in.activationCode) > 128 {
-		return in, "activation code is too long (max 128 characters)"
-	}
-	return in, ""
-}
-
 func (a *App) apiCreateUser(w http.ResponseWriter, r *http.Request) {
 	var req model.CreateUserRequest
 	if err := httpapi.ReadJSON(r, &req); err != nil {
@@ -105,70 +48,14 @@ func (a *App) apiCreateUser(w http.ResponseWriter, r *http.Request) {
 		httpapi.WriteError(w, r, http.StatusBadRequest, msg)
 		return
 	}
-	name, email, activationCode, status, blockedReason, issueDays := in.name, in.email, in.activationCode, in.status, in.blockedReason, in.issueDays
 
-	legacyToken, err := generateToken(24)
+	userID, err := a.createUser(in)
 	if err != nil {
-		httpapi.WriteError(w, r, http.StatusInternalServerError, "failed to generate user token")
+		writeCreateUserCommandError(w, r, err)
 		return
 	}
 
-	subscriptionID, err := generateToken(24)
-	if err != nil {
-		httpapi.WriteError(w, r, http.StatusInternalServerError, "failed to generate subscription token")
-		return
-	}
-
-	now := time.Now().UTC()
-	expiresAt := now.AddDate(0, 0, issueDays)
-
-	tx, err := a.db.Begin()
-	if err != nil {
-		httpapi.WriteError(w, r, http.StatusInternalServerError, "failed to create user")
-		return
-	}
-	defer tx.Rollback()
-
-	var userID int64
-	for attempt := 0; attempt < 5; attempt++ {
-		var res sql.Result
-		res, err = tx.Exec(
-			`INSERT INTO users(name, email, token, activation_code, subscription_id, status, starts_at, expires_at, blocked_reason, max_devices) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, 1)`,
-			name, email, legacyToken, activationCode, subscriptionID, status, now, expiresAt, blockedReason,
-		)
-		if err == nil {
-			userID, _ = res.LastInsertId()
-			break
-		}
-
-		errText := strings.ToLower(err.Error())
-		if strings.Contains(errText, "users.subscription_id") || strings.Contains(errText, "idx_users_subscription_id") {
-			subscriptionID, err = generateToken(24)
-			if err != nil {
-				httpapi.WriteError(w, r, http.StatusInternalServerError, "failed to generate subscription token")
-				return
-			}
-			continue
-		}
-		break
-	}
-	if err != nil {
-		log.Printf("apiCreateUser: %v", err)
-		httpapi.WriteError(w, r, http.StatusConflict, "failed to create user (check activation code uniqueness)")
-		return
-	}
-
-	if err := storage.AssignAllKeysToUser(context.Background(), tx, userID); err != nil {
-		log.Printf("apiCreateUser: failed to assign keys to user %d: %v", userID, err)
-		httpapi.WriteError(w, r, http.StatusInternalServerError, "failed to create user")
-		return
-	}
-	if err := tx.Commit(); err != nil {
-		httpapi.WriteError(w, r, http.StatusInternalServerError, "failed to create user")
-		return
-	}
-
-	a.recordAuditEvent(r, "user.create", "user", strconv.FormatInt(userID, 10), map[string]any{"name": name})
+	a.recordAuditEvent(r, "user.create", "user", strconv.FormatInt(userID, 10), map[string]any{"name": in.name})
 	httpapi.WriteMessage(w, "user created")
 }
 
@@ -177,15 +64,8 @@ func (a *App) apiDeleteUser(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	res, err := a.db.Exec(`DELETE FROM users WHERE id = ?`, id)
-	if err != nil {
-		log.Printf("apiDeleteUser: %v", err)
-		httpapi.WriteError(w, r, http.StatusInternalServerError, "failed to delete user")
-		return
-	}
-	n, _ := res.RowsAffected()
-	if n == 0 {
-		httpapi.WriteError(w, r, http.StatusNotFound, "user not found")
+	if err := a.deleteUser(id); err != nil {
+		writeDeleteUserCommandError(w, r, err)
 		return
 	}
 	a.recordAuditEvent(r, "user.delete", "user", strconv.FormatInt(id, 10), nil)

@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"log"
 	"net/url"
-	"os"
 	"path/filepath"
 	"strings"
 
@@ -53,17 +52,8 @@ func sqliteDataSourceName(dbPath string) string {
 }
 
 func ConfigureSQLitePragmas(db *sql.DB, journalMode string) error {
-	// Some Docker bind mounts (especially non-native Linux filesystems) do not
-	// support SQLite WAL shared-memory file resizing and fail with IOERR_SHMSIZE.
-	// In that case we transparently fall back to DELETE mode.
-	if _, err := db.Exec(fmt.Sprintf("PRAGMA journal_mode = %s", journalMode)); err != nil {
-		if journalMode != "WAL" {
-			return fmt.Errorf("set journal mode %s: %w", journalMode, err)
-		}
-		log.Printf("WAL mode unavailable (%v), falling back to DELETE", err)
-		if _, fallbackErr := db.Exec("PRAGMA journal_mode = DELETE"); fallbackErr != nil {
-			return fmt.Errorf("set journal mode fallback DELETE: %w", fallbackErr)
-		}
+	if err := configureSQLiteJournalMode(db, journalMode); err != nil {
+		return err
 	}
 
 	pragmas := []string{
@@ -83,19 +73,19 @@ func ConfigureSQLitePragmas(db *sql.DB, journalMode string) error {
 	return nil
 }
 
-func CleanupSQLiteSidecars(dbPath string) error {
-	for _, suffix := range []string{"-shm", "-wal"} {
-		if err := os.Remove(filepath.ToSlash(dbPath) + suffix); err != nil && !os.IsNotExist(err) {
-			return err
-		}
+func configureSQLiteJournalMode(db *sql.DB, journalMode string) error {
+	_, err := db.Exec(fmt.Sprintf("PRAGMA journal_mode = %s", journalMode))
+	if err == nil {
+		return nil
+	}
+	if journalMode != "WAL" {
+		return fmt.Errorf("set journal mode %s: %w", journalMode, err)
+	}
+	// Some bind mounts do not support WAL shared memory. SQLite owns this
+	// fallback, including any checkpoint needed before switching to DELETE.
+	log.Printf("WAL mode unavailable (%v), falling back to DELETE", err)
+	if _, fallbackErr := db.Exec("PRAGMA journal_mode = DELETE"); fallbackErr != nil {
+		return fmt.Errorf("set journal mode fallback DELETE: %w", fallbackErr)
 	}
 	return nil
-}
-
-func IsRecoverableSQLiteIO(err error) bool {
-	if err == nil {
-		return false
-	}
-	msg := strings.ToLower(err.Error())
-	return strings.Contains(msg, "disk i/o error") || strings.Contains(msg, "(4874)")
 }

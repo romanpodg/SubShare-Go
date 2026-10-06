@@ -3972,16 +3972,16 @@
     "pullRequest": {
       "number": 7,
       "url": "https://github.com/romanpodg/SubShare-Go/pull/7",
-      "state": "OPEN",
-      "merged": false,
+      "state": "MERGED",
+      "merged": true,
       "base": "main",
       "head": "refactor/codehealth"
     },
     "batchStatus": {
       "R01": "completed",
-      "R02": "not_started",
-      "R03": "partial",
-      "R04": "not_started",
+      "R02": "completed",
+      "R03": "implemented_local_validated",
+      "R04": "implemented_local_validated",
       "R05a": "partial",
       "R05b": "partial",
       "R06": "not_started",
@@ -4031,23 +4031,79 @@
         "scope": "Repository test maintainability, with assertions and transitions retained"
       }
     ],
-    "nextBatch": "R02",
-    "nextBatchPriority": "P0",
+    "nextBatch": "R05a",
+    "nextBatchPriority": "P1",
     "nextBatchRemainingPrerequisites": [
-      "Agree data-preserving or fail-closed recovery policy.",
-      "Add initializer/checkpoint/lock/permission/retry characterization before changing policy."
+      "Confirm hosted R03 checks in PR8, which the user explicitly asked to extend.",
+      "Review the conditional PATCH correction and its hosted race checks; the reproduced lost update is resolved.",
+      "Review R04 command ownership and hosted checks before the next activation/device scope.",
+      "Inspect R05a's existing partial extraction against R03's CAS/fault fixtures; do not assume that code is missing."
     ],
-    "remainingCriticalRisk": "Startup recovery still can delete committed WAL data; R01 demonstrated the hazard without repairing it.",
+    "remainingCriticalRisk": "The reproduced startup, create-retry and PATCH lost-update defects are corrected, and R04 is implemented. R05 policy acceptance and other audit batches remain; OS I/O trigger frequency remains unmeasured.",
+    "r02ExecutionRecord": "docs/code-review/r02-startup-safety.md",
+    "r03ExecutionRecord": "docs/code-review/r03-user-mutations.md",
+    "r04ExecutionRecord": "docs/code-review/r04-user-commands.md",
+    "r04LocalValidation": {
+      "fullSuiteResults": 832,
+      "optionalSkips": 5,
+      "createHandlerComplexity": 4,
+      "deleteHandlerComplexity": 3,
+      "hostedChecksSource": "https://github.com/romanpodg/SubShare-Go/pull/8/checks"
+    },
+    "patchConcurrencyExecutionRecord": "docs/code-review/subscription-patch-concurrency.md",
+    "patchConcurrencyLocalValidation": {
+      "fullSuiteResults": 821,
+      "optionalSkips": 5,
+      "maximumAttempts": 5,
+      "exhaustedConflictStatus": 409,
+      "hostedChecksSource": "https://github.com/romanpodg/SubShare-Go/pull/8/checks"
+    },
+    "r03LocalValidation": {
+      "characterizationCommit": "5d758a6",
+      "pullRequest": "https://github.com/romanpodg/SubShare-Go/pull/8",
+      "fullSuiteResults": 793,
+      "optionalSkips": 5,
+      "localStatementCoverage": 55.2,
+      "createStatementCoverage": 88.6,
+      "deleteStatementCoverage": 100.0,
+      "activationStatementCoverage": 91.7,
+      "deviceRegistrationStatementCoverage": 100.0,
+      "insertStatementCoverage": 93.3,
+      "hostedChecksSource": "https://github.com/romanpodg/SubShare-Go/pull/8/checks",
+      "note": "Local coverage is the full-suite snapshot; final focused cases and hosted checks are separate evidence."
+    },
+    "r02Validation": {
+      "validatedSourceCommit": "a8967084e7790d44454b2381d4b67dfc069405f3",
+      "pullRequest": "https://github.com/romanpodg/SubShare-Go/pull/8",
+      "actionsRun": "https://github.com/romanpodg/SubShare-Go/actions/runs/37439646348",
+      "allSixChecksPassed": true,
+      "patchLineCoverage": 85.71,
+      "bundleSizeChangePercent": 0.0,
+      "localStatementCoverage": 52.4,
+      "startupStatementCoverage": 100.0,
+      "journalModeStatementCoverage": 100.0
+    },
     "codeHealth": {
       "cmd/server/repository.go": 10.0,
       "cmd/server/helpers.go": 9.61,
       "cmd/server/repository_test.go": 10.0,
       "cmd/server/main.go": 9.57,
-      "internal/storage/sqlite.go": 9.92,
+      "internal/storage/sqlite.go": 10.0,
+      "cmd/server/database_failure_test.go": 10.0,
+      "cmd/server/handlers_users.go": 8.44,
+      "cmd/server/user_creation.go": 10.0,
+      "cmd/server/user_creation_policy.go": 10.0,
+      "cmd/server/user_mutation_commands.go": 10.0,
+      "cmd/server/user_mutation_http.go": 10.0,
+      "cmd/server/subscription_admin_v1.go": 8.34,
+      "cmd/server/subscription_patch.go": 10.0,
+      "cmd/server/subscription_patch_policy.go": 10.0,
+      "cmd/server/subscription_patch_repository.go": 10.0,
       "cmd/server/main_startup_test.go": 10.0,
       "internal/storage/sqlite_startup_test.go": 10.0
     },
     "validation": {
+      "scope": "Historical R01 validation at a438377; see r02ExecutionRecord for current validation.",
       "actionsRun": "https://github.com/romanpodg/SubShare-Go/actions/runs/37429826449",
       "codeSceneAnalysis": "https://codescene.io/projects/84883/delta/results/7826153",
       "checks": {
@@ -4085,6 +4141,6 @@
         "Bundle size/delta figures were unavailable in inspected results."
       ]
     },
-    "recommendedReviewBoundary": "Merge approved PR7 after documentation checks; one separate PR per further audit batch, starting R02."
+    "recommendedReviewBoundary": "PR7 is merged at 267811b. The user authorized R03, the PATCH correction and R04 within PR8; review those stages as distinct commits. Inspect R05a's remaining activation scope next."
   }
 }

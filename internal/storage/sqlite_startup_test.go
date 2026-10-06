@@ -6,7 +6,6 @@ import (
 	"database/sql"
 	"errors"
 	"flag"
-	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -82,7 +81,7 @@ func copyStartupDatabase(t *testing.T, snapshot map[string][]byte, sidecars bool
 	return path
 }
 
-func TestCleanupSQLiteSidecarsCharacterizesCommittedWALLoss(t *testing.T) {
+func TestInitializeSQLiteRecoversCommittedCrashWAL(t *testing.T) {
 	fixture, snapshot := crashWALSnapshot(t)
 	// The checkpointed main file has the schema, but not the committed row.
 	assertStartupRowCount(t, copyStartupDatabase(t, snapshot, false), 0)
@@ -93,12 +92,8 @@ func TestCleanupSQLiteSidecarsCharacterizesCommittedWALLoss(t *testing.T) {
 	var value string
 	scanStartupSQL(t, db.QueryRow("SELECT value FROM committed_rows WHERE id = 7"), &value)
 	requireStartupEqual(t, "committed WAL row recovered by initializer", value, "committed before crash")
-	cleaned := copyStartupDatabase(t, snapshot, true)
-	requireStartupSuccess(t, CleanupSQLiteSidecars(cleaned))
-	requireStartupEqual(t, "cleanup left main database unchanged", bytes.Equal(readStartupFixture(t, cleaned), snapshot[""]), true)
-	// R01 records the defect, not a safety requirement. R02 must replace this
-	// destructive observation with a preservation assertion for its new policy.
-	assertStartupRowCount(t, cleaned, 0)
+	requireStartupSuccess(t, db.Close())
+	assertStartupRowCount(t, preserved, 1)
 	for suffix, original := range snapshot {
 		requireStartupEqual(t, "reference crash fixture unchanged: "+suffix, bytes.Equal(readStartupFixture(t, fixture+suffix), original), true)
 	}
@@ -112,77 +107,6 @@ func assertStartupRowCount(t *testing.T, path string, want int) {
 	var count int
 	scanStartupSQL(t, db.QueryRow("SELECT COUNT(*) FROM committed_rows"), &count)
 	requireStartupEqual(t, "committed row count", count, want)
-}
-
-func TestCleanupSQLiteSidecarsMissingAndJunkFiles(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "app.db")
-	for file, data := range map[string]string{path: "database sentinel", path + ".keyring.json": "keyring sentinel"} {
-		writeStartupFixture(t, file, []byte(data))
-	}
-	for _, suffix := range []string{"-wal", "-shm"} {
-		writeStartupFixture(t, path+suffix, []byte("junk sidecar"))
-	}
-	for attempt := 0; attempt < 2; attempt++ {
-		requireStartupSuccess(t, CleanupSQLiteSidecars(path))
-		for _, suffix := range []string{"-wal", "-shm"} {
-			_, err := os.Stat(path + suffix)
-			requireStartupEqual(t, "sidecar absent after cleanup: "+suffix, os.IsNotExist(err), true)
-		}
-	}
-	requireStartupEqual(t, "main file retained", string(readStartupFixture(t, path)), "database sentinel")
-	requireStartupEqual(t, "keyring file retained", string(readStartupFixture(t, path+".keyring.json")), "keyring sentinel")
-}
-
-func TestCleanupSQLiteSidecarsStopsAtFilesystemFailure(t *testing.T) {
-	for _, test := range []struct {
-		blocked, other string
-		otherSurvives  bool
-	}{
-		{"-shm", "-wal", true},
-		{"-wal", "-shm", false},
-	} {
-		t.Run(test.blocked, func(t *testing.T) {
-			path := filepath.Join(t.TempDir(), "app.db")
-			writeStartupFixture(t, path, []byte("database sentinel"))
-			// Nonempty directories fail removal on Windows and Unix without
-			// depending on the runner's permission model or administrator rights.
-			requireStartupSuccess(t, os.Mkdir(path+test.blocked, 0o700))
-			writeStartupFixture(t, filepath.Join(path+test.blocked, "keep"), []byte("obstacle"))
-			writeStartupFixture(t, path+test.other, []byte("sidecar sentinel"))
-			err := CleanupSQLiteSidecars(path)
-			var pathError *os.PathError
-			requireStartupEqual(t, "filesystem error returned", errors.As(err, &pathError), true)
-			requireStartupEqual(t, "failure identifies blocked sidecar", pathError.Path, filepath.ToSlash(path)+test.blocked)
-			if test.otherSurvives {
-				requireStartupEqual(t, "WAL retained after SHM failure", string(readStartupFixture(t, path+test.other)), "sidecar sentinel")
-			} else {
-				_, err := os.Stat(path + test.other)
-				requireStartupEqual(t, "SHM removed before WAL failure", os.IsNotExist(err), true)
-			}
-			requireStartupEqual(t, "database retained after failure", string(readStartupFixture(t, path)), "database sentinel")
-		})
-	}
-}
-
-func TestIsRecoverableSQLiteIOCharacterization(t *testing.T) {
-	for _, test := range []struct {
-		name string
-		err  error
-		want bool
-	}{
-		{"nil", nil, false},
-		{"wrapped mixed case IO", fmt.Errorf("initialize: %w", errors.New("DISK I/O ERROR")), true},
-		{"wrapped SHMSIZE code", fmt.Errorf("migrate: %w", errors.New("SQLite (4874)")), true},
-		{"unrelated code", errors.New("SQLite (48740)"), false},
-		{"locked", errors.New("database is locked (5)"), false},
-		{"permission", os.ErrPermission, false},
-		{"corrupt", errors.New("file is not a database (26)"), false},
-		{"migration", errors.New("no such column: version"), false},
-	} {
-		t.Run(test.name, func(t *testing.T) {
-			requireStartupEqual(t, "I/O classification", IsRecoverableSQLiteIO(test.err), test.want)
-		})
-	}
 }
 
 func execStartupSQL(t *testing.T, db *sql.DB, query string) {
