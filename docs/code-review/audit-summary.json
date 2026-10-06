@@ -3980,9 +3980,9 @@
     "batchStatus": {
       "R01": "completed",
       "R02": "completed",
-      "R03": "implemented_local_validated",
-      "R04": "implemented_local_validated",
-      "R05a": "partial",
+      "R03": "merged",
+      "R04": "merged",
+      "R05a": "implemented_local_validated",
       "R05b": "partial",
       "R06": "not_started",
       "R07a": "not_started",
@@ -4031,18 +4031,32 @@
         "scope": "Repository test maintainability, with assertions and transitions retained"
       }
     ],
-    "nextBatch": "R05a",
+    "nextBatch": "R05b",
     "nextBatchPriority": "P1",
     "nextBatchRemainingPrerequisites": [
-      "Confirm hosted R03 checks in PR8, which the user explicitly asked to extend.",
-      "Review the conditional PATCH correction and its hosted race checks; the reproduced lost update is resolved.",
-      "Review R04 command ownership and hosted checks before the next activation/device scope.",
-      "Inspect R05a's existing partial extraction against R03's CAS/fault fixtures; do not assume that code is missing."
+      "Review R05a's separate activation command/policy PR and hosted race checks.",
+      "Inspect R05b's existing device policy/transaction extraction against R03's normalization, slot contention and fault fixtures."
     ],
-    "remainingCriticalRisk": "The reproduced startup, create-retry and PATCH lost-update defects are corrected, and R04 is implemented. R05 policy acceptance and other audit batches remain; OS I/O trigger frequency remains unmeasured.",
+    "remainingCriticalRisk": "Startup, create-retry and PATCH lost-update corrections and R04 are merged in PR8. R05a is implemented separately; R05b device policy and other audit batches remain. OS I/O trigger frequency remains unmeasured.",
     "r02ExecutionRecord": "docs/code-review/r02-startup-safety.md",
     "r03ExecutionRecord": "docs/code-review/r03-user-mutations.md",
     "r04ExecutionRecord": "docs/code-review/r04-user-commands.md",
+    "r05aExecutionRecord": "docs/code-review/r05a-activation-redemption.md",
+    "r05aBaseCommit": "d87b122f99fc4976a62bf499d0fdf60a589fd9d9",
+    "r05aCharacterizationCommit": "230540cbf784",
+    "r05aLocalValidation": {
+      "validatedSourceCommit": "e361b18",
+      "pullRequest": "https://github.com/romanpodg/SubShare-Go/pull/9",
+      "fullSuiteResults": 860,
+      "optionalSkips": 5,
+      "localStatementCoverage": 55.8,
+      "redemptionStatementCoverage": 93.8,
+      "claimStatementCoverage": 100.0,
+      "activationHandlerStatementCoverage": 100.0,
+      "hostedChecksSource": "https://github.com/romanpodg/SubShare-Go/pull/9/checks",
+      "localRaceAvailable": false,
+      "localDockerAvailable": false
+    },
     "r04LocalValidation": {
       "fullSuiteResults": 832,
       "optionalSkips": 5,
@@ -4095,6 +4109,11 @@
       "cmd/server/user_creation_policy.go": 10.0,
       "cmd/server/user_mutation_commands.go": 10.0,
       "cmd/server/user_mutation_http.go": 10.0,
+      "cmd/server/activation_redemption.go": 10.0,
+      "cmd/server/activation_policy.go": 10.0,
+      "cmd/server/activation_http.go": 10.0,
+      "cmd/server/repository_activation.go": 10.0,
+      "cmd/server/handlers_subscription.go": 7.79,
       "cmd/server/subscription_admin_v1.go": 8.34,
       "cmd/server/subscription_patch.go": 10.0,
       "cmd/server/subscription_patch_policy.go": 10.0,
@@ -4141,6 +4160,6 @@
         "Bundle size/delta figures were unavailable in inspected results."
       ]
     },
-    "recommendedReviewBoundary": "PR7 is merged at 267811b. The user authorized R03, the PATCH correction and R04 within PR8; review those stages as distinct commits. Inspect R05a's remaining activation scope next."
+    "recommendedReviewBoundary": "PR8 is merged at d87b122. The user authorized a new PR for R05a; review its assurance and extraction commits separately. R05b device policy is next."
   }
 }
