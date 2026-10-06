@@ -78,15 +78,37 @@ func TestUserActivationKeepsAccessPolicySeparate(t *testing.T) {
 	}
 }
 
-func TestUserActivationCryptoFailureKeepsPlainURLFallback(t *testing.T) {
-	crypto := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		w.WriteHeader(http.StatusServiceUnavailable)
-	}))
-	defer crypto.Close()
-	f := newUserMutationFixture(t)
-	seedSubscriptionUser(t, f.app, "active")
-	f.app.baseURL, f.app.happCryptoAPIURL = "https://subscription.example", crypto.URL
-	response := f.request(http.MethodPost, "/api/subscription/activate", `{"activation_code":"activation-token"}`)
-	requireRepositoryEqual(t, "crypto fallback activation status", response.Code, http.StatusOK)
-	requireRepositoryEqual(t, "crypto fallback URL", decodeJSONMap(t, response)["subscription_url"], "https://subscription.example/sub/subscription-token")
+func TestUserActivationCryptoResponseRetainsClaimAndURL(t *testing.T) {
+	plainURL := "https://subscription.example/sub/subscription-token"
+	for _, test := range []struct {
+		name, body, want string
+		status           int
+	}{
+		{"encrypted", `{"encrypted_link":" happ://encrypted "}`, "happ://encrypted", http.StatusCreated},
+		{"unavailable", "", plainURL, http.StatusServiceUnavailable},
+		{"empty link", `{"encrypted_link":" "}`, plainURL, http.StatusOK},
+		{"malformed", "{", plainURL, http.StatusOK},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			crypto := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				w.WriteHeader(test.status)
+				_, _ = w.Write([]byte(test.body))
+			}))
+			defer crypto.Close()
+			for _, path := range []string{"/api/subscription/activate", "/api/v1/subscriptions/activate"} {
+				t.Run(path, func(t *testing.T) {
+					f := newUserMutationFixture(t)
+					seedSubscriptionUser(t, f.app, "active")
+					f.app.baseURL, f.app.happCryptoAPIURL = "https://subscription.example", crypto.URL
+					response := f.request(http.MethodPost, path, `{"activation_code":"activation-token"}`)
+					requireRepositoryEqual(t, "crypto response activation status", response.Code, http.StatusOK)
+					payload := decodeJSONMap(t, response)
+					requireRepositoryEqual(t, "activation delivery URL", payload["subscription_url"], test.want)
+					requireRepositoryEqual(t, "activation success message", payload["message"], "Ключ активирован. Ссылка готова — скопируйте и вставьте её в VPN-клиент")
+					requireRepositoryEqual(t, "public activation success envelope retained", len(payload), 2)
+					requireRepositoryEqual(t, "crypto outcome retains committed claim", mutationCount(t, f.app, "SELECT COUNT(*) FROM users WHERE activation_used_at IS NOT NULL"), 1)
+				})
+			}
+		})
+	}
 }

@@ -10,16 +10,19 @@ The user explicitly requested R03 and the subsequent PATCH correction in that sa
 
 The user then requested R04 within PR #8. Its [command-boundary record](r04-user-commands.md) describes creation transaction ownership, atomic deletion, response parity and the explicit unknown-deletion-outcome correction.
 
+PR #8 is now merged at **d87b122**. R05a starts [PR #9](https://github.com/romanpodg/SubShare-Go/pull/9) from that merge: its [activation redemption record](r05a-activation-redemption.md) describes the HTTP-independent command, unchanged atomic claim and deterministic contention/failure assurance. All six hosted checks passed at ddf7154. The user then requested R05b continuation; its [device registration record](r05b-device-registration.md) owns the transaction/policy extraction and added assurance. R06 is the next batch; broader A01 work remains.
+
 | Batch scope | Status | What remains |
 | --- | --- | --- |
 | R01 | Completed; Windows/Linux validated | Prerequisite for R02 |
-| R02 | Completed; Windows/Linux/deployment validated | PR #8 review and merge |
-| R03 | Test matrix, retry and PATCH corrections implemented; local validation complete | Hosted race/backend/deployment results in PR #8 |
-| R04 | Create/delete command boundary implemented; local validation complete | Hosted PR checks and review; R05 is the next planned scope |
-| R05a/R05b | Partial production groundwork; R03 fixtures added | Review policy/command extractions against the new CAS/device fault and contention fixtures |
+| R02 | Completed; Windows/Linux/deployment validated; merged in PR #8 | No remaining R02 implementation |
+| R03 | Test matrix, retry and PATCH corrections validated; merged in PR #8 | Retained as mutation contract evidence |
+| R04 | Create/delete command boundary validated; merged in PR #8 | Retained as command-boundary evidence |
+| R05a | Activation command/policy/HTTP boundary validated at ddf7154 | PR #9 review |
+| R05b | Device registration transaction/policy boundary implemented | PR #9 review and hosted checks for the continuation |
 | All R06–R23 sub-batches | Not started | Original scopes/dependencies below remain authoritative |
 
-Partial means acceptance criteria are not yet satisfied. The e3ceaba repository split predates R01 and does not complete A01. PR #7 is merged. PR #8 contains R02, R03, the PATCH correction and R04. The earlier retry helper was narrow groundwork; R04 now owns the full create/delete command boundary. The original plan and R01 execution notes below are historical records.
+Partial means acceptance criteria are not yet satisfied. The e3ceaba repository split predates R01 and does not complete A01. PR #7 and PR #8 are merged. PR #9's activation and user-requested device continuation remain independently reviewable in assurance/extraction commits. The original plan and R01 execution notes below are historical records.
 
 ## Ordered execution plan
 
@@ -31,8 +34,8 @@ The original recommended first batch was **R01**, tests only; its execution stat
 | R02 — completed | P0/A00 | `main.go` SQLite recovery branch, `storage/sqlite.go` cleanup contract | R01; initializer failure and real process-lock tests | **Corrective change:** fail closed and preserve committed data; separate journal negotiation from connection pragmas | R01 | G, M, D populated restart; failure injection |
 | R03 — implemented | P1/A01 | User/legacy PUT/activation/device characterization tests and separate retry correction | Existing subscription core/HTTP fixtures plus registered routes and fault driver | Freeze mutation contracts; prove and correct exhausted create retries; characterize disjoint PATCH loss | R02 complete | G, M, race-enabled isolated DB tests |
 | R04 — implemented | P1/A01 | User create/delete commands, validation and HTTP adapters | R03 creation/defaults/assignments/rollback/cascade fixtures plus command/error assurance | Move persistence and creation transaction ownership out of HTTP; retain atomic DELETE | R03 | G, M; user-route response parity; C |
-| R05a — partial groundwork | P1/A01 | Activation redemption policy/CAS in `repository.go` and activation caller | R03 duplicate/expiry/concurrent redemption fixtures | Make one-time redemption atomic boundary explicit | R03; independent of R04 | G, M, race-enabled CAS tests; C |
-| R05b — partial groundwork | P1/A01 | HWID registration and access policy helpers | R03 limit/normalization/last-slot/failure fixtures | Isolate device registration transaction from read projection | R03; independent of R05a | G, M, race-enabled slot tests; C |
+| R05a — implemented | P1/A01 | Activation redemption command, pure code validation, SQL CAS and HTTP adapter | R03 duplicate/expiry fixtures plus synchronized claims, unknown outcomes and URL parity | Make one-time redemption atomic boundary explicit | R03; independent of R04 | G, M, race-enabled CAS tests; C |
+| R05b — implemented | P1/A01 | Device registration command, SQL adapter, pure access/capacity policy and request adapter | R03 plus synchronized final-slot/same-ID transactions, rollback and route-policy fixtures | Isolate device registration transaction from read projection | R03; independent of R05a | G, M, race-enabled slot tests; C |
 | R06 | P1/A02 | Profile service/adapter fault and tri-state characterization tests | Existing metadata/no-secret-rewrite/reveal tests | Lock revisions, ownership, ciphertext and rollback semantics | None | G, M; targeted service/adapter coverage |
 | R07a | P1/A02 | Category/order methods in `profile_repository.go`, same package/adapter | R06 category/reorder atomicity and assignment cases | Separate one independent responsibility; retain active seam | R06 | G, M; category HTTP fixtures; C |
 | R07b | P1/A02 | Safe read/projection methods in the same adapter | R06 corrupt/missing secret/source projection tests | Separate read mapping from encrypted commands | R06; R07a preferred | G, M; reveal/summary parity; C |

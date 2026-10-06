@@ -1,54 +1,25 @@
 package main
 
-import (
-	"database/sql"
-	"errors"
-	"net/http"
-	"strings"
-)
+import "database/sql"
 
-func (a *App) redeemActivationCode(code string) (string, int, string, error) {
-	var userID int64
-	var usedAt sql.NullTime
-	var subscriptionID sql.NullString
+type activationRecord struct {
+	userID         int64
+	usedAt         sql.NullTime
+	subscriptionID sql.NullString
+}
+
+func (a *App) loadActivationRecord(code string) (activationRecord, error) {
+	var record activationRecord
 	err := a.db.QueryRow(
 		`SELECT id, activation_used_at, subscription_id FROM users WHERE activation_code = ?`,
 		code,
-	).Scan(&userID, &usedAt, &subscriptionID)
-	if errors.Is(err, sql.ErrNoRows) {
-		return "", http.StatusNotFound, "Подписка не найдена", nil
-	}
-	if err != nil {
-		return "", 0, "", err
-	}
-
-	if usedAt.Valid {
-		return "", http.StatusForbidden, "Ключ уже активирован", nil
-	}
-
-	generatedSubscriptionID, err := activationSubscriptionID(subscriptionID.String)
-	if err != nil {
-		return "", 0, "", err
-	}
-	claimed, err := a.claimActivation(userID, generatedSubscriptionID)
-	if err != nil {
-		return "", 0, "", err
-	}
-	if !claimed {
-		return "", http.StatusForbidden, "Ключ уже активирован", nil
-	}
-	return generatedSubscriptionID, http.StatusOK, "", nil
+	).Scan(&record.userID, &record.usedAt, &record.subscriptionID)
+	return record, err
 }
 
-func activationSubscriptionID(stored string) (string, error) {
-	if id := strings.TrimSpace(stored); id != "" {
-		return id, nil
-	}
-	return generateToken(24)
-}
-
-// claimActivation succeeds only for the first redemption, even if another
-// request activated the user after the initial SELECT.
+// claimActivation atomically stores the subscription identity and marks the code
+// used only while it remains unclaimed. The preceding read is not a reservation.
+// A result-reporting error leaves the outcome unknown; it cannot imply rollback.
 func (a *App) claimActivation(userID int64, subscriptionID string) (bool, error) {
 	res, err := a.db.Exec(
 		`UPDATE users

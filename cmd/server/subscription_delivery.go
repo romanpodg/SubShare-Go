@@ -111,45 +111,6 @@ func writeSubscriptionDenial(w http.ResponseWriter, d subscriptionDenial) {
 	http.Error(w, message, code)
 }
 
-func (a *App) subscriptionDeviceAllowed(
-	r *http.Request,
-	userID int64,
-	settings model.SubscriptionSettings,
-) (bool, string, error) {
-	hwid := strings.TrimSpace(r.URL.Query().Get("hwid"))
-	if hwid == "" {
-		hwid = strings.TrimSpace(r.Header.Get("X-HWID"))
-	}
-	if hwid == "" {
-		hwid = strings.TrimSpace(r.Header.Get("X-Device-ID"))
-	}
-	if len(hwid) > 128 {
-		return false, "invalid HWID", nil
-	}
-	mandatory := settings.ProviderID != "" && settings.HappMandatoryHWID
-	if hwid == "" {
-		if mandatory {
-			return false, "HWID is required for this subscription", nil
-		}
-		return true, "", nil
-	}
-	meta := extractDeviceMeta(r)
-	parsed := ParseDeviceInfo(hwid, r.UserAgent(), r.Header, r.URL.Query())
-	meta = mergeDeviceMeta(meta, parsed)
-	allowed, err := a.registerHWID(userID, hwid, meta)
-	if err != nil {
-		return false, "", err
-	}
-	if !allowed {
-		message := strings.TrimSpace(a.deviceLimitMessage)
-		if message == "" {
-			message = model.DefaultDeviceLimitMessage
-		}
-		return false, a.subscriptionRemarkForStatus("limited", message), nil
-	}
-	return true, "", nil
-}
-
 // prepareSubscriptionDelivery resolves access, settings, the response rule and
 // the device policy for one request. A non-zero denial means stop and reply
 // with it.

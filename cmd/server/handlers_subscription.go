@@ -24,35 +24,20 @@ func (a *App) apiActivateSubscription(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	activationCode := strings.TrimSpace(req.ActivationCode)
-	if activationCode == "" || strings.Contains(activationCode, "/") {
-		httpapi.WriteError(w, r, http.StatusBadRequest, "Введите корректный ключ активации")
-		return
-	}
-
-	subscriptionID, code, reason, err := a.redeemActivationCode(activationCode)
+	activationCode, err := validateActivationCode(req.ActivationCode)
 	if err != nil {
-		httpapi.WriteError(w, r, http.StatusInternalServerError, "failed to activate subscription")
-		return
-	}
-	if code != http.StatusOK {
-		if strings.TrimSpace(reason) == "" {
-			reason = "Не удалось активировать подписку"
-		}
-		httpapi.WriteError(w, r, code, reason)
+		writeActivationError(w, r, err)
 		return
 	}
 
-	subscriptionURL := fmt.Sprintf("%s/sub/%s", a.resolveBaseURL(r), subscriptionID)
-	if strings.TrimSpace(a.happCryptoAPIURL) != "" {
-		if encryptedURL, err := a.encryptSubscriptionURL(subscriptionURL); err == nil && strings.TrimSpace(encryptedURL) != "" {
-			subscriptionURL = encryptedURL
-		} else if err != nil {
-			log.Printf("apiActivateSubscription: failed to encrypt url via configured Happ API: %v", err)
-		}
+	subscriptionID, err := a.redeemActivationCode(activationCode)
+	if err != nil {
+		writeActivationError(w, r, err)
+		return
 	}
+
 	httpapi.WriteJSON(w, http.StatusOK, map[string]any{
-		"subscription_url": subscriptionURL,
+		"subscription_url": a.activationSubscriptionURL(r, subscriptionID),
 		"message":          "Ключ активирован. Ссылка готова — скопируйте и вставьте её в VPN-клиент",
 	})
 }
