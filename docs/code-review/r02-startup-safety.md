@@ -1,6 +1,6 @@
 # R02 — SQLite startup data safety
 
-Base: `main` at `267811b`, after PR #7 merged R01. This PR implements the next P0 batch, A00/R02. User-mutation work (R03) remains a separate follow-up.
+Base: `main` at `267811b`, after PR #7 merged R01. [PR #8](https://github.com/romanpodg/SubShare-Go/pull/8) completes the next P0 batch, A00/R02, with source validated at **a896708**. User-mutation work (R03) remains a separate follow-up.
 
 ## Decision and changes
 
@@ -20,6 +20,8 @@ Remove `CleanupSQLiteSidecars` and `IsRecoverableSQLiteIO`, which have no remain
 
 Windows targeted startup/storage tests, journal-mode fallback/diagnostic tests and the uncached migration compatibility test pass. The full gotestsum/atomic-coverage run passes: **708 test results, five existing optional skips, no failures**. `go vet ./...`, `go build -o .cache/r02/server.exe ./cmd/server`, golangci-lint 2.13.2 with `--new-from-rev=origin/main`, JSON validation and `git diff --check` pass. The initial sandboxed full run failed on temporary-file renames and loopback restrictions; the unsandboxed rerun passed without weakening tests.
 
-With user-authorized CodeScene analysis, `internal/storage/sqlite.go` improves from **9.92 to 10.00**, resolving its Bumpy Road finding. `cmd/server/main.go` remains **9.57**; its existing CLI findings are outside R02. The new failure test and storage crash test both score **10.00**. The strict delta against `origin/main` passes.
+With user-authorized CodeScene analysis, `internal/storage/sqlite.go` improves from **9.92 to 10.00**, resolving its Bumpy Road finding. `cmd/server/main.go` remains **9.57**; its existing CLI findings are outside R02. The new failure and journal test files and storage crash test score **10.00**. The strict delta against `origin/main` passes. Local startup functions and journal-mode negotiation have **100% statement coverage**; overall local statements remain **52.4%**.
 
-Local Docker is unavailable because its daemon is stopped; deployment/restart validation belongs to Linux PR CI. Local Go has `CGO_ENABLED=0`, so race execution is unavailable here. Optional existing snapshot/client fixtures retain their normal skips. The tests do not establish production trigger frequency or fix underlying filesystem faults; they prevent application-side destructive recovery. See the [operator recovery guide](../sqlite-recovery.md).
+[Linux Actions run 37439646348](https://github.com/romanpodg/SubShare-Go/actions/runs/37439646348) passes backend/migration/vet/lint/build/secret scanning, frontend type/lint/Vitest/build/Playwright, and Docker deployment/restart checks for a896708. [CodeScene review 7827467](https://codescene.io/projects/84883/delta/results/7827467) passes all three gates and also reports `storage_test.go` improving from 8.37 to 8.91 after obsolete cleanup tests were removed. [Codecov](https://app.codecov.io/gh/romanpodg/SubShare-Go/pull/8) reports **85.71% patch coverage** and a passing bundle check with **0.0% size change**. All six PR checks pass for the validated source commit.
+
+Local Docker is unavailable because its daemon is stopped; Linux CI supplies deployment evidence. Local Go has `CGO_ENABLED=0`, so race execution is unavailable here. Optional existing snapshot/client fixtures retain their normal skips. The tests do not establish production trigger frequency or fix underlying filesystem faults; they prevent application-side destructive recovery. See the [operator recovery guide](../sqlite-recovery.md).

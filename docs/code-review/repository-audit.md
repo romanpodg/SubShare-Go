@@ -4,7 +4,7 @@
 
 [PR #7](https://github.com/romanpodg/SubShare-Go/pull/7) is merged at **267811b**. Its R01 startup/WAL characterization, repository test health fixes and six passing checks are prerequisite evidence. The existing repository/settings/activation/device extraction is partial A01 progress.
 
-**R02 implements the P0 correction:** initialization failures stop startup without application-side WAL deletion or automatic retry. See the [execution record](r02-startup-safety.md) for validation and its limits. R03/R05a/R05b have partial groundwork; R04 and all R06–R23 sub-batches remain unstarted. Continue with one PR per batch.
+**R02 completes the P0 correction in [PR #8](https://github.com/romanpodg/SubShare-Go/pull/8):** initialization failures stop startup without application-side WAL deletion or automatic retry. Source at a896708 passes all six checks, including Linux backend and Docker restart validation. See the [execution record](r02-startup-safety.md) for evidence and limits. R03/R05a/R05b have partial groundwork; R04 and all R06–R23 sub-batches remain unstarted. Continue with one PR per batch.
 
 See the [current backlog status](refactoring-backlog.md#current-implementation-status--2026-10-06) and [batch status](refactoring-batches.md#current-completion-and-next-batch) for completed/remaining work and final CodeScene/Codecov/CI evidence. Measurements below remain a historical baseline at 3ab25a5, not current scores or live check status.
 
