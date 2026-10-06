@@ -93,6 +93,7 @@ type mutationSQLFaults struct {
 	patchRowsAffectedErr      error
 	deleteRowsAffectedErr     error
 	activationRowsAffectedErr error
+	deviceRowsAffectedErr     error
 	beforeExec                func(string)
 }
 
@@ -153,6 +154,8 @@ func (faults *mutationSQLFaults) rowsAffectedError(query string) error {
 		return faults.deleteRowsAffectedErr
 	case isActivationClaimWrite(query):
 		return faults.activationRowsAffectedErr
+	case isDeviceRegistrationWrite(query):
+		return faults.deviceRowsAffectedErr
 	default:
 		return nil
 	}
