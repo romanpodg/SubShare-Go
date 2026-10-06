@@ -12,104 +12,127 @@ import (
 	"github.com/romanpodg/SubShare-Go/internal/model"
 )
 
-func TestRepositoryListUsersProjection(t *testing.T) {
+func TestRepositoryListUsersEmptyThenPopulated(t *testing.T) {
 	app := newIntegrationApp(t)
 	users, err := app.listUsers()
-	if err != nil || users != nil {
-		t.Fatalf("empty list = %#v, err = %v", users, err)
-	}
+	requireRepositorySuccess(t, err)
+	requireRepositoryEqual(t, "empty user list", users, []model.User(nil))
+
+	seedSubscriptionUser(t, app, model.UserStatusActive)
+	users, err = app.listUsers()
+	requireRepositorySuccess(t, err)
+	requireRepositoryEqual(t, "users added after empty read", len(users), 1)
+}
+
+func TestRepositoryListUsersProjection(t *testing.T) {
+	fixture := newRepositoryUserFixture(t)
+	empty, user := fixture.listUsers(t)
+
+	requireRepositoryEqual(t, "descending user order", empty.ID > fixture.userID, true)
+	requireRepositoryEqual(t, "populated user ID", user.ID, fixture.userID)
+	requireRepositoryEqual(t, "default time zone", empty.TimeZone, "Europe/Moscow")
+	requireRepositoryEqual(t, "default language", empty.Language, "ru")
+	requireRepositoryEqual(t, "default refresh hours", empty.SubscriptionRefreshHours, 12)
+	requireRepositoryEqual(t, "negative device limit", empty.MaxDevices, 0)
+	requireRepositoryEqual(t, "time zone trimming", user.TimeZone, "Asia/Omsk")
+	requireRepositoryEqual(t, "language trimming", user.Language, "en")
+	requireRepositoryEqual(t, "activation code trimming", user.ActivationCode, "activation")
+	requireRepositoryEqual(t, "subscription ID trimming", user.SubscriptionID, "subscription")
+	requireRepositoryEqual(t, "subscription name trimming", user.SubscriptionName, "Personal")
+	requireRepositoryEqual(t, "negative refresh hours", user.SubscriptionRefreshHours, 12)
+	requireRepositoryEqual(t, "info URL trimming", user.SubscriptionInfoURL, "info")
+	requireRepositoryEqual(t, "extra URL trimming", user.SubscriptionExtraURL, "extra")
+	requireRepositoryEqual(t, "extra status trimming", user.SubscriptionExtraStatus, "notice")
+	requireRepositoryEqual(t, "blocked reason trimming", user.BlockedReason, "reason")
+	requireRepositoryEqual(t, "key assignment mode", user.KeyAssignmentMode, "selected")
+	requireRepositoryEqual(t, "activation display date", user.ActivationUsedAt, "02/01/2000 09:04")
+	requireRepositoryEqual(t, "start display date", user.StartsAtInput, "02/01/2000 09:04")
+	requireRepositoryEqual(t, "expiry display date", user.ExpiresAtInput, "02/01/2000 10:04")
+	requireRepositoryEqual(t, "expired status", user.EffectiveStatus, "expired")
+	requireRepositoryEqual(t, "assigned key ID", user.AssignedKeyIDs, strconv.FormatInt(fixture.keyID, 10))
+	requireRepositoryEqual(t, "unassigned keys", empty.AssignedKeyIDs, "")
+}
+
+func TestRepositoryListUsersDevices(t *testing.T) {
+	fixture := newRepositoryUserFixture(t)
+	empty, user := fixture.listUsers(t)
+
+	requireRepositoryEqual(t, "empty device array", empty.ConnectedDevices, []model.ConnectedDevice{})
+	requireRepositoryEqual(t, "empty HWID array", empty.ConnectedHWIDs, []string{})
+	requireRepositoryEqual(t, "device aggregate count", user.ConnectedDeviceCount, 2)
+	requireRepositoryEqual(t, "HWID aggregate count", len(user.ConnectedHWIDs), 2)
+	requireRepositoryEqual(t, "projected device count", len(user.ConnectedDevices), 2)
+	newer, older := user.ConnectedDevices[0], user.ConnectedDevices[1]
+	requireRepositoryEqual(t, "newest device first", newer.HWID, "new")
+	requireRepositoryEqual(t, "older HWID trimming", older.HWID, "OLD")
+	requireRepositoryEqual(t, "legacy HWID normalization", older.NormalizedHWID, "old")
+	requireRepositoryEqual(t, "stored app name", older.AppName, "Stored")
+	requireRepositoryEqual(t, "inferred app name", newer.AppName, "Happ")
+	requireRepositoryEqual(t, "inferred platform", newer.Platform, "Android")
+	requireRepositoryEqual(t, "inferred OS version", newer.OSVersion, "14")
+	requireRepositoryEqual(t, "local last-seen date", older.LastSeenAt, fixture.stamp.Local().Format("2006-01-02 15:04:05"))
+}
+
+func TestRepositoryListUsersInvalidTimeZone(t *testing.T) {
+	fixture := newRepositoryUserFixture(t)
+	_, user := fixture.listUsers(t)
+	requireRepositoryEqual(t, "valid time zone before update", user.ActivationUsedAt, "02/01/2000 09:04")
+	execRepositoryFixtureSQL(t, fixture.app, `UPDATE users SET time_zone = 'invalid/zone' WHERE id = ?`, fixture.userID)
+	_, user = fixture.listUsers(t)
+	requireRepositoryEqual(t, "invalid time zone uses UTC", user.ActivationUsedAt, "02/01/2000 03:04")
+}
+
+type repositoryUserFixture struct {
+	app           *App
+	userID, keyID int64
+	stamp         time.Time
+}
+
+func newRepositoryUserFixture(t *testing.T) repositoryUserFixture {
+	t.Helper()
+	app := newIntegrationApp(t)
 	userID := seedSubscriptionUser(t, app, model.UserStatusActive)
 	stamp := time.Date(2000, 1, 2, 3, 4, 0, 0, time.UTC)
-	_, err = app.db.Exec(`UPDATE users SET time_zone = ' Asia/Omsk ', language = ' en ',
+	execRepositoryFixtureSQL(t, app, `UPDATE users SET time_zone = ' Asia/Omsk ', language = ' en ',
 		activation_code = ' activation ', subscription_id = ' subscription ',
 		subscription_name = ' Personal ', subscription_refresh_hours = -1,
 		subscription_info_url = ' info ', subscription_extra_url = ' extra ',
 		subscription_extra_status = ' notice ', activation_used_at = ?, starts_at = ?,
 		expires_at = ?, blocked_reason = ' reason ', key_assignment_mode = 'selected' WHERE id = ?`,
 		stamp, stamp, stamp.Add(time.Hour), userID)
-	if err != nil {
-		t.Fatal(err)
-	}
-	_, err = app.db.Exec(`INSERT INTO user_devices(user_id, hwid, normalized_hwid, app_name, user_agent, last_seen_at)
+	execRepositoryFixtureSQL(t, app, `INSERT INTO user_devices(user_id, hwid, normalized_hwid, app_name, user_agent, last_seen_at)
 		VALUES(?, ' OLD ', NULL, ' Stored ', 'Happ/3.0 (Android 14)', ?),
 		      (?, 'new', 'new', NULL, 'Happ/3.0 (Android 14)', ?)`, userID, stamp, userID, stamp.Add(time.Hour))
-	if err != nil {
-		t.Fatal(err)
-	}
-	_, err = app.db.Exec(`INSERT INTO users(name, email, token, time_zone, language, max_devices, subscription_refresh_hours)
+	execRepositoryFixtureSQL(t, app, `INSERT INTO users(name, email, token, time_zone, language, max_devices, subscription_refresh_hours)
 		VALUES('Empty', '', 'empty-token', ' ', ' ', -1, 0)`)
-	if err != nil {
-		t.Fatal(err)
-	}
 	keyID := insertAssignedDeliveryKey(t, app, userID, nil, "Assigned", externalTestVLESS, "vless", "full", 1)
-	users, err = app.listUsers()
-	if err != nil || len(users) != 2 {
-		t.Fatalf("users = %#v, err = %v", users, err)
-	}
-	empty, user := users[0], users[1]
-	if empty.ID <= userID || user.ID != userID {
-		t.Fatalf("users not ordered by descending id: %#v", users)
-	}
-	if empty.TimeZone != "Europe/Moscow" || empty.Language != "ru" || empty.SubscriptionRefreshHours != 12 || empty.MaxDevices != 0 {
-		t.Fatalf("defaults = %#v", empty)
-	}
-	if empty.ConnectedDevices == nil || empty.ConnectedHWIDs == nil || len(empty.ConnectedDevices) != 0 || len(empty.ConnectedHWIDs) != 0 {
-		t.Fatalf("empty device arrays = %#v", empty)
-	}
-	if user.TimeZone != "Asia/Omsk" || user.Language != "en" || user.ActivationCode != "activation" || user.SubscriptionID != "subscription" ||
-		user.SubscriptionName != "Personal" || user.SubscriptionRefreshHours != 12 || user.SubscriptionInfoURL != "info" ||
-		user.SubscriptionExtraURL != "extra" || user.SubscriptionExtraStatus != "notice" || user.BlockedReason != "reason" || user.KeyAssignmentMode != "selected" {
-		t.Fatalf("trimmed user fields = %#v", user)
-	}
-	if user.ActivationUsedAt != "02/01/2000 09:04" || user.StartsAtInput != "02/01/2000 09:04" || user.ExpiresAtInput != "02/01/2000 10:04" || user.EffectiveStatus != "expired" {
-		t.Fatalf("localized dates/status = %#v", user)
-	}
-	if user.ConnectedDeviceCount != 2 || len(user.ConnectedHWIDs) != 2 || len(user.ConnectedDevices) != 2 {
-		t.Fatalf("device aggregates = %#v", user)
-	}
-	if user.AssignedKeyIDs != strconv.FormatInt(keyID, 10) || empty.AssignedKeyIDs != "" {
-		t.Fatalf("assigned keys = %q, empty = %q", user.AssignedKeyIDs, empty.AssignedKeyIDs)
-	}
-	newer, older := user.ConnectedDevices[0], user.ConnectedDevices[1]
-	if newer.HWID != "new" || older.HWID != "OLD" || older.NormalizedHWID != "old" || older.AppName != "Stored" || newer.AppName != "Happ" || newer.Platform != "Android" || newer.OSVersion != "14" {
-		t.Fatalf("device ordering and metadata = %#v", user.ConnectedDevices)
-	}
-	if older.LastSeenAt != stamp.Local().Format("2006-01-02 15:04:05") {
-		t.Fatalf("last seen = %q", older.LastSeenAt)
-	}
-	if _, err := app.db.Exec(`UPDATE users SET time_zone = 'invalid/zone' WHERE id = ?`, userID); err != nil {
-		t.Fatal(err)
-	}
-	users, err = app.listUsers()
-	if err != nil || users[1].ActivationUsedAt != "02/01/2000 03:04" {
-		t.Fatalf("invalid zone UTC fallback: users = %#v, err = %v", users, err)
-	}
+	return repositoryUserFixture{app: app, userID: userID, keyID: keyID, stamp: stamp}
+}
+
+func (fixture repositoryUserFixture) listUsers(t *testing.T) (model.User, model.User) {
+	t.Helper()
+	users, err := fixture.app.listUsers()
+	requireRepositorySuccess(t, err)
+	requireRepositoryEqual(t, "fixture user count", len(users), 2)
+	return users[0], users[1]
 }
 
 func TestRepositorySubscriptionSettings(t *testing.T) {
 	app := newIntegrationApp(t)
-	_, err := app.db.Exec(`UPDATE subscription_settings SET title = NULL, refresh_hours = -1,
+	execRepositoryFixtureSQL(t, app, `UPDATE subscription_settings SET title = NULL, refresh_hours = -1,
 		subscription_format = 'invalid', time_zone = ' ', language = ' ' WHERE id = 1`)
-	if err != nil {
-		t.Fatal(err)
-	}
 	settings, err := app.getSubscriptionSettings()
+	requireRepositorySuccess(t, err)
 	defaults := model.SubscriptionSettings{Title: "AllKeys", RefreshHours: 12, SubscriptionFormat: model.SubscriptionFormatLinks, TimeZone: "Europe/Moscow", Language: "ru"}
-	if err != nil || !reflect.DeepEqual(settings, defaults) {
-		t.Fatalf("settings = %#v, err = %v, want %#v", settings, err, defaults)
-	}
+	requireRepositoryEqual(t, "default subscription settings", settings, defaults)
 	nullSettings, err := scanSubscriptionSettings(app.db.QueryRow(`SELECT NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL`))
-	if err != nil || !reflect.DeepEqual(nullSettings, defaults) {
-		t.Fatalf("null settings = %#v, err = %v, want %#v", nullSettings, err, defaults)
-	}
-	_, err = app.db.Exec(`UPDATE subscription_settings SET title = ' Title ', refresh_hours = 24,
+	requireRepositorySuccess(t, err)
+	requireRepositoryEqual(t, "null subscription settings", nullSettings, defaults)
+	execRepositoryFixtureSQL(t, app, `UPDATE subscription_settings SET title = ' Title ', refresh_hours = 24,
 		info_url = ' info ', extra_url = ' extra ', extra_status = ' notice ', subscription_format = ' XRAY-JSON ',
 		show_subscription_expiration = -1, time_zone = ' UTC ', language = ' en ', provider_id = ' provider ',
 		happ_no_limit_mode = 1, happ_no_limit_mode_xhttp_only = 2, happ_mandatory_hwid = -1,
 		happ_notify_expiration = 1, happ_hide_server_settings = 1, happ_subscription_body = ' body ' WHERE id = 1`)
-	if err != nil {
-		t.Fatal(err)
-	}
 	want := model.SubscriptionSettings{
 		Title: "Title", RefreshHours: 24, InfoURL: "info", ExtraURL: "extra", ExtraStatus: "notice",
 		SubscriptionFormat: model.SubscriptionFormatXrayJSON, ShowSubscriptionExpiration: true,
@@ -118,15 +141,11 @@ func TestRepositorySubscriptionSettings(t *testing.T) {
 		HappHideServerSettings: true, HappSubscriptionBody: " body ",
 	}
 	settings, err = app.getSubscriptionSettings()
-	if err != nil || !reflect.DeepEqual(settings, want) {
-		t.Fatalf("settings = %#v, err = %v, want %#v", settings, err, want)
-	}
-	if _, err := app.db.Exec(`DELETE FROM subscription_settings`); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := app.getSubscriptionSettings(); !errors.Is(err, sql.ErrNoRows) {
-		t.Fatalf("missing settings error = %v", err)
-	}
+	requireRepositorySuccess(t, err)
+	requireRepositoryEqual(t, "normalized subscription settings", settings, want)
+	execRepositoryFixtureSQL(t, app, `DELETE FROM subscription_settings`)
+	_, err = app.getSubscriptionSettings()
+	requireRepositoryEqual(t, "missing settings error", errors.Is(err, sql.ErrNoRows), true)
 }
 
 func TestRepositorySubscriptionAccess(t *testing.T) {
@@ -151,17 +170,17 @@ func TestRepositorySubscriptionAccess(t *testing.T) {
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			if _, err := app.db.Exec(`UPDATE users SET status = ?, blocked_reason = ?, starts_at = ?, expires_at = ? WHERE id = ?`, test.status, test.reason, test.starts, test.expires, userID); err != nil {
-				t.Fatal(err)
-			}
+			execRepositoryFixtureSQL(t, app, `UPDATE users SET status = ?, blocked_reason = ?, starts_at = ?, expires_at = ? WHERE id = ?`, test.status, test.reason, test.starts, test.expires, userID)
 			allowed, id, code, reason, err := app.subscriptionAccessAllowed(test.subscription)
+			requireRepositorySuccess(t, err)
 			wantID := userID
 			if test.code == http.StatusNotFound {
 				wantID = 0
 			}
-			if err != nil || allowed != (test.code == http.StatusOK) || id != wantID || code != test.code || reason != test.wantReason {
-				t.Fatalf("access = %v, %d, %d, %q, %v", allowed, id, code, reason, err)
-			}
+			requireRepositoryEqual(t, "access allowed", allowed, test.code == http.StatusOK)
+			requireRepositoryEqual(t, "access user ID", id, wantID)
+			requireRepositoryEqual(t, "access status code", code, test.code)
+			requireRepositoryEqual(t, "access reason", reason, test.wantReason)
 		})
 	}
 }
@@ -171,79 +190,62 @@ func TestRepositoryRegisterHWID(t *testing.T) {
 	userID := seedSubscriptionUser(t, app, model.UserStatusActive)
 	for _, limit := range []int{0, -1, 2} {
 		t.Run("limit="+strconv.Itoa(limit), func(t *testing.T) {
-			if _, err := app.db.Exec(`DELETE FROM user_devices; UPDATE users SET max_devices = ? WHERE id = ?`, limit, userID); err != nil {
-				t.Fatal(err)
-			}
+			execRepositoryFixtureSQL(t, app, `DELETE FROM user_devices; UPDATE users SET max_devices = ? WHERE id = ?`, limit, userID)
 			for _, hwid := range []string{" ONE ", "two"} {
 				allowed, err := app.registerHWID(userID, hwid, deviceMeta{DeviceName: "Phone", AppVersion: "1"})
-				if err != nil || !allowed {
-					t.Fatalf("register %q = %v, %v", hwid, allowed, err)
-				}
+				requireRepositorySuccess(t, err)
+				requireRepositoryEqual(t, "initial device registration", allowed, true)
 			}
 			allowed, err := app.registerHWID(userID, "one", deviceMeta{AppVersion: "2"})
-			if err != nil || !allowed {
-				t.Fatalf("existing device at limit = %v, %v", allowed, err)
-			}
+			requireRepositorySuccess(t, err)
+			requireRepositoryEqual(t, "existing device at limit", allowed, true)
 			var count int
 			var name, version, raw string
-			if err := app.db.QueryRow(`SELECT hwid, device_name, app_version FROM user_devices WHERE user_id = ? AND normalized_hwid = 'one'`, userID).Scan(&raw, &name, &version); err != nil {
-				t.Fatal(err)
-			}
-			if raw != "ONE" || name != "Phone" || version != "2" {
-				t.Fatalf("updated metadata: raw=%q, name=%q, version=%q", raw, name, version)
-			}
+			err = app.db.QueryRow(`SELECT hwid, device_name, app_version FROM user_devices WHERE user_id = ? AND normalized_hwid = 'one'`, userID).Scan(&raw, &name, &version)
+			requireRepositorySuccess(t, err)
+			requireRepositoryEqual(t, "stored HWID", raw, "ONE")
+			requireRepositoryEqual(t, "preserved device name", name, "Phone")
+			requireRepositoryEqual(t, "updated device version", version, "2")
 			allowed, err = app.registerHWID(userID, "three", deviceMeta{})
-			if err != nil || allowed != (limit <= 0) {
-				t.Fatalf("new device = %v, %v", allowed, err)
-			}
-			if err := app.db.QueryRow(`SELECT COUNT(*) FROM user_devices WHERE user_id = ?`, userID).Scan(&count); err != nil {
-				t.Fatal(err)
-			}
+			requireRepositorySuccess(t, err)
+			requireRepositoryEqual(t, "new device respects limit", allowed, limit <= 0)
+			err = app.db.QueryRow(`SELECT COUNT(*) FROM user_devices WHERE user_id = ?`, userID).Scan(&count)
+			requireRepositorySuccess(t, err)
 			wantCount := 2
 			if limit <= 0 {
 				wantCount = 3
 			}
-			if count != wantCount {
-				t.Fatalf("device count = %d, want %d", count, wantCount)
-			}
+			requireRepositoryEqual(t, "persisted device count", count, wantCount)
 		})
 	}
-	if allowed, err := app.registerHWID(userID, " ", deviceMeta{}); err != nil || !allowed {
-		t.Fatalf("empty HWID = %v, %v", allowed, err)
-	}
+	allowed, err := app.registerHWID(userID, " ", deviceMeta{})
+	requireRepositorySuccess(t, err)
+	requireRepositoryEqual(t, "empty HWID allowed", allowed, true)
 }
 
 func TestRepositoryRegisterHWIDLegacyCountAndRollback(t *testing.T) {
 	app := newIntegrationApp(t)
 	userID := seedSubscriptionUser(t, app, model.UserStatusActive)
-	_, err := app.db.Exec(`UPDATE users SET max_devices = 2 WHERE id = ?;
+	execRepositoryFixtureSQL(t, app, `UPDATE users SET max_devices = 2 WHERE id = ?;
 		INSERT INTO user_devices(user_id, hwid, normalized_hwid) VALUES(?, ' OLD ', NULL), (?, 'old', '')`, userID, userID, userID)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if allowed, err := app.registerHWID(userID, "new", deviceMeta{}); err != nil || !allowed {
-		t.Fatalf("distinct legacy HWIDs should count once: %v, %v", allowed, err)
-	}
-	if allowed, err := app.registerHWID(userID, "third", deviceMeta{}); err != nil || allowed {
-		t.Fatalf("legacy limit not enforced: %v, %v", allowed, err)
-	}
-	_, err = app.db.Exec(`UPDATE users SET max_devices = 0 WHERE id = ?;
+	allowed, err := app.registerHWID(userID, "new", deviceMeta{})
+	requireRepositorySuccess(t, err)
+	requireRepositoryEqual(t, "distinct legacy HWIDs count once", allowed, true)
+	allowed, err = app.registerHWID(userID, "third", deviceMeta{})
+	requireRepositorySuccess(t, err)
+	requireRepositoryEqual(t, "legacy device limit", allowed, false)
+	execRepositoryFixtureSQL(t, app, `UPDATE users SET max_devices = 0 WHERE id = ?;
 		CREATE TRIGGER reject_device BEFORE INSERT ON user_devices BEGIN SELECT RAISE(ABORT, 'reject device'); END`, userID)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if allowed, err := app.registerHWID(userID, "rejected", deviceMeta{}); err == nil || allowed {
-		t.Fatalf("insert failure = %v, %v", allowed, err)
-	}
-	if _, err := app.db.Exec(`DROP TRIGGER reject_device`); err != nil {
-		t.Fatal(err)
-	}
-	if allowed, err := app.registerHWID(userID, "accepted", deviceMeta{}); err != nil || !allowed {
-		t.Fatalf("transaction not released after failure: %v, %v", allowed, err)
-	}
-	if allowed, err := app.registerHWID(userID+1, "missing", deviceMeta{}); !errors.Is(err, sql.ErrNoRows) || allowed {
-		t.Fatalf("missing user = %v, %v", allowed, err)
-	}
+	allowed, err = app.registerHWID(userID, "rejected", deviceMeta{})
+	requireRepositoryEqual(t, "insert error returned", err != nil, true)
+	requireRepositoryEqual(t, "failed insert rejected", allowed, false)
+	execRepositoryFixtureSQL(t, app, `DROP TRIGGER reject_device`)
+	allowed, err = app.registerHWID(userID, "accepted", deviceMeta{})
+	requireRepositorySuccess(t, err)
+	requireRepositoryEqual(t, "transaction released after failure", allowed, true)
+	allowed, err = app.registerHWID(userID+1, "missing", deviceMeta{})
+	requireRepositoryEqual(t, "missing user error", errors.Is(err, sql.ErrNoRows), true)
+	requireRepositoryEqual(t, "missing user rejected", allowed, false)
 }
 
 func TestRepositoryRedeemActivationCode(t *testing.T) {
@@ -258,32 +260,31 @@ func TestRepositoryRedeemActivationCode(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			app := newIntegrationApp(t)
 			userID := seedSubscriptionUser(t, app, model.UserStatusActive)
-			if _, err := app.db.Exec(`UPDATE users SET subscription_id = ? WHERE id = ?`, test.stored, userID); err != nil {
-				t.Fatal(err)
-			}
+			execRepositoryFixtureSQL(t, app, `UPDATE users SET subscription_id = ? WHERE id = ?`, test.stored, userID)
 			id, code, reason, err := app.redeemActivationCode("activation-token")
-			if err != nil || code != http.StatusOK || reason != "" || id == "" {
-				t.Fatalf("redeem = %q, %d, %q, %v", id, code, reason, err)
-			}
-			if test.stored == " existing " && id != "existing" {
-				t.Fatalf("existing subscription replaced: %q", id)
+			requireRepositorySuccess(t, err)
+			requireRepositoryEqual(t, "redeem status code", code, http.StatusOK)
+			requireRepositoryEqual(t, "redeem reason", reason, "")
+			requireRepositoryEqual(t, "redeemed subscription populated", id != "", true)
+			if test.stored == " existing " {
+				requireRepositoryEqual(t, "existing subscription retained", id, "existing")
 			}
 			var persisted string
 			var used sql.NullTime
-			if err := app.db.QueryRow(`SELECT subscription_id, activation_used_at FROM users WHERE id = ?`, userID).Scan(&persisted, &used); err != nil {
-				t.Fatal(err)
-			}
-			if persisted != id || !used.Valid {
-				t.Fatalf("activation not persisted: %q, %+v", persisted, used)
-			}
+			err = app.db.QueryRow(`SELECT subscription_id, activation_used_at FROM users WHERE id = ?`, userID).Scan(&persisted, &used)
+			requireRepositorySuccess(t, err)
+			requireRepositoryEqual(t, "subscription persisted", persisted, id)
+			requireRepositoryEqual(t, "activation timestamp persisted", used.Valid, true)
 			id, code, reason, err = app.redeemActivationCode("activation-token")
-			if err != nil || id != "" || code != http.StatusForbidden || reason != "Ключ уже активирован" {
-				t.Fatalf("repeat redeem = %q, %d, %q, %v", id, code, reason, err)
-			}
+			requireRepositorySuccess(t, err)
+			requireRepositoryEqual(t, "repeat redeem subscription", id, "")
+			requireRepositoryEqual(t, "repeat redeem status", code, http.StatusForbidden)
+			requireRepositoryEqual(t, "repeat redeem reason", reason, "Ключ уже активирован")
 			id, code, reason, err = app.redeemActivationCode("missing")
-			if err != nil || id != "" || code != http.StatusNotFound || reason != "Подписка не найдена" {
-				t.Fatalf("missing redeem = %q, %d, %q, %v", id, code, reason, err)
-			}
+			requireRepositorySuccess(t, err)
+			requireRepositoryEqual(t, "missing redeem subscription", id, "")
+			requireRepositoryEqual(t, "missing redeem status", code, http.StatusNotFound)
+			requireRepositoryEqual(t, "missing redeem reason", reason, "Подписка не найдена")
 		})
 	}
 }
@@ -292,24 +293,21 @@ func TestRepositoryRedeemActivationConditionalUpdate(t *testing.T) {
 	app := newIntegrationApp(t)
 	seedSubscriptionUser(t, app, model.UserStatusActive)
 	// Model another redemption winning between the SELECT and conditional UPDATE.
-	_, err := app.db.Exec(`CREATE TRIGGER activation_claimed BEFORE UPDATE OF activation_used_at ON users
+	execRepositoryFixtureSQL(t, app, `CREATE TRIGGER activation_claimed BEFORE UPDATE OF activation_used_at ON users
 		BEGIN SELECT RAISE(IGNORE); END`)
-	if err != nil {
-		t.Fatal(err)
-	}
 	id, code, reason, err := app.redeemActivationCode("activation-token")
-	if err != nil || id != "" || code != http.StatusForbidden || reason != "Ключ уже активирован" {
-		t.Fatalf("lost activation claim = %q, %d, %q, %v", id, code, reason, err)
-	}
-	if _, err := app.db.Exec(`DROP TRIGGER activation_claimed;
+	requireRepositorySuccess(t, err)
+	requireRepositoryEqual(t, "lost claim subscription", id, "")
+	requireRepositoryEqual(t, "lost claim status", code, http.StatusForbidden)
+	requireRepositoryEqual(t, "lost claim reason", reason, "Ключ уже активирован")
+	execRepositoryFixtureSQL(t, app, `DROP TRIGGER activation_claimed;
 		CREATE TRIGGER activation_failed BEFORE UPDATE OF activation_used_at ON users
-		BEGIN SELECT RAISE(ABORT, 'activation failure'); END`); err != nil {
-		t.Fatal(err)
-	}
+		BEGIN SELECT RAISE(ABORT, 'activation failure'); END`)
 	id, code, reason, err = app.redeemActivationCode("activation-token")
-	if err == nil || id != "" || code != 0 || reason != "" {
-		t.Fatalf("activation update error = %q, %d, %q, %v", id, code, reason, err)
-	}
+	requireRepositoryEqual(t, "activation update error returned", err != nil, true)
+	requireRepositoryEqual(t, "failed update subscription", id, "")
+	requireRepositoryEqual(t, "failed update status", code, 0)
+	requireRepositoryEqual(t, "failed update reason", reason, "")
 }
 
 func TestRepositorySubscriptionAccessTimeBoundaries(t *testing.T) {
@@ -330,31 +328,51 @@ func TestRepositorySubscriptionAccessTimeBoundaries(t *testing.T) {
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			code, reason := row.accessDecision(test.now)
-			if code != test.code || reason != test.reason {
-				t.Fatalf("decision = %d, %q, want %d, %q", code, reason, test.code, test.reason)
-			}
+			requireRepositoryEqual(t, "time-boundary status", code, test.code)
+			requireRepositoryEqual(t, "time-boundary reason", reason, test.reason)
 		})
 	}
 }
 
 func TestRepositoryDatabaseErrors(t *testing.T) {
 	app := newIntegrationApp(t)
-	if err := app.db.Close(); err != nil {
+	requireRepositorySuccess(t, app.db.Close())
+	_, err := app.listUsers()
+	requireRepositoryEqual(t, "list database error returned", err != nil, true)
+	_, err = app.getSubscriptionSettings()
+	requireRepositoryEqual(t, "settings database error returned", err != nil, true)
+	allowed, _, code, reason, err := app.subscriptionAccessAllowed("id")
+	requireRepositoryEqual(t, "access database error returned", err != nil, true)
+	requireRepositoryEqual(t, "access denied on database error", allowed, false)
+	requireRepositoryEqual(t, "access database error status", code, 0)
+	requireRepositoryEqual(t, "access database error reason", reason, "")
+	id, code, reason, err := app.redeemActivationCode("code")
+	requireRepositoryEqual(t, "activation database error returned", err != nil, true)
+	requireRepositoryEqual(t, "activation database error subscription", id, "")
+	requireRepositoryEqual(t, "activation database error status", code, 0)
+	requireRepositoryEqual(t, "activation database error reason", reason, "")
+	allowed, err = app.registerHWID(1, "hwid", deviceMeta{})
+	requireRepositoryEqual(t, "registration database error returned", err != nil, true)
+	requireRepositoryEqual(t, "registration denied on database error", allowed, false)
+}
+
+func execRepositoryFixtureSQL(t *testing.T, app *App, query string, args ...any) {
+	t.Helper()
+	_, err := app.db.Exec(query, args...)
+	requireRepositorySuccess(t, err)
+}
+
+func requireRepositorySuccess(t *testing.T, err error) {
+	t.Helper()
+	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := app.listUsers(); err == nil {
-		t.Fatal("listUsers hid database error")
-	}
-	if _, err := app.getSubscriptionSettings(); err == nil {
-		t.Fatal("getSubscriptionSettings hid database error")
-	}
-	if allowed, _, code, reason, err := app.subscriptionAccessAllowed("id"); err == nil || allowed || code != 0 || reason != "" {
-		t.Fatalf("access DB error = %v, %d, %q, %v", allowed, code, reason, err)
-	}
-	if id, code, reason, err := app.redeemActivationCode("code"); err == nil || id != "" || code != 0 || reason != "" {
-		t.Fatalf("activation DB error = %q, %d, %q, %v", id, code, reason, err)
-	}
-	if allowed, err := app.registerHWID(1, "hwid", deviceMeta{}); err == nil || allowed {
-		t.Fatalf("register DB error = %v, %v", allowed, err)
+}
+
+func requireRepositoryEqual(t *testing.T, field string, got, want any) {
+	t.Helper()
+	if !reflect.DeepEqual(got, want) {
+		// Field-specific failures avoid dumping generated subscription tokens.
+		t.Fatalf("%s mismatch", field)
 	}
 }
