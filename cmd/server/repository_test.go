@@ -261,10 +261,8 @@ func TestRepositoryRedeemActivationCode(t *testing.T) {
 			app := newIntegrationApp(t)
 			userID := seedSubscriptionUser(t, app, model.UserStatusActive)
 			execRepositoryFixtureSQL(t, app, `UPDATE users SET subscription_id = ? WHERE id = ?`, test.stored, userID)
-			id, code, reason, err := app.redeemActivationCode("activation-token")
+			id, err := app.redeemActivationCode("activation-token")
 			requireRepositorySuccess(t, err)
-			requireRepositoryEqual(t, "redeem status code", code, http.StatusOK)
-			requireRepositoryEqual(t, "redeem reason", reason, "")
 			requireRepositoryEqual(t, "redeemed subscription populated", id != "", true)
 			if test.stored == " existing " {
 				requireRepositoryEqual(t, "existing subscription retained", id, "existing")
@@ -275,16 +273,12 @@ func TestRepositoryRedeemActivationCode(t *testing.T) {
 			requireRepositorySuccess(t, err)
 			requireRepositoryEqual(t, "subscription persisted", persisted, id)
 			requireRepositoryEqual(t, "activation timestamp persisted", used.Valid, true)
-			id, code, reason, err = app.redeemActivationCode("activation-token")
-			requireRepositorySuccess(t, err)
+			id, err = app.redeemActivationCode("activation-token")
 			requireRepositoryEqual(t, "repeat redeem subscription", id, "")
-			requireRepositoryEqual(t, "repeat redeem status", code, http.StatusForbidden)
-			requireRepositoryEqual(t, "repeat redeem reason", reason, "Ключ уже активирован")
-			id, code, reason, err = app.redeemActivationCode("missing")
-			requireRepositorySuccess(t, err)
+			requireRepositoryEqual(t, "repeat redeem outcome", errors.Is(err, errActivationAlreadyUsed), true)
+			id, err = app.redeemActivationCode("missing")
 			requireRepositoryEqual(t, "missing redeem subscription", id, "")
-			requireRepositoryEqual(t, "missing redeem status", code, http.StatusNotFound)
-			requireRepositoryEqual(t, "missing redeem reason", reason, "Подписка не найдена")
+			requireRepositoryEqual(t, "missing redeem outcome", errors.Is(err, errActivationNotFound), true)
 		})
 	}
 }
@@ -295,19 +289,15 @@ func TestRepositoryRedeemActivationConditionalUpdate(t *testing.T) {
 	// Model another redemption winning between the SELECT and conditional UPDATE.
 	execRepositoryFixtureSQL(t, app, `CREATE TRIGGER activation_claimed BEFORE UPDATE OF activation_used_at ON users
 		BEGIN SELECT RAISE(IGNORE); END`)
-	id, code, reason, err := app.redeemActivationCode("activation-token")
-	requireRepositorySuccess(t, err)
+	id, err := app.redeemActivationCode("activation-token")
 	requireRepositoryEqual(t, "lost claim subscription", id, "")
-	requireRepositoryEqual(t, "lost claim status", code, http.StatusForbidden)
-	requireRepositoryEqual(t, "lost claim reason", reason, "Ключ уже активирован")
+	requireRepositoryEqual(t, "lost claim outcome", errors.Is(err, errActivationAlreadyUsed), true)
 	execRepositoryFixtureSQL(t, app, `DROP TRIGGER activation_claimed;
 		CREATE TRIGGER activation_failed BEFORE UPDATE OF activation_used_at ON users
 		BEGIN SELECT RAISE(ABORT, 'activation failure'); END`)
-	id, code, reason, err = app.redeemActivationCode("activation-token")
+	id, err = app.redeemActivationCode("activation-token")
 	requireRepositoryEqual(t, "activation update error returned", err != nil, true)
 	requireRepositoryEqual(t, "failed update subscription", id, "")
-	requireRepositoryEqual(t, "failed update status", code, 0)
-	requireRepositoryEqual(t, "failed update reason", reason, "")
 }
 
 func TestRepositorySubscriptionAccessTimeBoundaries(t *testing.T) {
@@ -346,11 +336,9 @@ func TestRepositoryDatabaseErrors(t *testing.T) {
 	requireRepositoryEqual(t, "access denied on database error", allowed, false)
 	requireRepositoryEqual(t, "access database error status", code, 0)
 	requireRepositoryEqual(t, "access database error reason", reason, "")
-	id, code, reason, err := app.redeemActivationCode("code")
+	id, err := app.redeemActivationCode("code")
 	requireRepositoryEqual(t, "activation database error returned", err != nil, true)
 	requireRepositoryEqual(t, "activation database error subscription", id, "")
-	requireRepositoryEqual(t, "activation database error status", code, 0)
-	requireRepositoryEqual(t, "activation database error reason", reason, "")
 	allowed, err = app.registerHWID(1, "hwid", deviceMeta{})
 	requireRepositoryEqual(t, "registration database error returned", err != nil, true)
 	requireRepositoryEqual(t, "registration denied on database error", allowed, false)

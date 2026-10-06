@@ -118,3 +118,35 @@ func TestUserActivationIdentityConflictLeavesClaimUnused(t *testing.T) {
 	requireRepositorySuccess(t, f.app.db.QueryRow("SELECT subscription_id FROM users WHERE id = ?", id).Scan(&stored))
 	requireRepositoryEqual(t, "failed atomic claim retains original identity", stored, " occupied ")
 }
+
+func TestUserActivationCommandWithholdsUnknownIdentity(t *testing.T) {
+	f, faults := newFaultedMutationFixture(t)
+	seedSubscriptionUser(t, f.app, "active")
+	faults.activationRowsAffectedErr = errors.New("injected confirmation failure")
+	id, err := f.app.redeemActivationCode("activation-token")
+	requireRepositoryEqual(t, "unknown command outcome withholds identity", id, "")
+	requireRepositoryEqual(t, "command preserves persistence cause", errors.Is(err, faults.activationRowsAffectedErr), true)
+	requireRepositoryEqual(t, "unknown outcome is not a missing code", errors.Is(err, errActivationNotFound), false)
+	requireRepositoryEqual(t, "unknown outcome is not a known stale claim", errors.Is(err, errActivationAlreadyUsed), false)
+}
+
+func TestUserActivationPolicyRetainsValidationContract(t *testing.T) {
+	for _, test := range []struct {
+		name, raw, want string
+		invalid         bool
+	}{
+		{"trim", "\t code \n", "code", false},
+		{"unicode whitespace", "\u2003code\u00a0", "code", false},
+		{"empty", "", "", true},
+		{"blank", " \t\n", "", true},
+		{"slash", "bad/code", "", true},
+		{"internal space retained", "two words", "two words", false},
+		{"no new length limit", strings.Repeat("x", 129), strings.Repeat("x", 129), false},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			code, err := validateActivationCode(test.raw)
+			requireRepositoryEqual(t, "normalized code", code, test.want)
+			requireRepositoryEqual(t, "invalid code outcome", errors.Is(err, errActivationCodeInvalid), test.invalid)
+		})
+	}
+}

@@ -139,16 +139,23 @@ func (c *mutationSQLConn) ExecContext(ctx context.Context, query string, args []
 	if err != nil {
 		return nil, err
 	}
-	if c.faults.patchRowsAffectedErr != nil && isSubscriptionPatchWrite(query) {
-		return mutationSQLResult{result, c.faults.patchRowsAffectedErr}, nil
-	}
-	if c.faults.deleteRowsAffectedErr != nil && strings.HasPrefix(strings.TrimSpace(query), "DELETE FROM users") {
-		return mutationSQLResult{result, c.faults.deleteRowsAffectedErr}, nil
-	}
-	if c.faults.activationRowsAffectedErr != nil && isActivationClaimWrite(query) {
-		return mutationSQLResult{result, c.faults.activationRowsAffectedErr}, nil
+	if reportingErr := c.faults.rowsAffectedError(query); reportingErr != nil {
+		return mutationSQLResult{result, reportingErr}, nil
 	}
 	return result, nil
+}
+
+func (faults *mutationSQLFaults) rowsAffectedError(query string) error {
+	switch {
+	case isSubscriptionPatchWrite(query):
+		return faults.patchRowsAffectedErr
+	case strings.HasPrefix(strings.TrimSpace(query), "DELETE FROM users"):
+		return faults.deleteRowsAffectedErr
+	case isActivationClaimWrite(query):
+		return faults.activationRowsAffectedErr
+	default:
+		return nil
+	}
 }
 
 type mutationSQLResult struct {
