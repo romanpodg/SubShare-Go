@@ -1,14 +1,33 @@
 import type { ConfigurationProtocol } from "../configuration";
 import { serializeCorpusDocument, type PreservationCase } from "./configuration-preservation";
 
-const identifier = "11111111-1111-4111-8111-111111111111";
-
 function withSelectedOutbound(corpus: PreservationCase, changes: object) {
   return { ...corpus.document, outbounds: [
     corpus.document.outbounds[0],
     { ...corpus.document.outbounds[1], ...changes },
     ...corpus.document.outbounds.slice(2),
   ] };
+}
+
+function activeConnection(corpus: PreservationCase) {
+  const original = corpus.document.outbounds[1].settings;
+  if (corpus.protocol === "trojan") {
+    const server = original.servers[0];
+    return { address: server.address, port: server.port, identifier: server.password };
+  }
+  const node = original.vnext[0];
+  return { address: node.address, port: node.port, identifier: node.users[0].id };
+}
+
+export function presentConversionGolden(corpus: PreservationCase, target: ConfigurationProtocol) {
+  const original = corpus.document.outbounds[1].settings;
+  const source = activeConnection(corpus);
+  const settings = target === "trojan" ? {
+    ...original, servers: [{ ...original.servers[0], address: source.address, port: source.port, password: source.identifier }, ...original.servers.slice(1)],
+  } : {
+    ...original, vnext: [{ ...original.vnext[0], address: source.address, port: source.port, users: [{ ...original.vnext[0].users[0], id: source.identifier }, ...original.vnext[0].users.slice(1)] }, ...original.vnext.slice(1)],
+  };
+  return serializeCorpusDocument(withSelectedOutbound(corpus, { protocol: target, settings }));
 }
 
 function sourceOnlySettings(corpus: PreservationCase): Record<string, unknown> {
@@ -23,12 +42,13 @@ export function sourceOnlyConversionGolden(corpus: PreservationCase, target: Con
   const settings = sourceOnlySettings(corpus);
   const raw = serializeCorpusDocument(withSelectedOutbound(corpus, { settings }));
   const expectedSettings = { ...settings };
+  const source = activeConnection(corpus);
   if (target === "trojan") {
-    expectedSettings.servers = [{ address: "edge.matrix.example", port: 443, password: identifier }];
+    expectedSettings.servers = [{ address: source.address, port: source.port, password: source.identifier }];
   } else if (corpus.protocol === "trojan") {
-    const user = target === "vless" ? { id: identifier, encryption: "none" } : { id: identifier, security: "auto" };
+    const user = target === "vless" ? { id: source.identifier, encryption: "none" } : { id: source.identifier, security: "auto" };
     // New vnext nodes receive their users before their endpoint properties.
-    expectedSettings.vnext = [{ users: [user], address: "edge.matrix.example", port: 443 }];
+    expectedSettings.vnext = [{ users: [user], address: source.address, port: source.port }];
   }
   return { raw, expected: serializeCorpusDocument(withSelectedOutbound(corpus, { protocol: target, settings: expectedSettings })) };
 }

@@ -1,10 +1,39 @@
 import { describe, expect, it } from "vitest";
 import { corpusProtocols, preservationCorpus } from "./__fixtures__/configuration-preservation";
-import { sourceOnlyConversionGolden, transportGolden, rawTcpGolden, realityAliasGolden, realityAliasShapes } from "./__fixtures__/configuration-preservation-expectations";
+import { sourceOnlyConversionGolden, presentConversionGolden, transportGolden, rawTcpGolden, realityAliasGolden, realityAliasShapes } from "./__fixtures__/configuration-preservation-expectations";
+import { singleTransportGoldens, absentTransportGoldens, singleSecurityGoldens, absentSecurityGoldens, singleConnectionGoldens, tlsOnlyNoneGoldens } from "./__fixtures__/configuration-field-goldens";
 import { parseXrayJSONConfiguration, patchEditableConfiguration, patchXrayJSONConfiguration } from "./configuration";
 import { DuplicateJSONKeyError, formatXrayJSON } from "./xray-json-document";
 
 describe("R09 configuration preservation corpus", () => {
+  it.each(singleTransportGoldens)("preserves unchanged siblings during one transport-control edit: $name", ({ raw, patch, expected }) => {
+    expect(patchXrayJSONConfiguration(raw, patch)).toBe(formatXrayJSON(expected));
+  });
+
+  it.each(absentTransportGoldens)("creates missing transport parents for one control: $name", ({ raw, patch, expected }) => {
+    expect(patchXrayJSONConfiguration(raw, patch)).toBe(formatXrayJSON(expected));
+  });
+
+  it.each(singleSecurityGoldens)("patches only one represented security control: $name", ({ raw, patch, expected }) => {
+    expect(patchXrayJSONConfiguration(raw, patch)).toBe(formatXrayJSON(expected));
+  });
+
+  it.each(absentSecurityGoldens)("creates missing security parents for one control: $name", ({ raw, patch, expected }) => {
+    expect(patchXrayJSONConfiguration(raw, patch)).toBe(formatXrayJSON(expected));
+  });
+
+  it.each(singleConnectionGoldens)("patches only one connection or protocol-user control: $name", ({ raw, patch, expected }) => {
+    expect(patchXrayJSONConfiguration(raw, patch)).toBe(formatXrayJSON(expected));
+  });
+
+  it.each(tlsOnlyNoneGoldens)("retains none-to-TLS fallback without Reality settings: $name", ({ raw, expected }) => {
+    expect(parseXrayJSONConfiguration(raw)?.draft.security).toBe("tls");
+    expect(patchXrayJSONConfiguration(raw, {})).toBe(formatXrayJSON(expected));
+    expect(patchXrayJSONConfiguration(raw, { security: "none" })).toBe(formatXrayJSON(expected));
+    const enabled = patchXrayJSONConfiguration(raw, { security: "tls" });
+    expect(enabled).toBe(formatXrayJSON(expected).replace('"security": "none"', '"security": "tls"'));
+    expect(patchXrayJSONConfiguration(enabled, { security: "none" })).toBe(formatXrayJSON(expected));
+  });
   it.each(preservationCorpus)("preserves normalized no-op bytes and token lexemes: $name", ({ raw, protocol, network, security }) => {
     const normalized = formatXrayJSON(raw);
     // The current editor infers Reality from its dormant settings even when
@@ -52,7 +81,7 @@ describe("R09 configuration preservation corpus", () => {
   });
 
   it.each(preservationCorpus.filter(({ security }) => security === "tls"))("explicit false clears only the represented TLS flag: $name", ({ raw }) => {
-    const expected = formatXrayJSON(raw).replace(/^\s+"allowInsecure": true,\n/m, "");
+    const expected = formatXrayJSON(raw).replace(/^\s+"allowInsecure": false,\n/m, "");
     expect(patchXrayJSONConfiguration(raw, { allowInsecure: false })).toBe(expected);
   });
 
@@ -63,29 +92,12 @@ describe("R09 configuration preservation corpus", () => {
     expect(patchXrayJSONConfiguration(raw, { publicKey: "" })).toBe(expected);
   });
 
-  it.each(preservationCorpus)("preserves extra entries and dormant branches during protocol changes: $name", ({ raw, protocol, document }) => {
+  it.each(preservationCorpus)("preserves extra entries and dormant branches during protocol changes: $name", (corpus) => {
+    const { raw, protocol } = corpus;
     for (const target of corpusProtocols.filter((value) => value !== protocol)) {
       const result = patchXrayJSONConfiguration(raw, { protocol: target });
-      const converted = JSON.parse(result) as typeof document;
-      const original = document.outbounds[1];
-      const outbound = converted.outbounds[1];
-      const expectedSettings = target === "trojan" ? {
-        ...original.settings,
-        servers: [{ ...original.settings.servers[0], address: "edge.matrix.example", port: 443, password: original.settings.vnext[0].users[0].id }, ...original.settings.servers.slice(1)],
-      } : {
-        ...original.settings,
-        vnext: [{ ...original.settings.vnext[0], address: "edge.matrix.example", port: 443, users: [{ ...original.settings.vnext[0].users[0], id: original.settings.servers[0].password }, ...original.settings.vnext[0].users.slice(1)] }, ...original.settings.vnext.slice(1)],
-      };
-      expect(outbound).toEqual({ ...original, protocol: target, settings: expectedSettings });
-      expect(parseXrayJSONConfiguration(result)?.draft).toMatchObject({ protocol: target, server: "edge.matrix.example" });
-      expect(converted.outbounds[0]).toEqual(document.outbounds[0]);
-      expect(converted.outbounds.slice(2)).toEqual(document.outbounds.slice(2));
-      expect(converted.customTop).toEqual(document.customTop);
-      expect(outbound.streamSettings).toEqual(original.streamSettings);
-      expect(outbound.settings.vnext.slice(1)).toEqual(original.settings.vnext.slice(1));
-      expect(outbound.settings.vnext[0].users.slice(1)).toEqual(original.settings.vnext[0].users.slice(1));
-      expect(outbound.settings.servers.slice(1)).toEqual(original.settings.servers.slice(1));
-      expect(outbound.settings.customSettings).toEqual(original.settings.customSettings);
+      expect(result).toBe(formatXrayJSON(presentConversionGolden(corpus, target)));
+      expect(parseXrayJSONConfiguration(result)?.draft).toMatchObject({ protocol: target, server: "edge.matrix.example", port: "2443", identifier: "11111111-1111-4111-8111-111111111111" });
       expect(result).toContain("1e400");
       expect(result).toContain("900719925474099312345");
       expect(result).toContain('"\\u0061"');
