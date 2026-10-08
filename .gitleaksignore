@@ -2,3 +2,6 @@
 # False positive: ordinary A03 regression-risk prose in the preserved audit record.
 # Only this historical commit/file/rule/line is ignored; scanning remains enabled.
 9f16f83bd09bf247754dede7c615a7474d86d6f5:docs/code-review/refactoring-backlog.md:generic-api-key:64
+# False positive: row.latency.Int64 is a nullable integer field projection,
+# not a credential. Ignore only this historical commit/file/rule/line.
+1e3b6c3d305d60378a9c0157b1c45f337aca7f0c:internal/storage/profile_read_repository.go:generic-api-key:60

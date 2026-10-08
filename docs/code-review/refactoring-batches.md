@@ -12,7 +12,7 @@ The user then requested R04 within PR #8. Its [command-boundary record](r04-user
 
 PR #8 is merged at **d87b122**. R05a started [PR #9](https://github.com/romanpodg/SubShare-Go/pull/9) from that merge: its [activation redemption record](r05a-activation-redemption.md) describes the HTTP-independent command, unchanged atomic claim and deterministic contention/failure assurance. All six hosted checks passed at ddf7154. The user then requested R05b continuation; its [device registration record](r05b-device-registration.md) owns the transaction/policy extraction and added assurance. The checked-out history includes the activation/device merge at **dc91072** and R06 characterization at **6a12236**.
 
-**2026-10-08 continuation:** R07a merged through PR #11 at 1a7968b after all six checks and final automated review passed. R07b read/projection extraction is implemented and targeted/static/migration/strict CodeScene checks pass; full backend and hosted acceptance remain. R08 is next. See [R07b](r07b-profile-reads.md) and [autonomous continuation](autonomous-continuation.md). **Historical 2026-10-07 continuation:** R07a extracts category and ordering persistence within the same adapter, retaining the R06 contracts. Its [execution record](r07a-category-ordering.md) owns local validation and the strict CodeScene average-complexity warnings. R07b is next; broader A01 and A02 work remains.
+**2026-10-08 continuation:** R07a merged through PR #11 at 1a7968b after all six checks and final automated review passed. R07b read/projection extraction is implemented and targeted/static/migration/strict CodeScene checks pass; full backend passes; final hosted scan/deployment acceptance remains. R08 is next. See [R07b](r07b-profile-reads.md) and [autonomous continuation](autonomous-continuation.md). **Historical 2026-10-07 continuation:** R07a extracts category and ordering persistence within the same adapter, retaining the R06 contracts. Its [execution record](r07a-category-ordering.md) owns local validation and the strict CodeScene average-complexity warnings. R07b is next; broader A01 and A02 work remains.
 
 | Batch scope | Status | What remains |
 | --- | --- | --- |
@@ -24,7 +24,7 @@ PR #8 is merged at **d87b122**. R05a started [PR #9](https://github.com/romanpod
 | R05b | Device registration transaction/policy boundary included in dc91072 merge | Retained as device contract evidence |
 | R06 | Completed; characterization merged through PR #10 at ebd427f | Retained as R07/R08 prerequisites |
 | R07a | Completed; PR #11 merged at 1a7968b | All six checks passed at 33631dd; final automated review clear |
-| R07b | Read/projection boundary implemented; targeted contracts and new-file CodeScene pass | Full validation and hosted PR review remain; see [record](r07b-profile-reads.md) |
+| R07b | Read/projection boundary implemented; targeted contracts and new-file CodeScene pass | Full Windows suite (1,103 passed, five optional skips) and hosted code/race checks pass; final scan/deployment acceptance remains; see [record](r07b-profile-reads.md) |
 | R08–R23 sub-batches | Not started | Original scopes/dependencies below remain authoritative |
 
 Partial means acceptance criteria are not yet satisfied. The e3ceaba repository split predates R01 and does not complete A01. PR #7 and PR #8 are merged; dc91072 merges the activation and device continuation. R06 assurance and R07a extraction remain separate changes. The original plan and R01 execution notes below are historical records.
