@@ -24,8 +24,9 @@ PR #8 is merged at **d87b122**. R05a started [PR #9](https://github.com/romanpod
 | R05b | Device registration transaction/policy boundary included in dc91072 merge | Retained as device contract evidence |
 | R06 | Completed; characterization merged through PR #10 at ebd427f | Retained as R07/R08 prerequisites |
 | R07a | Completed; PR #11 merged at 1a7968b | All six checks passed at 33631dd; final automated review clear |
-| R07b | Read/projection boundary implemented; targeted contracts and new-file CodeScene pass | Full Windows suite (1,103 passed, five optional skips) and hosted code/race checks pass; final scan/deployment acceptance remains; see [record](r07b-profile-reads.md) |
-| R08–R23 sub-batches | Not started | Original scopes/dependencies below remain authoritative |
+| R07b | Completed; PR #12 merged at e9643e1 | All six checks passed at bb98e95; final automated review clear; see [record](r07b-profile-reads.md) |
+| R08 | Pure planning, source ownership and structured-patch phases implemented; full Windows/service/static/strict CodeScene checks pass | Hosted acceptance remains; see [record](r08-update-policy.md) |
+| R09–R23 sub-batches | Not started | Original scopes/dependencies below remain authoritative |
 
 Partial means acceptance criteria are not yet satisfied. The e3ceaba repository split predates R01 and does not complete A01. PR #7 and PR #8 are merged; dc91072 merges the activation and device continuation. R06 assurance and R07a extraction remain separate changes. The original plan and R01 execution notes below are historical records.
 
@@ -70,6 +71,8 @@ The original recommended first batch was **R01**, tests only; its execution stat
 | R23 | P2/A14 | One public-page normalization/default contract | Shared block/default/unsafe URL/theme fixtures | Stabilize Go/TS supported page semantics | R18a preferred | G, F, E; escaping/config fixtures; C |
 
 ## Validation shorthand
+
+**Separate corrective continuation (2026-10-08):** R08c addresses A02's already reproduced ignored create-assignment failure. R06's trigger fixture becomes a failing full-unit rollback assertion before the correction. The assignment write must return its SQL failure and roll back the parent/category/secret/assignment unit. This is an independently reviewed behavior correction after R08, with storage/service/HTTP, migration, full backend and hosted checks; it is not part of the R08 refactoring commit.
 
 - **G:** `go test ./...`, `go vet ./...`, `go build ./cmd/server`; targeted packages uncached first. Run repository-configured `golangci-lint run` on a supported runner. Use a race-enabled CGO runner for concurrent cases. Audit-only local lint/race limitations are documented; do not treat them as passes.
 - **M:** `go test ./internal/storage -run TestMigrateAppliesVersionedMigrationsIdempotently -count=1` plus the existing populated migration/encryption cases. Never run against operational data.
