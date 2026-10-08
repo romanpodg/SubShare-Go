@@ -1,6 +1,6 @@
 # R10a — Patch planning and ordered document application
 
-Status: discovery/implementation plan only. No R10a production changes have been made. R09 PR #15 is the prerequisite; its head `6d6a28f` passes all six hosted checks, and final automated review is still running after twelve resolved findings. Do not merge R09 or treat it as accepted until that review completes and any new findings are addressed.
+Status: discovery/implementation plan only. No R10a production changes have been made. R09 PR #15 is the prerequisite; its head `c427496` passes all six hosted checks, and final automated review is still running after twenty resolved findings. Do not merge R09 or treat it as accepted until that review completes and any new findings are addressed.
 
 ## Scope and approach
 
@@ -12,6 +12,6 @@ Keep current mode inference, port fallback, required-field errors, dormant branc
 
 ## Validation and publication
 
-Use the R09 3,556-case targeted corpus and all 3,684 frontend tests, TypeScript, lint, exported build, direct CodeScene source review and strict delta against the accepted base. Add only meaningful regressions where a new discrepancy is discovered. Preserve exact normalized goldens, missing-parent behavior, independent single-control edits, nested numeric/string lexemes and active-source conversion values. New source files must meet the hosted new-file gate; no suppressions or gate changes are planned.
+Use the R09 3,672-case targeted corpus and all 3,800 frontend tests, TypeScript, lint, exported build, direct CodeScene source review and strict delta against the accepted base. Add only meaningful regressions where a new discrepancy is discovered. Preserve exact normalized goldens, absent/partial/non-object parent behavior, independent and coupled edits, nested numeric/string lexemes and active-source conversion values. New source files must meet the hosted new-file gate; no suppressions or gate changes are planned.
 
 Commit each coherent phase separately, publish its own PR after R09 acceptance, attach it to this chat, request automated review, address/reply/resolve actionable findings and merge only after all final-head checks pass. Update the backlog/continuation record, then proceed to R10b and the remaining batches. The persistent goal and 30-minute heartbeat remain active.
