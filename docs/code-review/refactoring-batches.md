@@ -32,7 +32,7 @@ PR #8 is merged at **d87b122**. R05a started [PR #9](https://github.com/romanpod
 | R10b | Completed; PR #17 merged at 1809f80 | All six checks pass at 773344c; review clear; see [record](r10b-security-planning.md) |
 | R10c supplemental A03 tests | Completed; PR #18 merged at 087e873 | All six checks pass at ea02736; review clear; A03 accepted |
 | R11a | Implemented; functional validation passes | Hosted acceptance and component health finding; see [record](r11a-editor-commands.md) |
-| R11b first corrective phase | Nine request-race cases and session generation hook implemented | Quality service recovery and hosted acceptance; broader R11b matrix/extraction remains |
+| R11b first corrective phase | Published in PR20, stacked on PR19; functional checks pass | Quality service recovery, retarget to main and hosted acceptance; broader R11b matrix/extraction remains |
 | R12–R23 sub-batches | Not started | Original scopes/dependencies below remain authoritative |
 
 Partial means acceptance criteria are not yet satisfied. The e3ceaba repository split predates R01 and does not complete A01. PR #7 and PR #8 are merged; dc91072 merges the activation and device continuation. R06 assurance and R07a extraction remain separate changes. The original plan and R01 execution notes below are historical records.
