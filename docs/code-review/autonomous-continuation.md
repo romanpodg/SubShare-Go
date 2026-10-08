@@ -7,9 +7,10 @@ The persistent goal is attached to this chat. Active heartbeat `continue-subshar
 ## Current handoff
 
 - R06 is merged in PR #10 at `ebd427f`.
-- R07a is in [PR #11](https://github.com/romanpodg/SubShare-Go/pull/11), branch `refactor/profile-category-ordering`. The original extraction is `642fec7`; hosted CodeScene rejected inherited complexity in its new files. The follow-up decomposes those phases without changing endpoint or persistence contracts and scores both new files 10.00 locally.
+- R07a is merged in [PR #11](https://github.com/romanpodg/SubShare-Go/pull/11) at `1a7968b`; all six hosted checks passed at `33631dd` and final Codex review reported no major issues. CodeScene approved; its earlier inline findings were removed after the fixes. No gates or rules were suppressed.
+- R07b is implemented on `refactor/profile-safe-reads`; passing pre-extraction characterization is `930e107`. Its read adapter scores 10.00 locally and targeted credential/projection/HTTP contracts pass. Finish full validation, publish its own PR against main and request automated review.
 - Check the actual PR head, all CI/check results and automated review before merging. Resolve review threads only after verified fixes and replies. No bypass or suppression of gates is authorized.
-- R07b safe read/projection extraction is next, then R08 patch/ownership phases. Remaining scopes/dependencies are in `refactoring-batches.md`; unfinished audit items are in `refactoring-backlog.md`.
+- R08 patch/ownership phases are next after R07b. Remaining scopes/dependencies are in `refactoring-batches.md`; unfinished audit items are in `refactoring-backlog.md`.
 - The initial workspace changes were all R07a work and were preserved in its own commit. Recheck the working tree before further branch operations; do not overwrite new unrelated changes.
 
 ## Local validation constraints

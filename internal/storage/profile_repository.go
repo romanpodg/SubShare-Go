@@ -3,12 +3,10 @@ package storage
 import (
 	"context"
 	"database/sql"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"github.com/romanpodg/SubShare-Go/internal/keymanagement"
 	"strings"
-	"time"
 
 	"github.com/romanpodg/SubShare-Go/internal/model"
 	"github.com/romanpodg/SubShare-Go/internal/profileconfig"
@@ -49,117 +47,6 @@ func nullInt64Value(id int64) any {
 		return nil
 	}
 	return id
-}
-
-// parseUpdatedAt reads the stored updated_at text, accepting the SQLite and
-// RFC 3339 layouts, and falls back to created_at otherwise.
-func parseUpdatedAt(updatedAt sql.NullString, fallback time.Time) time.Time {
-	if !updatedAt.Valid || updatedAt.String == "" {
-		return fallback
-	}
-	if t, err := time.Parse("2006-01-02 15:04:05", updatedAt.String); err == nil {
-		return t
-	}
-	if t, err := time.Parse(time.RFC3339, updatedAt.String); err == nil {
-		return t
-	}
-	return fallback
-}
-
-func (r *Repository) GetByID(ctx context.Context, id int64) (*model.VLESSKey, string, error) {
-	return loadKeyByID(ctx, r.db, r.credentials, id)
-}
-
-func loadKeyByID(ctx context.Context, db *sql.DB, credentials *credentialStore, id int64) (*model.VLESSKey, string, error) {
-	var key model.VLESSKey
-	var encURL sql.NullString
-	var category sql.NullString
-	var kind sql.NullString
-	var templateText sql.NullString
-	var status sql.NullString
-	var checkStatus sql.NullString
-	var checkError sql.NullString
-	var lastCheckedAt sql.NullTime
-	var latency sql.NullInt64
-	var categoryID sql.NullInt64
-	var externalSourceID sql.NullInt64
-	var externalSourceName sql.NullString
-	var storedClientDisplayName sql.NullString
-	var warningsJSON string
-	var revision sql.NullInt64
-	var updatedAt sql.NullString
-
-	err := db.QueryRowContext(ctx, `
-		SELECT k.id, k.label, k.client_display_name, s.encrypted_url, k.category_id, COALESCE(kc.name, k.category),
-		       k.key_kind, k.template_text, k.status, k.check_status, k.check_error,
-		       k.last_checked_at, k.last_latency_ms, k.created_at, k.external_source_id,
-		       COALESCE(es.name, ''), k.protocol, k.profile_schema_version,
-		       k.profile_compatibility, k.profile_warnings_json,
-		       COALESCE(k.profile_revision, 1), COALESCE(k.updated_at, k.created_at)
-		FROM vless_keys k
-		LEFT JOIN vless_key_secrets s ON k.id = s.vless_key_id
-		LEFT JOIN key_categories kc ON kc.id = k.category_id
-		LEFT JOIN external_subscription_sources es ON es.id = k.external_source_id
-		WHERE k.id = ?
-	`, id).Scan(
-		&key.ID, &key.Label, &storedClientDisplayName, &encURL, &categoryID, &category, &kind, &templateText, &status,
-		&checkStatus, &checkError, &lastCheckedAt, &latency, &key.CreatedAt, &externalSourceID,
-		&externalSourceName, &key.Protocol, &key.ProfileSchemaVersion, &key.ProfileCompatibility,
-		&warningsJSON, &revision, &updatedAt,
-	)
-	if errors.Is(err, sql.ErrNoRows) {
-		return nil, "", keymanagement.ErrKeyNotFound
-	}
-	if err != nil {
-		return nil, "", err
-	}
-
-	decryptedURI, err := credentials.decrypt(encURL.String, key.ID)
-	if err != nil {
-		if credentialKeyUnavailable(err) {
-			return nil, "", fmt.Errorf("%w: %v", keymanagement.ErrEncryptionUnavailable, err)
-		}
-		return nil, "", fmt.Errorf("%w: %w", keymanagement.ErrStorageIntegrity, err)
-	}
-	if err := json.Unmarshal([]byte(warningsJSON), &key.ProfileWarnings); err != nil || key.ProfileWarnings == nil {
-		key.ProfileWarnings = []string{}
-	}
-	if categoryID.Valid {
-		key.CategoryID = categoryID.Int64
-	}
-	key.Category = strings.TrimSpace(category.String)
-	key.Kind, _ = model.NormalizeKeyKind(kind.String)
-	if key.Kind == "" {
-		key.Kind = model.KeyKindReal
-	}
-	key.TemplateText = strings.TrimSpace(templateText.String)
-	key.Status, _ = model.NormalizeKeyStatus(status.String)
-	if key.Status == "" {
-		key.Status = model.KeyStatusActive
-	}
-	key.CheckStatus = model.NormalizeCheckStatus(checkStatus.String)
-	key.CheckError = checkError.String
-	if lastCheckedAt.Valid {
-		key.LastCheckedAtText = lastCheckedAt.Time.Format("2006-01-02 15:04:05")
-	}
-	if latency.Valid {
-		key.LastLatencyMS = latency.Int64
-	}
-	key.ProfileRevision = revision.Int64
-	if key.ProfileRevision < 1 {
-		key.ProfileRevision = 1
-	}
-	key.UpdatedAt = parseUpdatedAt(updatedAt, key.CreatedAt)
-	if externalSourceID.Valid {
-		key.ExternalSourceID = externalSourceID.Int64
-	}
-	key.ExternalSourceName = strings.TrimSpace(externalSourceName.String)
-	key.ClientDisplayNameOverridden = strings.TrimSpace(storedClientDisplayName.String) != ""
-	key.ClientDisplayName = profileconfig.EffectiveClientDisplayName(
-		storedClientDisplayName.String, decryptedURI, key.Label, key.ExternalSourceID > 0,
-	)
-
-	return &key, decryptedURI, nil
 }
 
 func (r *Repository) CreateLocal(ctx context.Context, params keymanagement.CreateProfileParams) (*model.VLESSKey, string, error) {
@@ -522,86 +409,6 @@ func (src *cloneSource) cloneClientDisplayName(newLabel, decryptedURI string) st
 		return sourceEffectiveName
 	}
 	return name
-}
-
-func (r *Repository) ListLegacy(ctx context.Context) ([]model.VLESSKey, error) {
-	rows, err := r.db.QueryContext(ctx, `
-		SELECT k.id, k.label, k.client_display_name, s.encrypted_url, k.category_id, COALESCE(kc.name, k.category), k.key_kind, k.template_text, k.status, k.check_status, k.check_error, k.last_checked_at, k.last_latency_ms, k.created_at, k.external_source_id, COALESCE(es.name, ''), k.protocol, k.profile_schema_version, k.profile_compatibility, k.profile_warnings_json, COALESCE(k.profile_revision, 1), COALESCE(k.updated_at, k.created_at)
-		FROM vless_keys k
-		LEFT JOIN vless_key_secrets s ON k.id = s.vless_key_id
-		LEFT JOIN key_categories kc ON kc.id = k.category_id
-		LEFT JOIN external_subscription_sources es ON es.id = k.external_source_id
-		ORDER BY k.sort_order, k.id
-	`)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-
-	var out []model.VLESSKey
-	for rows.Next() {
-		var key model.VLESSKey
-		var encURL sql.NullString
-		var category sql.NullString
-		var kind sql.NullString
-		var templateText sql.NullString
-		var status sql.NullString
-		var checkStatus sql.NullString
-		var checkError sql.NullString
-		var lastCheckedAt sql.NullTime
-		var latency sql.NullInt64
-		var categoryID sql.NullInt64
-		var externalSourceID sql.NullInt64
-		var externalSourceName sql.NullString
-		var storedClientDisplayName sql.NullString
-		var warningsJSON string
-		var updatedAt sql.NullString
-		if err := rows.Scan(&key.ID, &key.Label, &storedClientDisplayName, &encURL, &categoryID, &category, &kind, &templateText, &status, &checkStatus, &checkError, &lastCheckedAt, &latency, &key.CreatedAt, &externalSourceID, &externalSourceName, &key.Protocol, &key.ProfileSchemaVersion, &key.ProfileCompatibility, &warningsJSON, &key.ProfileRevision, &updatedAt); err != nil {
-			return nil, err
-		}
-		key.UpdatedAt = parseUpdatedAt(updatedAt, key.CreatedAt)
-		decryptedURL, decryptErr := r.credentials.decrypt(encURL.String, key.ID)
-		if decryptErr != nil {
-			return nil, mapKeyCredentialError(decryptErr)
-		}
-		key.URL = decryptedURL
-		if err := json.Unmarshal([]byte(warningsJSON), &key.ProfileWarnings); err != nil || key.ProfileWarnings == nil {
-			key.ProfileWarnings = []string{}
-		}
-		if categoryID.Valid {
-			key.CategoryID = categoryID.Int64
-		}
-		key.Category = strings.TrimSpace(category.String)
-		key.Kind, _ = model.NormalizeKeyKind(kind.String)
-		if key.Kind == "" {
-			key.Kind = model.KeyKindReal
-		}
-		key.TemplateText = strings.TrimSpace(templateText.String)
-		key.Status, _ = model.NormalizeKeyStatus(status.String)
-		if key.Status == "" {
-			key.Status = model.KeyStatusActive
-		}
-		key.StatusLabel = model.KeyStatusLabel(key.Status)
-		key.CheckStatus = model.NormalizeCheckStatus(checkStatus.String)
-		key.CheckStatusLabel = model.CheckStatusLabel(key.CheckStatus)
-		key.CheckError = strings.TrimSpace(checkError.String)
-		if latency.Valid {
-			key.LastLatencyMS = latency.Int64
-		}
-		if lastCheckedAt.Valid {
-			key.LastCheckedAtText = lastCheckedAt.Time.Local().Format("2006-01-02 15:04:05")
-		}
-		if externalSourceID.Valid && externalSourceID.Int64 > 0 {
-			key.ExternalSourceID = externalSourceID.Int64
-		}
-		key.ExternalSourceName = strings.TrimSpace(externalSourceName.String)
-		key.ClientDisplayNameOverridden = strings.TrimSpace(storedClientDisplayName.String) != ""
-		key.ClientDisplayName = profileconfig.EffectiveClientDisplayName(
-			storedClientDisplayName.String, key.URL, key.Label, key.ExternalSourceID > 0,
-		)
-		out = append(out, key)
-	}
-	return out, rows.Err()
 }
 
 func (r *Repository) CreateLegacy(ctx context.Context, params keymanagement.CreateLegacyKeyParams) (int64, error) {

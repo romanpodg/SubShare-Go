@@ -11,20 +11,6 @@ import (
 	"github.com/romanpodg/SubShare-Go/internal/model"
 )
 
-func (r *Repository) GetLegacyByID(ctx context.Context, id int64) (*model.VLESSKey, string, error) {
-	key, rawURL, err := loadKeyByID(ctx, r.db, r.credentials, id)
-	if errors.Is(err, errCredentialMissing) {
-		return nil, "", fmt.Errorf("%w: %v", keymanagement.ErrCredentialMissing, err)
-	}
-	if errors.Is(err, keymanagement.ErrKeyNotFound) || errors.Is(err, keymanagement.ErrEncryptionUnavailable) || errors.Is(err, keymanagement.ErrStorageIntegrity) {
-		return nil, "", err
-	}
-	if err != nil {
-		return nil, "", mapKeyCredentialError(err)
-	}
-	return key, rawURL, nil
-}
-
 func (r *Repository) BulkUpdateKeys(ctx context.Context, params keymanagement.BulkKeyUpdate) error {
 	tx, err := r.db.BeginTx(ctx, nil)
 	if err != nil {

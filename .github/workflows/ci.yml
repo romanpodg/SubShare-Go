@@ -68,6 +68,12 @@ jobs:
           -run '^(TestUserActivationConcurrent.*|TestUserDeviceConcurrent.*|TestSubscriptionMutationConcurrentPatch.*)$'
           -count=1
 
+      - name: Race-check profile revision concurrency
+        run: >-
+          go test -race ./internal/storage
+          -run '^TestProfileConcurrentSameRevisionHasOneWinner$'
+          -count=1
+
       # Fork PRs have no repository secrets; tests still run, uploads are skipped.
       - name: Upload Go coverage
         if: ${{ !cancelled() && hashFiles('coverage.out') != '' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) }}
