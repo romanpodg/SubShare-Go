@@ -15,3 +15,7 @@ The corrected storage regression passes (1.402s), verifies the complete snapshot
 Vet, lint (zero new issues), server build, migration compatibility (3.553s) and strict CodeScene delta against merged main pass. The mutation adapter remains at **7.71** with unchanged existing findings; the modified storage regression and new HTTP test file score **10.00**. No rule, gate or failure is suppressed. Full uncached Windows backend regression passes with **1,108 passed, five optional skips and no failures**; the server package completes in 310.967s. JSON is saved under `.cache/r08c`. Its own hosted checks and automated review must pass before merge.
 
 After R08c acceptance, continue to R09's frontend preservation corpus and the remaining original batches. A01's broader mutation boundaries must also be reconciled with their acceptance criteria before the overall backlog is declared complete.
+
+## Final hosted acceptance
+
+[PR #14](https://github.com/romanpodg/SubShare-Go/pull/14) merged at **2d55c03** after all six hosted checks passed at **e35e49e**: backend, frontend, Docker deployment smoke, CodeScene, Codecov patch and bundles. [Actions run 37732133001](https://github.com/romanpodg/SubShare-Go/actions/runs/37732133001) includes full tests, migrations, user/profile races, static/secret scanning and restart persistence. Final Codex review found no major issues and no inline review threads remained unresolved. A02's planned persistence/read/update boundaries and its characterized assignment correction are accepted; broader backlog work remains.
