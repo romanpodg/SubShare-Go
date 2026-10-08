@@ -6,6 +6,8 @@ Coverage labeled **CC** is Codecov line coverage for this SHA. **Local** is CI-s
 
 ## Current implementation status — 2026-10-06
 
+**2026-10-07 update:** the checked-out history includes R05a/R05b merged at **dc91072**, R06 characterization at **6a12236**, and the local R07a category/order extraction. See the [R07a execution record](r07a-category-ordering.md) for scope, validation and strict CodeScene warnings. R07b is next. The historical audit measurements and earlier CI evidence below are retained.
+
 The R01 prerequisite was merged through [PR #7](https://github.com/romanpodg/SubShare-Go/pull/7) at **267811b**. R02 is complete in [PR #8](https://github.com/romanpodg/SubShare-Go/pull/8), with source validated at **a896708** and all six checks passing; see the [R02 execution record](r02-startup-safety.md) for the recovery contract, evidence and limits. Baseline measurements below still describe main at 3ab25a5; the R01 results below are historical evidence for a438377.
 
 Completed work:
@@ -15,7 +17,9 @@ Completed work:
 - **R03 implemented in the same PR, per user request:** registered user creation/deletion/activation routes, failure/rollback contracts, subscription PUT/PATCH compatibility and deterministic contention fixtures. Separate corrections prevent false create success after five collisions and the reproduced PATCH lost update. See the [R03 record](r03-user-mutations.md) and [PATCH correction](subscription-patch-concurrency.md) for evidence and bounded conflict handling.
 - **R04 implemented in PR #8:** transaction-owned create and atomic delete commands, pure input validation and HTTP error mapping, with R03 parity tests and direct command assurance. Unknown deletion affected-row outcomes now return 500 instead of a false 404. See the [R04 record](r04-user-commands.md); R05 remains separate.
 - **PR #8 merged at d87b122; R05a implemented separately:** HTTP-independent activation redemption and pure input validation delegate to the existing conditional SQLite claim. Synchronized alias requests prove one winner and retained identity/timestamp; confirmation failures withhold the link, while existing access rules and crypto fallbacks remain compatible. See the [R05a record](r05a-activation-redemption.md); all six hosted checks passed at ddf7154.
-- **R05b implemented as the user-requested PR #9 continuation:** registration transaction ownership, pure normalization/capacity/access policy, SQL commands and request adaptation are separate from device projections. Synchronized final-slot/same-identity transactions and rollback/route fixtures preserve existing contracts. See the [R05b record](r05b-device-registration.md); R06 is next.
+- **R05b implemented as the user-requested PR #9 continuation:** registration transaction ownership, pure normalization/capacity/access policy, SQL commands and request adaptation are separate from device projections. Synchronized final-slot/same-identity transactions and rollback/route fixtures preserve existing contracts. See the [R05b record](r05b-device-registration.md); the activation/device work is included in merge dc91072.
+- **R06 characterization committed at 6a12236:** encrypted profile mutation/read, service patch/ownership, category/order atomicity and HTTP contracts. The uncached storage/service/HTTP baseline passes before R07a extraction.
+- **R07a implemented locally:** category and ordering methods move into focused files within the same SQLite adapter. Method bodies, SQL, transactions, public DTOs and the active repository interface are retained. See the [execution record](r07a-category-ordering.md); safe-read extraction R07b and patch-policy extraction R08 remain.
 - **Existing repository refactoring retained:** e3ceaba separated user projection, settings, activation, subscription access and device persistence, factored transaction helpers and propagated RowsAffected errors. Repository Code Health is 10.00; helpers improved from 9.31 to 9.61. This is partial A01 progress, not completion of its mutation/fault/concurrency plan.
 - **Repository test maintainability fixed:** a438377 reorganized regression cases while retaining every assertion and state transition. Local Code Health improved from 4.05 to 10.00; the remote gate passes.
 - **Audit-prose scan false positive resolved:** 235408c documents one exact historical fingerprint exception; the scan and rules remain enabled.
@@ -23,8 +27,8 @@ Completed work:
 | Audit item | Status | Remaining work |
 | --- | --- | --- |
 | A00 / P0 | R01/R02 complete; PR #8 merged | No production I/O trigger frequency is claimed |
-| A01 / P1 | R03/R04 merged; R05a validated; R05b command/policy boundary implemented | PR #9 review/continuation checks; other A01 mutation boundaries remain |
-| A02 / P1 | Not started | R06–R08 encrypted profile faults, tri-state/revision/ownership contracts and adapter responsibilities |
+| A01 / P1 | R03/R04 merged; R05a/R05b included in dc91072 merge | Other A01 mutation boundaries remain |
+| A02 / P1 | R06 characterization committed; R07a category/order extraction implemented locally | Hosted R07a validation and strict CodeScene warnings; R07b reads and R08 patch/ownership predicates |
 | A03 / P1 | Not started | R09/R10a/R10b preservation corpus, patch planning and transport/security phase |
 | A04 / P1 | Not started | R12/R13a/R13b response policy, persistence and HTTP delegation |
 | A05 / P1 | Not started | R14/R15a/R15b queue/source lifecycle, overlap and source-create transaction |
@@ -42,7 +46,7 @@ All six checks passed for a438377: backend, frontend, Docker smoke, CodeScene, C
 
 Codecov: project **48.02%** versus main **46.89%**; main.go **18.46%** versus **8.01%**; sqlite.go **64.70%** versus **60.78%**; whole-PR patch **80.09%**. Test Analytics: **848 passed, 5 skipped, no failures/errors**. Bundle upload/check passed; size/delta figures were unavailable in inspected results. Local statements remain **52.4%**, with unchanged coverage across 140 repository blocks. Optional snapshot/client fixtures and local race execution remain unverified. Passing frontend CI does not complete its planned refactoring.
 
-**Current review boundary:** PR #8 is merged at d87b122. PR #9 contains R05a and the user-requested R05b continuation, each with assurance before extraction and an execution record. A00 and the reproduced PATCH defect are resolved. R06 profile fault/tri-state assurance is next; the broader A01 scope remains incomplete.
+**Current review boundary:** PR #8 is merged at d87b122; the activation/device continuation is merged at dc91072. R06 assurance is committed at 6a12236, and R07a is a local category/order extraction with its own execution record. A00 and the reproduced PATCH defect are resolved. R07b safe-read extraction is next; the broader A01 and A02 scopes remain incomplete. Historical hosted checks above do not establish validation of the local R07a changes.
 
 ## P0
 
