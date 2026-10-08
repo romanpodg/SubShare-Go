@@ -3989,7 +3989,7 @@
       "R07b": "merged_pr12",
       "R08": "merged_pr13",
       "R08c": "merged_pr14",
-      "R09": "pr15_final_head_all_six_checks_pass_final_codex_review_running",
+      "R09": "pr15_c427496_all_six_checks_pass_final_review_running",
       "R10a": "discovery_plan_saved_no_production_changes",
       "R10b": "not_started",
       "R11a": "not_started",
@@ -4036,7 +4036,7 @@
     "nextBatchPriority": "P1",
     "nextBatchRemainingPrerequisites": [
       "Finish R09 hosted acceptance and final automated review before merging its test-only preservation corpus.",
-      "Retain the 63-combination corpus and 3556 added cases for R10a patch planning/document application; then R10b security phase extraction."
+      "Retain the 63-combination corpus and 3672 added cases for R10a patch planning/document application; then R10b security phase extraction."
     ],
     "remainingCriticalRisk": "R01-R07a are merged. R07b is implemented; full/hosted validation and R08 patch policy remain, along with the separately characterized ignored assignment error and broader backlog. OS I/O trigger frequency remains unmeasured.",
     "r06CharacterizationCommit": "6a12236614e5",
@@ -4084,10 +4084,11 @@
       "finalCodexReview": "completed_no_major_issues"
     },
     "r09ExecutionRecord": "docs/code-review/r09-configuration-preservation.md",
+    "r10aExecutionRecord": "docs/code-review/r10a-patch-planning.md",
     "r09LocalValidation": {
       "corpusCombinations": 63,
-      "addedTests": 3556,
-      "fullFrontendTestsPassed": 3684,
+      "addedTests": 3672,
+      "fullFrontendTestsPassed": 3800,
       "testFiles": 33,
       "typeLintBuild": "passed",
       "newFileCodeHealth": 10.0,
@@ -4097,15 +4098,13 @@
       "pullRequest": "https://github.com/romanpodg/SubShare-Go/pull/15",
       "initialHead": "8c9b2675c2f211827cf1eafccbdfccb4adafba66",
       "initialAllSixChecksPassed": true,
-      "actionableFindings": 12,
+      "actionableFindings": 20,
       "firstReviewFindings": 5,
       "secondReviewFindings": 7,
+      "thirdReviewFindings": 8,
       "localFollowUpTestsAndStaticChecks": "passed",
-      "finalHostedAcceptance": "all_six_checks_pass_final_codex_review_running",
-      "currentHead": "6d6a28f974cf10ce265bf037e325445f76213260",
-      "currentActionsRun": "https://github.com/romanpodg/SubShare-Go/actions/runs/37755784192"
+      "finalHostedAcceptance": "pending"
     },
-    "r10aExecutionRecord": "docs/code-review/r10a-patch-planning.md",
     "r08cLocalValidation": {
       "failingRegressionCommit": "48f5c20",
       "correctiveCommit": "7b79c11",

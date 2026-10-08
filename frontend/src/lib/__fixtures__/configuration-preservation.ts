@@ -46,7 +46,7 @@ function corpusDocument(protocol: ConfigurationProtocol, network: XrayJSONNetwor
         },
         streamSettings: {
           network, security, customStream: true,
-          tcpSettings: { header: { type: "http", request: { path: ["/old"], headers: { Host: ["host.matrix.example"], "X-Future": ["keep"] }, customRequest: { future: true, ...lexicalTokens() } } } },
+          tcpSettings: { customTcp: { future: true, ...lexicalTokens() }, header: { customHeader: { future: true, ...lexicalTokens() }, type: "http", request: { path: ["/old"], headers: { Host: ["host.matrix.example"], "X-Future": ["keep"] }, customRequest: { future: true, ...lexicalTokens() } } } },
           wsSettings: { path: "/old", headers: { Host: "host.matrix.example", host: "lower.matrix.example", "X-Future": "keep" }, customWs: { future: true, ...lexicalTokens() } },
           grpcSettings: { serviceName: "old-service", authority: "authority.matrix.example", multiMode: false, customGrpc: { future: true, ...lexicalTokens() } },
           httpupgradeSettings: { path: "/old", host: "host.matrix.example", customUpgrade: { future: true, ...lexicalTokens() } },
