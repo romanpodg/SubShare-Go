@@ -2,10 +2,28 @@ import { describe, expect, it } from "vitest";
 import { corpusProtocols, preservationCorpus } from "./__fixtures__/configuration-preservation";
 import { sourceOnlyConversionGolden, presentConversionGolden, transportGolden, rawTcpGolden, realityAliasGolden, realityAliasShapes } from "./__fixtures__/configuration-preservation-expectations";
 import { singleTransportGoldens, absentTransportGoldens, singleSecurityGoldens, absentSecurityGoldens, singleConnectionGoldens, tlsOnlyNoneGoldens } from "./__fixtures__/configuration-field-goldens";
+import { partialTransportGoldens, nonObjectGoldens, lowercaseHostGoldens, combinedModeGoldens, combinedProtocolGoldens, trueNoneGoldens, trueNoneTransitions, missingConnectionGoldens, commaListGoldens } from "./__fixtures__/configuration-edge-goldens";
 import { parseXrayJSONConfiguration, patchEditableConfiguration, patchXrayJSONConfiguration } from "./configuration";
 import { DuplicateJSONKeyError, formatXrayJSON } from "./xray-json-document";
 
 describe("R09 configuration preservation corpus", () => {
+  it.each([...partialTransportGoldens, ...nonObjectGoldens, ...lowercaseHostGoldens, ...combinedModeGoldens, ...combinedProtocolGoldens, ...trueNoneTransitions, ...missingConnectionGoldens, ...commaListGoldens])("retains imported and combined-edit edge contracts: $name", ({ raw, patch, expected }) => {
+    expect(patchXrayJSONConfiguration(raw, patch)).toBe(formatXrayJSON(expected));
+  });
+
+  it.each(trueNoneGoldens)("does not invent security branches in true none mode: $name", ({ raw, expected }) => {
+    expect(parseXrayJSONConfiguration(raw)?.draft.security).toBe("none");
+    expect(patchXrayJSONConfiguration(raw, {})).toBe(formatXrayJSON(expected));
+    expect(patchXrayJSONConfiguration(raw, { sni: "ignored.example", publicKey: "updated", alpn: "h2" })).toBe(formatXrayJSON(expected));
+  });
+
+  it.each([
+    { raw: "{", message: "ошибку синтаксиса" }, { raw: "[]", message: "должен быть JSON-объектом" },
+    { raw: "null", message: "должен быть JSON-объектом" }, { raw: "{}", message: "Не найден outbound" },
+    { raw: '{"outbounds":{}}', message: "Не найден outbound" }, { raw: '{"outbounds":[{"protocol":"freedom"}]}', message: "Не найден outbound" },
+  ])("rejects invalid document selection before returning a patch: $raw", ({ raw, message }) => {
+    expect(() => patchXrayJSONConfiguration(raw, { server: "invalid.example" })).toThrow(message);
+  });
   it.each(singleTransportGoldens)("preserves unchanged siblings during one transport-control edit: $name", ({ raw, patch, expected }) => {
     expect(patchXrayJSONConfiguration(raw, patch)).toBe(formatXrayJSON(expected));
   });

@@ -2,7 +2,8 @@ import type { XrayJSONPatch } from "../configuration";
 import { preservationCorpus, serializeCorpusDocument, type PreservationCase } from "./configuration-preservation";
 
 type Path = Array<string | number>;
-type Change = { path: Path; value: unknown };
+export type FixtureChange = { path: Path; value: unknown };
+type Change = FixtureChange;
 type Model = Record<string | number, unknown>;
 
 // This oracle changes plain fixture objects, never production JSON tokens.
@@ -11,12 +12,25 @@ function applyModelChange(root: object, change: Change) {
   let parent = root as Model;
   for (let index = 0; index < change.path.length - 1; index += 1) {
     const segment = change.path[index];
-    if (parent[segment] === undefined) parent[segment] = typeof change.path[index + 1] === "number" ? [] : {};
+    if (!isFixtureContainer(parent[segment], typeof change.path[index + 1] === "number")) parent[segment] = typeof change.path[index + 1] === "number" ? [] : {};
     parent = parent[segment] as Model;
   }
   const last = change.path[change.path.length - 1];
   if (change.value === undefined) delete parent[last];
   else parent[last] = change.value;
+}
+
+function isFixtureContainer(value: unknown, array: boolean) {
+  if (array) return Array.isArray(value);
+  return value !== null && typeof value === "object" && !Array.isArray(value);
+}
+
+export function fixtureGolden(corpus: PreservationCase, sourceChanges: Change[], expectedChanges: Change[]) {
+  const source = structuredClone(corpus.document);
+  sourceChanges.forEach((change) => applyModelChange(source, change));
+  const expected = structuredClone(source);
+  expectedChanges.forEach((change) => applyModelChange(expected, change));
+  return { raw: serializeCorpusDocument(source), expected: serializeCorpusDocument(expected) };
 }
 
 function modelGolden(corpus: PreservationCase, changes: Change[], removedBranch?: string) {
