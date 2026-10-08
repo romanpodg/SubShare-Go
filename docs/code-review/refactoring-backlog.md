@@ -6,7 +6,7 @@ Coverage labeled **CC** is Codecov line coverage for this SHA. **Local** is CI-s
 
 ## Current implementation status — 2026-10-06
 
-**2026-10-08 continuation:** R06 is merged in PR #10; R07a, R07b, R08 and the separately reviewed R08c correction are merged in PRs #11-#14 after all six hosted checks and final automated reviews passed. A02 is accepted. R09 has 3792 added preservation cases and 3920 full frontend tests passing; PR #15 review gaps are fixed locally; hosted acceptance remains. R10a patch planning/application is next. See [R09](r09-configuration-preservation.md) and [autonomous continuation](autonomous-continuation.md). **Historical 2026-10-07 update:** the checked-out history includes R05a/R05b merged at **dc91072**, R06 characterization at **6a12236**, and the local R07a category/order extraction. See the [R07a execution record](r07a-category-ordering.md) for scope, validation and strict CodeScene warnings. R07b is next. The historical audit measurements and earlier CI evidence below are retained.
+**2026-10-08 continuation:** R06 is merged in PR #10; R07a, R07b, R08 and the separately reviewed R08c correction are merged in PRs #11-#14 after all six hosted checks and final automated reviews passed. A02 is accepted. R09 merged through PR #15 at 01f92aa with all six checks and all 27 review findings resolved. R10a pure planning/application is fully validated locally; hosted acceptance remains. R10b is next. See [R09](r09-configuration-preservation.md) and [autonomous continuation](autonomous-continuation.md). **Historical 2026-10-07 update:** the checked-out history includes R05a/R05b merged at **dc91072**, R06 characterization at **6a12236**, and the local R07a category/order extraction. See the [R07a execution record](r07a-category-ordering.md) for scope, validation and strict CodeScene warnings. R07b is next. The historical audit measurements and earlier CI evidence below are retained.
 
 The R01 prerequisite was merged through [PR #7](https://github.com/romanpodg/SubShare-Go/pull/7) at **267811b**. R02 is complete in [PR #8](https://github.com/romanpodg/SubShare-Go/pull/8), with source validated at **a896708** and all six checks passing; see the [R02 execution record](r02-startup-safety.md) for the recovery contract, evidence and limits. Baseline measurements below still describe main at 3ab25a5; the R01 results below are historical evidence for a438377.
 
@@ -29,7 +29,7 @@ Completed work:
 | A00 / P0 | R01/R02 complete; PR #8 merged | No production I/O trigger frequency is claimed |
 | A01 / P1 | R03/R04 merged; R05a/R05b included in dc91072 merge | Other A01 mutation boundaries remain |
 | A02 / P1 | Completed; R06/R07a/R07b/R08/R08c merged with hosted checks/review clear | Retain encrypted command, projection, ownership and rollback contracts |
-| A03 / P1 | R09 preservation corpus implemented; full frontend checks pass | R09 hosted acceptance; R10a patch planning/application and R10b security phase |
+| A03 / P1 | R09 merged; R10a pure planning/application fully validated locally | R10a hosted acceptance; R10b security phase |
 | A04 / P1 | Not started | R12/R13a/R13b response policy, persistence and HTTP delegation |
 | A05 / P1 | Not started | R14/R15a/R15b queue/source lifecycle, overlap and source-create transaction |
 | A06 / P1 | Not started | R16a/R16b actual-route authorization matrix and guard evaluation |

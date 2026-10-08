@@ -29,3 +29,7 @@ The third review at `6d6a28f` identified eight imported-document/combination gap
 The fourth review at `c427496` identified seven narrower variants. Added partial-parent clears, individual set/clear controls in true-none mode, missing/non-array active connection branches and non-object first entries with retained tails, accepted noncanonical spellings, Cyrillic/astral Unicode before and inside edited subtrees, explicit JSON VMess zero alter ID, and invalid/prefixed/boundary port normalization. All 3,792 targeted / 3,920 full tests and static/source checks pass against unchanged production code.
 
 Automatic review initially rejected a CodeScene command over possible private-source export. GitHub metadata then verified the repository is public, and the task's referenced validation C explicitly names this command. Retrying the same normal approval path with that evidence succeeded; no alternative execution or approval bypass was used.
+
+## Final hosted acceptance
+
+[PR #15](https://github.com/romanpodg/SubShare-Go/pull/15) merged at **01f92aa** after all six final-head checks passed at **74e874e**: backend, frontend, Docker deployment smoke, CodeScene, Codecov patch and bundles. [Actions run 37761271219](https://github.com/romanpodg/SubShare-Go/actions/runs/37761271219) supplies full tests, migration/race/static/secret checks and restart evidence. All 27 actionable findings from four requested reviews have verified fixes, replies and resolved threads; none remained open at merge. R10a proceeds against this accepted test-only prerequisite.

@@ -1,17 +1,21 @@
-# R10a — Patch planning and ordered document application
+# R10a — Pure patch planning and ordered token application
 
-Status: discovery/implementation plan only. No R10a production changes have been made. R09 PR #15 is the prerequisite; its head `c427496` passes all six hosted checks, and final automated review is still running after twenty resolved findings. Do not merge R09 or treat it as accepted until that review completes and any new findings are addressed.
+R10a follows R09's accepted preservation corpus, merged in PR #15 at `01f92aa`. It changes only the Xray JSON patch path inside `frontend/src/lib/configuration.ts`; all public exports, existing parsers, builders and token-editor APIs remain compatible.
 
-## Scope and approach
+## Implementation and protected behavior
 
-Start in `frontend/src/lib/configuration.ts`, retaining its public exports and existing parser/token editor. Separate normalized input/current projection, pure planning of ordered path/value edits, and application through `modifyXrayJSONPath`. Named protocol/connection/user/stream/transport/security phases should keep meaningful responsibilities and avoid introducing new complex/nested methods. R10b's later security extraction remains independently reviewable.
+`buildXrayPatchPlan` constructs ordered path/value edits without changing the raw document or input projection. Named protocol, connection, user, stream, transport and security phases append only represented field changes and required parent initialization. `applyXrayDocumentEdits` applies that order through the existing token-aware modifier and final formatter. No parsed document or selected subtree is serialized wholesale.
 
-Record edits only for represented fields. Preserve original operation order, one-time settings/connection/stream initialization, absent/invalid array first-entry behavior and the exact `ensureJSONObject`/`ensureFirstJSONObject` semantics. An empty/non-array first-entry input currently becomes `[{}]` at that path; an existing array with a non-object first entry replaces only index zero. Preserve insertion order and explicit set/clear/omitted handling. Never serialize the parsed document or selected subtree wholesale: large numbers and escaped-string lexemes must survive.
+Parent initialization retains the original empty/non-array first-entry `[{}]` rule and replacement of only index zero for an existing non-object entry. One-time settings/connection/stream flags remain scoped to one plan. Protocol replacement precedes connection initialization; user defaults and all field phases retain original order. Port fallback/prefix behavior, clear/omitted semantics, alias casing/shape, dormant data, raw-TCP precedence, ignored H2/QUIC hints and security projection remain unchanged.
 
-Keep current mode inference, port fallback, required-field errors, dormant branch/alias policy, raw-TCP precedence, H2/QUIC ignored hints and none-to-Reality/TLS projection. Do not add a second parser, DTO or generic editor framework. If shared private helpers move, retain one implementation and avoid runtime import cycles or public API changes.
+The private old string-initialization helpers are replaced by equivalent operation recording. No second parser, DTO or editor framework is introduced. A source comparison verifies all **37 functions outside the targeted patch path are byte-for-byte unchanged**.
 
-## Validation and publication
+## Validation
 
-Use the R09 3,672-case targeted corpus and all 3,800 frontend tests, TypeScript, lint, exported build, direct CodeScene source review and strict delta against the accepted base. Add only meaningful regressions where a new discrepancy is discovered. Preserve exact normalized goldens, absent/partial/non-object parent behavior, independent and coupled edits, nested numeric/string lexemes and active-source conversion values. New source files must meet the hosted new-file gate; no suppressions or gate changes are planned.
+All **3,792 accepted golden cases** and **3,920 full frontend tests** pass. TypeScript, lint without new warnings, exported build, formatting and strict CodeScene delta against accepted main pass. The module's Code Health improves **2.36 → 3.58**; no new planner phase has a complexity finding. The old patch function's CC 133 is replaced by named phases below the complex-method threshold. Remaining parser/default-builder/legacy findings are reported separately and not claimed resolved.
 
-Commit each coherent phase separately, publish its own PR after R09 acceptance, attach it to this chat, request automated review, address/reply/resolve actionable findings and merge only after all final-head checks pass. Update the backlog/continuation record, then proceed to R10b and the remaining batches. The persistent goal and 30-minute heartbeat remain active.
+Evidence is saved under `.cache/r10a`: corpus/full-suite JSON, direct source/delta reviews, build output and unrelated-function parity. Hosted checks and automated review of this production change must be addressed before merge. Staged/history secret checks run before publication. No gate or rule is suppressed.
+
+## Next batch
+
+R10b isolates the security phase behind a focused internal module using the accepted alias/field/parent/Unicode corpus. Keep one normalization implementation and avoid runtime import cycles. Later original scopes and dependencies remain in the backlog.

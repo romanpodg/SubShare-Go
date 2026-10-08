@@ -12,7 +12,7 @@ The user then requested R04 within PR #8. Its [command-boundary record](r04-user
 
 PR #8 is merged at **d87b122**. R05a started [PR #9](https://github.com/romanpodg/SubShare-Go/pull/9) from that merge: its [activation redemption record](r05a-activation-redemption.md) describes the HTTP-independent command, unchanged atomic claim and deterministic contention/failure assurance. All six hosted checks passed at ddf7154. The user then requested R05b continuation; its [device registration record](r05b-device-registration.md) owns the transaction/policy extraction and added assurance. The checked-out history includes the activation/device merge at **dc91072** and R06 characterization at **6a12236**.
 
-**2026-10-08 continuation:** R07a/R07b/R08/R08c merged through PRs #11-#14 after all six hosted checks and final automated reviews passed. R09 has a 63-combination, 3792-case corpus and 3920 full frontend tests passing; PR #15 review gaps are fixed locally; hosted acceptance remains. R10a is next. See [R09](r09-configuration-preservation.md) and [autonomous continuation](autonomous-continuation.md). **Historical 2026-10-07 continuation:** R07a extracts category and ordering persistence within the same adapter, retaining the R06 contracts. Its [execution record](r07a-category-ordering.md) owns local validation and the strict CodeScene average-complexity warnings. R07b is next; broader A01 and A02 work remains.
+**2026-10-08 continuation:** R07a/R07b/R08/R08c merged through PRs #11-#14 after all six hosted checks and final automated reviews passed. R09 merged through PR #15 at 01f92aa after all six checks and verified resolution of 27 review findings. R10a pure planning/application is implemented and all local checks pass; hosted acceptance remains. R10b is next. See [R09](r09-configuration-preservation.md) and [autonomous continuation](autonomous-continuation.md). **Historical 2026-10-07 continuation:** R07a extracts category and ordering persistence within the same adapter, retaining the R06 contracts. Its [execution record](r07a-category-ordering.md) owns local validation and the strict CodeScene average-complexity warnings. R07b is next; broader A01 and A02 work remains.
 
 | Batch scope | Status | What remains |
 | --- | --- | --- |
@@ -27,8 +27,9 @@ PR #8 is merged at **d87b122**. R05a started [PR #9](https://github.com/romanpod
 | R07b | Completed; PR #12 merged at e9643e1 | All six checks passed at bb98e95; final automated review clear; see [record](r07b-profile-reads.md) |
 | R08 | Completed; PR #13 merged at 3e4c333 | All six checks passed at 9c5fc34; final automated review clear; see [record](r08-update-policy.md) |
 | R08c | Completed; PR #14 merged at 2d55c03 | All six checks passed at e35e49e; final automated review clear; see [record](r08c-assignment-rollback.md) |
-| R09 | PR #15 initial checks pass; twenty-seven review gaps addressed locally with 3792 new cases / 3920 full tests and static/build/CodeScene pass | Publish review follow-up; final hosted checks/review remain; see [record](r09-configuration-preservation.md) |
-| R10a–R23 sub-batches | Not started | Original scopes/dependencies below remain authoritative |
+| R09 | Completed; PR #15 merged at 01f92aa | All six checks pass at 74e874e; all 27 review findings verified/resolved; see [record](r09-configuration-preservation.md) |
+| R10a | Pure planning/ordered application implemented; full frontend/static/build/strict CodeScene/parity pass | Hosted review/checks remain; see [record](r10a-patch-planning.md) |
+| R10b–R23 sub-batches | Not started | Original scopes/dependencies below remain authoritative |
 
 Partial means acceptance criteria are not yet satisfied. The e3ceaba repository split predates R01 and does not complete A01. PR #7 and PR #8 are merged; dc91072 merges the activation and device continuation. R06 assurance and R07a extraction remain separate changes. The original plan and R01 execution notes below are historical records.
 
