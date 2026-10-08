@@ -3987,8 +3987,8 @@
       "R06": "merged_pr10",
       "R07a": "merged_pr11",
       "R07b": "merged_pr12",
-      "R08": "full_local_validation_passed_hosted_pr_pending",
-      "R08c": "planned_separate_create_assignment_error_correction",
+      "R08": "merged_pr13",
+      "R08c": "full_local_validation_passed_hosted_pr_pending",
       "R09": "not_started",
       "R10a": "not_started",
       "R10b": "not_started",
@@ -4035,8 +4035,8 @@
     "nextBatch": "R08c_then_R09",
     "nextBatchPriority": "P1",
     "nextBatchRemainingPrerequisites": [
-      "Finish R07b final hosted acceptance and R08 full/hosted validation with final automated reviews before merging.",
-      "Correct the characterized ignored create-assignment error in a separate reviewed batch, retaining full-unit rollback assertions; then continue to R09's frontend preservation corpus."
+      "Finish R08c full/hosted validation and final automated review before merging its separate assignment rollback correction.",
+      "Continue to R09's frontend preservation corpus, retaining the existing loss-preserving editor and explicit byte/unknown-field invariants."
     ],
     "remainingCriticalRisk": "R01-R07a are merged. R07b is implemented; full/hosted validation and R08 patch policy remain, along with the separately characterized ignored assignment error and broader backlog. OS I/O trigger frequency remains unmeasured.",
     "r06CharacterizationCommit": "6a12236614e5",
@@ -4066,6 +4066,25 @@
       "unresolvedReviewThreads": 0
     },
     "r08ExecutionRecord": "docs/code-review/r08-update-policy.md",
+    "r08HostedAcceptance": {
+      "pullRequest": "https://github.com/romanpodg/SubShare-Go/pull/13",
+      "validatedCommit": "9c5fc3411062fa5e353c0c2c15eebc316c5a5632",
+      "mergeCommit": "3e4c333fa4b1f774abaed4234e888dd7139ba533",
+      "actionsRun": "https://github.com/romanpodg/SubShare-Go/actions/runs/37731061671",
+      "allSixChecksPassed": true,
+      "finalCodexReview": "completed_no_major_issues"
+    },
+    "r08cExecutionRecord": "docs/code-review/r08c-assignment-rollback.md",
+    "r08cLocalValidation": {
+      "failingRegressionCommit": "48f5c20",
+      "correctiveCommit": "7b79c11",
+      "storageRollbackRetry": "passed",
+      "httpFailureAuditRetry": "passed",
+      "vetLintBuildMigrationStrictDelta": "passed",
+      "fullBackendSuite": "passed",
+      "testResultsPassed": 1108,
+      "optionalSkips": 5
+    },
     "r08LocalValidation": {
       "characterizationCommit": "e880b15",
       "productionExtractionCommit": "d9d77ed",

@@ -89,19 +89,26 @@ func TestProfileCommandsBeginAndRejectedCommitRollBack(t *testing.T) {
 	}
 }
 
-// Defect characterization, not a desired invariant: CreateLocal discards the
-// assignment statement's error and commits the parent and secret. CloneLocal
-// instead rolls back (covered above). Correcting CreateLocal is a separate PR.
-func TestProfileCreateCharacterizesIgnoredAssignmentFailure(t *testing.T) {
+// R06 reproduced partial-success creation after an assignment failure. R08c
+// makes failure roll back the full command and permits a clean retry.
+func TestProfileCreateAssignmentFailureRollsBackFullUnit(t *testing.T) {
 	f := newProfileContractFixture(t)
+	before := profileContractSnapshot(t, f.db)
 	profileContractExec(t, f.db, `CREATE TRIGGER fail_profile_assignment AFTER INSERT ON user_keys WHEN NEW.user_id = 2 BEGIN SELECT RAISE(ABORT, 'r06 assignment failure'); END`)
 	key, raw, err := runProfileContractCommand(f, "create")
+	if err == nil {
+		t.Fatal("create ignored assignment failure")
+	}
+	profileContractNoResult(t, key, raw)
+	assertProfileContractSnapshot(t, f.db, before)
+	profileContractExec(t, f.db, `DROP TRIGGER fail_profile_assignment`)
+	key, raw, err = runProfileContractCommand(f, "create")
 	profileContractSuccess(t, err)
-	profileContractEqual(t, "partial-success key present", key != nil, true)
-	profileContractEqual(t, "partial-success configuration", raw, f.updateParams().NewURI)
+	profileContractEqual(t, "retry key present", key != nil, true)
+	profileContractEqual(t, "retry configuration", raw, f.updateParams().NewURI)
 	assignments := profileContractCount(t, f.db, `SELECT COUNT(*) FROM user_keys WHERE key_id = ?`, key.ID)
 	secrets := profileContractCount(t, f.db, `SELECT COUNT(*) FROM vless_key_secrets WHERE vless_key_id = ?`, key.ID)
-	profileContractEqual(t, "failed assignment statement retained no assignments", assignments, 0)
+	profileContractEqual(t, "retry all-mode assignments", assignments, 2)
 	profileContractEqual(t, "committed secret", secrets, 1)
 	originalAssignments := profileContractCount(t, f.db, `SELECT COUNT(*) FROM user_keys WHERE key_id = ?`, f.key.ID)
 	profileContractEqual(t, "existing assignments", originalAssignments, 2)

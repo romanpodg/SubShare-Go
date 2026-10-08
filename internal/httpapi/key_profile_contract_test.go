@@ -2,6 +2,7 @@ package httpapi
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -17,6 +18,7 @@ import (
 const profileHTTPContractURI = "hysteria2://http-private-auth@edge.example:443?sni=edge.example&insecure=1&x-extra=private-query#Embedded"
 
 type profileHTTPContractFixture struct {
+	db      *sql.DB
 	handler *KeyProfileHandler
 	repo    *storage.Repository
 	id      int64
@@ -37,7 +39,7 @@ func newProfileHTTPContractFixture(t *testing.T) profileHTTPContractFixture {
 	handler := NewKeyProfileHandler(keymanagement.NewService(repo, nil), func(_ *http.Request, event, entity, id string, metadata map[string]any) {
 		audits = append(audits, auditRecord{event, entity, id, metadata})
 	})
-	return profileHTTPContractFixture{handler, repo, key.ID, &audits}
+	return profileHTTPContractFixture{db, handler, repo, key.ID, &audits}
 }
 
 func profileHTTPContractRequest(id int64, body string) *http.Request {
