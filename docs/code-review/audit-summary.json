@@ -3991,7 +3991,8 @@
       "R08c": "merged_pr14",
       "R09": "merged_pr15",
       "R10a": "merged_pr16",
-      "R10b": "implemented_local_validation_passed_pr17_hosted_acceptance_pending",
+      "R10b": "merged_pr17",
+      "R10c": "test_only_local_validation_passed_hosted_acceptance_pending",
       "R11a": "not_started",
       "R11b": "not_started",
       "R12": "not_started",
@@ -4032,13 +4033,13 @@
         "scope": "Repository test maintainability, with assertions and transitions retained"
       }
     ],
-    "nextBatch": "R10b",
+    "nextBatch": "R10c",
     "nextBatchPriority": "P1",
     "nextBatchRemainingPrerequisites": [
-      "Require all final-head R10b hosted checks and resolve actionable automated-review findings before merging PR17.",
-      "Retain the accepted 63-combination corpus and 3792 added cases. R10a is merged; R10b production extraction is implemented in PR17 with hosted acceptance pending. Close A03 boundary/shared fixture gaps before final audit acceptance."
+      "R10b is accepted at 1809f80. Complete R10c Go/hosted validation and automated review before its merge.",
+      "Retain the accepted 63-combination corpus and 3792 added cases. R10a/R10b are merged; R10c supplements their unchanged production behavior. Close A03 boundary/shared fixture gaps before final audit acceptance."
     ],
-    "remainingCriticalRisk": "R01-R10a and the R08c assignment correction are merged. R10b is implemented in PR17, with hosted acceptance pending. A03 fixture reconciliation, broader A01 mutation boundaries and A04-A14 remain. OS I/O trigger frequency remains unmeasured.",
+    "remainingCriticalRisk": "R01-R10b and the R08c assignment correction are merged. R10c fixture assurance is implemented with acceptance pending. A03 fixture reconciliation, broader A01 mutation boundaries and A04-A14 remain. OS I/O trigger frequency remains unmeasured.",
     "r06CharacterizationCommit": "6a12236614e5",
     "r07aExecutionRecord": "docs/code-review/r07a-category-ordering.md",
     "autonomousContinuationRecord": "docs/code-review/autonomous-continuation.md",
@@ -4101,6 +4102,16 @@
       "allSixChecksPassed": true,
       "automatedReview": "completed_no_major_issues"
     },
+    "r10bHostedAcceptance": {
+      "pullRequest": "https://github.com/romanpodg/SubShare-Go/pull/17",
+      "validatedHead": "773344cb825fea603e2d486d0f9c9278b790c94e",
+      "mergeCommit": "1809f809cc289c093ee5c5923df9c76a639de5bd",
+      "actionsRun": "https://github.com/romanpodg/SubShare-Go/actions/runs/37788852058",
+      "allSixChecksPassed": true,
+      "automatedReview": "completed_no_major_issues",
+      "actionableFindingsFixedRepliedResolved": 1
+    },
+    "r10cExecutionRecord": "docs/code-review/r10c-shared-boundaries.md",
     "r10bExecutionRecord": "docs/code-review/r10b-security-planning.md",
     "r10bLocalValidation": {
       "targetedGoldenCasesPassed": 3792,

@@ -1,0 +1,11 @@
+# R10c — Shared Xray fixtures and size-boundary assurance
+
+Status: test-only implementation, locally validated; hosted acceptance remains. This closes two explicit A03 prerequisites after R09/R10a/R10b. Production parsers, patch planning, token editing and limits are unchanged.
+
+The single `testdata/configuration/xray-shared.json` corpus is consumed by both Go and TypeScript. Its 63 cases cover VLESS/VMess/Trojan, seven supported networks and none/TLS/Reality. Each has an unsupported first outbound and an extra supported outbound. Independent expected values cover protocol, server, port, identifier, network, security and SNI. Go checks both first draft and connection target; the editor checks its selected outbound and draft. Go deliberately expands both supported outbounds while the editor selects the first. Agreement on these supported fields does not claim identical acceptance or conversion semantics.
+
+Six frontend cases exercise 65,534/65,535/65,536 UTF-8 bytes, including literal Unicode, an escaped Unicode token and an integer beyond JavaScript precision. Exactly sized formatted documents freeze the inclusive formatting threshold. Compact documents freeze the original-text fallback when formatting expands past the limit. Same-width connection edits must retain every other token exactly, and repeating the edit must be byte-idempotent. The patcher itself continues its existing formatting behavior; these tests introduce no new rejection policy.
+
+All 69 new frontend cases and 3,989 full tests pass, with nonincremental TypeScript, lint and exported build. All 63 shared Go cases pass uncached. Both new test files score 10.00 after separating fixture loading, draft assertions and target assertions; all original assertions remain. Full Go suite, vet, build and strict CodeScene delta against accepted R10b main pass. Existing optional fixture/race limitations remain unchanged. Final secret scans and hosted checks/review must finish before acceptance. Evidence remains in ignored `.cache/r10c/`.
+
+After R10b and this supplement have hosted acceptance, reconcile A03's completion criteria against their combined evidence, record acceptance and proceed to R11a. Keep the unrelated parser/default-builder complexity visible and retain all existing corpus cases.
