@@ -3989,8 +3989,8 @@
       "R07b": "merged_pr12",
       "R08": "merged_pr13",
       "R08c": "merged_pr14",
-      "R09": "pr15_third_review_gaps_fixed_locally_final_revalidation_pending",
-      "R10a": "not_started",
+      "R09": "pr15_c427496_all_six_checks_pass_final_review_running",
+      "R10a": "implemented_full_local_validation_passed_hosted_pending",
       "R10b": "not_started",
       "R11a": "not_started",
       "R11b": "not_started",
@@ -4032,10 +4032,10 @@
         "scope": "Repository test maintainability, with assertions and transitions retained"
       }
     ],
-    "nextBatch": "R10a",
+    "nextBatch": "R10b",
     "nextBatchPriority": "P1",
     "nextBatchRemainingPrerequisites": [
-      "Finish R09 hosted acceptance and final automated review before merging its test-only preservation corpus.",
+      "Finish R10a hosted checks and resolve actionable automated-review findings before merging its production planner refactor.",
       "Retain the 63-combination corpus and 3792 added cases for R10a patch planning/document application; then R10b security phase extraction."
     ],
     "remainingCriticalRisk": "R01-R07a are merged. R07b is implemented; full/hosted validation and R08 patch policy remain, along with the separately characterized ignored assignment error and broader backlog. OS I/O trigger frequency remains unmeasured.",
@@ -4084,6 +4084,25 @@
       "finalCodexReview": "completed_no_major_issues"
     },
     "r09ExecutionRecord": "docs/code-review/r09-configuration-preservation.md",
+    "r09HostedAcceptance": {
+      "pullRequest": "https://github.com/romanpodg/SubShare-Go/pull/15",
+      "validatedHead": "74e874e8ee5a399ad5f1ceb24844ad5ed49d7cd2",
+      "mergeCommit": "01f92aab1b564823154963090022a6f3f25249fe",
+      "actionsRun": "https://github.com/romanpodg/SubShare-Go/actions/runs/37761271219",
+      "allSixChecksPassed": true,
+      "actionableFindingsFixedRepliedResolved": 27
+    },
+    "r10aExecutionRecord": "docs/code-review/r10a-patch-planning.md",
+    "r10aLocalValidation": {
+      "targetedGoldenCasesPassed": 3792,
+      "fullFrontendTestsPassed": 3920,
+      "typeLintBuild": "passed",
+      "strictCodeSceneDelta": "passed",
+      "codeHealthBefore": 2.36,
+      "codeHealthAfter": 3.58,
+      "newPhaseComplexityFindings": 0,
+      "unrelatedFunctionsByteIdentical": 37
+    },
     "r09LocalValidation": {
       "corpusCombinations": 63,
       "addedTests": 3792,
@@ -4103,7 +4122,7 @@
       "thirdReviewFindings": 8,
       "fourthReviewFindings": 7,
       "localFollowUpTestsAndStaticChecks": "passed",
-      "finalHostedAcceptance": "pending"
+      "finalHostedAcceptance": "r09_all_six_checks_pass_all_27_findings_verified_resolved"
     },
     "r08cLocalValidation": {
       "failingRegressionCommit": "48f5c20",
