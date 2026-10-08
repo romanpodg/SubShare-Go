@@ -3986,7 +3986,7 @@
       "R05b": "merged",
       "R06": "merged_pr10",
       "R07a": "merged_pr11",
-      "R07b": "implemented_targeted_checks_pass_full_and_hosted_validation_pending",
+      "R07b": "pr12_full_local_and_hosted_tests_pass_exact_scan_false_positive_correction_pending",
       "R08": "not_started",
       "R09": "not_started",
       "R10a": "not_started",
@@ -4063,7 +4063,11 @@
       "targetedStorageAndHTTP": "passed",
       "vetLintBuildMigrationWorkflow": "passed",
       "strictCodeSceneDelta": "passed",
-      "fullBackendSuite": "in_progress"
+      "fullBackendSuite": "passed",
+      "pullRequest": "https://github.com/romanpodg/SubShare-Go/pull/12",
+      "initialHostedActionsRun": "https://github.com/romanpodg/SubShare-Go/actions/runs/37729501988",
+      "hostedProfileRace": "passed",
+      "initialHostedFailure": "gitleaks_generic_api_key_false_positive_on_latency_field_projection"
     },
     "r07aLocalValidation": {
       "sourceState": "Working-tree extraction based on 6a12236614e5; no R07a commit is claimed.",
