@@ -4102,6 +4102,17 @@
       "automatedReview": "completed_no_major_issues"
     },
     "r10bExecutionRecord": "docs/code-review/r10b-security-planning.md",
+    "r10bLocalValidation": {
+      "targetedGoldenCasesPassed": 3792,
+      "fullFrontendTestsPassed": 3920,
+      "typeLintBuild": "passed",
+      "newModuleCodeHealth": 10,
+      "coreCodeHealth": 3.58,
+      "unchangedFunctions": 60,
+      "identicalMovedHelperBodies": 3,
+      "strictDelta": "warning_remaining_core_mean_complexity_7.17_to_7.45",
+      "hostedAcceptance": "pending"
+    },
     "r10aLocalValidation": {
       "targetedGoldenCasesPassed": 3792,
       "fullFrontendTestsPassed": 3920,

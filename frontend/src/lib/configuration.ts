@@ -1,3 +1,5 @@
+import { appendSecurityPlan } from "./configuration-security-plan";
+import { buildALPNValues, hasPatchField, optionalText } from "./configuration-patch-values";
 import {
   formatXrayJSON,
   modifyXrayJSONPath,
@@ -472,12 +474,6 @@ export function parseXrayJSONConfiguration(raw: string): ParsedXrayJSONConfigura
   };
 }
 
-function buildALPNValues(raw: string) {
-  return raw
-    .split(",")
-    .map((part) => part.trim())
-    .filter(Boolean);
-}
 
 function toPortNumber(rawPort: string) {
   const parsedPort = Number.parseInt(rawPort.trim(), 10);
@@ -692,12 +688,6 @@ export type XrayJSONPatch = Partial<XrayJSONDraft>;
 
 type MutableJSONPath = Array<string | number>;
 
-function hasPatchField<Key extends keyof XrayJSONDraft>(
-  patch: XrayJSONPatch,
-  key: Key
-) {
-  return Object.prototype.hasOwnProperty.call(patch, key);
-}
 
 function patchJSONPath(
   raw: string,
@@ -707,14 +697,6 @@ function patchJSONPath(
   return modifyXrayJSONPath(raw, path, value);
 }
 
-
-
-
-
-function optionalText(value: unknown) {
-  const normalized = typeof value === "string" ? value.trim() : "";
-  return normalized || undefined;
-}
 
 function alterIDValue(value: unknown) {
   const normalized = optionalText(value);
@@ -941,59 +923,8 @@ function appendTcpHost(context: XrayPatchContext, scope: TcpPatchScope) {
   if (values.length > 0) appendDocumentEdit(context.operations, [...path, existingHostAlias(headers)], values);
   else appendHostClear(context.operations, path);
 }
-function appendTlsEdits(context: XrayPatchContext) {
-  const { operations, outboundPath, streamSettings, patch } = context;
 
-  appendObjectInitialization(operations, [...outboundPath, "streamSettings", "tlsSettings"], streamSettings?.tlsSettings);
-  const tlsPath = [...outboundPath, "streamSettings", "tlsSettings"];
-  if (hasPatchField(patch, "sni")) {
-    appendDocumentEdit(operations, [...tlsPath, "serverName"], optionalText(patch.sni));
-  }
-  if (hasPatchField(patch, "alpn")) {
-    const values = buildALPNValues(patch.alpn ?? "");
-    appendDocumentEdit(operations, [...tlsPath, "alpn"], values.length > 0 ? values : undefined);
-  }
-  if (hasPatchField(patch, "allowInsecure")) {
-    appendDocumentEdit(operations, [...tlsPath, "allowInsecure"], patch.allowInsecure ? true : undefined);
-  }
-  if (hasPatchField(patch, "fingerprint")) {
-    appendDocumentEdit(operations, [...tlsPath, "fingerprint"], optionalText(patch.fingerprint));
-  }
 
-}
-function appendRealityEdits(context: XrayPatchContext) {
-  const { streamSettings, operations, outboundPath, patch } = context;
-
-  const realitySettings = asRecord(streamSettings?.realitySettings);
-  appendObjectInitialization(operations, [...outboundPath, "streamSettings", "realitySettings"], streamSettings?.realitySettings);
-  const realityPath = [...outboundPath, "streamSettings", "realitySettings"];
-  if (hasPatchField(patch, "sni")) {
-    appendDocumentEdit(operations, [...realityPath, "serverName"], optionalText(patch.sni));
-  }
-  if (hasPatchField(patch, "fingerprint")) {
-    appendDocumentEdit(operations, [...realityPath, "fingerprint"], optionalText(patch.fingerprint));
-  }
-  if (hasPatchField(patch, "publicKey")) appendRealityKey(context, realitySettings, realityPath);
-  if (hasPatchField(patch, "shortId")) {
-    appendDocumentEdit(operations, [...realityPath, "shortId"], optionalText(patch.shortId));
-  }
-  if (hasPatchField(patch, "spiderX")) {
-    appendDocumentEdit(operations, [...realityPath, "spiderX"], optionalText(patch.spiderX));
-  }
-
-}
-function appendRealityKey(context: XrayPatchContext, settings: Record<string, unknown> | null, path: MutableJSONPath) {
-  const value = optionalText(context.patch.publicKey);
-  if (!value) {
-    appendDocumentEdit(context.operations, [...path, "publicKey"], undefined);
-    appendDocumentEdit(context.operations, [...path, "password"], undefined);
-    return;
-  }
-  const modern = Object.prototype.hasOwnProperty.call(settings ?? {}, "publicKey");
-  const legacy = Object.prototype.hasOwnProperty.call(settings ?? {}, "password");
-  if (modern || !legacy) appendDocumentEdit(context.operations, [...path, "publicKey"], value);
-  if (legacy) appendDocumentEdit(context.operations, [...path, "password"], value);
-}
 function appendTransportEdits(context: XrayPatchContext) {
   if (context.transportFieldsChanged) context.ensureStreamSettings();
   const handlers = [
@@ -1008,8 +939,18 @@ function appendTransportEdits(context: XrayPatchContext) {
 function appendSecurityEdits(context: XrayPatchContext) {
   if (!context.securityFieldsChanged) return;
   context.ensureStreamSettings();
-  if (context.security === "tls") appendTlsEdits(context);
-  else if (context.security === "reality") appendRealityEdits(context);
+  if (context.security === "none") return;
+  const branch = context.security === "tls" ? "tlsSettings" : "realitySettings";
+  const path = [...context.outboundPath, "streamSettings", branch];
+  const value = context.streamSettings?.[branch];
+  appendSecurityPlan({
+    mode: context.security,
+    patch: context.patch,
+    path,
+    original: asRecord(value),
+    initialize: () => appendObjectInitialization(context.operations, path, value),
+    append: (editPath, editValue) => appendDocumentEdit(context.operations, editPath, editValue),
+  });
 }
 export function patchXrayJSONConfiguration(raw: string, patch: XrayJSONPatch) {
   const formatted = formatXrayJSON(raw);
