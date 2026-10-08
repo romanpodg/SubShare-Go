@@ -10,7 +10,7 @@ import (
 )
 
 func ApplyStructuredPatchToURI(protocol, currentURI, label string, patch *model.StructuredProfilePatch) (string, error) {
-	if patch != nil && patch.Server == nil && patch.Port == nil && patch.DisplayName == nil && patch.Shadowsocks == nil && patch.Hysteria2 == nil && patch.TUIC == nil {
+	if structuredPatchHasNoFields(patch) {
 		return currentURI, nil
 	}
 	parsed, err := profiles.Parse(currentURI)
@@ -18,28 +18,9 @@ func ApplyStructuredPatchToURI(protocol, currentURI, label string, patch *model.
 		return BuildURIFromStructuredCreate(protocol, label, patch)
 	}
 
-	parsed.Server = setString(patch.Server, parsed.Server)
-	if isSet(patch.Port) {
-		parsed.Port = profiles.PortSpec{Expression: patch.Port.Value, Kind: profiles.PortSingle, Explicit: true}
-	}
-	parsed.DisplayName = setString(patch.DisplayName, parsed.DisplayName)
-
-	switch data := parsed.Data.(type) {
-	case profiles.ShadowsocksData:
-		if err := applyShadowsocksPatch(parsed, &data, patch.Shadowsocks); err != nil {
-			return "", err
-		}
-		parsed.Data = data
-	case profiles.Hysteria2Data:
-		if err := applyHysteria2Patch(&data, patch.Hysteria2); err != nil {
-			return "", err
-		}
-		parsed.Data = data
-	case profiles.TUICData:
-		if err := applyTUICPatch(&data, patch.TUIC); err != nil {
-			return "", err
-		}
-		parsed.Data = data
+	applyStructuredEndpointPatch(parsed, patch)
+	if err := applyStructuredProtocolPatch(parsed, patch); err != nil {
+		return "", err
 	}
 
 	res, err := profiles.Serialize(parsed, profiles.CanonicalSerialization)
@@ -47,6 +28,48 @@ func ApplyStructuredPatchToURI(protocol, currentURI, label string, patch *model.
 		return "", err
 	}
 	return res.URI.Reveal(), nil
+}
+
+func structuredPatchHasNoFields(patch *model.StructuredProfilePatch) bool {
+	if patch == nil {
+		return false
+	}
+	for _, present := range []bool{patch.Server != nil, patch.Port != nil, patch.DisplayName != nil, patch.Shadowsocks != nil, patch.Hysteria2 != nil, patch.TUIC != nil} {
+		if present {
+			return false
+		}
+	}
+	return true
+}
+
+func applyStructuredEndpointPatch(parsed *profiles.Profile, patch *model.StructuredProfilePatch) {
+	parsed.Server = setString(patch.Server, parsed.Server)
+	if isSet(patch.Port) {
+		parsed.Port = profiles.PortSpec{Expression: patch.Port.Value, Kind: profiles.PortSingle, Explicit: true}
+	}
+	parsed.DisplayName = setString(patch.DisplayName, parsed.DisplayName)
+}
+
+func applyStructuredProtocolPatch(parsed *profiles.Profile, patch *model.StructuredProfilePatch) error {
+	switch data := parsed.Data.(type) {
+	case profiles.ShadowsocksData:
+		if err := applyShadowsocksPatch(parsed, &data, patch.Shadowsocks); err != nil {
+			return err
+		}
+		parsed.Data = data
+	case profiles.Hysteria2Data:
+		if err := applyHysteria2Patch(&data, patch.Hysteria2); err != nil {
+			return err
+		}
+		parsed.Data = data
+	case profiles.TUICData:
+		if err := applyTUICPatch(&data, patch.TUIC); err != nil {
+			return err
+		}
+		parsed.Data = data
+	}
+
+	return nil
 }
 
 func applyShadowsocksPatch(parsed *profiles.Profile, data *profiles.ShadowsocksData, p *model.ShadowsocksStructuredPatch) error {
@@ -184,60 +207,11 @@ func (s *Service) UpdateLocal(ctx context.Context, params UpdateLocalParams) (*m
 		return s.updateSourceOwnedMetadata(ctx, key, decryptedURI, params)
 	}
 
-	label := strings.TrimSpace(params.Label)
-	var clientDisplayName *string
-	if params.ClientDisplayName != nil {
-		resolved := strings.TrimSpace(*params.ClientDisplayName)
-		if resolved == "" {
-			resolved = label
-		}
-		if len(resolved) > 255 {
-			return nil, ErrLabelTooLong
-		}
-		clientDisplayName = &resolved
-	}
-	status, statusOK := model.NormalizeKeyStatus(params.Status)
-	kind, kindOK := model.NormalizeKeyKind(params.Kind)
-	templateText := strings.TrimSpace(params.TemplateText)
-
-	if !statusOK || !kindOK || label == "" {
-		return nil, ErrInvalidInput
-	}
-	if len(label) > 255 {
-		return nil, ErrLabelTooLong
-	}
-
-	patchMode, err := resolvePatchMode(params)
+	command, err := planLocalProfileUpdate(key, decryptedURI, params)
 	if err != nil {
 		return nil, err
 	}
-
-	newURI := decryptedURI
-	if kind == model.KeyKindReal {
-		newURI, err = resolveUpdatedURI(key.Protocol, decryptedURI, label, patchMode, params)
-		if err != nil {
-			return nil, err
-		}
-	}
-
-	storedProtocol := "legacy"
-	if protocol, _, validationErr := validateStoredConfiguration(newURI); validationErr == nil {
-		storedProtocol = protocol
-	}
-
-	updatedKey, updatedURI, err := s.repo.UpdateLocal(ctx, UpdateProfileParams{
-		ID:                params.ID,
-		ExpectedRevision:  params.ProfileRevision,
-		Label:             label,
-		ClientDisplayName: clientDisplayName,
-		Status:            status,
-		Kind:              kind,
-		Category:          params.Category,
-		CategoryID:        params.CategoryID,
-		TemplateText:      templateText,
-		Protocol:          storedProtocol,
-		NewURI:            newURI,
-	})
+	updatedKey, updatedURI, err := s.repo.UpdateLocal(ctx, command)
 	if err != nil {
 		return nil, err
 	}
@@ -246,83 +220,12 @@ func (s *Service) UpdateLocal(ctx context.Context, params UpdateLocalParams) (*m
 	return &detail, nil
 }
 
-// resolvePatchMode normalises the requested patch mode ("raw" or
-// "structured"), defaulting from the payload shape, and rejects mixed payloads.
-func resolvePatchMode(params UpdateLocalParams) (string, error) {
-	patchMode := strings.ToLower(strings.TrimSpace(params.PatchMode))
-	if patchMode == "" {
-		if params.RawURI != "" {
-			patchMode = "raw"
-		} else {
-			patchMode = "structured"
-		}
-	}
-	if patchMode != "raw" && patchMode != "structured" {
-		return "", ErrInvalidPatchMode
-	}
-	if patchMode == "raw" && params.StructuredPatch != nil {
-		return "", ErrMutuallyExclusiveMode
-	}
-	if patchMode == "structured" && strings.TrimSpace(params.RawURI) != "" {
-		return "", ErrMutuallyExclusiveMode
-	}
-	return patchMode, nil
-}
-
-// resolveUpdatedURI produces the new configuration for a real profile from
-// either the raw URI or the structured patch.
-func resolveUpdatedURI(protocol, currentURI, label, patchMode string, params UpdateLocalParams) (string, error) {
-	if patchMode == "raw" {
-		newURI := strings.TrimSpace(params.RawURI)
-		if newURI == "" {
-			return "", ErrRawURIRequired
-		}
-		if _, _, parseErr := validateStoredConfiguration(newURI); parseErr != nil {
-			return "", invalidProfileURIError(parseErr)
-		}
-		return newURI, nil
-	}
-	if params.StructuredPatch == nil {
-		return "", ErrStructuredPatchRequired
-	}
-	return ApplyStructuredPatchToURI(protocol, currentURI, label, params.StructuredPatch)
-}
-
 func (s *Service) updateSourceOwnedMetadata(ctx context.Context, key *model.VLESSKey, decryptedURI string, params UpdateLocalParams) (*model.KeyProfileDetailResponse, error) {
-	status, statusOK := model.NormalizeKeyStatus(params.Status)
-	kind, kindOK := model.NormalizeKeyKind(params.Kind)
-	patchMode := strings.ToLower(strings.TrimSpace(params.PatchMode))
-	categoryMatches := strings.TrimSpace(params.Category) == strings.TrimSpace(key.Category)
-	categoryIDMatches := params.CategoryID == nil || (key.CategoryID > 0 && *params.CategoryID == key.CategoryID)
-
-	// Source-owned updates are accepted only when the request is an exact
-	// metadata-only projection of the current source row. The persistence method
-	// below cannot mutate any source-controlled column, but these checks also
-	// reject crafted full-profile requests instead of silently ignoring them.
-	if strings.TrimSpace(params.Label) != strings.TrimSpace(key.Label) ||
-		!statusOK ||
-		!kindOK || kind != key.Kind ||
-		!categoryMatches || !categoryIDMatches ||
-		strings.TrimSpace(params.TemplateText) != strings.TrimSpace(key.TemplateText) ||
-		strings.TrimSpace(params.RawURI) != "" || params.StructuredPatch != nil ||
-		(patchMode != "" && patchMode != "structured") {
-		return nil, ErrSourceOwnedReadOnly
+	command, err := planSourceMetadataUpdate(key, params)
+	if err != nil {
+		return nil, err
 	}
-
-	var clientDisplayName *string
-	if params.ClientDisplayName != nil {
-		resolved := strings.TrimSpace(*params.ClientDisplayName)
-		if len(resolved) > 255 {
-			return nil, ErrLabelTooLong
-		}
-		clientDisplayName = &resolved
-	}
-	updatedKey, updatedURI, err := s.repo.UpdateSourceOwnedMetadata(ctx, UpdateSourceOwnedMetadataParams{
-		ID:                params.ID,
-		ExpectedRevision:  params.ProfileRevision,
-		Status:            status,
-		ClientDisplayName: clientDisplayName,
-	})
+	updatedKey, updatedURI, err := s.repo.UpdateSourceOwnedMetadata(ctx, command)
 	if err != nil {
 		return nil, err
 	}
