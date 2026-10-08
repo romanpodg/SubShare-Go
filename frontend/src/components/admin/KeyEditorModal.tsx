@@ -23,7 +23,6 @@ import {
   type XrayJSONDraft,
   type XrayJSONPatch,
 } from "@/lib/configuration";
-import { formatXrayJSONWithinLimit, inspectXrayJSONDocument } from "@/lib/xray-json-document";
 import type {
   ExternalProfileProtocol,
   KeyCategory,
@@ -54,25 +53,14 @@ import {
 
 import { buildEditorCreateCommand } from "./key-editor-create-command";
 import { buildEditorUpdateCommand } from "./key-editor-update-command";
-import { isXrayJSONRaw } from "./key-editor-raw-policy";
+import { isXrayJSONRaw, projectEditorRawDisplay } from "./key-editor-raw-policy";
+
+import { emptyLegacyDraft } from "./key-editor-command-state";
+import { buildEditorDetailProjection } from "./key-editor-detail-projection";
 
 const LABEL_LIMIT = 255;
 
-function emptyLegacyDraft(protocol: "vless" | "vmess" | "trojan" = "vless"): XrayJSONDraft {
-  return {
-    protocol,
-    server: "",
-    port: "443",
-    identifier: "",
-    network: "tcp",
-    security: "none",
-    path: "",
-    host: "",
-    sni: "",
-    alpn: "",
-    remark: "",
-  };
-}
+
 
 
 
@@ -242,6 +230,36 @@ export function KeyEditorModal({
     setTuicHeartbeat("10s");
   }, [defaultMode, initialCategory, initialKind, initialLabel, initialProtocol, keyId]);
 
+  const applyDetailProjection = useCallback((projection: NonNullable<ReturnType<typeof buildEditorDetailProjection>>) => {
+    setServer(projection.server);
+    setPort(projection.port);
+    setDisplayName(projection.displayName);
+    if (projection.legacy) {
+      setLegacyDraft(projection.legacy);
+      setLegacySecretsRevealed(false);
+    }
+    if (projection.shadowsocks) {
+      setSsMethod(projection.shadowsocks.method);
+      setSsPluginName(projection.shadowsocks.pluginName);
+    }
+    if (projection.hysteria2) {
+      setHy2Sni(projection.hysteria2.sni);
+      setHy2Insecure(projection.hysteria2.insecure);
+      setHy2CertSha(projection.hysteria2.certificate);
+      setHy2ObfsType(projection.hysteria2.obfuscation);
+    }
+    if (projection.tuic) {
+      setTuicSni(projection.tuic.sni);
+      setTuicAlpn(projection.tuic.alpn);
+      setTuicSkipCert(projection.tuic.skipCert);
+      setTuicCc(projection.tuic.cc);
+      setTuicUdpRelay(projection.tuic.relay);
+      setTuicUdpOverStream(projection.tuic.udpOverStream);
+      setTuicZeroRtt(projection.tuic.zeroRtt);
+      setTuicHeartbeat(projection.tuic.heartbeat);
+    }
+  }, []);
+
   // Load detail & schemas
   const loadDetailAndSchema = useCallback(async () => {
     setLoading(true);
@@ -270,53 +288,15 @@ export function KeyEditorModal({
           setMode("structured");
         }
 
-        if (k.safe_structured) {
-          setServer(k.safe_structured.server || "");
-          setPort(k.safe_structured.port || "");
-          setDisplayName(
-            k.ownership === "external_source" && !k.client_display_name_overridden
-              ? ""
-              : (k.client_display_name || k.safe_structured.display_name || k.label)
-          );
-
-          if (isLegacyEditorProtocol(k.protocol)) {
-            setLegacyDraft({
-              ...emptyLegacyDraft(k.protocol),
-              server: k.safe_structured.server || "",
-              port: k.safe_structured.port || "443",
-              remark: k.safe_structured.display_name || k.label,
-            });
-            setLegacySecretsRevealed(false);
-          }
-
-          if (k.safe_structured.shadowsocks) {
-            setSsMethod(k.safe_structured.shadowsocks.method || "2022-blake3-aes-128-gcm");
-            setSsPluginName(k.safe_structured.shadowsocks.plugin_name || "");
-          }
-          if (k.safe_structured.hysteria2) {
-            setHy2Sni(k.safe_structured.hysteria2.sni || "");
-            setHy2Insecure(k.safe_structured.hysteria2.insecure || false);
-            setHy2CertSha(k.safe_structured.hysteria2.certificate_sha256 || "");
-            setHy2ObfsType(k.safe_structured.hysteria2.obfuscation_type || "");
-          }
-          if (k.safe_structured.tuic) {
-            setTuicSni(k.safe_structured.tuic.sni || "");
-            setTuicAlpn((k.safe_structured.tuic.alpn || []).join(","));
-            setTuicSkipCert(k.safe_structured.tuic.skip_cert_verify || false);
-            setTuicCc(k.safe_structured.tuic.congestion_controller || "bbr");
-            setTuicUdpRelay(k.safe_structured.tuic.udp_relay_mode || "native");
-            setTuicUdpOverStream(k.safe_structured.tuic.udp_over_stream || false);
-            setTuicZeroRtt(k.safe_structured.tuic.zero_rtt || false);
-            setTuicHeartbeat(k.safe_structured.tuic.heartbeat || "10s");
-          }
-        }
+        const projection = buildEditorDetailProjection(k);
+        if (projection) applyDetailProjection(projection);
       }
     } catch (error) {
       toast(error instanceof Error ? error.message : "Ошибка загрузки", "error");
     } finally {
       setLoading(false);
     }
-  }, [keyId, toast]);
+  }, [keyId, toast, applyDetailProjection]);
 
   useEffect(() => {
     if (open) {
@@ -339,26 +319,9 @@ export function KeyEditorModal({
       if (target === "raw") {
         const rawRes = res.data as KeyRawSecretResponse;
         setAuthoritativeRaw(rawRes.raw_uri);
-        let displayRaw = rawRes.raw_uri;
-        let formattingWarning = "";
-        if (isXrayJSONRaw(detail.protocol, rawRes.raw_uri)) {
-          try {
-            const inspection = inspectXrayJSONDocument(rawRes.raw_uri);
-            if (inspection.duplicateKeys.length > 0) {
-              formattingWarning = "JSON оставлен без форматирования: обнаружены повторяющиеся ключи.";
-            } else {
-              const formatted = formatXrayJSONWithinLimit(rawRes.raw_uri);
-              displayRaw = formatted.value;
-              if (formatted.exceededLimit) {
-                formattingWarning = "JSON оставлен без форматирования: форматированная версия превышает допустимый размер.";
-              }
-            }
-          } catch {
-            displayRaw = rawRes.raw_uri;
-          }
-        }
-        setRawUri(displayRaw);
-        setRawFormattingWarning(formattingWarning);
+        const display = projectEditorRawDisplay(detail.protocol, rawRes.raw_uri);
+        setRawUri(display.value);
+        setRawFormattingWarning(display.warning);
         setRevealedRaw(true);
         setRawEdited(false);
         setRawValidationError("");

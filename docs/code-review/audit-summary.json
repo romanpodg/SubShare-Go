@@ -3993,7 +3993,7 @@
       "R10a": "merged_pr16",
       "R10b": "merged_pr17",
       "R10c": "merged_pr18",
-      "R11a": "implemented_functional_validation_passed_hosted_acceptance_pending",
+      "R11a": "pr19_quality_correction_locally_validated_hosted_acceptance_pending",
       "R11b": "not_started",
       "R12": "not_started",
       "R13a": "not_started",
@@ -4122,6 +4122,19 @@
       "utf8BoundaryCases": 6,
       "fullFrontendTestsPassed": 3989,
       "a03Acceptance": "complete"
+    },
+    "r11aLocalValidation": {
+      "fullFrontendTestsPassed": 4005,
+      "browserCasesPassed": 20,
+      "typeLintBuild": "passed",
+      "newExecutableModulesCodeHealth": 10,
+      "coreCodeHealthBefore": 6.2,
+      "coreCodeHealthAfter": 6.3,
+      "unchangedComponentStatements": 68,
+      "movedConstructorBodyIdentical": true,
+      "strictDelta": "remaining_aggregate_complex_method_warning",
+      "deepNestedComplexity": "removed",
+      "initialHostedGate": "failed_correction_pending_hosted_validation"
     },
     "r11aExecutionRecord": "docs/code-review/r11a-editor-commands.md",
     "r10cExecutionRecord": "docs/code-review/r10c-shared-boundaries.md",

@@ -1,6 +1,25 @@
 import type { XrayJSONDraft } from "@/lib/configuration";
 import type { ExternalProfileProtocol } from "@/lib/types";
 
+export function editorInitialText(value: string | undefined, fallback = "") { return value || fallback; }
+export function editorInitialFlag(value: boolean | undefined) { return value || false; }
+
+export function emptyLegacyDraft(protocol: "vless" | "vmess" | "trojan" = "vless"): XrayJSONDraft {
+  return {
+    protocol,
+    server: "",
+    port: "443",
+    identifier: "",
+    network: "tcp",
+    security: "none",
+    path: "",
+    host: "",
+    sni: "",
+    alpn: "",
+    remark: "",
+  };
+}
+
 export interface EditorCommandState {
   label: string;
   displayName: string;

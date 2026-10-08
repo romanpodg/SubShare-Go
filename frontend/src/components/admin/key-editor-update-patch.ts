@@ -1,10 +1,9 @@
 import type { KeyProfileDetailResponse, SafeTUICDetail, StructuredProfilePatch } from "@/lib/types";
 import type { EditorCommandState } from "./key-editor-command-state";
+import { editorInitialText as initialText } from "./key-editor-command-state";
 import { buildShadowsocksPatch } from "./protocol-editors/ShadowsocksFields";
 import { buildHysteria2Patch } from "./protocol-editors/Hysteria2Fields";
 import { buildTUICPatch } from "./protocol-editors/TuicV5Fields";
-
-function initialText(value: string | undefined, fallback = "") { return value || fallback; }
 
 function updateShadowsocks(state: EditorCommandState, detail: KeyProfileDetailResponse) {
   const initial = detail.safe_structured?.shadowsocks;
