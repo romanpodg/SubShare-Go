@@ -12,7 +12,7 @@ const extraID = "22222222-2222-4222-8222-222222222222";
 const dormantID = "33333333-3333-4333-8333-333333333333";
 
 function lexicalTokens() {
-  return { hugeNumber: "big-number-slot", preciseNumber: "precision-number-slot", escapedText: "escape-slot" };
+  return { hugeNumber: "big-number-slot", preciseNumber: "precision-number-slot", escapedText: "escape-slot", literalText: "Кириллица и спутник 🛰️" };
 }
 
 function corpusDocument(protocol: ConfigurationProtocol, network: XrayJSONNetwork, security: XrayJSONSecurity) {
@@ -22,7 +22,7 @@ function corpusDocument(protocol: ConfigurationProtocol, network: XrayJSONNetwor
     hugeToken: "big-number-slot",
     preciseToken: "precision-number-slot",
     escapedToken: "escape-slot",
-    customTop: { future: true, ordered: ["first", "second"] },
+    customTop: { future: true, literalText: "Перед outbound: Кириллица 🛰️", ordered: ["first", "second"] },
     dns: { servers: ["9.9.9.9"], customDNS: true },
     routing: { rules: [{ type: "field", outboundTag: "direct" }] },
     inbounds: [{ protocol: "socks", tag: "inbound", customInbound: true }],

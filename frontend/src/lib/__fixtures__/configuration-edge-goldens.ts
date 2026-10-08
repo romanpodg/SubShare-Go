@@ -18,10 +18,10 @@ const nestedParents = [
   }),
 ] as const;
 
-export const partialTransportGoldens = sampled.flatMap((corpus) => nestedParents.map((entry) => ({
-  name: `${corpus.protocol}/${entry.name}`, patch: entry.patch as XrayJSONPatch,
-  ...fixtureGolden(corpus, [change([...stream, "network"], entry.network), change([...entry.parent], undefined)], [change([...entry.target], entry.value)]),
-})));
+export const partialTransportGoldens = sampled.flatMap((corpus) => nestedParents.flatMap((entry) => [false, true].map((clear) => ({
+  name: `${corpus.protocol}/${entry.name}/${clear ? "clear" : "set"}`, patch: { host: clear ? "" : "edge-host.example" },
+  ...fixtureGolden(corpus, [change([...stream, "network"], entry.network), change([...entry.parent], undefined)], clear ? [change([...entry.target], undefined), change([...entry.target.slice(0, -1), "host"], undefined)] : [change([...entry.target], entry.value)]),
+}))));
 
 const malformedParents = [
   { name: "stream", path: stream, patch: { network: "ws", security: "tls", path: "/edge", sni: "edge-sni.example" }, outcomes: [change([...stream, "network"], "ws"), change([...stream, "security"], "tls"), change([...stream, "wsSettings", "path"], "/edge"), change([...stream, "tlsSettings", "serverName"], "edge-sni.example")] },
@@ -88,3 +88,45 @@ export const commaListGoldens = sampled.flatMap((corpus) => [
   { name: "tcp hosts", patch: { host: " one.example , two.example " }, changes: [change([...stream, "tcpSettings", "header", "request", "headers", "Host"], ["one.example", "two.example"])] },
   { name: "tls alpn", patch: { alpn: " h2 , http/1.1 " }, changes: [change([...stream, "tlsSettings", "alpn"], ["h2", "http/1.1"])] },
 ].map((entry) => ({ name: `${corpus.protocol}/${entry.name}`, patch: entry.patch as XrayJSONPatch, ...fixtureGolden(corpus, [], entry.changes) })));
+
+const noneControls = { sni: "ignored.example", alpn: "h2", allowInsecure: true, fingerprint: "firefox", publicKey: "updated", shortId: "1234", spiderX: "/ignored" };
+
+export const trueNoneControlGoldens = sampled.flatMap((corpus) => Object.entries(noneControls).flatMap(([field, value]) => [false, true].map((clear) => ({
+  name: `${corpus.protocol}/true-none/${field}/${clear ? "clear" : "set"}`, patch: { [field]: clear ? (field === "allowInsecure" ? false : "") : value } as XrayJSONPatch,
+  ...fixtureGolden(corpus, [change([...stream, "security"], "none"), change([...stream, "tlsSettings"], undefined), change([...stream, "realitySettings"], undefined)], []),
+}))));
+
+function directNode(corpus: (typeof sampled)[number]) {
+  if (corpus.protocol === "trojan") return { address: "combined.example", port: 7443, password: identity };
+  return { users: [{ id: identity }], address: "combined.example", port: 7443 };
+}
+
+export const intermediateConnectionGoldens = sampled.flatMap((corpus) => {
+  const branch = corpus.protocol === "trojan" ? "servers" : "vnext";
+  const path = [...base, "settings", branch];
+  const original = corpus.document.outbounds[1].settings[branch];
+  const patch = { server: "combined.example", port: "7443", identifier: identity };
+  const absent = [undefined, null, {}, "invalid"].map((value) => ({ name: `${corpus.protocol}/${branch}/${JSON.stringify(value)}`, patch,
+    ...fixtureGolden(corpus, [change(path, value)], [change(path, [directNode(corpus)])]),
+  }));
+  const firstEntry = [null, [], "invalid", 7].map((value) => ({ name: `${corpus.protocol}/${branch}/first-${JSON.stringify(value)}`, patch,
+    ...fixtureGolden(corpus, [change(path, [value, ...original.slice(1)])], [change(path, [directNode(corpus), ...original.slice(1)])]),
+  }));
+  return [...absent, ...firstEntry];
+});
+
+export const noncanonicalGoldens = sampled.map((corpus) => ({ name: corpus.protocol, patch: { server: "spelled.example" },
+  ...fixtureGolden(corpus, [change([...base, "protocol"], ` ${corpus.protocol.toUpperCase()} `), change([...stream, "network"], " TCP "), change([...stream, "security"], " TLS ")],
+    [change(corpus.protocol === "trojan" ? [...base, "settings", "servers", 0, "address"] : [...base, "settings", "vnext", 0, "address"], "spelled.example")]),
+}));
+
+export const zeroAlterIDGoldens = preservationCorpus.filter(({ protocol }) => protocol === "vmess").map((corpus) => ({ name: corpus.name, patch: { vmessAlterId: "0" },
+  ...fixtureGolden(corpus, [], [change([...base, "settings", "vnext", 0, "users", 0, "alterId"], 0)]),
+}));
+
+export const portNormalizationGoldens = sampled.flatMap((corpus) => [
+  { input: "0", expected: 443 }, { input: "-1", expected: 443 }, { input: "65536", expected: 443 },
+  { input: "invalid", expected: 443 }, { input: "8443suffix", expected: 8443 }, { input: "65535", expected: 65535 },
+].map((entry) => ({ name: `${corpus.protocol}/${entry.input}`, patch: { port: entry.input },
+  ...fixtureGolden(corpus, [], [change(corpus.protocol === "trojan" ? [...base, "settings", "servers", 0, "port"] : [...base, "settings", "vnext", 0, "port"], entry.expected)]),
+})));
