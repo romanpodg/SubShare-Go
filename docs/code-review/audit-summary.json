@@ -3990,8 +3990,8 @@
       "R08": "merged_pr13",
       "R08c": "merged_pr14",
       "R09": "pr15_c427496_all_six_checks_pass_final_review_running",
-      "R10a": "implemented_full_local_validation_passed_hosted_pending",
-      "R10b": "not_started",
+      "R10a": "merged_pr16",
+      "R10b": "discovery_plan_saved_no_production_changes",
       "R11a": "not_started",
       "R11b": "not_started",
       "R12": "not_started",
@@ -4093,6 +4093,15 @@
       "actionableFindingsFixedRepliedResolved": 27
     },
     "r10aExecutionRecord": "docs/code-review/r10a-patch-planning.md",
+    "r10aHostedAcceptance": {
+      "pullRequest": "https://github.com/romanpodg/SubShare-Go/pull/16",
+      "validatedHead": "d22540224cdf1698c447cec749045d2a3a602a22",
+      "mergeCommit": "8952b75eeb7b638891a37c2357f7a12c167b78dd",
+      "actionsRun": "https://github.com/romanpodg/SubShare-Go/actions/runs/37766659388",
+      "allSixChecksPassed": true,
+      "automatedReview": "completed_no_major_issues"
+    },
+    "r10bExecutionRecord": "docs/code-review/r10b-security-planning.md",
     "r10aLocalValidation": {
       "targetedGoldenCasesPassed": 3792,
       "fullFrontendTestsPassed": 3920,
