@@ -1,6 +1,6 @@
 # R10b — Focused security planning module
 
-Status: implemented and locally validated; publication and hosted acceptance remain. R10a is accepted in PR #16 at `8952b75`, with all six checks passing at `d225402` and automated review reporting no major issues.
+Status: implemented and locally validated in [PR #17](https://github.com/romanpodg/SubShare-Go/pull/17); final hosted acceptance remains. R10a is accepted in PR #16 at `8952b75`, with all six checks passing at `d225402` and automated review reporting no major issues.
 
 Extract the security planning phase from `configuration.ts` into a focused internal module. Keep ordered path/value operations and the existing token application boundary. Pass original TLS/Reality projection and selected mode explicitly; preserve alias shapes, omitted/clear/false handling, missing/non-object parents, coupled mode/field behavior and none projections. Type-only imports may reuse existing draft/patch types; avoid a runtime cycle or new public configuration API.
 
@@ -19,3 +19,5 @@ Automatic approval review initially prevented the full validation command from e
 ## Remaining acceptance
 
 Publish this batch, request automated review, fix actionable findings and require all six hosted checks before merging. Reconcile A03's near-size-boundary and shared Go fixture requirements before declaring the audit item complete; the existing corpus is not evidence for cases it does not contain. Then proceed to R11a and the remaining backlog.
+
+The initial review at `4860290` found one stale machine-readable batch status, not a production defect. Corrected `audit-summary.json` to implemented/local-validation-passed/PR17-hosted-acceptance-pending, and reconciled the old R09 status and continuation instruction. Hosted CodeScene's three gates pass; final-head checks and review still govern merge.

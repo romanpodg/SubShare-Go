@@ -3989,9 +3989,9 @@
       "R07b": "merged_pr12",
       "R08": "merged_pr13",
       "R08c": "merged_pr14",
-      "R09": "pr15_c427496_all_six_checks_pass_final_review_running",
+      "R09": "merged_pr15",
       "R10a": "merged_pr16",
-      "R10b": "discovery_plan_saved_no_production_changes",
+      "R10b": "implemented_local_validation_passed_pr17_hosted_acceptance_pending",
       "R11a": "not_started",
       "R11b": "not_started",
       "R12": "not_started",
@@ -4035,10 +4035,10 @@
     "nextBatch": "R10b",
     "nextBatchPriority": "P1",
     "nextBatchRemainingPrerequisites": [
-      "Finish R10a hosted checks and resolve actionable automated-review findings before merging its production planner refactor.",
-      "Retain the 63-combination corpus and 3792 added cases for R10a patch planning/document application; then R10b security phase extraction."
+      "Require all final-head R10b hosted checks and resolve actionable automated-review findings before merging PR17.",
+      "Retain the accepted 63-combination corpus and 3792 added cases. R10a is merged; R10b production extraction is implemented in PR17 with hosted acceptance pending. Close A03 boundary/shared fixture gaps before final audit acceptance."
     ],
-    "remainingCriticalRisk": "R01-R07a are merged. R07b is implemented; full/hosted validation and R08 patch policy remain, along with the separately characterized ignored assignment error and broader backlog. OS I/O trigger frequency remains unmeasured.",
+    "remainingCriticalRisk": "R01-R10a and the R08c assignment correction are merged. R10b is implemented in PR17, with hosted acceptance pending. A03 fixture reconciliation, broader A01 mutation boundaries and A04-A14 remain. OS I/O trigger frequency remains unmeasured.",
     "r06CharacterizationCommit": "6a12236614e5",
     "r07aExecutionRecord": "docs/code-review/r07a-category-ordering.md",
     "autonomousContinuationRecord": "docs/code-review/autonomous-continuation.md",
