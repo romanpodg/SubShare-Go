@@ -31,47 +31,53 @@ function session() {
   return { ...result, switch: (open: boolean, keyId: number) => result.rerender(view(open, keyId)) };
 }
 
+const transitions = [
+  { name: "close/reopen a different profile", close: true, nextId: 2 },
+  { name: "close/reopen the same profile", close: true, nextId: 1 },
+  { name: "switch profiles while open", close: false, nextId: 2 },
+];
+
 describe("editor session request lifetime", () => {
   beforeEach(() => { vi.clearAllMocks(); api.get.mockImplementation((id: number) => Promise.resolve({ data: detail(id) })); });
 
-  it("does not apply an old detail after closing and opening a different profile", async () => {
+  it.each(transitions)("does not apply an old detail after $name", async ({ close, nextId }) => {
     const pending = deferred<{ data: ReturnType<typeof detail> }>();
-    api.get.mockImplementation((id: number) => id === 1 ? pending.promise : Promise.resolve({ data: detail(id) }));
+    api.get.mockImplementationOnce(() => pending.promise);
     const editor = session();
     await waitFor(() => expect(api.get).toHaveBeenCalledWith(1));
-    editor.switch(false, 1);
-    editor.switch(true, 2);
-    await screen.findByDisplayValue("Profile 2");
-    await act(async () => pending.resolve({ data: detail(1) }));
-    expect(screen.getByLabelText("Название")).toHaveValue("Profile 2");
-    expect(screen.getByLabelText("Сервер (Host)")).toHaveValue("profile2.example");
+    if (close) editor.switch(false, 1);
+    editor.switch(true, nextId);
+    await screen.findByDisplayValue(`Profile ${nextId}`);
+    await act(async () => pending.resolve({ data: { ...detail(1), label: "Stale profile" } }));
+    expect(screen.getByLabelText("Название")).toHaveValue(`Profile ${nextId}`);
+    expect(screen.getByLabelText("Сервер (Host)")).toHaveValue(`profile${nextId}.example`);
   });
 
-  it("does not apply a late reveal to a reopened profile", async () => {
+  it.each(transitions)("does not apply a late reveal after $name", async ({ close, nextId }) => {
     const pending = deferred<{ data: { raw_uri: string } }>();
     api.reveal.mockReturnValue(pending.promise);
     const editor = session();
     await screen.findByDisplayValue("Profile 1");
     fireEvent.click(screen.getByRole("button", { name: /Раскрыть учетные данные/i }));
     await waitFor(() => expect(api.reveal).toHaveBeenCalledTimes(1));
-    editor.switch(false, 1);
-    editor.switch(true, 2);
-    await screen.findByDisplayValue("Profile 2");
+    if (close) editor.switch(false, 1);
+    editor.switch(true, nextId);
+    await screen.findByDisplayValue(`Profile ${nextId}`);
     await act(async () => pending.resolve({ data: { raw_uri: "vless://11111111-1111-4111-8111-111111111111@profile1.example:443#First" } }));
-    expect(screen.getByLabelText("Сервер (Host)")).toHaveValue("profile2.example");
+    expect(screen.getByLabelText("Сервер (Host)")).toHaveValue(`profile${nextId}.example`);
     expect(screen.getByLabelText("UUID / ID")).toHaveValue("");
     expect(screen.getByLabelText("UUID / ID")).toBeDisabled();
     expect(screen.queryByText("Сырая ссылка раскрыта")).not.toBeInTheDocument();
   });
 
-  it("withholds a late load failure from the new session", async () => {
+  it.each(transitions)("withholds a late load failure after $name", async ({ close, nextId }) => {
     const pending = deferred<{ data: ReturnType<typeof detail> }>();
-    api.get.mockImplementation((id: number) => id === 1 ? pending.promise : Promise.resolve({ data: detail(id) }));
+    api.get.mockImplementationOnce(() => pending.promise);
     const editor = session();
     await waitFor(() => expect(api.get).toHaveBeenCalledWith(1));
-    editor.switch(false, 1);
-    editor.switch(true, 2);
-    await screen.findByDisplayValue("Profile 2");
+    if (close) editor.switch(false, 1);
+    editor.switch(true, nextId);
+    await screen.findByDisplayValue(`Profile ${nextId}`);
     await act(async () => pending.reject(new Error("old-session load failed")));
     expect(screen.queryByText("old-session load failed")).not.toBeInTheDocument();
   });

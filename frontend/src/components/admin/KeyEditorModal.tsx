@@ -57,6 +57,7 @@ import { isXrayJSONRaw, projectEditorRawDisplay } from "./key-editor-raw-policy"
 
 import { emptyLegacyDraft } from "./key-editor-command-state";
 import { buildEditorDetailProjection } from "./key-editor-detail-projection";
+import { useEditorRequestSession } from "./use-editor-request-session";
 
 const LABEL_LIMIT = 255;
 
@@ -86,6 +87,7 @@ export function KeyEditorModal({
   onRefresh,
 }: KeyEditorModalProps) {
   const { toast } = useToast();
+  const beginSessionRequest = useEditorRequestSession(open, keyId);
 
   const defaultMode = protocolEditorCapability(initialProtocol) ? "structured" : "raw";
 
@@ -186,6 +188,9 @@ export function KeyEditorModal({
 
   // Clear state on unmount/close
   const clearSensitiveState = useCallback(() => {
+    setLoading(false);
+    setRevealing(false);
+    setShowConflictDialog(false);
     setIsDirty(false);
     setShowDiscardConfirm(false);
     setDetail(null);
@@ -262,17 +267,20 @@ export function KeyEditorModal({
 
   // Load detail & schemas
   const loadDetailAndSchema = useCallback(async () => {
+    const isCurrent = beginSessionRequest();
     setLoading(true);
     try {
       const [schemaRes, catRes] = await Promise.all([
         keysApi.editorSchema(),
         keysApi.listCategories(),
       ]);
+      if (!isCurrent()) return;
       setSchemaResponse(schemaRes.data);
       setAvailableCategories(catRes.categories || []);
 
       if (keyId) {
         const detailRes = await keysApi.get(keyId);
+        if (!isCurrent()) return;
         const k = detailRes.data;
         setDetail(k);
         setLabel(k.label);
@@ -292,11 +300,12 @@ export function KeyEditorModal({
         if (projection) applyDetailProjection(projection);
       }
     } catch (error) {
+      if (!isCurrent()) return;
       toast(error instanceof Error ? error.message : "Ошибка загрузки", "error");
     } finally {
-      setLoading(false);
+      if (isCurrent()) setLoading(false);
     }
-  }, [keyId, toast, applyDetailProjection]);
+  }, [keyId, toast, applyDetailProjection, beginSessionRequest]);
 
   useEffect(() => {
     if (open) {
@@ -310,12 +319,14 @@ export function KeyEditorModal({
   // Reveal secret call
   const handleReveal = async (target: "raw" | "structured-secrets") => {
     if (!keyId || !detail) return;
+    const isCurrent = beginSessionRequest();
     setRevealing(true);
     try {
       const res = await keysApi.reveal(keyId, {
         profile_revision: detail.profile_revision,
         target,
       });
+      if (!isCurrent()) return;
       if (target === "raw") {
         const rawRes = res.data as KeyRawSecretResponse;
         setAuthoritativeRaw(rawRes.raw_uri);
@@ -345,13 +356,14 @@ export function KeyEditorModal({
         toast("Секретные поля раскрыты", "info");
       }
     } catch (error) {
+      if (!isCurrent()) return;
       if (error instanceof ApiError && error.status === 409) {
         setShowConflictDialog(true);
       } else {
         toast(error instanceof Error ? error.message : "Ошибка раскрытия секретов", "error");
       }
     } finally {
-      setRevealing(false);
+      if (isCurrent()) setRevealing(false);
     }
   };
 

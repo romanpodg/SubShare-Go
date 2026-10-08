@@ -33,7 +33,7 @@ Completed work:
 | A04 / P1 | Not started | R12/R13a/R13b response policy, persistence and HTTP delegation |
 | A05 / P1 | Not started | R14/R15a/R15b queue/source lifecycle, overlap and source-create transaction |
 | A06 / P1 | Not started | R16a/R16b actual-route authorization matrix and guard evaluation |
-| A07 / P1 | R11a implemented with functional validation passing | R11a hosted acceptance; R11b draft/reveal/session lifetime |
+| A07 / P1 | R11a PR19 awaits CodeScene; R11b request-session correction implemented | R11a/R11b hosted acceptance; broader draft/reveal/session matrix/extraction |
 | A08 / P1 | Not started | R17a/R17b ordering/actions and shared presentation |
 | A09 / P2 | Not started | R18a/R18b Go/TS/OpenAPI contracts and request errors |
 | A10 / P2 | Not started | R19 backend Xray interpretation |
