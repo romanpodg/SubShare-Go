@@ -3986,7 +3986,7 @@
       "R05b": "merged",
       "R06": "merged_pr10",
       "R07a": "merged_pr11",
-      "R07b": "pr12_full_local_and_hosted_tests_pass_exact_scan_false_positive_correction_pending",
+      "R07b": "merged_pr12",
       "R08": "full_local_validation_passed_hosted_pr_pending",
       "R08c": "planned_separate_create_assignment_error_correction",
       "R09": "not_started",
@@ -4056,6 +4056,15 @@
       "finalCodexReview": "completed_no_major_issues"
     },
     "r07bExecutionRecord": "docs/code-review/r07b-profile-reads.md",
+    "r07bHostedAcceptance": {
+      "pullRequest": "https://github.com/romanpodg/SubShare-Go/pull/12",
+      "validatedCommit": "bb98e953609f04e69420a67cb47d19159634f995",
+      "mergeCommit": "e9643e1b93482d16c7f7949afab2f7a49050385d",
+      "actionsRun": "https://github.com/romanpodg/SubShare-Go/actions/runs/37730445543",
+      "allSixChecksPassed": true,
+      "finalCodexReview": "completed_no_major_issues",
+      "unresolvedReviewThreads": 0
+    },
     "r08ExecutionRecord": "docs/code-review/r08-update-policy.md",
     "r08LocalValidation": {
       "characterizationCommit": "e880b15",

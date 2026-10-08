@@ -24,7 +24,7 @@ PR #8 is merged at **d87b122**. R05a started [PR #9](https://github.com/romanpod
 | R05b | Device registration transaction/policy boundary included in dc91072 merge | Retained as device contract evidence |
 | R06 | Completed; characterization merged through PR #10 at ebd427f | Retained as R07/R08 prerequisites |
 | R07a | Completed; PR #11 merged at 1a7968b | All six checks passed at 33631dd; final automated review clear |
-| R07b | Read/projection boundary implemented; targeted contracts and new-file CodeScene pass | Full Windows suite (1,103 passed, five optional skips) and hosted code/race checks pass; final scan/deployment acceptance remains; see [record](r07b-profile-reads.md) |
+| R07b | Completed; PR #12 merged at e9643e1 | All six checks passed at bb98e95; final automated review clear; see [record](r07b-profile-reads.md) |
 | R08 | Pure planning, source ownership and structured-patch phases implemented; full Windows/service/static/strict CodeScene checks pass | Hosted acceptance remains; see [record](r08-update-policy.md) |
 | R09–R23 sub-batches | Not started | Original scopes/dependencies below remain authoritative |
 

@@ -25,3 +25,7 @@ R08 separates patch/ownership phases in `internal/keymanagement/update.go` again
 ## Secret-scan false positive
 
 The initial hosted backend job passed its functional/static/race checks, then Gitleaks classified the nullable latency assignment on read-adapter line 60 as `generic-api-key`. The field is a `sql.NullInt64` read from `last_latency_ms`; the expression contains no credential or literal secret. The first correction quoted the same assignment in this record and triggered the scanner again. That quote is removed. `.gitleaksignore` lists only the exact original code fingerprint and the exact historical documentation fingerprint at `a9688242df3ebda987b6ed119106dfb0ca91fc5a:docs/code-review/r07b-profile-reads.md:generic-api-key:27`. No file, rule, future commit or scanner step is excluded. Both the historical Git range and staged additions are rescanned before pushing the final correction.
+
+## Final hosted acceptance
+
+[PR #12](https://github.com/romanpodg/SubShare-Go/pull/12) merged at **e9643e1** after all six hosted checks passed at **bb98e95**: backend (including the corrected secret scan), frontend, Docker deployment smoke, CodeScene, Codecov patch and bundles. [Actions run 37730445543](https://github.com/romanpodg/SubShare-Go/actions/runs/37730445543) also passes user/profile contention races and migration compatibility. Final Codex review found no major issues, and no inline review threads remained unresolved. R08 continues separately.
