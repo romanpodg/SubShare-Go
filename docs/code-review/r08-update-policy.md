@@ -19,3 +19,7 @@ Full uncached Windows backend regression passes with **1,107 passed, five option
 ## Next work
 
 The original next batch is R09's frontend preservation corpus. A02 also retains R06's reproduced ignored create-assignment failure: handle it in a separately reviewed corrective batch (R08c) with rollback assertions, rather than changing it silently inside R08.
+
+## Final hosted acceptance
+
+[PR #13](https://github.com/romanpodg/SubShare-Go/pull/13) merged at **3e4c333** after all six checks passed at **9c5fc34**: backend, frontend, Docker deployment smoke, CodeScene, Codecov patch and bundles. [Actions run 37731061671](https://github.com/romanpodg/SubShare-Go/actions/runs/37731061671) includes full backend/frontend, migration, user/profile contention races, static and secret scans and populated restart checks. Final Codex review found no major issues, and no inline threads were unresolved. The separate R08c correction follows.

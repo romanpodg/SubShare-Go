@@ -100,16 +100,27 @@ func (r *Repository) CreateLocal(ctx context.Context, params keymanagement.Creat
 		return nil, "", fmt.Errorf("failed to save secret: %w", err)
 	}
 
-	_, _ = tx.ExecContext(ctx, `
-		INSERT INTO user_keys(user_id, key_id)
-		SELECT id, ? FROM users WHERE key_assignment_mode = 'all'
-	`, keyID)
-
-	if err := tx.Commit(); err != nil {
-		return nil, "", fmt.Errorf("failed to commit key creation: %w", err)
+	if err := commitLocalProfileCreation(ctx, tx, keyID); err != nil {
+		return nil, "", err
 	}
 
 	return r.GetByID(ctx, keyID)
+}
+
+// commitLocalProfileCreation keeps required all-mode assignments in the same
+// transaction as the profile and secret. A failed assignment cannot commit.
+func commitLocalProfileCreation(ctx context.Context, tx *sql.Tx, keyID int64) error {
+	if _, err := tx.ExecContext(ctx, `
+		INSERT INTO user_keys(user_id, key_id)
+		SELECT id, ? FROM users WHERE key_assignment_mode = 'all'
+	`, keyID); err != nil {
+		return fmt.Errorf("failed to assign key to all-mode users: %w", err)
+	}
+
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("failed to commit key creation: %w", err)
+	}
+	return nil
 }
 
 func (r *Repository) UpdateLocal(ctx context.Context, params keymanagement.UpdateProfileParams) (*model.VLESSKey, string, error) {
