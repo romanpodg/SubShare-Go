@@ -3987,7 +3987,7 @@
       "R06": "merged_pr10",
       "R07a": "merged_pr11",
       "R07b": "pr12_full_local_and_hosted_tests_pass_exact_scan_false_positive_correction_pending",
-      "R08": "implemented_service_static_and_codescene_checks_pass_full_validation_pending",
+      "R08": "full_local_validation_passed_hosted_pr_pending",
       "R08c": "planned_separate_create_assignment_error_correction",
       "R09": "not_started",
       "R10a": "not_started",
@@ -4064,7 +4064,9 @@
       "policyCodeHealth": 10.0,
       "serviceContracts": "passed",
       "vetLintBuildStrictDelta": "passed",
-      "fullBackendSuite": "in_progress"
+      "fullBackendSuite": "passed",
+      "testResultsPassed": 1107,
+      "optionalSkips": 5
     },
     "r07bLocalValidation": {
       "characterizationCommit": "930e107",

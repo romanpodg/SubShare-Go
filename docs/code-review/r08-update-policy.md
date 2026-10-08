@@ -14,7 +14,7 @@ Pre-extraction commit `e880b15` freezes additional request/error contracts: loca
 
 The complete key-management suite passes before extraction (0.505s), after added characterization (0.402s) and after final policy decomposition (0.443s). Existing R06 protocol tri-state, source/revision, raw-byte and persistence-failure matrices remain the primary compatibility evidence. Direct CodeScene reviews score `update.go`, `update_policy.go` and the changed service-contract test file **10.00**, without findings; the original update module scored **6.64**. Vet, lint (zero new issues), server build and strict delta against the R07b branch pass.
 
-Full uncached backend regression is running with a 10-minute bound and JSON evidence under `.cache/r08`. Its own PR must pass hosted backend/frontend/deployment/coverage/CodeScene checks and final automated review before merge. No gate suppression or schema change is included.
+Full uncached Windows backend regression passes with **1,107 passed, five optional skips and no failures**; the server package completes in 310.389s. JSON evidence is under `.cache/r08`. Its own PR must pass hosted backend/frontend/deployment/coverage/CodeScene checks and final automated review before merge. No gate suppression or schema change is included.
 
 ## Next work
 
