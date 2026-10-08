@@ -14,6 +14,8 @@ type updateContractRepo struct {
 	*fakeRepo
 	localCalls, sourceCalls int
 	writeErr                error
+	localParams             UpdateProfileParams
+	sourceParams            UpdateSourceOwnedMetadataParams
 }
 
 func updateContractEqual(t *testing.T, label string, got, want any) {
@@ -32,6 +34,7 @@ func updateContractError(t *testing.T, err, want error) {
 
 func (r *updateContractRepo) UpdateLocal(ctx context.Context, params UpdateProfileParams) (*model.VLESSKey, string, error) {
 	r.localCalls++
+	r.localParams = params
 	if r.writeErr != nil {
 		return nil, "", r.writeErr
 	}
@@ -40,6 +43,7 @@ func (r *updateContractRepo) UpdateLocal(ctx context.Context, params UpdateProfi
 
 func (r *updateContractRepo) UpdateSourceOwnedMetadata(ctx context.Context, params UpdateSourceOwnedMetadataParams) (*model.VLESSKey, string, error) {
 	r.sourceCalls++
+	r.sourceParams = params
 	if r.writeErr != nil {
 		return nil, "", r.writeErr
 	}
@@ -84,6 +88,11 @@ func TestUpdateServiceSourceOwnershipAndRevisionMatrix(t *testing.T) {
 		{"invalid mode rejected", func(p *UpdateLocalParams) { p.PatchMode = "other" }, ErrSourceOwnedReadOnly},
 		{"invalid status rejected", func(p *UpdateLocalParams) { p.Status = "other" }, ErrSourceOwnedReadOnly},
 		{"long name rejected", func(p *UpdateLocalParams) { v := strings.Repeat("x", 256); p.ClientDisplayName = &v }, ErrLabelTooLong},
+		{"ownership precedes long name", func(p *UpdateLocalParams) {
+			p.Label = "Renamed"
+			v := strings.Repeat("x", 256)
+			p.ClientDisplayName = &v
+		}, ErrSourceOwnedReadOnly},
 		{"stale revision precedes ownership", func(p *UpdateLocalParams) { p.ProfileRevision = 2; p.Label = "Renamed" }, ErrProfileRevisionConflict},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -119,6 +128,7 @@ func TestUpdateServiceLocalPatchModeMatrix(t *testing.T) {
 		{"implicit structured", "", "", &model.StructuredProfilePatch{}, nil},
 		{"explicit structured", "structured", "", &model.StructuredProfilePatch{}, nil},
 		{"missing raw", "raw", "", nil, ErrRawURIRequired},
+		{"implicit whitespace raw", "", " \n ", nil, ErrRawURIRequired},
 		{"missing structured", "structured", "", nil, ErrStructuredPatchRequired},
 		{"invalid mode", "other", "", nil, ErrInvalidPatchMode},
 		{"raw with structured", "raw", patchHY2, &model.StructuredProfilePatch{}, ErrMutuallyExclusiveMode},
@@ -144,6 +154,42 @@ func TestUpdateServiceLocalPatchModeMatrix(t *testing.T) {
 			updateContractEqual(t, "unchanged raw bytes", repo.uris[1], patchHY2)
 		})
 	}
+}
+
+func TestUpdateServiceDisplayNameResetDependsOnOwnership(t *testing.T) {
+	for _, source := range []bool{false, true} {
+		service, repo, params := newUpdateContractService(source)
+		reset := "  "
+		params.ClientDisplayName = &reset
+		want := ""
+		if !source {
+			params.StructuredPatch = &model.StructuredProfilePatch{}
+			want = "Panel"
+		}
+		_, err := service.UpdateLocal(context.Background(), params)
+		updateContractError(t, err, nil)
+		name := repo.localParams.ClientDisplayName
+		if source {
+			name = repo.sourceParams.ClientDisplayName
+		}
+		if name == nil {
+			t.Fatal("reset omitted the display name command field")
+		}
+		updateContractEqual(t, "display name reset command", *name, want)
+		updateContractEqual(t, "reset leaves configuration bytes", repo.uris[1], patchHY2)
+	}
+}
+
+func TestUpdateServiceLocalDisplayNameErrorPrecedesInvalidStatus(t *testing.T) {
+	service, repo, params := newUpdateContractService(false)
+	name := strings.Repeat("x", 256)
+	params.ClientDisplayName = &name
+	params.Status = "invalid"
+	params.StructuredPatch = &model.StructuredProfilePatch{}
+	result, err := service.UpdateLocal(context.Background(), params)
+	updateContractError(t, err, ErrLabelTooLong)
+	updateContractEqual(t, "no rejected detail", result == nil, true)
+	updateContractEqual(t, "no invalid writes", repo.localCalls+repo.sourceCalls, 0)
 }
 
 func TestUpdateServicePersistenceFailuresReturnNoDetail(t *testing.T) {
