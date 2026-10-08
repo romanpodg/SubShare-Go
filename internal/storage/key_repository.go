@@ -25,10 +25,6 @@ func (r *Repository) GetLegacyByID(ctx context.Context, id int64) (*model.VLESSK
 	return key, rawURL, nil
 }
 
-func (r *Repository) EnsureKeyCategory(ctx context.Context, name string) (int64, error) {
-	return r.categories.ensure(ctx, name, "#d8b33d")
-}
-
 func (r *Repository) BulkUpdateKeys(ctx context.Context, params keymanagement.BulkKeyUpdate) error {
 	tx, err := r.db.BeginTx(ctx, nil)
 	if err != nil {

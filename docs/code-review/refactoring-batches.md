@@ -10,7 +10,9 @@ The user explicitly requested R03 and the subsequent PATCH correction in that sa
 
 The user then requested R04 within PR #8. Its [command-boundary record](r04-user-commands.md) describes creation transaction ownership, atomic deletion, response parity and the explicit unknown-deletion-outcome correction.
 
-PR #8 is now merged at **d87b122**. R05a starts [PR #9](https://github.com/romanpodg/SubShare-Go/pull/9) from that merge: its [activation redemption record](r05a-activation-redemption.md) describes the HTTP-independent command, unchanged atomic claim and deterministic contention/failure assurance. All six hosted checks passed at ddf7154. The user then requested R05b continuation; its [device registration record](r05b-device-registration.md) owns the transaction/policy extraction and added assurance. R06 is the next batch; broader A01 work remains.
+PR #8 is merged at **d87b122**. R05a started [PR #9](https://github.com/romanpodg/SubShare-Go/pull/9) from that merge: its [activation redemption record](r05a-activation-redemption.md) describes the HTTP-independent command, unchanged atomic claim and deterministic contention/failure assurance. All six hosted checks passed at ddf7154. The user then requested R05b continuation; its [device registration record](r05b-device-registration.md) owns the transaction/policy extraction and added assurance. The checked-out history includes the activation/device merge at **dc91072** and R06 characterization at **6a12236**.
+
+**2026-10-07 continuation:** R07a extracts category and ordering persistence within the same adapter, retaining the R06 contracts. Its [execution record](r07a-category-ordering.md) owns local validation and the strict CodeScene average-complexity warnings. R07b is next; broader A01 and A02 work remains.
 
 | Batch scope | Status | What remains |
 | --- | --- | --- |
@@ -18,11 +20,13 @@ PR #8 is now merged at **d87b122**. R05a starts [PR #9](https://github.com/roman
 | R02 | Completed; Windows/Linux/deployment validated; merged in PR #8 | No remaining R02 implementation |
 | R03 | Test matrix, retry and PATCH corrections validated; merged in PR #8 | Retained as mutation contract evidence |
 | R04 | Create/delete command boundary validated; merged in PR #8 | Retained as command-boundary evidence |
-| R05a | Activation command/policy/HTTP boundary validated at ddf7154 | PR #9 review |
-| R05b | Device registration transaction/policy boundary implemented | PR #9 review and hosted checks for the continuation |
-| All R06–R23 sub-batches | Not started | Original scopes/dependencies below remain authoritative |
+| R05a | Activation command/policy/HTTP boundary validated at ddf7154; included in dc91072 merge | Retained as activation contract evidence |
+| R05b | Device registration transaction/policy boundary included in dc91072 merge | Retained as device contract evidence |
+| R06 | Characterization committed at 6a12236; storage/service/HTTP baseline passes locally | Retained as R07/R08 prerequisites |
+| R07a | Category/order adapter extraction implemented and locally validated | PR #11 open; new-file phase decomposition scores 10.00 locally; hosted checks/review remain |
+| R07b–R23 sub-batches | Not started | Original scopes/dependencies below remain authoritative |
 
-Partial means acceptance criteria are not yet satisfied. The e3ceaba repository split predates R01 and does not complete A01. PR #7 and PR #8 are merged. PR #9's activation and user-requested device continuation remain independently reviewable in assurance/extraction commits. The original plan and R01 execution notes below are historical records.
+Partial means acceptance criteria are not yet satisfied. The e3ceaba repository split predates R01 and does not complete A01. PR #7 and PR #8 are merged; dc91072 merges the activation and device continuation. R06 assurance and R07a extraction remain separate changes. The original plan and R01 execution notes below are historical records.
 
 ## Ordered execution plan
 
@@ -36,8 +40,8 @@ The original recommended first batch was **R01**, tests only; its execution stat
 | R04 — implemented | P1/A01 | User create/delete commands, validation and HTTP adapters | R03 creation/defaults/assignments/rollback/cascade fixtures plus command/error assurance | Move persistence and creation transaction ownership out of HTTP; retain atomic DELETE | R03 | G, M; user-route response parity; C |
 | R05a — implemented | P1/A01 | Activation redemption command, pure code validation, SQL CAS and HTTP adapter | R03 duplicate/expiry fixtures plus synchronized claims, unknown outcomes and URL parity | Make one-time redemption atomic boundary explicit | R03; independent of R04 | G, M, race-enabled CAS tests; C |
 | R05b — implemented | P1/A01 | Device registration command, SQL adapter, pure access/capacity policy and request adapter | R03 plus synchronized final-slot/same-ID transactions, rollback and route-policy fixtures | Isolate device registration transaction from read projection | R03; independent of R05a | G, M, race-enabled slot tests; C |
-| R06 | P1/A02 | Profile service/adapter fault and tri-state characterization tests | Existing metadata/no-secret-rewrite/reveal tests | Lock revisions, ownership, ciphertext and rollback semantics | None | G, M; targeted service/adapter coverage |
-| R07a | P1/A02 | Category/order methods in `profile_repository.go`, same package/adapter | R06 category/reorder atomicity and assignment cases | Separate one independent responsibility; retain active seam | R06 | G, M; category HTTP fixtures; C |
+| R06 — implemented | P1/A02 | Profile service/adapter fault and tri-state characterization tests | Existing metadata/no-secret-rewrite/reveal tests | Lock revisions, ownership, ciphertext and rollback semantics | None | G, M; targeted service/adapter coverage |
+| R07a — implemented | P1/A02 | Category/order methods in `profile_repository.go`, same package/adapter | R06 category/reorder atomicity and assignment cases | Separate one independent responsibility; retain active seam | R06 | G, M; category HTTP fixtures; C |
 | R07b | P1/A02 | Safe read/projection methods in the same adapter | R06 corrupt/missing secret/source projection tests | Separate read mapping from encrypted commands | R06; R07a preferred | G, M; reveal/summary parity; C |
 | R08 | P1/A02 | `keymanagement/update.go` patch and ownership predicates | R06 per-protocol absent/set/clear and source/revision matrix | Name pure patch phases without changing mutation semantics | R06 | G; strict DTO/raw-byte parity; C |
 | R09 | P1/A03 | Frontend configuration golden/property/contract fixtures only | Existing configuration/document/protocol tests | Freeze representable edits and preservation invariants | None | F; optional shared Go fixture validation |
