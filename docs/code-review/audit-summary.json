@@ -3989,8 +3989,8 @@
       "R07b": "merged_pr12",
       "R08": "merged_pr13",
       "R08c": "merged_pr14",
-      "R09": "pr15_review_gaps_fixed_locally_full_checks_pass_final_hosted_review_pending",
-      "R10a": "not_started",
+      "R09": "pr15_final_head_all_six_checks_pass_final_codex_review_running",
+      "R10a": "discovery_plan_saved_no_production_changes",
       "R10b": "not_started",
       "R11a": "not_started",
       "R11b": "not_started",
@@ -4101,8 +4101,11 @@
       "firstReviewFindings": 5,
       "secondReviewFindings": 7,
       "localFollowUpTestsAndStaticChecks": "passed",
-      "finalHostedAcceptance": "pending"
+      "finalHostedAcceptance": "all_six_checks_pass_final_codex_review_running",
+      "currentHead": "6d6a28f974cf10ce265bf037e325445f76213260",
+      "currentActionsRun": "https://github.com/romanpodg/SubShare-Go/actions/runs/37755784192"
     },
+    "r10aExecutionRecord": "docs/code-review/r10a-patch-planning.md",
     "r08cLocalValidation": {
       "failingRegressionCommit": "48f5c20",
       "correctiveCommit": "7b79c11",
