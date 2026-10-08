@@ -19,3 +19,7 @@ Evidence is saved under `.cache/r10a`: corpus/full-suite JSON, direct source/del
 ## Next batch
 
 R10b isolates the security phase behind a focused internal module using the accepted alias/field/parent/Unicode corpus. Keep one normalization implementation and avoid runtime import cycles. Later original scopes and dependencies remain in the backlog.
+
+## Final hosted acceptance
+
+[PR #16](https://github.com/romanpodg/SubShare-Go/pull/16) merged at **8952b75** after all six final-head checks passed at **d225402**: backend, frontend, Docker deployment smoke, CodeScene, Codecov patch and bundles. [Actions run 37766659388](https://github.com/romanpodg/SubShare-Go/actions/runs/37766659388) includes full frontend/backend, migrations, races, static/secret checks and restart validation. Automated review at the same head reported no major issues; no inline threads were unresolved. R10b begins separately from this accepted main.
