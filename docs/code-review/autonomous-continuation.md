@@ -7,9 +7,11 @@ The persistent goal is attached to this chat. Active heartbeat `continue-subshar
 ## Current handoff
 
 - R06 is merged in PR #10 at `ebd427f`.
-- R07a is in [PR #11](https://github.com/romanpodg/SubShare-Go/pull/11), branch `refactor/profile-category-ordering`. The original extraction is `642fec7`; hosted CodeScene rejected inherited complexity in its new files. The follow-up decomposes those phases without changing endpoint or persistence contracts and scores both new files 10.00 locally.
+- R07a is merged in [PR #11](https://github.com/romanpodg/SubShare-Go/pull/11) at `1a7968b`; all six hosted checks passed at `33631dd` and final Codex review reported no major issues. CodeScene approved; its earlier inline findings were removed after the fixes. No gates or rules were suppressed.
+- R07b is in [PR #12](https://github.com/romanpodg/SubShare-Go/pull/12), branch `refactor/profile-safe-reads`; pre-extraction characterization is `930e107`. Full local tests, static/migration/strict CodeScene checks pass. Hosted tests and user/profile contention races pass, but Gitleaks flagged the ordinary nullable-integer latency assignment in `1e3b6c3`. The exact historical fingerprint is documented in its execution record and narrowly excluded; recheck all hosted gates/review at the correction head before merge.
+- R08 is started on `refactor/profile-update-policy`; passing update request/precedence characterization is `e880b15`. Its production extraction remains to be implemented. Incorporate R07b acceptance/history after PR #12 merges.
 - Check the actual PR head, all CI/check results and automated review before merging. Resolve review threads only after verified fixes and replies. No bypass or suppression of gates is authorized.
-- R07b safe read/projection extraction is next, then R08 patch/ownership phases. Remaining scopes/dependencies are in `refactoring-batches.md`; unfinished audit items are in `refactoring-backlog.md`.
+- R08 patch/ownership phases are next after R07b. Remaining scopes/dependencies are in `refactoring-batches.md`; unfinished audit items are in `refactoring-backlog.md`.
 - The initial workspace changes were all R07a work and were preserved in its own commit. Recheck the working tree before further branch operations; do not overwrite new unrelated changes.
 
 ## Local validation constraints

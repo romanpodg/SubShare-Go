@@ -3984,9 +3984,9 @@
       "R04": "merged",
       "R05a": "merged",
       "R05b": "merged",
-      "R06": "characterized_local_validated",
-      "R07a": "pr11_open_gate_findings_fixed_locally_hosted_revalidation_pending",
-      "R07b": "not_started",
+      "R06": "merged_pr10",
+      "R07a": "merged_pr11",
+      "R07b": "pr12_full_local_and_hosted_tests_pass_exact_scan_false_positive_correction_pending",
       "R08": "not_started",
       "R09": "not_started",
       "R10a": "not_started",
@@ -4031,13 +4031,13 @@
         "scope": "Repository test maintainability, with assertions and transitions retained"
       }
     ],
-    "nextBatch": "R07b",
+    "nextBatch": "R08",
     "nextBatchPriority": "P1",
     "nextBatchRemainingPrerequisites": [
-      "Use R06's corrupt/missing credential, source projection and revision fixtures before extracting safe read/projection methods.",
-      "Retain R07a's category/order boundary and review its documented strict CodeScene average-complexity warnings."
+      "Finish R07b full/hosted validation and final automated review before merging its read/projection boundary.",
+      "Retain R06's per-protocol tri-state, ownership, revision and raw-byte fixtures for R08's named patch phases."
     ],
-    "remainingCriticalRisk": "Startup, create-retry and PATCH lost-update corrections and R04 are merged in PR8; R05a/R05b are included in dc91072. R06 assurance is committed and R07a is implemented locally. Hosted R07a validation, R07b/R08 and other A01 boundaries remain. OS I/O trigger frequency remains unmeasured.",
+    "remainingCriticalRisk": "R01-R07a are merged. R07b is implemented; full/hosted validation and R08 patch policy remain, along with the separately characterized ignored assignment error and broader backlog. OS I/O trigger frequency remains unmeasured.",
     "r06CharacterizationCommit": "6a12236614e5",
     "r07aExecutionRecord": "docs/code-review/r07a-category-ordering.md",
     "autonomousContinuationRecord": "docs/code-review/autonomous-continuation.md",
@@ -4048,7 +4048,26 @@
       "initialCodexReview": "completed_no_major_issues",
       "followUpCategoryCodeHealth": 10.0,
       "followUpOrderCodeHealth": 10.0,
-      "finalHostedValidation": "pending"
+      "finalHostedValidation": "all_six_checks_passed",
+      "validatedCommit": "33631dd3ad05773e6cd6ce864c5be865cd5d1c59",
+      "mergeCommit": "1a7968bc5a766f436b004c21256f20ff5ca17212",
+      "actionsRun": "https://github.com/romanpodg/SubShare-Go/actions/runs/37728728044",
+      "finalCodexReview": "completed_no_major_issues"
+    },
+    "r07bExecutionRecord": "docs/code-review/r07b-profile-reads.md",
+    "r07bLocalValidation": {
+      "characterizationCommit": "930e107",
+      "readAdapterCodeHealth": 10.0,
+      "mutationAdapterCodeHealth": 7.71,
+      "bulkHealthAdapterCodeHealth": 9.09,
+      "targetedStorageAndHTTP": "passed",
+      "vetLintBuildMigrationWorkflow": "passed",
+      "strictCodeSceneDelta": "passed",
+      "fullBackendSuite": "passed",
+      "pullRequest": "https://github.com/romanpodg/SubShare-Go/pull/12",
+      "initialHostedActionsRun": "https://github.com/romanpodg/SubShare-Go/actions/runs/37729501988",
+      "hostedProfileRace": "passed",
+      "initialHostedFailure": "gitleaks_generic_api_key_false_positive_on_latency_field_projection"
     },
     "r07aLocalValidation": {
       "sourceState": "Working-tree extraction based on 6a12236614e5; no R07a commit is claimed.",
