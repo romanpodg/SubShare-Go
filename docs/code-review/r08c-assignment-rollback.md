@@ -12,6 +12,6 @@ The corrected storage regression passes (1.402s), verifies the complete snapshot
 
 ## Validation and acceptance
 
-Vet, lint (zero new issues), server build, migration compatibility (3.553s) and strict CodeScene delta against the R08 branch pass. The mutation adapter remains at **7.71** with unchanged existing findings; the modified storage regression and new HTTP test file score **10.00**. No rule, gate or failure is suppressed. Full uncached backend regression is running with saved JSON under `.cache/r08c`; its own hosted checks and automated review must pass before merge.
+Vet, lint (zero new issues), server build, migration compatibility (3.553s) and strict CodeScene delta against merged main pass. The mutation adapter remains at **7.71** with unchanged existing findings; the modified storage regression and new HTTP test file score **10.00**. No rule, gate or failure is suppressed. Full uncached Windows backend regression passes with **1,108 passed, five optional skips and no failures**; the server package completes in 310.967s. JSON is saved under `.cache/r08c`. Its own hosted checks and automated review must pass before merge.
 
 After R08c acceptance, continue to R09's frontend preservation corpus and the remaining original batches. A01's broader mutation boundaries must also be reconciled with their acceptance criteria before the overall backlog is declared complete.

@@ -28,7 +28,7 @@ Completed work:
 | --- | --- | --- |
 | A00 / P0 | R01/R02 complete; PR #8 merged | No production I/O trigger frequency is claimed |
 | A01 / P1 | R03/R04 merged; R05a/R05b included in dc91072 merge | Other A01 mutation boundaries remain |
-| A02 / P1 | R06/R07a/R07b/R08 merged; separate R08c assignment rollback correction implemented | R08c full/hosted acceptance |
+| A02 / P1 | R06/R07a/R07b/R08 merged; R08c correction fully validated locally | R08c hosted acceptance |
 | A03 / P1 | Not started | R09/R10a/R10b preservation corpus, patch planning and transport/security phase |
 | A04 / P1 | Not started | R12/R13a/R13b response policy, persistence and HTTP delegation |
 | A05 / P1 | Not started | R14/R15a/R15b queue/source lifecycle, overlap and source-create transaction |

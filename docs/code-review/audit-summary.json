@@ -3988,7 +3988,7 @@
       "R07a": "merged_pr11",
       "R07b": "merged_pr12",
       "R08": "merged_pr13",
-      "R08c": "implemented_rollback_and_http_regressions_pass_full_suite_pending",
+      "R08c": "full_local_validation_passed_hosted_pr_pending",
       "R09": "not_started",
       "R10a": "not_started",
       "R10b": "not_started",
@@ -4075,6 +4075,16 @@
       "finalCodexReview": "completed_no_major_issues"
     },
     "r08cExecutionRecord": "docs/code-review/r08c-assignment-rollback.md",
+    "r08cLocalValidation": {
+      "failingRegressionCommit": "48f5c20",
+      "correctiveCommit": "7b79c11",
+      "storageRollbackRetry": "passed",
+      "httpFailureAuditRetry": "passed",
+      "vetLintBuildMigrationStrictDelta": "passed",
+      "fullBackendSuite": "passed",
+      "testResultsPassed": 1108,
+      "optionalSkips": 5
+    },
     "r08LocalValidation": {
       "characterizationCommit": "e880b15",
       "productionExtractionCommit": "d9d77ed",

@@ -26,7 +26,7 @@ PR #8 is merged at **d87b122**. R05a started [PR #9](https://github.com/romanpod
 | R07a | Completed; PR #11 merged at 1a7968b | All six checks passed at 33631dd; final automated review clear |
 | R07b | Completed; PR #12 merged at e9643e1 | All six checks passed at bb98e95; final automated review clear; see [record](r07b-profile-reads.md) |
 | R08 | Completed; PR #13 merged at 3e4c333 | All six checks passed at 9c5fc34; final automated review clear; see [record](r08-update-policy.md) |
-| R08c | Separate assignment rollback correction implemented; storage/HTTP/static/migration/strict CodeScene checks pass | Full/hosted acceptance remains; see [record](r08c-assignment-rollback.md) |
+| R08c | Separate correction implemented; full Windows/storage/HTTP/static/migration/strict CodeScene checks pass | Hosted acceptance remains; see [record](r08c-assignment-rollback.md) |
 | R09–R23 sub-batches | Not started | Original scopes/dependencies below remain authoritative |
 
 Partial means acceptance criteria are not yet satisfied. The e3ceaba repository split predates R01 and does not complete A01. PR #7 and PR #8 are merged; dc91072 merges the activation and device continuation. R06 assurance and R07a extraction remain separate changes. The original plan and R01 execution notes below are historical records.
