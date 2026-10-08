@@ -5,3 +5,5 @@
 # False positive: row.latency.Int64 is a nullable integer field projection,
 # not a credential. Ignore only this historical commit/file/rule/line.
 1e3b6c3d305d60378a9c0157b1c45f337aca7f0c:internal/storage/profile_read_repository.go:generic-api-key:60
+# The same ordinary assignment was quoted in the historical execution record.
+a9688242df3ebda987b6ed119106dfb0ca91fc5a:docs/code-review/r07b-profile-reads.md:generic-api-key:27
