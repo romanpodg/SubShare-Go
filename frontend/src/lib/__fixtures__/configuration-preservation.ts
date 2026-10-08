@@ -58,15 +58,21 @@ function corpusDocument(protocol: ConfigurationProtocol, network: XrayJSONNetwor
   };
 }
 
-function corpusCase(protocol: ConfigurationProtocol, network: XrayJSONNetwork, security: XrayJSONSecurity) {
-  const document = corpusDocument(protocol, network, security);
-  const raw = JSON.stringify(document, null, 2)
+export function serializeCorpusDocument(document: object) {
+  return JSON.stringify(document, null, 2)
     .replace('"big-number-slot"', "1e400")
     .replace('"precision-number-slot"', "900719925474099312345")
     .replace('"escape-slot"', '"\\u0061"');
+}
+
+function corpusCase(protocol: ConfigurationProtocol, network: XrayJSONNetwork, security: XrayJSONSecurity) {
+  const document = corpusDocument(protocol, network, security);
+  const raw = serializeCorpusDocument(document);
   return { name: `${protocol}/${network}/${security}`, protocol, network, security, raw, document };
 }
 
 export const preservationCorpus = corpusProtocols.flatMap((protocol) =>
   networks.flatMap((network) => securities.map((security) => corpusCase(protocol, network, security)))
 );
+
+export type PreservationCase = (typeof preservationCorpus)[number];

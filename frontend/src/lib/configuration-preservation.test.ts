@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { corpusProtocols, preservationCorpus } from "./__fixtures__/configuration-preservation";
+import { sourceOnlyConversionGolden, transportGolden, rawTcpGolden, realityAliasGolden, realityAliasShapes } from "./__fixtures__/configuration-preservation-expectations";
 import { parseXrayJSONConfiguration, patchEditableConfiguration, patchXrayJSONConfiguration } from "./configuration";
 import { DuplicateJSONKeyError, formatXrayJSON } from "./xray-json-document";
 
@@ -68,6 +69,14 @@ describe("R09 configuration preservation corpus", () => {
       const converted = JSON.parse(result) as typeof document;
       const original = document.outbounds[1];
       const outbound = converted.outbounds[1];
+      const expectedSettings = target === "trojan" ? {
+        ...original.settings,
+        servers: [{ ...original.settings.servers[0], address: "edge.matrix.example", port: 443, password: original.settings.vnext[0].users[0].id }, ...original.settings.servers.slice(1)],
+      } : {
+        ...original.settings,
+        vnext: [{ ...original.settings.vnext[0], address: "edge.matrix.example", port: 443, users: [{ ...original.settings.vnext[0].users[0], id: original.settings.servers[0].password }, ...original.settings.vnext[0].users.slice(1)] }, ...original.settings.vnext.slice(1)],
+      };
+      expect(outbound).toEqual({ ...original, protocol: target, settings: expectedSettings });
       expect(parseXrayJSONConfiguration(result)?.draft).toMatchObject({ protocol: target, server: "edge.matrix.example" });
       expect(converted.outbounds[0]).toEqual(document.outbounds[0]);
       expect(converted.outbounds.slice(2)).toEqual(document.outbounds.slice(2));
@@ -81,6 +90,41 @@ describe("R09 configuration preservation corpus", () => {
       expect(result).toContain("900719925474099312345");
       expect(result).toContain('"\\u0061"');
     }
+  });
+
+  it.each(preservationCorpus)("creates absent target connection branches with exact conversion bytes: $name", (corpus) => {
+    for (const target of corpusProtocols.filter((value) => value !== corpus.protocol)) {
+      const golden = sourceOnlyConversionGolden(corpus, target);
+      expect(patchXrayJSONConfiguration(golden.raw, { protocol: target })).toBe(formatXrayJSON(golden.expected));
+    }
+  });
+
+  it.each(preservationCorpus)("patches and clears active transport fields without changing other branches: $name", (corpus) => {
+    for (const mode of ["set", "clear"] as const) {
+      const golden = transportGolden(corpus, mode);
+      expect(patchXrayJSONConfiguration(corpus.raw, golden.patch)).toBe(formatXrayJSON(golden.expected));
+    }
+  });
+
+  it.each(preservationCorpus.filter(({ network }) => network === "tcp"))("prefers existing raw TCP settings and retains dormant TCP settings: $name", (corpus) => {
+    for (const mode of ["set", "clear"] as const) {
+      const golden = rawTcpGolden(corpus, mode);
+      expect(patchXrayJSONConfiguration(golden.raw, transportGolden(corpus, mode).patch)).toBe(formatXrayJSON(golden.expected));
+    }
+  });
+
+  it.each(preservationCorpus)("retains dormant branches through every explicit security transition: $name", ({ raw, security }) => {
+    for (const target of (["none", "tls", "reality"] as const).filter((value) => value !== security)) {
+      const expected = formatXrayJSON(raw).replace(`"security": "${security}"`, `"security": "${target}"`);
+      const result = patchXrayJSONConfiguration(raw, { security: target });
+      expect(result).toBe(expected);
+      expect(parseXrayJSONConfiguration(result)?.draft.security).toBe(target === "none" ? "reality" : target);
+    }
+  });
+
+  it.each(preservationCorpus.filter(({ security }) => security !== "tls").flatMap((corpus) => realityAliasShapes.map((shape) => ({ ...corpus, name: `${corpus.name}/${shape}`, shape }))))("updates existing Reality aliases without changing document shape: $name", (corpus) => {
+    const golden = realityAliasGolden(corpus, corpus.shape);
+    expect(patchXrayJSONConfiguration(golden.raw, { publicKey: "updated" })).toBe(formatXrayJSON(golden.expected));
   });
 
   it.each(["vless", "trojan"])("retains ordered unknown/duplicate URI parameters and explicit false semantics: %s", (protocol) => {

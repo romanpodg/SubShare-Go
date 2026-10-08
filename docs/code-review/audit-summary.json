@@ -3989,7 +3989,7 @@
       "R07b": "merged_pr12",
       "R08": "merged_pr13",
       "R08c": "merged_pr14",
-      "R09": "preservation_corpus_implemented_full_frontend_checks_pass_hosted_pending",
+      "R09": "pr15_review_gaps_fixed_locally_full_checks_pass_final_hosted_review_pending",
       "R10a": "not_started",
       "R10b": "not_started",
       "R11a": "not_started",
@@ -4036,7 +4036,7 @@
     "nextBatchPriority": "P1",
     "nextBatchRemainingPrerequisites": [
       "Finish R09 hosted acceptance and final automated review before merging its test-only preservation corpus.",
-      "Retain the 63-combination corpus and 388 added cases for R10a patch planning/document application; then R10b security phase extraction."
+      "Retain the 63-combination corpus and 754 added cases for R10a patch planning/document application; then R10b security phase extraction."
     ],
     "remainingCriticalRisk": "R01-R07a are merged. R07b is implemented; full/hosted validation and R08 patch policy remain, along with the separately characterized ignored assignment error and broader backlog. OS I/O trigger frequency remains unmeasured.",
     "r06CharacterizationCommit": "6a12236614e5",
@@ -4086,12 +4086,20 @@
     "r09ExecutionRecord": "docs/code-review/r09-configuration-preservation.md",
     "r09LocalValidation": {
       "corpusCombinations": 63,
-      "addedTests": 388,
-      "fullFrontendTestsPassed": 516,
+      "addedTests": 754,
+      "fullFrontendTestsPassed": 882,
       "testFiles": 33,
       "typeLintBuild": "passed",
       "newFileCodeHealth": 10.0,
       "stagedSecretScan": "passed"
+    },
+    "r09ReviewFollowUp": {
+      "pullRequest": "https://github.com/romanpodg/SubShare-Go/pull/15",
+      "initialHead": "8c9b2675c2f211827cf1eafccbdfccb4adafba66",
+      "initialAllSixChecksPassed": true,
+      "actionableFindings": 5,
+      "localFollowUpTestsAndStaticChecks": "passed",
+      "finalHostedAcceptance": "pending"
     },
     "r08cLocalValidation": {
       "failingRegressionCommit": "48f5c20",
