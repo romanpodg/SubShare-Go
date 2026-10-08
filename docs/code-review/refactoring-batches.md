@@ -23,7 +23,7 @@ PR #8 is merged at **d87b122**. R05a started [PR #9](https://github.com/romanpod
 | R05a | Activation command/policy/HTTP boundary validated at ddf7154; included in dc91072 merge | Retained as activation contract evidence |
 | R05b | Device registration transaction/policy boundary included in dc91072 merge | Retained as device contract evidence |
 | R06 | Characterization committed at 6a12236; storage/service/HTTP baseline passes locally | Retained as R07/R08 prerequisites |
-| R07a | Category/order adapter extraction implemented and locally validated | Strict CodeScene average-complexity warnings and hosted validation remain; see execution record |
+| R07a | Category/order adapter extraction implemented and locally validated | PR #11 open; new-file phase decomposition scores 10.00 locally; hosted checks/review remain |
 | R07b–R23 sub-batches | Not started | Original scopes/dependencies below remain authoritative |
 
 Partial means acceptance criteria are not yet satisfied. The e3ceaba repository split predates R01 and does not complete A01. PR #7 and PR #8 are merged; dc91072 merges the activation and device continuation. R06 assurance and R07a extraction remain separate changes. The original plan and R01 execution notes below are historical records.

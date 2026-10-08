@@ -44,29 +44,9 @@ func (r *Repository) ListKeyCategories(ctx context.Context) ([]model.KeyCategory
 	}
 	defer rows.Close()
 
-	countByName := make(map[string]int)
-	colorByName := make(map[string]string)
-	categories := make([]model.KeyCategory, 0, 16)
-	for rows.Next() {
-		var id int64
-		var name sql.NullString
-		var color sql.NullString
-		if err := rows.Scan(&id, &name, &color); err != nil {
-			return nil, fmt.Errorf("failed to scan key category: %w", err)
-		}
-		normalized := normalizeCategoryName(name.String)
-		if normalized == "" {
-			continue
-		}
-		if _, exists := countByName[normalized]; exists {
-			continue
-		}
-		countByName[normalized] = 0
-		colorByName[normalized] = normalizeCategoryColor(color.String)
-		categories = append(categories, model.KeyCategory{ID: id, Name: normalized, Color: colorByName[normalized], KeysCount: 0})
-	}
-	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("failed to read key categories: %w", err)
+	listing, err := readCategoryDefinitions(rows)
+	if err != nil {
+		return nil, err
 	}
 
 	countRows, err := r.db.QueryContext(ctx, `
@@ -79,34 +59,84 @@ func (r *Repository) ListKeyCategories(ctx context.Context) ([]model.KeyCategory
 		return nil, fmt.Errorf("failed to load key category counts: %w", err)
 	}
 	defer countRows.Close()
+	if err := r.readCategoryCounts(ctx, countRows, listing); err != nil {
+		return nil, err
+	}
+	return listing.result(), nil
+}
 
+type categoryListing struct {
+	categories  []model.KeyCategory
+	countByName map[string]int
+	colorByName map[string]string
+}
+
+func readCategoryDefinitions(rows *sql.Rows) (*categoryListing, error) {
+	listing := &categoryListing{
+		categories:  make([]model.KeyCategory, 0, 16),
+		countByName: make(map[string]int),
+		colorByName: make(map[string]string),
+	}
+	for rows.Next() {
+		var id int64
+		var name sql.NullString
+		var color sql.NullString
+		if err := rows.Scan(&id, &name, &color); err != nil {
+			return nil, fmt.Errorf("failed to scan key category: %w", err)
+		}
+		normalized := normalizeCategoryName(name.String)
+		if normalized == "" {
+			continue
+		}
+		if _, exists := listing.countByName[normalized]; exists {
+			continue
+		}
+		listing.countByName[normalized] = 0
+		listing.colorByName[normalized] = normalizeCategoryColor(color.String)
+		listing.categories = append(listing.categories, model.KeyCategory{ID: id, Name: normalized, Color: listing.colorByName[normalized], KeysCount: 0})
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("failed to read key categories: %w", err)
+	}
+
+	return listing, nil
+}
+
+func (r *Repository) readCategoryCounts(ctx context.Context, countRows *sql.Rows, listing *categoryListing) error {
 	for countRows.Next() {
 		var category sql.NullString
 		var count int64
 		if err := countRows.Scan(&category, &count); err != nil {
-			return nil, fmt.Errorf("failed to scan category count: %w", err)
+			return fmt.Errorf("failed to scan category count: %w", err)
 		}
-		normalized := normalizeCategoryName(category.String)
-		if normalized == "" {
-			continue
-		}
-		if _, exists := countByName[normalized]; !exists {
-			colorByName[normalized] = "#D8B33D"
-			var id int64
-			_ = r.db.QueryRowContext(ctx, `SELECT id FROM key_categories WHERE name = ?`, normalized).Scan(&id)
-			categories = append(categories, model.KeyCategory{ID: id, Name: normalized, Color: colorByName[normalized], KeysCount: 0})
-		}
-		countByName[normalized] += int(count)
+		r.addCategoryCount(ctx, listing, category.String, count)
 	}
 	if err := countRows.Err(); err != nil {
-		return nil, fmt.Errorf("failed to read category counts: %w", err)
+		return fmt.Errorf("failed to read category counts: %w", err)
 	}
+	return nil
+}
 
-	for index := range categories {
-		categories[index].KeysCount = countByName[categories[index].Name]
-		categories[index].Color = normalizeCategoryColor(colorByName[categories[index].Name])
+func (r *Repository) addCategoryCount(ctx context.Context, listing *categoryListing, name string, count int64) {
+	normalized := normalizeCategoryName(name)
+	if normalized == "" {
+		return
 	}
-	return categories, nil
+	if _, exists := listing.countByName[normalized]; !exists {
+		listing.colorByName[normalized] = "#D8B33D"
+		var id int64
+		_ = r.db.QueryRowContext(ctx, `SELECT id FROM key_categories WHERE name = ?`, normalized).Scan(&id)
+		listing.categories = append(listing.categories, model.KeyCategory{ID: id, Name: normalized, Color: listing.colorByName[normalized], KeysCount: 0})
+	}
+	listing.countByName[normalized] += int(count)
+}
+
+func (listing *categoryListing) result() []model.KeyCategory {
+	for index := range listing.categories {
+		listing.categories[index].KeysCount = listing.countByName[listing.categories[index].Name]
+		listing.categories[index].Color = normalizeCategoryColor(listing.colorByName[listing.categories[index].Name])
+	}
+	return listing.categories
 }
 
 func (r *Repository) GetCategoryColor(ctx context.Context, name string) (string, error) {
@@ -147,24 +177,9 @@ func (r *Repository) UpdateKeyCategory(ctx context.Context, params keymanagement
 	newName := normalizeCategoryName(params.NewName)
 	color := params.Color
 
-	var keyCount int64
-	if err := r.db.QueryRowContext(ctx, `
-		SELECT COUNT(*) FROM vless_keys
-		 WHERE category_id = (SELECT id FROM key_categories WHERE name = ?)
-		    OR (category_id IS NULL AND category = ?)
-	`, oldName, oldName).Scan(&keyCount); err != nil {
-		return model.KeyCategory{}, fmt.Errorf("failed to count category keys: %w", err)
-	}
-
-	var categoryCount int64
-	var existingSortOrder int64
-	if err := r.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM key_categories WHERE name = ?`, oldName).Scan(&categoryCount); err != nil {
-		return model.KeyCategory{}, fmt.Errorf("failed to count category: %w", err)
-	}
-	_ = r.db.QueryRowContext(ctx, `SELECT COALESCE(sort_order, 0) FROM key_categories WHERE name = ?`, oldName).Scan(&existingSortOrder)
-
-	if keyCount == 0 && categoryCount == 0 {
-		return model.KeyCategory{}, keymanagement.ErrCategoryNotFound
+	existingSortOrder, err := r.categoryRenameOrder(ctx, oldName)
+	if err != nil {
+		return model.KeyCategory{}, err
 	}
 
 	tx, err := r.db.BeginTx(ctx, nil)
@@ -182,28 +197,8 @@ func (r *Repository) UpdateKeyCategory(ctx context.Context, params keymanagement
 	}
 
 	if oldName != newName {
-		var newCategoryID int64
-		if err := tx.QueryRowContext(ctx, `SELECT id FROM key_categories WHERE name = ?`, newName).Scan(&newCategoryID); err != nil {
-			return model.KeyCategory{}, fmt.Errorf("failed to resolve key category ID: %w", err)
-		}
-		if _, err := tx.ExecContext(ctx, `
-			UPDATE vless_keys
-			   SET category_id = ?, category = ?
-			 WHERE category_id = (SELECT id FROM key_categories WHERE name = ?)
-			    OR (category_id IS NULL AND category = ?)
-		`, newCategoryID, newName, oldName, oldName); err != nil {
-			return model.KeyCategory{}, fmt.Errorf("failed to update key category references: %w", err)
-		}
-		if _, err := tx.ExecContext(ctx, `
-			UPDATE external_subscription_sources
-			   SET key_category_id = ?, key_category = ?
-			 WHERE key_category_id = (SELECT id FROM key_categories WHERE name = ?)
-			    OR (key_category_id IS NULL AND key_category = ?)
-		`, newCategoryID, newName, oldName, oldName); err != nil {
-			return model.KeyCategory{}, fmt.Errorf("failed to update source category references: %w", err)
-		}
-		if _, err := tx.ExecContext(ctx, `DELETE FROM key_categories WHERE name = ?`, oldName); err != nil {
-			return model.KeyCategory{}, fmt.Errorf("failed to delete old category: %w", err)
+		if err := renameCategoryReferences(ctx, tx, oldName, newName); err != nil {
+			return model.KeyCategory{}, err
 		}
 	}
 
@@ -240,20 +235,8 @@ func (r *Repository) DeleteKeyCategory(ctx context.Context, params keymanagement
 		return fmt.Errorf("failed to resolve key category: %w", err)
 	}
 
-	if mode == "delete_with_keys" {
-		if _, err := tx.ExecContext(ctx, `
-			DELETE FROM vless_keys
-			 WHERE category_id = ? OR (category_id IS NULL AND category = ?)
-		`, categoryID, name); err != nil {
-			return fmt.Errorf("failed to delete keys in category: %w", err)
-		}
-	} else {
-		if _, err := tx.ExecContext(ctx, `
-			UPDATE vless_keys SET category_id = NULL, category = ''
-			 WHERE category_id = ? OR (category_id IS NULL AND category = ?)
-		`, categoryID, name); err != nil {
-			return fmt.Errorf("failed to clear keys category: %w", err)
-		}
+	if err := deleteCategoryKeys(ctx, tx, categoryID, keymanagement.DeleteCategoryParams{Name: name, Mode: mode}); err != nil {
+		return err
 	}
 
 	if _, err := tx.ExecContext(ctx, `DELETE FROM key_categories WHERE name = ?`, name); err != nil {
@@ -261,4 +244,74 @@ func (r *Repository) DeleteKeyCategory(ctx context.Context, params keymanagement
 	}
 
 	return tx.Commit()
+}
+
+func (r *Repository) categoryRenameOrder(ctx context.Context, oldName string) (int64, error) {
+	var keyCount int64
+	if err := r.db.QueryRowContext(ctx, `
+		SELECT COUNT(*) FROM vless_keys
+		 WHERE category_id = (SELECT id FROM key_categories WHERE name = ?)
+		    OR (category_id IS NULL AND category = ?)
+	`, oldName, oldName).Scan(&keyCount); err != nil {
+		return 0, fmt.Errorf("failed to count category keys: %w", err)
+	}
+
+	var categoryCount int64
+	var existingSortOrder int64
+	if err := r.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM key_categories WHERE name = ?`, oldName).Scan(&categoryCount); err != nil {
+		return 0, fmt.Errorf("failed to count category: %w", err)
+	}
+	_ = r.db.QueryRowContext(ctx, `SELECT COALESCE(sort_order, 0) FROM key_categories WHERE name = ?`, oldName).Scan(&existingSortOrder)
+
+	if keyCount == 0 && categoryCount == 0 {
+		return 0, keymanagement.ErrCategoryNotFound
+	}
+
+	return existingSortOrder, nil
+}
+
+func renameCategoryReferences(ctx context.Context, tx *sql.Tx, oldName, newName string) error {
+	var newCategoryID int64
+	if err := tx.QueryRowContext(ctx, `SELECT id FROM key_categories WHERE name = ?`, newName).Scan(&newCategoryID); err != nil {
+		return fmt.Errorf("failed to resolve key category ID: %w", err)
+	}
+	if _, err := tx.ExecContext(ctx, `
+		UPDATE vless_keys
+		   SET category_id = ?, category = ?
+		 WHERE category_id = (SELECT id FROM key_categories WHERE name = ?)
+		    OR (category_id IS NULL AND category = ?)
+	`, newCategoryID, newName, oldName, oldName); err != nil {
+		return fmt.Errorf("failed to update key category references: %w", err)
+	}
+	if _, err := tx.ExecContext(ctx, `
+		UPDATE external_subscription_sources
+		   SET key_category_id = ?, key_category = ?
+		 WHERE key_category_id = (SELECT id FROM key_categories WHERE name = ?)
+		    OR (key_category_id IS NULL AND key_category = ?)
+	`, newCategoryID, newName, oldName, oldName); err != nil {
+		return fmt.Errorf("failed to update source category references: %w", err)
+	}
+	if _, err := tx.ExecContext(ctx, `DELETE FROM key_categories WHERE name = ?`, oldName); err != nil {
+		return fmt.Errorf("failed to delete old category: %w", err)
+	}
+	return nil
+}
+
+func deleteCategoryKeys(ctx context.Context, tx *sql.Tx, categoryID sql.NullInt64, params keymanagement.DeleteCategoryParams) error {
+	query := `
+			UPDATE vless_keys SET category_id = NULL, category = ''
+			 WHERE category_id = ? OR (category_id IS NULL AND category = ?)
+		`
+	failure := "failed to clear keys category"
+	if params.Mode == "delete_with_keys" {
+		query = `
+			DELETE FROM vless_keys
+			 WHERE category_id = ? OR (category_id IS NULL AND category = ?)
+		`
+		failure = "failed to delete keys in category"
+	}
+	if _, err := tx.ExecContext(ctx, query, categoryID, params.Name); err != nil {
+		return fmt.Errorf("%s: %w", failure, err)
+	}
+	return nil
 }

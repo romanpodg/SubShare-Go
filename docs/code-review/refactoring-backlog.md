@@ -6,7 +6,7 @@ Coverage labeled **CC** is Codecov line coverage for this SHA. **Local** is CI-s
 
 ## Current implementation status — 2026-10-06
 
-**2026-10-07 update:** the checked-out history includes R05a/R05b merged at **dc91072**, R06 characterization at **6a12236**, and the local R07a category/order extraction. See the [R07a execution record](r07a-category-ordering.md) for scope, validation and strict CodeScene warnings. R07b is next. The historical audit measurements and earlier CI evidence below are retained.
+**2026-10-08 continuation:** R06 is merged through PR #10 at ebd427f. R07a is published in [PR #11](https://github.com/romanpodg/SubShare-Go/pull/11); inherited complexity in the extracted files is addressed by named phases scoring 10.00 locally. Hosted checks and final automated review remain. See [autonomous continuation](autonomous-continuation.md). **2026-10-07 update:** the checked-out history includes R05a/R05b merged at **dc91072**, R06 characterization at **6a12236**, and the local R07a category/order extraction. See the [R07a execution record](r07a-category-ordering.md) for scope, validation and strict CodeScene warnings. R07b is next. The historical audit measurements and earlier CI evidence below are retained.
 
 The R01 prerequisite was merged through [PR #7](https://github.com/romanpodg/SubShare-Go/pull/7) at **267811b**. R02 is complete in [PR #8](https://github.com/romanpodg/SubShare-Go/pull/8), with source validated at **a896708** and all six checks passing; see the [R02 execution record](r02-startup-safety.md) for the recovery contract, evidence and limits. Baseline measurements below still describe main at 3ab25a5; the R01 results below are historical evidence for a438377.
 

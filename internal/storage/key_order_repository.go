@@ -30,9 +30,20 @@ func (r *Repository) ReorderKeyCategories(ctx context.Context, names []string) e
 }
 
 func (r *Repository) ReorderKeys(ctx context.Context, ids []int64) error {
+	existingIDs, err := r.loadKeyOrderIDs(ctx)
+	if err != nil {
+		return err
+	}
+	if err := validateKeyOrder(existingIDs, ids); err != nil {
+		return err
+	}
+	return r.saveKeyOrder(ctx, ids)
+}
+
+func (r *Repository) loadKeyOrderIDs(ctx context.Context) ([]int64, error) {
 	rows, err := r.db.QueryContext(ctx, `SELECT id FROM vless_keys ORDER BY sort_order, id`)
 	if err != nil {
-		return fmt.Errorf("failed to load keys for reorder: %w", err)
+		return nil, fmt.Errorf("failed to load keys for reorder: %w", err)
 	}
 	defer rows.Close()
 
@@ -40,14 +51,17 @@ func (r *Repository) ReorderKeys(ctx context.Context, ids []int64) error {
 	for rows.Next() {
 		var id int64
 		if err := rows.Scan(&id); err != nil {
-			return fmt.Errorf("failed to read key id: %w", err)
+			return nil, fmt.Errorf("failed to read key id: %w", err)
 		}
 		existingIDs = append(existingIDs, id)
 	}
 	if err := rows.Err(); err != nil {
-		return fmt.Errorf("failed to iterate key ids: %w", err)
+		return nil, fmt.Errorf("failed to iterate key ids: %w", err)
 	}
+	return existingIDs, nil
+}
 
+func validateKeyOrder(existingIDs, ids []int64) error {
 	if len(existingIDs) != len(ids) {
 		return keymanagement.ErrInvalidKeyOrderCount
 	}
@@ -66,7 +80,10 @@ func (r *Repository) ReorderKeys(ctx context.Context, ids []int64) error {
 		}
 		seen[id] = struct{}{}
 	}
+	return nil
+}
 
+func (r *Repository) saveKeyOrder(ctx context.Context, ids []int64) error {
 	tx, err := r.db.BeginTx(ctx, nil)
 	if err != nil {
 		return fmt.Errorf("failed to start transaction: %w", err)
