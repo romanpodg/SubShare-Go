@@ -4036,7 +4036,7 @@
     "nextBatchPriority": "P1",
     "nextBatchRemainingPrerequisites": [
       "Finish R09 hosted acceptance and final automated review before merging its test-only preservation corpus.",
-      "Retain the 63-combination corpus and 3672 added cases for R10a patch planning/document application; then R10b security phase extraction."
+      "Retain the 63-combination corpus and 3792 added cases for R10a patch planning/document application; then R10b security phase extraction."
     ],
     "remainingCriticalRisk": "R01-R07a are merged. R07b is implemented; full/hosted validation and R08 patch policy remain, along with the separately characterized ignored assignment error and broader backlog. OS I/O trigger frequency remains unmeasured.",
     "r06CharacterizationCommit": "6a12236614e5",
@@ -4087,8 +4087,8 @@
     "r10aExecutionRecord": "docs/code-review/r10a-patch-planning.md",
     "r09LocalValidation": {
       "corpusCombinations": 63,
-      "addedTests": 3672,
-      "fullFrontendTestsPassed": 3800,
+      "addedTests": 3792,
+      "fullFrontendTestsPassed": 3920,
       "testFiles": 33,
       "typeLintBuild": "passed",
       "newFileCodeHealth": 10.0,
@@ -4098,10 +4098,11 @@
       "pullRequest": "https://github.com/romanpodg/SubShare-Go/pull/15",
       "initialHead": "8c9b2675c2f211827cf1eafccbdfccb4adafba66",
       "initialAllSixChecksPassed": true,
-      "actionableFindings": 20,
+      "actionableFindings": 27,
       "firstReviewFindings": 5,
       "secondReviewFindings": 7,
       "thirdReviewFindings": 8,
+      "fourthReviewFindings": 7,
       "localFollowUpTestsAndStaticChecks": "passed",
       "finalHostedAcceptance": "pending"
     },

@@ -2,12 +2,12 @@ import { describe, expect, it } from "vitest";
 import { corpusProtocols, preservationCorpus } from "./__fixtures__/configuration-preservation";
 import { sourceOnlyConversionGolden, presentConversionGolden, transportGolden, rawTcpGolden, realityAliasGolden, realityAliasShapes } from "./__fixtures__/configuration-preservation-expectations";
 import { singleTransportGoldens, absentTransportGoldens, singleSecurityGoldens, absentSecurityGoldens, singleConnectionGoldens, tlsOnlyNoneGoldens } from "./__fixtures__/configuration-field-goldens";
-import { partialTransportGoldens, nonObjectGoldens, lowercaseHostGoldens, combinedModeGoldens, combinedProtocolGoldens, trueNoneGoldens, trueNoneTransitions, missingConnectionGoldens, commaListGoldens } from "./__fixtures__/configuration-edge-goldens";
+import { partialTransportGoldens, nonObjectGoldens, lowercaseHostGoldens, combinedModeGoldens, combinedProtocolGoldens, trueNoneGoldens, trueNoneTransitions, missingConnectionGoldens, commaListGoldens, trueNoneControlGoldens, intermediateConnectionGoldens, noncanonicalGoldens, zeroAlterIDGoldens, portNormalizationGoldens } from "./__fixtures__/configuration-edge-goldens";
 import { parseXrayJSONConfiguration, patchEditableConfiguration, patchXrayJSONConfiguration } from "./configuration";
 import { DuplicateJSONKeyError, formatXrayJSON } from "./xray-json-document";
 
 describe("R09 configuration preservation corpus", () => {
-  it.each([...partialTransportGoldens, ...nonObjectGoldens, ...lowercaseHostGoldens, ...combinedModeGoldens, ...combinedProtocolGoldens, ...trueNoneTransitions, ...missingConnectionGoldens, ...commaListGoldens])("retains imported and combined-edit edge contracts: $name", ({ raw, patch, expected }) => {
+  it.each([...partialTransportGoldens, ...nonObjectGoldens, ...lowercaseHostGoldens, ...combinedModeGoldens, ...combinedProtocolGoldens, ...trueNoneTransitions, ...missingConnectionGoldens, ...commaListGoldens, ...trueNoneControlGoldens, ...intermediateConnectionGoldens, ...noncanonicalGoldens, ...zeroAlterIDGoldens, ...portNormalizationGoldens])("retains imported and combined-edit edge contracts: $name", ({ raw, patch, expected }) => {
     expect(patchXrayJSONConfiguration(raw, patch)).toBe(formatXrayJSON(expected));
   });
 
