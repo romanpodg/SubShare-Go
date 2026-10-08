@@ -6,7 +6,7 @@ Coverage labeled **CC** is Codecov line coverage for this SHA. **Local** is CI-s
 
 ## Current implementation status — 2026-10-06
 
-**2026-10-08 continuation:** R06 is merged through PR #10 at ebd427f. R07a is merged in [PR #11](https://github.com/romanpodg/SubShare-Go/pull/11) at 1a7968b after all six hosted checks passed at 33631dd and final automated review found no major issues. R07b read/projection extraction is implemented with passing characterization and targeted contracts; full local tests pass; final hosted scan/deployment acceptance remains. See [R07b record](r07b-profile-reads.md) and [autonomous continuation](autonomous-continuation.md). **2026-10-07 update:** the checked-out history includes R05a/R05b merged at **dc91072**, R06 characterization at **6a12236**, and the local R07a category/order extraction. See the [R07a execution record](r07a-category-ordering.md) for scope, validation and strict CodeScene warnings. R07b is next. The historical audit measurements and earlier CI evidence below are retained.
+**2026-10-08 continuation:** R06 is merged in PR #10; R07a, R07b, R08 and the separately reviewed R08c correction are merged in PRs #11-#14 after all six hosted checks and final automated reviews passed. A02 is accepted. R09 has 3792 added preservation cases and 3920 full frontend tests passing; PR #15 review gaps are fixed locally; hosted acceptance remains. R10a patch planning/application is next. See [R09](r09-configuration-preservation.md) and [autonomous continuation](autonomous-continuation.md). **Historical 2026-10-07 update:** the checked-out history includes R05a/R05b merged at **dc91072**, R06 characterization at **6a12236**, and the local R07a category/order extraction. See the [R07a execution record](r07a-category-ordering.md) for scope, validation and strict CodeScene warnings. R07b is next. The historical audit measurements and earlier CI evidence below are retained.
 
 The R01 prerequisite was merged through [PR #7](https://github.com/romanpodg/SubShare-Go/pull/7) at **267811b**. R02 is complete in [PR #8](https://github.com/romanpodg/SubShare-Go/pull/8), with source validated at **a896708** and all six checks passing; see the [R02 execution record](r02-startup-safety.md) for the recovery contract, evidence and limits. Baseline measurements below still describe main at 3ab25a5; the R01 results below are historical evidence for a438377.
 
@@ -28,8 +28,8 @@ Completed work:
 | --- | --- | --- |
 | A00 / P0 | R01/R02 complete; PR #8 merged | No production I/O trigger frequency is claimed |
 | A01 / P1 | R03/R04 merged; R05a/R05b included in dc91072 merge | Other A01 mutation boundaries remain |
-| A02 / P1 | R06/R07a/R07b/R08 merged; R08c correction fully validated locally | R08c hosted acceptance |
-| A03 / P1 | Not started | R09/R10a/R10b preservation corpus, patch planning and transport/security phase |
+| A02 / P1 | Completed; R06/R07a/R07b/R08/R08c merged with hosted checks/review clear | Retain encrypted command, projection, ownership and rollback contracts |
+| A03 / P1 | R09 preservation corpus implemented; full frontend checks pass | R09 hosted acceptance; R10a patch planning/application and R10b security phase |
 | A04 / P1 | Not started | R12/R13a/R13b response policy, persistence and HTTP delegation |
 | A05 / P1 | Not started | R14/R15a/R15b queue/source lifecycle, overlap and source-create transaction |
 | A06 / P1 | Not started | R16a/R16b actual-route authorization matrix and guard evaluation |
@@ -46,7 +46,7 @@ All six checks passed for a438377: backend, frontend, Docker smoke, CodeScene, C
 
 Codecov: project **48.02%** versus main **46.89%**; main.go **18.46%** versus **8.01%**; sqlite.go **64.70%** versus **60.78%**; whole-PR patch **80.09%**. Test Analytics: **848 passed, 5 skipped, no failures/errors**. Bundle upload/check passed; size/delta figures were unavailable in inspected results. Local statements remain **52.4%**, with unchanged coverage across 140 repository blocks. Optional snapshot/client fixtures and local race execution remain unverified. Passing frontend CI does not complete its planned refactoring.
 
-**Current review boundary:** R01-R07a are merged, including R06 in PR #10 and R07a in PR #11. R07b read/projection extraction is implemented and targeted/static/migration/strict CodeScene checks pass; full backend passes; final hosted scan/deployment acceptance remains. R08 patch/ownership phases are next. The broader A01/A02 scopes and remaining backlog are incomplete; historical measurements remain distinct from current validation.
+**Current review boundary:** R01-R08 and the separate R08c correction are merged; A00/A02 and the reproduced PATCH defect are resolved. R09 PR #15 has all initial hosted checks passing; review gaps are fixed locally with final checks/review pending. R10a/R10b follow. Broader A01 boundaries and A03-A14 remain incomplete; historical measurements are distinct from current validation.
 
 ## P0
 

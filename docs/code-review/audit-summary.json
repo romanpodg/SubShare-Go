@@ -3988,8 +3988,8 @@
       "R07a": "merged_pr11",
       "R07b": "merged_pr12",
       "R08": "merged_pr13",
-      "R08c": "full_local_validation_passed_hosted_pr_pending",
-      "R09": "not_started",
+      "R08c": "merged_pr14",
+      "R09": "pr15_third_review_gaps_fixed_locally_final_revalidation_pending",
       "R10a": "not_started",
       "R10b": "not_started",
       "R11a": "not_started",
@@ -4032,11 +4032,11 @@
         "scope": "Repository test maintainability, with assertions and transitions retained"
       }
     ],
-    "nextBatch": "R08c_then_R09",
+    "nextBatch": "R10a",
     "nextBatchPriority": "P1",
     "nextBatchRemainingPrerequisites": [
-      "Finish R08c full/hosted validation and final automated review before merging its separate assignment rollback correction.",
-      "Continue to R09's frontend preservation corpus, retaining the existing loss-preserving editor and explicit byte/unknown-field invariants."
+      "Finish R09 hosted acceptance and final automated review before merging its test-only preservation corpus.",
+      "Retain the 63-combination corpus and 3792 added cases for R10a patch planning/document application; then R10b security phase extraction."
     ],
     "remainingCriticalRisk": "R01-R07a are merged. R07b is implemented; full/hosted validation and R08 patch policy remain, along with the separately characterized ignored assignment error and broader backlog. OS I/O trigger frequency remains unmeasured.",
     "r06CharacterizationCommit": "6a12236614e5",
@@ -4075,6 +4075,36 @@
       "finalCodexReview": "completed_no_major_issues"
     },
     "r08cExecutionRecord": "docs/code-review/r08c-assignment-rollback.md",
+    "r08cHostedAcceptance": {
+      "pullRequest": "https://github.com/romanpodg/SubShare-Go/pull/14",
+      "validatedCommit": "e35e49e6f5a725c88d0c30a20365aafd140c163f",
+      "mergeCommit": "2d55c0371ff8b43f8d669043cc048d673c3e09ee",
+      "actionsRun": "https://github.com/romanpodg/SubShare-Go/actions/runs/37732133001",
+      "allSixChecksPassed": true,
+      "finalCodexReview": "completed_no_major_issues"
+    },
+    "r09ExecutionRecord": "docs/code-review/r09-configuration-preservation.md",
+    "r09LocalValidation": {
+      "corpusCombinations": 63,
+      "addedTests": 3792,
+      "fullFrontendTestsPassed": 3920,
+      "testFiles": 33,
+      "typeLintBuild": "passed",
+      "newFileCodeHealth": 10.0,
+      "stagedSecretScan": "passed"
+    },
+    "r09ReviewFollowUp": {
+      "pullRequest": "https://github.com/romanpodg/SubShare-Go/pull/15",
+      "initialHead": "8c9b2675c2f211827cf1eafccbdfccb4adafba66",
+      "initialAllSixChecksPassed": true,
+      "actionableFindings": 27,
+      "firstReviewFindings": 5,
+      "secondReviewFindings": 7,
+      "thirdReviewFindings": 8,
+      "fourthReviewFindings": 7,
+      "localFollowUpTestsAndStaticChecks": "passed",
+      "finalHostedAcceptance": "pending"
+    },
     "r08cLocalValidation": {
       "failingRegressionCommit": "48f5c20",
       "correctiveCommit": "7b79c11",
