@@ -6,7 +6,7 @@ Coverage labeled **CC** is Codecov line coverage for this SHA. **Local** is CI-s
 
 ## Current implementation status — 2026-10-06
 
-**2026-10-08 continuation:** R06 is merged in PR #10; R07a, R07b, R08 and the separately reviewed R08c correction are merged in PRs #11-#14 after all six hosted checks and final automated reviews passed. A02 is accepted. R09 merged through PR #15 at 01f92aa with all six checks and all 27 review findings resolved. R10a merged in PR #16 at 8952b75 after all six checks and clear automated review. R10b merged in PR #17 at 1809f80 after all six final-head checks and clear review. R10c shared/boundary fixtures are implemented separately. See [R09](r09-configuration-preservation.md) and [autonomous continuation](autonomous-continuation.md). **Historical 2026-10-07 update:** the checked-out history includes R05a/R05b merged at **dc91072**, R06 characterization at **6a12236**, and the local R07a category/order extraction. See the [R07a execution record](r07a-category-ordering.md) for scope, validation and strict CodeScene warnings. R07b is next. The historical audit measurements and earlier CI evidence below are retained.
+**2026-10-08 continuation:** R06 is merged in PR #10; R07a, R07b, R08 and the separately reviewed R08c correction are merged in PRs #11-#14 after all six hosted checks and final automated reviews passed. A02 is accepted. R09 merged through PR #15 at 01f92aa with all six checks and all 27 review findings resolved. R10a merged in PR #16 at 8952b75 after all six checks and clear automated review. R10b merged in PR #17 at 1809f80 after all six final-head checks and clear review. R10c merged in PR #18 at 087e873 after all six checks and clear review. A03 is accepted; R11a command extraction is implemented with hosted acceptance pending. See [R09](r09-configuration-preservation.md) and [autonomous continuation](autonomous-continuation.md). **Historical 2026-10-07 update:** the checked-out history includes R05a/R05b merged at **dc91072**, R06 characterization at **6a12236**, and the local R07a category/order extraction. See the [R07a execution record](r07a-category-ordering.md) for scope, validation and strict CodeScene warnings. R07b is next. The historical audit measurements and earlier CI evidence below are retained.
 
 The R01 prerequisite was merged through [PR #7](https://github.com/romanpodg/SubShare-Go/pull/7) at **267811b**. R02 is complete in [PR #8](https://github.com/romanpodg/SubShare-Go/pull/8), with source validated at **a896708** and all six checks passing; see the [R02 execution record](r02-startup-safety.md) for the recovery contract, evidence and limits. Baseline measurements below still describe main at 3ab25a5; the R01 results below are historical evidence for a438377.
 
@@ -29,11 +29,11 @@ Completed work:
 | A00 / P0 | R01/R02 complete; PR #8 merged | No production I/O trigger frequency is claimed |
 | A01 / P1 | R03/R04 merged; R05a/R05b included in dc91072 merge | Other A01 mutation boundaries remain |
 | A02 / P1 | Completed; R06/R07a/R07b/R08/R08c merged with hosted checks/review clear | Retain encrypted command, projection, ownership and rollback contracts |
-| A03 / P1 | R09/R10a/R10b merged; R10c locally validated | R10c hosted acceptance and final criteria reconciliation |
+| A03 / P1 | Completed; R09/R10a/R10b/R10c merged | Retain preservation/shared/UTF-8 contracts; remaining parser complexity stays visible |
 | A04 / P1 | Not started | R12/R13a/R13b response policy, persistence and HTTP delegation |
 | A05 / P1 | Not started | R14/R15a/R15b queue/source lifecycle, overlap and source-create transaction |
 | A06 / P1 | Not started | R16a/R16b actual-route authorization matrix and guard evaluation |
-| A07 / P1 | Not started | R11a/R11b editor commands and draft/reveal/session lifetime |
+| A07 / P1 | R11a implemented with functional validation passing | R11a hosted acceptance; R11b draft/reveal/session lifetime |
 | A08 / P1 | Not started | R17a/R17b ordering/actions and shared presentation |
 | A09 / P2 | Not started | R18a/R18b Go/TS/OpenAPI contracts and request errors |
 | A10 / P2 | Not started | R19 backend Xray interpretation |
@@ -46,7 +46,7 @@ All six checks passed for a438377: backend, frontend, Docker smoke, CodeScene, C
 
 Codecov: project **48.02%** versus main **46.89%**; main.go **18.46%** versus **8.01%**; sqlite.go **64.70%** versus **60.78%**; whole-PR patch **80.09%**. Test Analytics: **848 passed, 5 skipped, no failures/errors**. Bundle upload/check passed; size/delta figures were unavailable in inspected results. Local statements remain **52.4%**, with unchanged coverage across 140 repository blocks. Optional snapshot/client fixtures and local race execution remain unverified. Passing frontend CI does not complete its planned refactoring.
 
-**Current review boundary:** R01-R08 and the separate R08c correction are merged; A00/A02 and the reproduced PATCH defect are resolved. R09 and R10a are accepted in PRs #15/#16. R10b is accepted in PR #17; R10c closes the shared/boundary fixture prerequisites, with final validation/acceptance pending. Broader A01 boundaries and A03-A14 remain incomplete; historical measurements are distinct from current validation.
+**Current review boundary:** R01-R08 and the separate R08c correction are merged; A00/A02 and the reproduced PATCH defect are resolved. R09 and R10a are accepted in PRs #15/#16. R10b is accepted in PR #17; R10c is accepted in PR #18 and completes A03. R11a is implemented with hosted checks/review pending. Broader A01 boundaries and A04-A14 remain incomplete; historical measurements are distinct from current validation.
 
 ## P0
 
