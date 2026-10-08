@@ -473,7 +473,8 @@ export function KeyEditorModal({
     ? "Добавить информационный ключ"
     : "Добавить конфигурацию";
 
-  return (
+  const renderEditor = () => {
+    return (
     <>
       <Modal
         open={open}
@@ -948,4 +949,7 @@ export function KeyEditorModal({
       />
     </>
   );
+  };
+
+  return renderEditor();
 }
