@@ -24,3 +24,9 @@ All 22 new cases and all 4,048 full frontend cases pass, together with nonincrem
 | Explicit draft/session lifetime and validation | Typed forty-field draft/reset hook, session/profile leases and secret provenance; full frontend/browser/strict checks pass |
 
 Require all six final-head hosted checks and clear actionable automated review before accepting this correction and A07. Presentation length remains visible (the existing renderer is not claimed decomposed). Then continue R12/R13 response policy and the unchanged broader backlog; the persistent goal is not complete.
+
+## Retained raw edit review correction
+
+PR22 review identified that a revision refresh retains explicit legacy raw edits but clears their reveal baseline and returns to structured mode. A subsequent Save could omit those retained bytes and close the editor. Regression commit `a1741e8` reproduces this for VLESS, VMess and Trojan before the correction.
+
+The legacy update policy now rejects that Save until the current revision is revealed. The entered raw bytes remain intact; after a fresh reveal, the same tests verify submission of those exact bytes with revision 9. Untouched metadata updates retain their structured payload. The policy is isolated in a pure legacy-content module, keeping both changed production modules and the mounted regression file at Code Health 10.00. All 4,051 unit tests pass; final mounted command/reveal tests, nonincremental TypeScript, lint, production export and strict delta pass. The previous 20 browser cases remain the presentation baseline; hosted browser checks will run on the final head. No gate, threshold or unrelated work changed. Recheck final-head CI and automated review before acceptance.
