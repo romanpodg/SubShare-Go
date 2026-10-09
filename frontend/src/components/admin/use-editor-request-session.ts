@@ -11,28 +11,49 @@ interface SessionTransientState {
   setCloning: (value: boolean) => void;
 }
 
-export function useEditorRequestSession(open: boolean, keyId: number | undefined, transient: SessionTransientState) {
+interface ProfileSessionIdentity {
+  open: boolean;
+  keyId?: number;
+  profileRevision?: number;
+}
+
+export function useEditorRequestSession(identity: ProfileSessionIdentity, transient: SessionTransientState) {
+  const { open, keyId, profileRevision } = identity;
   const { setLoading, setRevealing, setShowConflictDialog, setSaving, setCloning } = transient;
   const generation = useRef(0);
   const active = useRef(false);
+  const loadedRevision = useRef<number | undefined>(profileRevision);
+  const resetProfileRequests = useCallback(() => {
+    setRevealing(false);
+    setShowConflictDialog(false);
+  }, [setRevealing, setShowConflictDialog]);
   useLayoutEffect(() => {
     generation.current += 1;
     active.current = open;
     setLoading(false);
-    setRevealing(false);
-    setShowConflictDialog(false);
+    resetProfileRequests();
     setSaving(false);
     setCloning(false);
     return () => {
       generation.current += 1;
       active.current = false;
     };
-  }, [open, keyId, setLoading, setRevealing, setShowConflictDialog, setSaving, setCloning]);
+  }, [open, keyId, setLoading, setSaving, setCloning, resetProfileRequests]);
 
-  return useCallback(() => {
+  useLayoutEffect(() => {
+    loadedRevision.current = profileRevision;
+    resetProfileRequests();
+  }, [profileRevision, resetProfileRequests]);
+
+  return useCallback((scope: "session" | "profile" = "session") => {
     const requestedGeneration = generation.current;
+    const requestedRevision = loadedRevision.current;
+    const currentSession = () => active.current && requestedGeneration === generation.current;
+    const currentProfile = () => scope === "session" || requestedRevision === loadedRevision.current;
     return <Result,>(apply: () => Result): Result | undefined => {
-      if (active.current && requestedGeneration === generation.current) return apply();
+      if (!currentSession()) return;
+      if (!currentProfile()) return;
+      return apply();
     };
   }, []);
 }

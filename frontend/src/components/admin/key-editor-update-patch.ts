@@ -9,7 +9,7 @@ function updateShadowsocks(state: EditorCommandState, detail: KeyProfileDetailRe
   const initial = detail.safe_structured?.shadowsocks;
   return buildShadowsocksPatch(
     initialText(initial?.method, "2022-blake3-aes-128-gcm"), state.ssMethod, state.ssPassword,
-    initialText(initial?.plugin_name), state.ssPluginName, "", state.ssPluginOptions
+    initialText(initial?.plugin_name), state.ssPluginName, undefined, state.ssPluginOptions
   );
 }
 
