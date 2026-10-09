@@ -4149,7 +4149,7 @@
       "typeLintBuild": "passed",
       "secretScans": "passed",
       "finalCodeScene": "passed_strict_candidate_base_all_new_files_10_after_service_recovery",
-      "hostedAcceptance": "pending_retarget_main_final_gates",
+      "hostedAcceptance": "pending_six_main_final_gates",
       "broaderR11bCompletion": "unfinished"
     },
     "r11aHostedAcceptance": {
