@@ -1,6 +1,6 @@
 # R12 — Pure response-rule and template policy
 
-Status: locally validated on `refactor/response-policy`, incorporating accepted PR22 main through a normal merge; hosted acceptance remains. A04 remains incomplete until R13a persistence and R13b HTTP/delivery acceptance.
+Status: accepted in [PR23](https://github.com/romanpodg/SubShare-Go/pull/23), merge `d5d96163566c97bc044b7ea70d6eae13e3f901f9`. All six checks pass at `3bc8f9310331ef59adc0930f3989f7343d184bf2` in [run 37903029069](https://github.com/romanpodg/SubShare-Go/actions/runs/37903029069); automated review completed with a positive reaction and no inline findings. A04 remains incomplete until R13a persistence and R13b HTTP/delivery acceptance.
 
 Characterization commit `32b5cd7` precedes production changes. It covers all ten condition operators, header absence/multiple values, case folding, invalid positive/negative regex fail-closed behavior, AND/OR/empty conditions, scalar/condition/header normalization and slice aliasing, validation error boundaries, template marker/size rules, actual SQL priority/id ordering and disabled-rule selection, and missing/disabled/mismatched template references. An impossible uppercase persisted template fixture was removed after the unchanged SQLite format constraint rejected its setup; no constraint was bypassed. Reachable cases pass before extraction.
 

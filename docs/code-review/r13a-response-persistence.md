@@ -1,0 +1,7 @@
+# R13a — Response-rule and template persistence
+
+Status: tests-first characterization passes on `refactor/response-policy-persistence`, based on accepted R12 main `d5d9616`. Production persistence remains unchanged at this checkpoint; A04 remains incomplete.
+
+Read cases protect invalid conditions/headers JSON, nil partial results, close-before-repair with a single database connection, disabling plus audit plus returned error, repeated disabled-corrupt reads that still error and audit again, independent best-effort disable/audit failures, JSON null versus empty list projections, closed database reads, template ordering and disabled/missing/nil template projections. Writes use disposable SQLite triggers to reject rule/template inserts, updates and deletes, proving retained rows and no false success audit. They retain the existing rule-delete 500 and template-delete 409 distinction. Both new files score 10.00; targeted characterization passes before extraction.
+
+Current CRUD operations use separate autocommitted SQLite statements, with success auditing afterward; no application-owned transaction or explicit commit seam exists here. Trigger rejection protects real statement rollback, not a nonexistent multi-statement commit contract. Retain that boundary and the unusual corrupt-row read side effects during extraction. R13b will separately cover actual registered routes, envelopes/permissions and preview/public-delivery behavior.
