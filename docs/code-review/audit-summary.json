@@ -3998,7 +3998,7 @@
       "R12": "completed_pr23",
       "R13a": "completed_pr24",
       "R13b": "completed_pr25_a04_accepted",
-      "R14": "initial_job_source_characterization_passes_broader_matrix_pending",
+      "R14": "job_source_retry_fault_subset_passes_broader_matrix_pending",
       "R15a": "not_started",
       "R15b": "not_started",
       "R16a": "not_started",
@@ -4036,7 +4036,7 @@
     "nextBatch": "R14",
     "nextBatchPriority": "P1",
     "nextBatchRemainingPrerequisites": [
-      "R12/R13a/R13b are accepted in PR23-PR25 and A04 is complete. R14 initial job/source cases pass; finish retry, fault, fetch, overlap/update/delete and shutdown characterization before R15.",
+      "R12/R13a/R13b are accepted in PR23-PR25 and A04 is complete. R14 source lifecycle/retry/persistence-fault subset passes; finish remaining key-health/missing/read/queue retry, fetch bounds/cancellation, source-status/recovery faults, overlap/update/delete/rollback and shutdown cases before R15.",
       "A00/A02/A03/A04/A07 are accepted; broader A01 and A05-A06/A08-A14 remain."
     ],
     "remainingCriticalRisk": "A00/A02/A03/A04/A07 are accepted. R14 initial job/source characterization is underway; broader A01 and A05-A06/A08-A14 remain. OS I/O trigger frequency remains unmeasured.",
