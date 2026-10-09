@@ -41,6 +41,24 @@ async function save() {
 }
 const secrets = { password: "fixture-password", authentication: "fixture-auth", uuid: "11111111-1111-4111-8111-111111111111", plugin_options: "fixture-options" };
 
+function legacyConfiguration(protocol: string, server: string) {
+  const settings = protocol === "trojan"
+    ? { servers: [{ address: server, port: 443, password: "fixture-password" }] }
+    : { vnext: [{ address: server, port: 443, users: [{ id: secrets.uuid, encryption: "none", security: "auto" }] }] };
+  return JSON.stringify({ outbounds: [{ protocol, settings }], unknown: "keep" });
+}
+
+async function loadConflictingRevision(protocol: string) {
+  api.updateProfile.mockRejectedValueOnce(new ApiError(409, "profile_revision_conflict", "revision changed"));
+  fireEvent.click(screen.getByRole("button", { name: "Сохранить" }));
+  await screen.findByRole("dialog", { name: /Конфликт версий/i });
+  const latest = detail(protocol, 9);
+  latest.label = "Latest profile";
+  api.get.mockResolvedValue({ data: latest });
+  fireEvent.click(screen.getByRole("button", { name: "Загрузить свежую версию" }));
+  await screen.findByDisplayValue("Latest profile");
+}
+
 describe("pending reveal and credential provenance contracts", () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -163,6 +181,32 @@ describe("pending reveal and credential provenance contracts", () => {
     expect(payload.profile_revision).toBe(9);
     expect(payload.structured_patch).toEqual({});
     expect(payload.raw_uri).toBeUndefined();
+  });
+
+  it.each(["vless", "vmess", "trojan"])("requires a fresh reveal before saving retained %s raw edits after a conflict", async (protocol) => {
+    api.get.mockResolvedValue({ data: detail(protocol) });
+    api.reveal.mockResolvedValue({ data: { raw_uri: legacyConfiguration(protocol, "original.example") } });
+    const onClose = vi.fn();
+    editor({ onClose });
+    await screen.findByDisplayValue("Profile");
+    fireEvent.click(screen.getByRole("button", { name: /Раскрыть учетные данные/i }));
+    await screen.findByText("Сырая ссылка раскрыта");
+    fireEvent.click(screen.getByRole("button", { name: "XRAY-JSON" }));
+    const entered = legacyConfiguration(protocol, "entered.example");
+    fireEvent.change(screen.getByLabelText("Raw-конфигурация"), { target: { value: entered } });
+    await loadConflictingRevision(protocol);
+    api.updateProfile.mockClear();
+    fireEvent.click(screen.getByRole("button", { name: "Сохранить" }));
+    expect(await screen.findByText("Сначала раскройте raw-конфигурацию")).toBeInTheDocument();
+    expect(api.updateProfile).not.toHaveBeenCalled();
+    expect(onClose).not.toHaveBeenCalled();
+    api.reveal.mockResolvedValue({ data: { raw_uri: legacyConfiguration(protocol, "latest.example") } });
+    fireEvent.click(screen.getByRole("button", { name: /Раскрыть учетные данные/i }));
+    await screen.findByText("Сырая ссылка раскрыта");
+    const payload = await save();
+    expect(payload.profile_revision).toBe(9);
+    expect(payload.patch_mode).toBe("raw");
+    expect(payload.raw_uri).toBe(entered);
   });
 
   it.each([
