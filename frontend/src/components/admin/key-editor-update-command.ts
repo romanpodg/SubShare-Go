@@ -2,18 +2,10 @@ import type { KeyProfileDetailResponse, StructuredProfilePatch, UpdateKeyProfile
 import type { EditorCommandState } from "./key-editor-command-state";
 import { validateEditorRaw } from "./key-editor-raw-policy";
 import { buildEditorUpdatePatch } from "./key-editor-update-patch";
+import { buildLegacyUpdateContent } from "./key-editor-legacy-content";
 import { isLegacyEditorProtocol } from "./protocol-editor-capabilities";
 
 interface UpdateContent { mode: "raw" | "structured"; raw?: string; patch?: StructuredProfilePatch; }
-
-function legacyContent(state: EditorCommandState, patch: StructuredProfilePatch | undefined): UpdateContent {
-  if (state.revealedRaw) {
-    validateEditorRaw(state.protocol, state.rawUri);
-    return { mode: "raw", raw: state.structuredEdited || state.rawEdited ? state.rawUri : state.authoritativeRaw, patch };
-  }
-  if (state.mode === "raw") throw new Error("Сначала раскройте raw-конфигурацию");
-  return { mode: "structured", patch: patch || {} };
-}
 
 function xrayContent(state: EditorCommandState): UpdateContent {
   if (state.rawEdited) {
@@ -31,7 +23,7 @@ function nativeRawContent(state: EditorCommandState, patch: StructuredProfilePat
 
 function updateContent(state: EditorCommandState, patch: StructuredProfilePatch | undefined): UpdateContent {
   if (state.kind !== "real") return { mode: state.mode, patch };
-  if (isLegacyEditorProtocol(state.protocol)) return legacyContent(state, patch);
+  if (isLegacyEditorProtocol(state.protocol)) return buildLegacyUpdateContent(state, patch);
   if (state.protocol === "xray-json") return xrayContent(state);
   if (state.mode === "raw") return nativeRawContent(state, patch);
   if (state.rawEdited) throw new Error("Raw-версия уже изменена. Вернитесь в raw режим для сохранения или откройте профиль заново.");

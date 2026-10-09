@@ -3994,7 +3994,7 @@
       "R10b": "merged_pr17",
       "R10c": "merged_pr18",
       "R11a": "merged_pr19",
-      "R11b": "pr20_merged_typed_draft_action_phase_locally_validated",
+      "R11b": "pr20_pr21_merged_final_credential_correction_locally_validated",
       "R12": "not_started",
       "R13a": "not_started",
       "R13b": "not_started",
@@ -4145,6 +4145,15 @@
       "allSixChecksPassed": true,
       "automatedReview": "completed_no_major_issues"
     },
+    "r11bDraftHostedAcceptance": {
+      "pullRequest": "https://github.com/romanpodg/SubShare-Go/pull/21",
+      "validatedHead": "135025677c37d319a3e25b12229092f2ccb589ab",
+      "mergeCommit": "1d737059c1561635b590a7f3776126218f0c333e",
+      "actionsRun": "https://github.com/romanpodg/SubShare-Go/actions/runs/37876591420",
+      "allSixChecksPassed": true,
+      "automatedReview": "completed_no_major_issues"
+    },
+    "r11bRevealExecutionRecord": "docs/code-review/r11b-reveal-provenance.md",
     "r11bDraftExecutionRecord": "docs/code-review/r11b-draft-state.md",
     "r11bExecutionRecord": "docs/code-review/r11b-request-session.md",
     "r11bFirstPhaseValidation": {

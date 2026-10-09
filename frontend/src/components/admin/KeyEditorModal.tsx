@@ -49,9 +49,8 @@ import {
   TuicV5Fields,
 } from "./protocol-editors/TuicV5Fields";
 
-import { buildEditorCreateCommand } from "./key-editor-create-command";
-import { buildEditorUpdateCommand } from "./key-editor-update-command";
-import { isXrayJSONRaw, projectEditorRawDisplay } from "./key-editor-raw-policy";
+import { buildEditorSaveCommand } from "./key-editor-save-command";
+import { isXrayJSONRaw } from "./key-editor-raw-policy";
 
 import { emptyLegacyDraft } from "./key-editor-command-state";
 import { buildEditorDetailProjection } from "./key-editor-detail-projection";
@@ -93,10 +92,10 @@ export function KeyEditorModal({
   const [schemaResponse, setSchemaResponse] = useState<KeyEditorSchemaResponse | null>(null);
 
   // Form State
-  const { draft, setters, resetDraft } = useEditorDraft({ initialLabel, initialCategory, initialKind, initialProtocol, keyId });
+  const { draft, setters, resetDraft, commandState, acceptNativeReveal, acceptRawReveal, acceptRevision, rememberLegacyEdit } = useEditorDraft({ initialLabel, initialCategory, initialKind, initialProtocol, keyId });
   const {
     label, status, kind, category, templateText, mode, protocol,
-    rawUri, authoritativeRaw, revealedRaw, rawEdited, structuredEdited,
+    rawUri, authoritativeRaw, revealedRaw, rawEdited,
     rawValidationError, rawFormattingWarning, legacyDraft, legacySecretsRevealed,
     server, port, displayName, ssMethod, ssPassword, ssPluginName, ssPluginOptions,
     hy2Auth, hy2Sni, hy2Insecure, hy2CertSha, hy2ObfsType, hy2ObfsPassword,
@@ -105,7 +104,7 @@ export function KeyEditorModal({
   } = draft;
   const {
     setLabel, setStatus, setKind, setCategory, setTemplateText, setMode, setProtocol,
-    setRawUri, setAuthoritativeRaw, setRevealedRaw, setRawEdited, setStructuredEdited,
+    setRawUri, setAuthoritativeRaw, setRawEdited, setStructuredEdited,
     setRawValidationError, setRawFormattingWarning, setLegacyDraft, setLegacySecretsRevealed,
     setServer, setPort, setDisplayName, setSsMethod, setSsPassword, setSsPluginName, setSsPluginOptions,
     setHy2Auth, setHy2Sni, setHy2Insecure, setHy2CertSha, setHy2ObfsType, setHy2ObfsPassword,
@@ -121,7 +120,10 @@ export function KeyEditorModal({
   const [showConflictDialog, setShowConflictDialog] = useState(false);
   const [showDiscardConfirm, setShowDiscardConfirm] = useState(false);
 
-  const beginSessionRequest = useEditorRequestSession(open, keyId, { setLoading, setRevealing, setShowConflictDialog, setSaving, setCloning });
+  const beginSessionRequest = useEditorRequestSession(
+    { open, keyId, profileRevision: detail?.profile_revision },
+    { setLoading, setRevealing, setShowConflictDialog, setSaving, setCloning }
+  );
 
   const templatePreviewParts = useMemo(
     () => informationalTemplatePreviewParts(templateText),
@@ -204,11 +206,14 @@ export function KeyEditorModal({
         setAvailableCategories(catRes.categories || []);
         if (keyId) {
           const detailRes = await keysApi.get(keyId);
-          inSession(() => applyEditorLoadedDetail(detailRes.data, {
+          inSession(() => {
+            acceptRevision(detailRes.data.profile_revision);
+            applyEditorLoadedDetail(detailRes.data, {
             detail: setDetail, label: setLabel, status: setStatus, kind: setKind,
             category: setCategory, templateText: setTemplateText, protocol: setProtocol,
             mode: setMode, projection: applyDetailProjection,
-          }));
+            });
+          });
         }
       });
     } catch (error) {
@@ -217,7 +222,7 @@ export function KeyEditorModal({
       inSession(() => setLoading(false));
     }
   }, [keyId, toast, applyDetailProjection, beginSessionRequest,
-    setLabel, setStatus, setKind, setCategory, setTemplateText, setProtocol, setMode]);
+    setLabel, setStatus, setKind, setCategory, setTemplateText, setProtocol, setMode, acceptRevision]);
 
   useEffect(() => {
     if (open) {
@@ -232,7 +237,7 @@ export function KeyEditorModal({
   const handleReveal = async (target: "raw" | "structured-secrets") => {
     if (!keyId || !detail) return;
     if (revealing) return;
-    const inSession = beginSessionRequest();
+    const inSession = beginSessionRequest("profile");
     setRevealing(true);
     try {
       const res = await keysApi.reveal(keyId, {
@@ -242,30 +247,11 @@ export function KeyEditorModal({
       inSession(() => {
         if (target === "raw") {
           const rawRes = res.data as KeyRawSecretResponse;
-          setAuthoritativeRaw(rawRes.raw_uri);
-          const display = projectEditorRawDisplay(detail.protocol, rawRes.raw_uri);
-          setRawUri(display.value);
-          setRawFormattingWarning(display.warning);
-          setRevealedRaw(true);
-          setRawEdited(false);
-          setRawValidationError("");
-          if (isLegacyEditorProtocol(detail.protocol)) {
-            try {
-              setLegacyDraft(parseEditableConfiguration(rawRes.raw_uri));
-              setLegacySecretsRevealed(true);
-            } catch (error) {
-              setRawValidationError(error instanceof Error ? error.message : "Не удалось разобрать конфигурацию");
-            }
-          }
+          acceptRawReveal(detail.protocol, rawRes.raw_uri, detail.profile_revision);
           toast("Сырая ссылка раскрыта", "info");
         } else {
           const secRes = res.data as KeyStructuredSecretsResponse;
-          if (secRes.secrets.password !== undefined) setSsPassword(secRes.secrets.password);
-          if (secRes.secrets.plugin_options !== undefined) setSsPluginOptions(secRes.secrets.plugin_options);
-          if (secRes.secrets.authentication !== undefined) setHy2Auth(secRes.secrets.authentication);
-          if (secRes.secrets.obfuscation_password !== undefined) setHy2ObfsPassword(secRes.secrets.obfuscation_password);
-          if (secRes.secrets.uuid !== undefined) setTuicUuid(secRes.secrets.uuid);
-          if (secRes.secrets.password !== undefined) setTuicPassword(secRes.secrets.password);
+          acceptNativeReveal(secRes.secrets, detail.profile_revision);
           toast("Секретные поля раскрыты", "info");
         }
       });
@@ -311,6 +297,7 @@ export function KeyEditorModal({
   }, [schemaResponse, protocol]);
 
   const changeLegacyDraft = (patch: XrayJSONPatch) => {
+    rememberLegacyEdit(patch);
     setLegacyDraft((current) => ({ ...current, ...patch }));
     if (patch.server !== undefined) setServer(patch.server);
     if (patch.port !== undefined) setPort(patch.port);
@@ -358,21 +345,13 @@ export function KeyEditorModal({
     const inSession = beginSessionRequest();
     setSaving(true);
     try {
-      const state = {
-        label, displayName, category, status, kind, templateText, mode, protocol,
-        server, port, rawUri, authoritativeRaw, revealedRaw, structuredEdited, rawEdited, legacyDraft,
-        ssMethod, ssPassword, ssPluginName, ssPluginOptions,
-        hy2Auth, hy2Sni, hy2Insecure, hy2CertSha, hy2ObfsType, hy2ObfsPassword,
-        tuicUuid, tuicPassword, tuicSni, tuicAlpn, tuicSkipCert, tuicCc, tuicUdpRelay,
-        tuicUdpOverStream, tuicZeroRtt, tuicHeartbeat,
-      };
-      if (keyId && detail) {
-        await keysApi.updateProfile(keyId, buildEditorUpdateCommand(state, detail));
-        inSession(() => toast(isSourceOwned ? "Локальные параметры профиля обновлены" : "Профиль успешно обновлён", "success"));
+      const command = buildEditorSaveCommand(commandState, keyId, detail);
+      if (command.type === "update") {
+        await keysApi.updateProfile(command.keyId, command.input);
       } else {
-        await keysApi.createProfile(buildEditorCreateCommand(state));
-        inSession(() => toast("Профиль успешно создан", "success"));
+        await keysApi.createProfile(command.input);
       }
+      inSession(() => toast(command.message, "success"));
       await onRefresh();
       inSession(onClose);
     } catch (error) {
