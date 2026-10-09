@@ -4,7 +4,7 @@ import { ApiError } from "@/lib/api";
 import { ToastProvider } from "@/components/ui/Toast";
 import { KeyEditorModal } from "./KeyEditorModal";
 
-const api = vi.hoisted(() => ({ get: vi.fn(), reveal: vi.fn(), updateProfile: vi.fn() }));
+const api = vi.hoisted(() => ({ get: vi.fn(), reveal: vi.fn(), updateProfile: vi.fn(), createProfile: vi.fn() }));
 vi.mock("@/lib/api", () => ({
   keys: { ...api, editorSchema: vi.fn().mockResolvedValue({ data: { protocols: [], exclusion_reason_codes: {} } }), listCategories: vi.fn().mockResolvedValue({ categories: [] }) },
   ApiError: class extends Error { constructor(public status: number, public code: string, message: string) { super(message); } },
@@ -31,8 +31,8 @@ function deferred<T>() {
   const promise = new Promise<T>((yes) => { resolve = yes; });
   return { promise, resolve };
 }
-function editor() {
-  render(<ToastProvider><KeyEditorModal open keyId={1} onClose={vi.fn()} onRefresh={vi.fn().mockResolvedValue(undefined)} /></ToastProvider>);
+function editor(props: Partial<React.ComponentProps<typeof KeyEditorModal>> = {}) {
+  render(<ToastProvider><KeyEditorModal open keyId={1} onClose={vi.fn()} onRefresh={vi.fn().mockResolvedValue(undefined)} {...props} /></ToastProvider>);
 }
 async function save() {
   fireEvent.click(screen.getByRole("button", { name: "Сохранить" }));
@@ -46,6 +46,7 @@ describe("pending reveal and credential provenance contracts", () => {
     vi.clearAllMocks();
     api.get.mockResolvedValue({ data: detail() });
     api.updateProfile.mockResolvedValue({ data: detail() });
+    api.createProfile.mockResolvedValue({ data: detail() });
     api.reveal.mockResolvedValue({ data: { raw_uri: legacyRaw, secrets } });
   });
 
@@ -98,6 +99,25 @@ describe("pending reveal and credential provenance contracts", () => {
     expect((await save()).structured_patch).toEqual({ shadowsocks: { plugin_options: { operation: "clear" } } });
   });
 
+  it("retains the explicit empty TUIC UUID set contract", async () => {
+    api.get.mockResolvedValue({ data: detail("tuic") });
+    editor();
+    await screen.findByDisplayValue("Profile");
+    fireEvent.change(screen.getByLabelText("UUID"), { target: { value: "22222222-2222-4222-8222-222222222222" } });
+    fireEvent.change(screen.getByLabelText("UUID"), { target: { value: "" } });
+    expect((await save()).structured_patch).toEqual({ tuic: { uuid: { operation: "set", value: "" } } });
+  });
+
+  it("retains the explicit Hysteria obfuscation-password clear contract", async () => {
+    const loaded = detail("hysteria2");
+    api.get.mockResolvedValue({ data: { ...loaded, safe_structured: { ...loaded.safe_structured, hysteria2: { ...loaded.safe_structured.hysteria2, obfuscation_type: "salamander" } } } });
+    editor();
+    await screen.findByDisplayValue("Profile");
+    fireEvent.change(screen.getByLabelText("Пароль обфускации"), { target: { value: "temporary" } });
+    fireEvent.change(screen.getByLabelText("Пароль обфускации"), { target: { value: "" } });
+    expect((await save()).structured_patch).toEqual({ hysteria2: { obfuscation_password: { operation: "clear" } } });
+  });
+
   it.each(["vless", ...nativeProtocols])("does not restore stale %s secrets after revision refresh", async (protocol) => {
     api.get.mockResolvedValue({ data: detail(protocol) });
     editor();
@@ -118,5 +138,59 @@ describe("pending reveal and credential provenance contracts", () => {
     expect(payload.patch_mode).toBe("structured");
     expect(payload.structured_patch).toEqual({});
     expect(payload.raw_uri).toBeUndefined();
+  });
+
+  it.each(["vless", ...nativeProtocols])("discards a pending %s reveal after loading a newer revision", async (protocol) => {
+    api.get.mockResolvedValue({ data: detail(protocol) });
+    const pending = deferred<{ data: { raw_uri: string; secrets: typeof secrets } }>();
+    api.reveal.mockReturnValue(pending.promise);
+    editor();
+    await screen.findByDisplayValue("Profile");
+    fireEvent.click(screen.getByRole("button", { name: protocol === "vless" ? /Раскрыть учетные данные/i : "Раскрыть секреты" }));
+    api.updateProfile.mockRejectedValueOnce(new ApiError(409, "profile_revision_conflict", "revision changed"));
+    fireEvent.click(screen.getByRole("button", { name: "Сохранить" }));
+    await screen.findByRole("dialog", { name: /Конфликт версий/i });
+    const latest = detail(protocol, 9);
+    latest.label = "Latest profile";
+    api.get.mockResolvedValue({ data: latest });
+    fireEvent.click(screen.getByRole("button", { name: "Загрузить свежую версию" }));
+    await screen.findByDisplayValue("Latest profile");
+    await act(async () => pending.resolve({ data: { raw_uri: legacyRaw, secrets } }));
+    const label = protocol === "vless" ? "UUID / ID" : passwordLabels[protocol as typeof nativeProtocols[number]];
+    expect(screen.getByLabelText(label)).toHaveValue("");
+    expect(screen.queryByText(protocol === "vless" ? "Сырая ссылка раскрыта" : "Секретные поля раскрыты")).not.toBeInTheDocument();
+    const payload = await save();
+    expect(payload.profile_revision).toBe(9);
+    expect(payload.structured_patch).toEqual({});
+    expect(payload.raw_uri).toBeUndefined();
+  });
+
+  it.each([
+    { name: "malformed", raw: "{ invalid", message: /синтаксиса/i },
+    { name: "duplicate", raw: '{"outbounds":[{"protocol":"trojan","settings":{"servers":[{"address":"one.example","address":"two.example","port":443,"password":"fixture-password"}]}}]}', message: /повторяющиеся ключи/i },
+  ])("withholds update for $name raw JSON while keeping entered bytes", async ({ raw, message }) => {
+    api.get.mockResolvedValue({ data: detail("xray-json") });
+    const initial = '{"outbounds":[{"protocol":"trojan","settings":{"servers":[{"address":"original.example","port":443,"password":"fixture-password"}]}}]}';
+    api.reveal.mockResolvedValue({ data: { raw_uri: initial } });
+    editor();
+    await screen.findByDisplayValue("Profile");
+    fireEvent.click(screen.getByRole("button", { name: "Раскрыть сырую ссылку" }));
+    await waitFor(() => expect(screen.getByLabelText("Raw-конфигурация")).toBeEnabled());
+    fireEvent.change(screen.getByLabelText("Raw-конфигурация"), { target: { value: raw } });
+    fireEvent.click(screen.getByRole("button", { name: "Сохранить" }));
+    expect(await screen.findAllByText(message)).not.toHaveLength(0);
+    expect(api.updateProfile).not.toHaveBeenCalled();
+    expect(screen.getByLabelText("Raw-конфигурация")).toHaveValue(raw);
+  });
+
+  it("does not create a replacement profile when the requested edit failed to load", async () => {
+    api.get.mockRejectedValue(new Error("profile load failed"));
+    editor({ initialKind: "informational", initialLabel: "Existing profile" });
+    await screen.findByText("profile load failed");
+    fireEvent.change(screen.getByLabelText("Текст информационного ключа"), { target: { value: "local template" } });
+    fireEvent.click(screen.getByRole("button", { name: "Сохранить" }));
+    expect(api.createProfile).not.toHaveBeenCalled();
+    expect(api.updateProfile).not.toHaveBeenCalled();
+    expect(await screen.findByText(/Профиль не загружен/i)).toBeInTheDocument();
   });
 });
