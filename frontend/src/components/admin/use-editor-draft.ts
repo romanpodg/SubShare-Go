@@ -2,8 +2,11 @@
 
 import { useCallback, useMemo, useState, type Dispatch, type SetStateAction } from "react";
 import type { ExternalProfileProtocol } from "@/lib/types";
+import type { KeyStructuredSecretsResponse } from "@/lib/types";
+import type { XrayJSONPatch } from "@/lib/configuration";
 import { emptyLegacyDraft, type EditorCommandState } from "./key-editor-command-state";
 import { isLegacyEditorProtocol, protocolEditorCapability } from "./protocol-editor-capabilities";
+import { applyNativeReveal, applyRawReveal, editDraftField, editorCommandState, loadDraftRevision, recordLegacyEdit, type NativeSecretField } from "./editor-draft-transitions";
 
 interface DraftDefaults {
   initialLabel: string;
@@ -18,6 +21,9 @@ export interface EditorDraftState extends EditorCommandState {
   rawValidationError: string;
   rawFormattingWarning: string;
   isDirty: boolean;
+  nativeTouched: Partial<Record<NativeSecretField, true>>;
+  legacyEdits: XrayJSONPatch;
+  profileRevision?: number;
 }
 
 function createEditorDraft(defaults: DraftDefaults): EditorDraftState {
@@ -64,16 +70,17 @@ function createEditorDraft(defaults: DraftDefaults): EditorDraftState {
     tuicZeroRtt: false,
     tuicHeartbeat: "10s",
     isDirty: false,
+    nativeTouched: {},
+    legacyEdits: {},
+    profileRevision: undefined,
   };
 }
 
 export function useEditorDraft(defaults: DraftDefaults) {
   const [draft, setDraft] = useState(() => createEditorDraft(defaults));
   const fieldSetter = useCallback(<Field extends keyof EditorDraftState>(field: Field): Dispatch<SetStateAction<EditorDraftState[Field]>> => {
-    return (value) => setDraft((previous) => ({
-      ...previous,
-      [field]: typeof value === "function" ? value(previous[field]) : value,
-    }));
+    return (value) => setDraft((previous) => editDraftField(previous, field,
+      typeof value === "function" ? value(previous[field]) : value));
   }, []);
   const setters = useMemo(() => ({
     setLabel: fieldSetter("label"),
@@ -118,5 +125,12 @@ export function useEditorDraft(defaults: DraftDefaults) {
     setIsDirty: fieldSetter("isDirty"),
   }), [fieldSetter]);
   const resetDraft = useCallback((next: DraftDefaults) => setDraft(createEditorDraft(next)), []);
-  return { draft, setters, resetDraft };
+  const commandState = useMemo(() => editorCommandState(draft), [draft]);
+  const acceptNativeReveal = useCallback((secrets: KeyStructuredSecretsResponse["secrets"], revision: number) => setDraft((previous) =>
+    previous.profileRevision === revision ? applyNativeReveal(previous, secrets) : previous), []);
+  const acceptRawReveal = useCallback((protocol: ExternalProfileProtocol, raw: string, revision: number) => setDraft((previous) =>
+    previous.profileRevision === revision ? applyRawReveal(previous, protocol, raw) : previous), []);
+  const acceptRevision = useCallback((revision: number) => setDraft((previous) => loadDraftRevision(previous, revision)), []);
+  const rememberLegacyEdit = useCallback((patch: XrayJSONPatch) => setDraft((previous) => recordLegacyEdit(previous, patch)), []);
+  return { draft, setters, resetDraft, commandState, acceptNativeReveal, acceptRawReveal, acceptRevision, rememberLegacyEdit };
 }

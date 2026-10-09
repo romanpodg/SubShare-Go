@@ -33,7 +33,7 @@ Completed work:
 | A04 / P1 | Not started | R12/R13a/R13b response policy, persistence and HTTP delegation |
 | A05 / P1 | Not started | R14/R15a/R15b queue/source lifecycle, overlap and source-create transaction |
 | A06 / P1 | Not started | R16a/R16b actual-route authorization matrix and guard evaluation |
-| A07 / P1 | R11a/PR19 and request-session/PR20 merged; typed draft/action batch locally validated | Draft batch hosted acceptance and remaining mode/reveal/native-clear matrix |
+| A07 / P1 | R11a/PR19, request-session/PR20 and typed draft/PR21 merged; final credential correction locally validated | Final correction hosted checks/review, then requirement-level A07 acceptance |
 | A08 / P1 | Not started | R17a/R17b ordering/actions and shared presentation |
 | A09 / P2 | Not started | R18a/R18b Go/TS/OpenAPI contracts and request errors |
 | A10 / P2 | Not started | R19 backend Xray interpretation |
