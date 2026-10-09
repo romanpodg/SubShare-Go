@@ -29,6 +29,12 @@ func (fetch *jobFetchTransport) RoundTrip(request *http.Request) (*http.Response
 func newJobSourceFixture(t *testing.T) (userMutationFixture, int64, *jobFetchTransport) {
 	t.Helper()
 	f := newUserMutationFixture(t)
+	id, fetch := configureJobSourceFixture(t, f)
+	return f, id, fetch
+}
+
+func configureJobSourceFixture(t *testing.T, f userMutationFixture) (int64, *jobFetchTransport) {
+	t.Helper()
 	id := seedExternalProfileSource(t, f.app, "https://provider.example/job-fixture")
 	fetch := &jobFetchTransport{make(chan *http.Request, 1), make(chan struct{}), externalTestVLESS, http.StatusOK}
 	f.app.sourceHTTPClient = &http.Client{Transport: fetch, Timeout: 5 * time.Second}
@@ -39,7 +45,7 @@ func newJobSourceFixture(t *testing.T) (userMutationFixture, int64, *jobFetchTra
 			close(fetch.release)
 		}
 	})
-	return f, id, fetch
+	return id, fetch
 }
 
 func waitJobFetch(t *testing.T, fetch *jobFetchTransport) *http.Request {

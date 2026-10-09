@@ -44,3 +44,16 @@ func TestJobSourceQueueDatabaseFailureWithholdsAcceptedJob(t *testing.T) {
 	requireRepositoryEqual(t, "queue failure creates no job", mutationCount(t, f.app, `SELECT COUNT(*) FROM background_jobs`), 0)
 	requireRepositoryEqual(t, "queue failure starts no run", mutationCount(t, f.app, `SELECT COUNT(*) FROM source_sync_runs`), 0)
 }
+
+func TestJobSourceQueueMissingAndReadFailureStartNoWorker(t *testing.T) {
+	f, sourceID, _ := newJobSourceFixture(t)
+	path := "/api/v1/sources/" + strconv.FormatInt(sourceID+1000, 10) + "/sync"
+	missing := f.request(http.MethodPost, path, "")
+	requireRepositoryEqual(t, "missing source queue status", missing.Code, http.StatusNotFound)
+	requireRepositoryEqual(t, "missing source queue code", decodeJSONMap(t, missing)["code"], "source_not_found")
+	execRepositoryFixtureSQL(t, f.app, `DROP TABLE external_subscription_sources`)
+	failed := f.request(http.MethodPost, path, "")
+	requireRepositoryEqual(t, "source read failure queue status", failed.Code, http.StatusInternalServerError)
+	requireRepositoryEqual(t, "source read failure queue code", decodeJSONMap(t, failed)["code"], "source_load_failed")
+	requireRepositoryEqual(t, "invalid source queues no job", mutationCount(t, f.app, `SELECT COUNT(*) FROM background_jobs`), 0)
+}

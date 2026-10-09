@@ -31,7 +31,7 @@ Completed work:
 | A02 / P1 | Completed; R06/R07a/R07b/R08/R08c merged with hosted checks/review clear | Retain encrypted command, projection, ownership and rollback contracts |
 | A03 / P1 | Completed; R09/R10a/R10b/R10c merged | Retain preservation/shared/UTF-8 contracts; remaining parser complexity stays visible |
 | A04 / P1 | Completed; R12/R13a/R13b merged in PR23-PR25 | Final six checks/review clear at 49d5627; retain [requirement evidence](r13b-response-http.md) |
-| A05 / P1 | R14 initial job/source lifecycle characterization passes; broader matrix remains | R14 remaining failure/overlap/update/delete/shutdown cases, then R15a/R15b |
+| A05 / P1 | R14 full local characterization passes; hosted/race acceptance remains | R14 acceptance, separate stale-result correction, then R15a/R15b |
 | A06 / P1 | Not started | R16a/R16b actual-route authorization matrix and guard evaluation |
 | A07 / P1 | Completed; R11a/R11b and corrections merged in PR19-PR22 | Final six checks/review clear at b6fb366; retain [requirement evidence](r11b-reveal-provenance.md) |
 | A08 / P1 | Not started | R17a/R17b ordering/actions and shared presentation |
@@ -46,7 +46,7 @@ All six checks passed for a438377: backend, frontend, Docker smoke, CodeScene, C
 
 Codecov: project **48.02%** versus main **46.89%**; main.go **18.46%** versus **8.01%**; sqlite.go **64.70%** versus **60.78%**; whole-PR patch **80.09%**. Test Analytics: **848 passed, 5 skipped, no failures/errors**. Bundle upload/check passed; size/delta figures were unavailable in inspected results. Local statements remain **52.4%**, with unchanged coverage across 140 repository blocks. Optional snapshot/client fixtures and local race execution remain unverified. Passing frontend CI does not complete its planned refactoring.
 
-**Current review boundary:** R01-R11b and separate correctness fixes are merged through PR22. A00/A02/A03/A07 are accepted. R12 response policy is in local validation; broader A01 and A04-A06/A08-A14 remain incomplete. Historical audit measurements remain distinct from current validation.
+**Current review boundary:** R01-R13b and separate correctness fixes are merged through PR25. A00/A02/A03/A04/A07 are accepted. R14 characterization is in full validation; two stale source-result hazards are reproduced for a separate corrective change. Broader A01 and A05-A06/A08-A14 remain incomplete. Historical audit measurements remain distinct from current validation.
 
 ## P0
 
