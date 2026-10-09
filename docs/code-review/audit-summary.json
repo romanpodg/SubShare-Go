@@ -4036,10 +4036,10 @@
     "nextBatch": "R13b",
     "nextBatchPriority": "P1",
     "nextBatchRemainingPrerequisites": [
-      "R12/R13a are accepted in PR23/PR24. Continue R13b HTTP/preview separation from registered-route characterization and require full acceptance.",
+      "R12/R13a are accepted in PR23/PR24. R13b separation and local validation are complete; require final-head hosted checks and actionable review resolution before acceptance, then continue R14.",
       "A07 is accepted in PR22; broader A01 and A04-A06/A08-A14 remain."
     ],
-    "remainingCriticalRisk": "A00/A02/A03/A07 and R12 are accepted. R13a persistence validation is in progress; broader A01 and A04-A06/A08-A14 remain. OS I/O trigger frequency remains unmeasured.",
+    "remainingCriticalRisk": "A00/A02/A03/A07 and R12/R13a are accepted. R13b separation and local validation are complete; final hosted acceptance/review and A04 acceptance remain. Broader A01 and A05-A06/A08-A14 remain. OS I/O trigger frequency remains unmeasured.",
     "r06CharacterizationCommit": "6a12236614e5",
     "r07aExecutionRecord": "docs/code-review/r07a-category-ordering.md",
     "autonomousContinuationRecord": "docs/code-review/autonomous-continuation.md",
