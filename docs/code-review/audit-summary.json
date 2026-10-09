@@ -3993,8 +3993,8 @@
       "R10a": "merged_pr16",
       "R10b": "merged_pr17",
       "R10c": "merged_pr18",
-      "R11a": "pr19_rendering_boundary_locally_validated_quality_7.29_hosted_pending",
-      "R11b": "not_started",
+      "R11a": "merged_pr19",
+      "R11b": "pr20_first_request_session_correction_local_functional_and_strict_quality_passed_hosted_pending",
       "R12": "not_started",
       "R13a": "not_started",
       "R13b": "not_started",
@@ -4033,13 +4033,13 @@
         "scope": "Repository test maintainability, with assertions and transitions retained"
       }
     ],
-    "nextBatch": "R11a",
+    "nextBatch": "R11b",
     "nextBatchPriority": "P1",
     "nextBatchRemainingPrerequisites": [
-      "R10b/R10c are accepted. Complete R11a hosted validation/review; local delta reports the remaining component finding.",
+      "R11a is accepted. Retarget PR20 to main and require all final hosted checks/review, then continue broader R11b.",
       "Retain the accepted 63-combination corpus and 3792 added cases. R10a/R10b are merged; R10c supplements their unchanged production behavior. A03 boundary/shared fixtures are accepted in PR18; proceed to R11a."
     ],
-    "remainingCriticalRisk": "R01-R10c and the R08c assignment correction are merged; A03 is accepted. R11a is implemented, with hosted acceptance pending. Broader A01 mutation boundaries and A04-A14 remain. OS I/O trigger frequency remains unmeasured.",
+    "remainingCriticalRisk": "R01-R10c and the R08c assignment correction are merged; A03 is accepted. R11a is merged; PR20 request-session correction and broader R11b remain. Broader A01 mutation boundaries and A04-A14 remain. OS I/O trigger frequency remains unmeasured.",
     "r06CharacterizationCommit": "6a12236614e5",
     "r07aExecutionRecord": "docs/code-review/r07a-category-ordering.md",
     "autonomousContinuationRecord": "docs/code-review/autonomous-continuation.md",
@@ -4136,6 +4136,30 @@
       "strictDelta": "remaining_presentation_method_warning_categories_improved",
       "deepNestedComplexity": "removed",
       "initialHostedGate": "failed_correction_pending_hosted_validation"
+    },
+    "r11bExecutionRecord": "docs/code-review/r11b-request-session.md",
+    "r11bFirstPhaseValidation": {
+      "pullRequest": "https://github.com/romanpodg/SubShare-Go/pull/20",
+      "candidateBase": "2562dbed33ffb7ec360f268331a2d2338c6a807b",
+      "sourceCommit": "beed5b0c5f0568b2cc19728ec927bc0eadbd5cf3",
+      "failingRegressionCommit": "429efad",
+      "requestRaceCasesPassed": 9,
+      "fullFrontendTestsPassed": 4014,
+      "browserCasesPassed": 20,
+      "typeLintBuild": "passed",
+      "secretScans": "passed",
+      "finalCodeScene": "passed_strict_candidate_base_all_new_files_10_after_service_recovery",
+      "hostedAcceptance": "pending_six_main_final_gates",
+      "broaderR11bCompletion": "unfinished"
+    },
+    "r11aHostedAcceptance": {
+      "pullRequest": "https://github.com/romanpodg/SubShare-Go/pull/19",
+      "validatedHead": "becd310a860681248a16d36ea623c70bff71b9cb",
+      "mergeCommit": "691901b5458c8b696502c390b86aaa438d7191ca",
+      "actionsRun": "https://github.com/romanpodg/SubShare-Go/actions/runs/37800441449",
+      "allSixChecksPassed": true,
+      "automatedReview": "completed_no_major_issues",
+      "codeHealthAfter": 7.29
     },
     "r11aExecutionRecord": "docs/code-review/r11a-editor-commands.md",
     "r10cExecutionRecord": "docs/code-review/r10c-shared-boundaries.md",

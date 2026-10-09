@@ -1,6 +1,6 @@
 # R11a — Pure editor profile commands
 
-Status: implemented in [PR #19](https://github.com/romanpodg/SubShare-Go/pull/19); initial functional checks/review pass, quality correction locally validated; final hosted acceptance pending. Characterization commit `7705487` precedes production changes on `refactor/editor-profile-commands`, based on accepted R10c main.
+Status: accepted in [PR #19](https://github.com/romanpodg/SubShare-Go/pull/19), merged at `691901b`. Characterization commit `7705487` precedes production changes on `refactor/editor-profile-commands`, based on accepted R10c main.
 
 Sixteen new mounted-modal contracts freeze native create defaults and metadata trimming, untouched/hidden credential omission, explicit empty credential sets, optional SNI/plugin clears, unrevealed raw-save errors and the exact source-owned metadata payload. All 16 existing modal regressions remain. The baseline preserves empty native-create port input, untrimmed structured display-name input and omitted source template text; these are characterized without adding corrective behavior.
 
@@ -35,3 +35,7 @@ Fresh hosted analysis at documentation head `0e6301e` still rejects the aggregat
 Code Health improves to 7.29. The remaining presentation method is explicitly measured at CC 49 / 452 lines, compared with the original submit's CC 117 / 192 lines. Complex Method pressure and overall complexity improve; mean CC falls 16.20 to 10.44, the old submit bumps and deep nesting are removed. Strict delta retains the visible existing-file presentation-method warning; no gate or rule changes. Final local/browser and hosted checks/review must pass before merge. The presentation length is retained as remaining debt, not hidden or claimed eliminated.
 
 The final renderer boundary passes all 4,005 unit cases, types/lint/export and 20 desktop/mobile browser cases. Source parity verifies 67 unrelated component statements plus byte-identical rendered JSX and the moved constructor body.
+
+## Final hosted acceptance
+
+All six checks pass at final head `becd310a860681248a16d36ea623c70bff71b9cb`, including all three CodeScene gates in analysis `7867533`. [Actions run 37800441449](https://github.com/romanpodg/SubShare-Go/actions/runs/37800441449) passes backend, frontend, Docker and static/secret/deployment checks; both Codecov checks pass. Final automated review reports no major issues. CodeScene removed its initial Complex Method finding; the remaining deep-nesting thread has its verified reply and resolved state. Normal GitHub merge `691901b5458c8b696502c390b86aaa438d7191ca` is accepted. Retarget PR20 to main, inherit this accepted source through a normal merge and rerun its full hosted checks before acceptance. A07/R11b remains unfinished.

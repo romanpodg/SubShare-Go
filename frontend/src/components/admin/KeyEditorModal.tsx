@@ -57,6 +57,8 @@ import { isXrayJSONRaw, projectEditorRawDisplay } from "./key-editor-raw-policy"
 
 import { emptyLegacyDraft } from "./key-editor-command-state";
 import { buildEditorDetailProjection } from "./key-editor-detail-projection";
+import { applyEditorLoadedDetail } from "./apply-editor-loaded-detail";
+import { useEditorRequestSession } from "./use-editor-request-session";
 
 const LABEL_LIMIT = 255;
 
@@ -156,6 +158,7 @@ export function KeyEditorModal({
   const [showConflictDialog, setShowConflictDialog] = useState(false);
   const [showDiscardConfirm, setShowDiscardConfirm] = useState(false);
   const [isDirty, setIsDirty] = useState(false);
+  const beginSessionRequest = useEditorRequestSession(open, keyId, { setLoading, setRevealing, setShowConflictDialog });
 
   const templatePreviewParts = useMemo(
     () => informationalTemplatePreviewParts(templateText),
@@ -262,41 +265,31 @@ export function KeyEditorModal({
 
   // Load detail & schemas
   const loadDetailAndSchema = useCallback(async () => {
+    const inSession = beginSessionRequest();
     setLoading(true);
     try {
       const [schemaRes, catRes] = await Promise.all([
         keysApi.editorSchema(),
         keysApi.listCategories(),
       ]);
-      setSchemaResponse(schemaRes.data);
-      setAvailableCategories(catRes.categories || []);
-
-      if (keyId) {
-        const detailRes = await keysApi.get(keyId);
-        const k = detailRes.data;
-        setDetail(k);
-        setLabel(k.label);
-        setStatus(k.status);
-        setKind(k.kind);
-        setCategory(k.category || "");
-        setTemplateText(k.template_text || "");
-        setProtocol(k.protocol);
-
-        if (!k.safe_structured || !protocolEditorCapability(k.protocol)) {
-          setMode("raw");
-        } else {
-          setMode("structured");
+      await inSession(async () => {
+        setSchemaResponse(schemaRes.data);
+        setAvailableCategories(catRes.categories || []);
+        if (keyId) {
+          const detailRes = await keysApi.get(keyId);
+          inSession(() => applyEditorLoadedDetail(detailRes.data, {
+            detail: setDetail, label: setLabel, status: setStatus, kind: setKind,
+            category: setCategory, templateText: setTemplateText, protocol: setProtocol,
+            mode: setMode, projection: applyDetailProjection,
+          }));
         }
-
-        const projection = buildEditorDetailProjection(k);
-        if (projection) applyDetailProjection(projection);
-      }
+      });
     } catch (error) {
-      toast(error instanceof Error ? error.message : "Ошибка загрузки", "error");
+      inSession(() => toast(error instanceof Error ? error.message : "Ошибка загрузки", "error"));
     } finally {
-      setLoading(false);
+      inSession(() => setLoading(false));
     }
-  }, [keyId, toast, applyDetailProjection]);
+  }, [keyId, toast, applyDetailProjection, beginSessionRequest]);
 
   useEffect(() => {
     if (open) {
@@ -310,48 +303,53 @@ export function KeyEditorModal({
   // Reveal secret call
   const handleReveal = async (target: "raw" | "structured-secrets") => {
     if (!keyId || !detail) return;
+    const inSession = beginSessionRequest();
     setRevealing(true);
     try {
       const res = await keysApi.reveal(keyId, {
         profile_revision: detail.profile_revision,
         target,
       });
-      if (target === "raw") {
-        const rawRes = res.data as KeyRawSecretResponse;
-        setAuthoritativeRaw(rawRes.raw_uri);
-        const display = projectEditorRawDisplay(detail.protocol, rawRes.raw_uri);
-        setRawUri(display.value);
-        setRawFormattingWarning(display.warning);
-        setRevealedRaw(true);
-        setRawEdited(false);
-        setRawValidationError("");
-        if (isLegacyEditorProtocol(detail.protocol)) {
-          try {
-            setLegacyDraft(parseEditableConfiguration(rawRes.raw_uri));
-            setLegacySecretsRevealed(true);
-          } catch (error) {
-            setRawValidationError(error instanceof Error ? error.message : "Не удалось разобрать конфигурацию");
+      inSession(() => {
+        if (target === "raw") {
+          const rawRes = res.data as KeyRawSecretResponse;
+          setAuthoritativeRaw(rawRes.raw_uri);
+          const display = projectEditorRawDisplay(detail.protocol, rawRes.raw_uri);
+          setRawUri(display.value);
+          setRawFormattingWarning(display.warning);
+          setRevealedRaw(true);
+          setRawEdited(false);
+          setRawValidationError("");
+          if (isLegacyEditorProtocol(detail.protocol)) {
+            try {
+              setLegacyDraft(parseEditableConfiguration(rawRes.raw_uri));
+              setLegacySecretsRevealed(true);
+            } catch (error) {
+              setRawValidationError(error instanceof Error ? error.message : "Не удалось разобрать конфигурацию");
+            }
           }
+          toast("Сырая ссылка раскрыта", "info");
+        } else {
+          const secRes = res.data as KeyStructuredSecretsResponse;
+          if (secRes.secrets.password !== undefined) setSsPassword(secRes.secrets.password);
+          if (secRes.secrets.plugin_options !== undefined) setSsPluginOptions(secRes.secrets.plugin_options);
+          if (secRes.secrets.authentication !== undefined) setHy2Auth(secRes.secrets.authentication);
+          if (secRes.secrets.obfuscation_password !== undefined) setHy2ObfsPassword(secRes.secrets.obfuscation_password);
+          if (secRes.secrets.uuid !== undefined) setTuicUuid(secRes.secrets.uuid);
+          if (secRes.secrets.password !== undefined) setTuicPassword(secRes.secrets.password);
+          toast("Секретные поля раскрыты", "info");
         }
-        toast("Сырая ссылка раскрыта", "info");
-      } else {
-        const secRes = res.data as KeyStructuredSecretsResponse;
-        if (secRes.secrets.password !== undefined) setSsPassword(secRes.secrets.password);
-        if (secRes.secrets.plugin_options !== undefined) setSsPluginOptions(secRes.secrets.plugin_options);
-        if (secRes.secrets.authentication !== undefined) setHy2Auth(secRes.secrets.authentication);
-        if (secRes.secrets.obfuscation_password !== undefined) setHy2ObfsPassword(secRes.secrets.obfuscation_password);
-        if (secRes.secrets.uuid !== undefined) setTuicUuid(secRes.secrets.uuid);
-        if (secRes.secrets.password !== undefined) setTuicPassword(secRes.secrets.password);
-        toast("Секретные поля раскрыты", "info");
-      }
+      });
     } catch (error) {
-      if (error instanceof ApiError && error.status === 409) {
-        setShowConflictDialog(true);
-      } else {
-        toast(error instanceof Error ? error.message : "Ошибка раскрытия секретов", "error");
-      }
+      inSession(() => {
+        if (error instanceof ApiError && error.status === 409) {
+          setShowConflictDialog(true);
+        } else {
+          toast(error instanceof Error ? error.message : "Ошибка раскрытия секретов", "error");
+        }
+      });
     } finally {
-      setRevealing(false);
+      inSession(() => setRevealing(false));
     }
   };
 
