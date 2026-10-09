@@ -3997,8 +3997,8 @@
       "R11b": "completed_pr20_pr21_pr22_a07_accepted",
       "R12": "completed_pr23",
       "R13a": "completed_pr24",
-      "R13b": "locally_validated_hosted_acceptance_pending",
-      "R14": "not_started",
+      "R13b": "completed_pr25_a04_accepted",
+      "R14": "locally_validated_hosted_race_acceptance_pending",
       "R15a": "not_started",
       "R15b": "not_started",
       "R16a": "not_started",
@@ -4033,13 +4033,13 @@
         "scope": "Repository test maintainability, with assertions and transitions retained"
       }
     ],
-    "nextBatch": "R13b",
+    "nextBatch": "R14",
     "nextBatchPriority": "P1",
     "nextBatchRemainingPrerequisites": [
-      "R12/R13a are accepted in PR23/PR24. R13b separation and local validation are complete; require final-head hosted checks and actionable review resolution before acceptance, then continue R14.",
-      "A07 is accepted in PR22; broader A01 and A04-A06/A08-A14 remain."
+      "R14 characterization and full local validation are complete. Require final-head hosted/race checks and actionable review resolution before R14 acceptance; then separately correct reproduced stale-result hazards before R15.",
+      "A00/A02/A03/A04/A07 are accepted; broader A01 and A05-A06/A08-A14 remain."
     ],
-    "remainingCriticalRisk": "A00/A02/A03/A07 and R12/R13a are accepted. R13b separation and local validation are complete; final hosted acceptance/review and A04 acceptance remain. Broader A01 and A05-A06/A08-A14 remain. OS I/O trigger frequency remains unmeasured.",
+    "remainingCriticalRisk": "A00/A02/A03/A04/A07 are accepted. R14 characterization and full local validation are complete with hosted/race acceptance pending. Older fetch results can overwrite newer feeds or apply after source URL changes; these are reproduced and require a separate correction. Concurrent tracking can fail with SQLITE_BUSY and remains recorded. Broader A01 and A05-A06/A08-A14 remain. OS I/O trigger frequency remains unmeasured.",
     "r06CharacterizationCommit": "6a12236614e5",
     "r07aExecutionRecord": "docs/code-review/r07a-category-ordering.md",
     "autonomousContinuationRecord": "docs/code-review/autonomous-continuation.md",
