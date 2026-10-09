@@ -1,10 +1,7 @@
 package main
 
 import (
-	"database/sql"
 	"encoding/base64"
-	"encoding/json"
-	"errors"
 	"fmt"
 	"github.com/romanpodg/SubShare-Go/internal/delivery"
 	"github.com/romanpodg/SubShare-Go/internal/httpapi"
@@ -71,85 +68,6 @@ type responseRuleInput struct {
 	ResponseType string                  `json:"response_type"`
 	TemplateID   *int64                  `json:"template_id"`
 	Headers      []responseHeader        `json:"headers"`
-}
-
-func (a *App) listSubscriptionTemplates() ([]subscriptionTemplate, error) {
-	rows, err := a.db.Query(`
-		SELECT id, slug, name, format, content, enabled, is_system, created_at, updated_at
-		FROM subscription_templates ORDER BY is_system DESC, name, id
-	`)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	out := []subscriptionTemplate{}
-	for rows.Next() {
-		var item subscriptionTemplate
-		var enabled, system int
-		if err := rows.Scan(&item.ID, &item.Slug, &item.Name, &item.Format, &item.Content, &enabled, &system, &item.CreatedAt, &item.UpdatedAt); err != nil {
-			return nil, err
-		}
-		item.Enabled = enabled != 0
-		item.IsSystem = system != 0
-		out = append(out, item)
-	}
-	return out, rows.Err()
-}
-
-func (a *App) listResponseRules() ([]responseRule, error) {
-	rows, err := a.db.Query(`
-		SELECT id, name, description, enabled, priority, operator, conditions_json,
-		       response_type, template_id, headers_json, is_system, created_at, updated_at
-		FROM response_rules ORDER BY priority, id
-	`)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	out := []responseRule{}
-	for rows.Next() {
-		var item responseRule
-		var enabled, system int
-		var templateID sql.NullInt64
-		var conditionsJSON, headersJSON string
-		if err := rows.Scan(
-			&item.ID, &item.Name, &item.Description, &enabled, &item.Priority, &item.Operator,
-			&conditionsJSON, &item.ResponseType, &templateID, &headersJSON, &system,
-			&item.CreatedAt, &item.UpdatedAt,
-		); err != nil {
-			return nil, err
-		}
-		item.Enabled = enabled != 0
-		item.IsSystem = system != 0
-		if templateID.Valid {
-			value := templateID.Int64
-			item.TemplateID = &value
-		}
-		if err := json.Unmarshal([]byte(conditionsJSON), &item.Conditions); err != nil {
-			_ = rows.Close()
-			a.disableInvalidResponseRule(item.ID, "conditions_json", err)
-			return nil, fmt.Errorf("response rule %d has invalid conditions JSON: %w", item.ID, err)
-		}
-		if err := json.Unmarshal([]byte(headersJSON), &item.Headers); err != nil {
-			_ = rows.Close()
-			a.disableInvalidResponseRule(item.ID, "headers_json", err)
-			return nil, fmt.Errorf("response rule %d has invalid headers JSON: %w", item.ID, err)
-		}
-		out = append(out, item)
-	}
-	return out, rows.Err()
-}
-
-func (a *App) disableInvalidResponseRule(id int64, field string, decodeErr error) {
-	_, _ = a.db.Exec(`UPDATE response_rules SET enabled = 0, updated_at = CURRENT_TIMESTAMP WHERE id = ?`, id)
-	metadata, _ := json.Marshal(map[string]string{
-		"field": field,
-		"error": decodeErr.Error(),
-	})
-	_, _ = a.db.Exec(`
-		INSERT INTO audit_events(action, target_type, target_id, metadata_json)
-		VALUES('response_rule.disabled_invalid', 'response_rule', ?, ?)
-	`, strconv.FormatInt(id, 10), string(metadata))
 }
 
 func (a *App) matchSubscriptionResponseRule(r *http.Request) (*responseRule, error) {
@@ -228,24 +146,11 @@ func (a *App) apiV1CreateTemplate(w http.ResponseWriter, r *http.Request) {
 		httpapi.WriteV1Error(w, r, http.StatusBadRequest, "template_invalid", err.Error())
 		return
 	}
-	slug := templateSlug(input.Name)
-	for suffix := 2; ; suffix++ {
-		var exists int
-		_ = a.db.QueryRow(`SELECT COUNT(*) FROM subscription_templates WHERE slug = ?`, slug).Scan(&exists)
-		if exists == 0 {
-			break
-		}
-		slug = templateSlug(input.Name) + "-" + strconv.Itoa(suffix)
-	}
-	result, err := a.db.Exec(`
-		INSERT INTO subscription_templates(slug, name, format, content, enabled)
-		VALUES(?, ?, ?, ?, ?)
-	`, slug, input.Name, input.Format, input.Content, boolToInt(input.Enabled))
+	id, slug, err := a.responsePolicyStore().createTemplate(input)
 	if err != nil {
 		httpapi.WriteV1Error(w, r, http.StatusConflict, "template_create_failed", "failed to create template")
 		return
 	}
-	id, _ := result.LastInsertId()
 	a.recordAuditEvent(r, "template.create", "template", strconv.FormatInt(id, 10), map[string]any{"name": input.Name, "format": input.Format})
 	httpapi.WriteJSON(w, http.StatusCreated, map[string]any{"id": id, "slug": slug})
 }
@@ -265,16 +170,12 @@ func (a *App) apiV1UpdateTemplate(w http.ResponseWriter, r *http.Request) {
 		httpapi.WriteV1Error(w, r, http.StatusBadRequest, "template_invalid", err.Error())
 		return
 	}
-	result, err := a.db.Exec(`
-		UPDATE subscription_templates
-		SET name = ?, format = ?, content = ?, enabled = ?, updated_at = CURRENT_TIMESTAMP
-		WHERE id = ?
-	`, input.Name, input.Format, input.Content, boolToInt(input.Enabled), id)
+	affected, err := a.responsePolicyStore().updateTemplate(id, input)
 	if err != nil {
 		httpapi.WriteV1Error(w, r, http.StatusConflict, "template_update_failed", "failed to update template")
 		return
 	}
-	if affected, _ := result.RowsAffected(); affected == 0 {
+	if affected == 0 {
 		httpapi.WriteV1Error(w, r, http.StatusNotFound, "template_not_found", "template not found")
 		return
 	}
@@ -283,30 +184,10 @@ func (a *App) apiV1UpdateTemplate(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *App) apiV1DeleteTemplate(w http.ResponseWriter, r *http.Request) {
-	id, ok := httpapi.PathID(w, r, "id")
-	if !ok {
-		return
-	}
-	var system int
-	err := a.db.QueryRow(`SELECT is_system FROM subscription_templates WHERE id = ?`, id).Scan(&system)
-	if errors.Is(err, sql.ErrNoRows) {
-		httpapi.WriteV1Error(w, r, http.StatusNotFound, "template_not_found", "template not found")
-		return
-	}
-	if err != nil {
-		httpapi.WriteV1Error(w, r, http.StatusInternalServerError, "template_delete_failed", "failed to delete template")
-		return
-	}
-	if system != 0 {
-		httpapi.WriteV1Error(w, r, http.StatusConflict, "system_template", "system templates cannot be deleted")
-		return
-	}
-	if _, err := a.db.Exec(`DELETE FROM subscription_templates WHERE id = ?`, id); err != nil {
-		httpapi.WriteV1Error(w, r, http.StatusConflict, "template_in_use", "template is used by a response rule")
-		return
-	}
-	a.recordAuditEvent(r, "template.delete", "template", strconv.FormatInt(id, 10), nil)
-	httpapi.WriteMessage(w, "template deleted")
+	a.serveResponseDeletion(w, r, responseDeletionHTTPCommand{
+		remove: a.responsePolicyStore().deleteTemplate, errors: templateDeletionErrors,
+		action: "template.delete", target: "template", message: "template deleted",
+	})
 }
 
 func (a *App) apiV1ListResponseRules(w http.ResponseWriter, r *http.Request) {
@@ -329,47 +210,26 @@ func (a *App) saveResponseRule(w http.ResponseWriter, r *http.Request, id *int64
 		httpapi.WriteV1Error(w, r, http.StatusBadRequest, "rule_invalid", err.Error())
 		return
 	}
-	if input.TemplateID != nil {
-		var enabled int
-		var templateFormat string
-		if err := a.db.QueryRow(`SELECT enabled, format FROM subscription_templates WHERE id = ?`, *input.TemplateID).Scan(&enabled, &templateFormat); err != nil {
-			httpapi.WriteV1Error(w, r, http.StatusBadRequest, "template_invalid", "selected template does not exist or is disabled")
-			return
-		}
-		if failure := validateResponseTemplateReference(input.ResponseType, templateFormat, enabled != 0); failure != nil {
-			httpapi.WriteV1Error(w, r, http.StatusBadRequest, failure.Code, failure.Message)
-			return
-		}
-	} else if input.ResponseType == "browser" || input.ResponseType == "block" || input.ResponseType == "not-found" {
-		input.TemplateID = nil
+	if failure := a.responsePolicyStore().validateRuleTemplate(input); failure != nil {
+		httpapi.WriteV1Error(w, r, http.StatusBadRequest, failure.Code, failure.Message)
+		return
 	}
-	conditionsJSON, _ := json.Marshal(input.Conditions)
-	headersJSON, _ := json.Marshal(input.Headers)
 	if id == nil {
-		result, err := a.db.Exec(`
-			INSERT INTO response_rules(name, description, enabled, priority, operator, conditions_json, response_type, template_id, headers_json)
-			VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?)
-		`, input.Name, input.Description, boolToInt(input.Enabled), input.Priority, input.Operator, string(conditionsJSON), input.ResponseType, input.TemplateID, string(headersJSON))
+		createdID, err := a.responsePolicyStore().createRule(input)
 		if err != nil {
 			httpapi.WriteV1Error(w, r, http.StatusConflict, "rule_create_failed", "failed to create response rule")
 			return
 		}
-		createdID, _ := result.LastInsertId()
 		a.recordAuditEvent(r, "response_rule.create", "response_rule", strconv.FormatInt(createdID, 10), map[string]any{"name": input.Name})
 		httpapi.WriteJSON(w, http.StatusCreated, map[string]any{"id": createdID})
 		return
 	}
-	result, err := a.db.Exec(`
-		UPDATE response_rules
-		SET name = ?, description = ?, enabled = ?, priority = ?, operator = ?,
-		    conditions_json = ?, response_type = ?, template_id = ?, headers_json = ?, updated_at = CURRENT_TIMESTAMP
-		WHERE id = ?
-	`, input.Name, input.Description, boolToInt(input.Enabled), input.Priority, input.Operator, string(conditionsJSON), input.ResponseType, input.TemplateID, string(headersJSON), *id)
+	affected, err := a.responsePolicyStore().updateRule(*id, input)
 	if err != nil {
 		httpapi.WriteV1Error(w, r, http.StatusConflict, "rule_update_failed", "failed to update response rule")
 		return
 	}
-	if affected, _ := result.RowsAffected(); affected == 0 {
+	if affected == 0 {
 		httpapi.WriteV1Error(w, r, http.StatusNotFound, "rule_not_found", "response rule not found")
 		return
 	}
@@ -390,48 +250,10 @@ func (a *App) apiV1UpdateResponseRule(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *App) apiV1DeleteResponseRule(w http.ResponseWriter, r *http.Request) {
-	id, ok := httpapi.PathID(w, r, "id")
-	if !ok {
-		return
-	}
-	var system int
-	err := a.db.QueryRow(`SELECT is_system FROM response_rules WHERE id = ?`, id).Scan(&system)
-	if errors.Is(err, sql.ErrNoRows) {
-		httpapi.WriteV1Error(w, r, http.StatusNotFound, "rule_not_found", "response rule not found")
-		return
-	}
-	if err != nil {
-		httpapi.WriteV1Error(w, r, http.StatusInternalServerError, "rule_delete_failed", "failed to delete response rule")
-		return
-	}
-	if system != 0 {
-		httpapi.WriteV1Error(w, r, http.StatusConflict, "system_rule", "system response rules cannot be deleted")
-		return
-	}
-	if _, err := a.db.Exec(`DELETE FROM response_rules WHERE id = ?`, id); err != nil {
-		httpapi.WriteV1Error(w, r, http.StatusInternalServerError, "rule_delete_failed", "failed to delete response rule")
-		return
-	}
-	a.recordAuditEvent(r, "response_rule.delete", "response_rule", strconv.FormatInt(id, 10), nil)
-	httpapi.WriteMessage(w, "response rule deleted")
-}
-
-func (a *App) loadTemplate(id *int64) (*subscriptionTemplate, error) {
-	if id == nil {
-		return nil, nil
-	}
-	var item subscriptionTemplate
-	var enabled, system int
-	err := a.db.QueryRow(`
-		SELECT id, slug, name, format, content, enabled, is_system, created_at, updated_at
-		FROM subscription_templates WHERE id = ?
-	`, *id).Scan(&item.ID, &item.Slug, &item.Name, &item.Format, &item.Content, &enabled, &system, &item.CreatedAt, &item.UpdatedAt)
-	if err != nil {
-		return nil, err
-	}
-	item.Enabled = enabled != 0
-	item.IsSystem = system != 0
-	return &item, nil
+	a.serveResponseDeletion(w, r, responseDeletionHTTPCommand{
+		remove: a.responsePolicyStore().deleteRule, errors: ruleDeletionErrors,
+		action: "response_rule.delete", target: "response_rule", message: "response rule deleted",
+	})
 }
 
 func applyTemplateContent(content, subscriptionBody, title string) string {

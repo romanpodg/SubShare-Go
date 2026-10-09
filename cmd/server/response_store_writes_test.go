@@ -110,3 +110,39 @@ func TestResponseStoreDeleteFailureRetainsState(t *testing.T) {
 	assertResponseStoreNoMutationAudit(t, app, "response_rule.delete")
 	assertResponseStoreNoMutationAudit(t, app, "template.delete")
 }
+
+func TestResponseStoreDeletionGuardContracts(t *testing.T) {
+	cases := []struct {
+		name, id, ruleCode, templateCode string
+		status                           int
+	}{
+		{"missing", "9002", "rule_not_found", "template_not_found", http.StatusNotFound},
+		{"system", "9001", "system_rule", "system_template", http.StatusConflict},
+		{"closed", "9001", "rule_delete_failed", "template_delete_failed", http.StatusInternalServerError},
+	}
+	for _, test := range cases {
+		t.Run(test.name, func(t *testing.T) {
+			app := responseStoreTemplateFixture(t)
+			prepareResponseStoreDeletionGuard(t, app, test.name)
+			request := responseStoreWriteRequest(t, http.MethodDelete, nil)
+			request.SetPathValue("id", test.id)
+			ruleRecorder := httptest.NewRecorder()
+			app.apiV1DeleteResponseRule(ruleRecorder, request)
+			assertResponseStoreWriteError(t, ruleRecorder, test.status, test.ruleCode)
+			templateRecorder := httptest.NewRecorder()
+			app.apiV1DeleteTemplate(templateRecorder, request)
+			assertResponseStoreWriteError(t, templateRecorder, test.status, test.templateCode)
+		})
+	}
+}
+
+func prepareResponseStoreDeletionGuard(t *testing.T, app *App, state string) {
+	t.Helper()
+	switch state {
+	case "system":
+		execRepositoryFixtureSQL(t, app, `UPDATE response_rules SET is_system = 1 WHERE id = 9001`)
+		execRepositoryFixtureSQL(t, app, `UPDATE subscription_templates SET is_system = 1 WHERE id = 9001`)
+	case "closed":
+		requireRepositorySuccess(t, app.db.Close())
+	}
+}

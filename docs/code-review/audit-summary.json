@@ -3996,7 +3996,7 @@
       "R11a": "merged_pr19",
       "R11b": "completed_pr20_pr21_pr22_a07_accepted",
       "R12": "completed_pr23",
-      "R13a": "read_write_characterization_passes",
+      "R13a": "locally_validated_hosted_acceptance_pending",
       "R13b": "not_started",
       "R14": "not_started",
       "R15a": "not_started",
@@ -4039,7 +4039,7 @@
       "R12 is accepted in PR23. Continue R13a persistence extraction from its passing read/write characterization.",
       "A07 is accepted in PR22; broader A01 and A04-A06/A08-A14 remain."
     ],
-    "remainingCriticalRisk": "A00/A02/A03/A07 are accepted. R12 policy validation is in progress; broader A01 and A04-A06/A08-A14 remain. OS I/O trigger frequency remains unmeasured.",
+    "remainingCriticalRisk": "A00/A02/A03/A07 and R12 are accepted. R13a persistence validation is in progress; broader A01 and A04-A06/A08-A14 remain. OS I/O trigger frequency remains unmeasured.",
     "r06CharacterizationCommit": "6a12236614e5",
     "r07aExecutionRecord": "docs/code-review/r07a-category-ordering.md",
     "autonomousContinuationRecord": "docs/code-review/autonomous-continuation.md",
