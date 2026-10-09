@@ -21,3 +21,17 @@ Raw reveal display formatting is now a pure projection using the existing duplic
 All six executable planning/default modules score 10.00. The modal improves to 6.30, with three bumps and no depth-four finding; component CC 126 / 804 lines remains visible. Strict delta still reports its aggregate complex-method warning, while the old submit findings are removed. Final functional and hosted checks, review, replies and thread resolution are required before merge. No gate, rule or threshold is changed.
 
 Final local source state passes all 4,005 tests, types/lint/export and all 20 browser cases. Staged/history scans precede the follow-up push.
+
+## Final-source review and queued check checkpoint
+
+Automated functional review at `2562dbed33ffb7ec360f268331a2d2338c6a807b` reports no major issues. Backend, frontend, Docker and both Codecov checks pass in Actions run `37794276181`; CodeScene check `113369486969` remains queued without diagnostics after service interruptions. A direct check re-request returned HTTP 404. A documentation-only checkpoint triggers a fresh normal head check; production source remains identical to the validated/reviewed source. Require the new final head's full checks and review disposition before merging. The Complex Method thread remains open pending analysis; the removed deep-nesting finding is resolved.
+
+The separate request-session correction in [PR #20](https://github.com/romanpodg/SubShare-Go/pull/20) is stacked on this branch. Its CodeScene analysis `7867309` passes all three gates at source `5db7328`, and its initial finding was removed by the service. Retarget that PR to main only after this PR is accepted, then rerun main's full required gates. Neither stacked work nor service interruption waives a merge gate.
+
+## Explicit rendering boundary
+
+Fresh hosted analysis at documentation head `0e6301e` still rejects the aggregate Complex Method category, despite file health improving to 6.30. The final correction names the existing JSX presentation as `renderEditor` inside the modal, leaving all state/hooks, event handlers and rendered JSX byte-identical. This makes command/state orchestration and presentation distinct phases without new props, components or public API.
+
+Code Health improves to 7.29. The remaining presentation method is explicitly measured at CC 49 / 452 lines, compared with the original submit's CC 117 / 192 lines. Complex Method pressure and overall complexity improve; mean CC falls 16.20 to 10.44, the old submit bumps and deep nesting are removed. Strict delta retains the visible existing-file presentation-method warning; no gate or rule changes. Final local/browser and hosted checks/review must pass before merge. The presentation length is retained as remaining debt, not hidden or claimed eliminated.
+
+The final renderer boundary passes all 4,005 unit cases, types/lint/export and 20 desktop/mobile browser cases. Source parity verifies 67 unrelated component statements plus byte-identical rendered JSX and the moved constructor body.
