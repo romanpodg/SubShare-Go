@@ -65,6 +65,7 @@ func TestJobSourceURLChangeDuringFetchWithholdsCapturedBody(t *testing.T) {
 	var currentURL string
 	requireRepositorySuccess(t, f.app.db.QueryRow(`SELECT source_url FROM external_subscription_sources WHERE id = ?`, sourceID).Scan(&currentURL))
 	requireRepositoryEqual(t, "source keeps new URL", currentURL, "https://provider.example/new-feed")
+	assertJobSourceStatus(t, f.app, sourceID, "error")
 }
 
 func TestJobSourceMetadataChangesDuringFetchUseCurrentTarget(t *testing.T) {
