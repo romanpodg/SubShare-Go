@@ -31,7 +31,7 @@ Completed work:
 | A02 / P1 | Completed; R06/R07a/R07b/R08/R08c merged with hosted checks/review clear | Retain encrypted command, projection, ownership and rollback contracts |
 | A03 / P1 | Completed; R09/R10a/R10b/R10c merged | Retain preservation/shared/UTF-8 contracts; remaining parser complexity stays visible |
 | A04 / P1 | Completed; R12/R13a/R13b merged in PR23-PR25 | Final six checks/review clear at 49d5627; retain [requirement evidence](r13b-response-http.md) |
-| A05 / P1 | R14 accepted in PR26 with full/race checks; three stale-result protection failures reproduced separately | Stale-result correction, then R15a/R15b |
+| A05 / P1 | R14 accepted; stale-result correction locally validated after failing regressions | R14c hosted/race acceptance, then R15a/R15b |
 | A06 / P1 | Not started | R16a/R16b actual-route authorization matrix and guard evaluation |
 | A07 / P1 | Completed; R11a/R11b and corrections merged in PR19-PR22 | Final six checks/review clear at b6fb366; retain [requirement evidence](r11b-reveal-provenance.md) |
 | A08 / P1 | Not started | R17a/R17b ordering/actions and shared presentation |

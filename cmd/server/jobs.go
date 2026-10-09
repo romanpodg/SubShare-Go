@@ -495,18 +495,20 @@ func (a *App) runQueuedSourceSync(jobID, sourceID, actorAdminID int64, requestID
 		a.finishSourceSyncRun(runID, sources.SyncResult{}, err)
 		return
 	}
-	a.markExternalSourceStatus(sourceID, "syncing", "")
+	lease := a.beginSourceFetch(source)
+	defer a.releaseSourceFetch(lease)
+	a.markSourceFetchStatus(lease, "syncing", "")
 	hwidProfile := sources.NormalizeHWIDProfile(source.PassHWID, source.HWIDVersion, source.HWIDModelName, source.HWIDValue)
 	parsed, err := sources.Fetch(context.Background(), a.sourceClient(), source.SourceURL, hwidProfile, a.externalProfileFingerprintKeys())
 	if err != nil {
-		a.markExternalSourceStatus(sourceID, "error", err.Error())
+		a.markSourceFetchStatus(lease, "error", err.Error())
 		a.finishTrackedJob(jobID, err)
 		a.finishSourceSyncRun(runID, sources.SyncResult{}, err)
 		return
 	}
-	syncResult, err := a.syncExternalSource(sourceID, parsed)
+	syncResult, err := a.syncOwnedSourceResult(lease, parsed)
 	if err != nil {
-		a.markExternalSourceStatus(sourceID, "error", err.Error())
+		a.markSourceFetchStatus(lease, "error", err.Error())
 		a.finishTrackedJob(jobID, err)
 		a.finishSourceSyncRun(runID, syncResult, err)
 		return

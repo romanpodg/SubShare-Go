@@ -3999,7 +3999,7 @@
       "R13a": "completed_pr24",
       "R13b": "completed_pr25_a04_accepted",
       "R14": "completed_pr26_race_accepted",
-      "R14c": "three_stale_result_protection_failures_reproduced",
+      "R14c": "locally_validated_hosted_race_acceptance_pending",
       "R15a": "not_started",
       "R15b": "not_started",
       "R16a": "not_started",
@@ -4037,10 +4037,10 @@
     "nextBatch": "R14c",
     "nextBatchPriority": "P1",
     "nextBatchRemainingPrerequisites": [
-      "R14 is accepted in PR26 with all six checks and the dedicated race step. R14c reproduces three desired stale-result/failure protection failures; correct and fully validate them in a separate PR before R15.",
+      "R14 is accepted in PR26. R14c fetch ownership/transactional URL correction and full local validation are complete; require final-head hosted/race checks and review before correction acceptance, then R15.",
       "A00/A02/A03/A04/A07 are accepted; broader A01 and A05-A06/A08-A14 remain."
     ],
-    "remainingCriticalRisk": "A00/A02/A03/A04/A07 and R14 are accepted. R14c desired regressions reproduce older results replacing newer feeds, old URL content being applied after edits and old failures replacing newer success state. A separate correction remains. Concurrent tracking can fail with SQLITE_BUSY and remains recorded. Broader A01 and A05-A06/A08-A14 remain. OS I/O trigger frequency remains unmeasured.",
+    "remainingCriticalRisk": "A00/A02/A03/A04/A07 and R14 are accepted. R14c full local protections/validation pass with hosted/race correction acceptance pending. Concurrent tracking can fail with SQLITE_BUSY and remains recorded for separate lifecycle work. Broader A01 and A05-A06/A08-A14 remain. OS I/O trigger frequency remains unmeasured.",
     "r06CharacterizationCommit": "6a12236614e5",
     "r07aExecutionRecord": "docs/code-review/r07a-category-ordering.md",
     "autonomousContinuationRecord": "docs/code-review/autonomous-continuation.md",

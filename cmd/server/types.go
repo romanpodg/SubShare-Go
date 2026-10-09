@@ -23,6 +23,8 @@ type App struct {
 	profileFingerprintOldKeys [][]byte
 	profileKeyring            *profilestorage.Keyring
 	mu                        sync.RWMutex
+	sourceFetchSequence       uint64
+	sourceFetchOwners         map[int64]uint64
 	storeOnce                 sync.Once
 	keyStore                  *storage.Repository
 	keysOnce                  sync.Once
