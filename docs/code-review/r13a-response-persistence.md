@@ -1,6 +1,6 @@
 # R13a — Response-rule and template persistence
 
-Status: locally validated on `refactor/response-policy-persistence`, based on accepted R12 main `d5d9616`; tests-first commit `6c20161` precedes extraction. Hosted acceptance remains; A04 remains incomplete.
+Status: accepted in [PR24](https://github.com/romanpodg/SubShare-Go/pull/24), merge `aff907327d67095ff11c529740252a581b3b8151`. All six checks pass at `9300e12c0184a7b36d69a8ba19d66fd63533b71a` in [run 37926581135](https://github.com/romanpodg/SubShare-Go/actions/runs/37926581135); final automated review completed with a positive reaction and no threads. Tests-first commit `6c20161` precedes extraction. A04 remains incomplete until R13b acceptance.
 
 Read cases protect invalid conditions/headers JSON, nil partial results, close-before-repair with a single database connection, disabling plus audit plus returned error, repeated disabled-corrupt reads that still error and audit again, independent best-effort disable/audit failures, JSON null versus empty list projections, closed database reads, template ordering and disabled/missing/nil template projections. Writes use disposable SQLite triggers to reject rule/template inserts, updates and deletes, proving retained rows and no false success audit. They retain the existing rule-delete 500 and template-delete 409 distinction. Both new files score 10.00; targeted characterization passes before extraction.
 

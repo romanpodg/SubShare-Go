@@ -1,0 +1,9 @@
+# R13b — Response-rule and template HTTP/preview boundaries
+
+Status: registered-route characterization on `refactor/response-policy-http`, incorporating accepted R13a main `aff9073` through a normal fast-forward. Production handlers remain unchanged before this tests-first checkpoint; A04 acceptance remains.
+
+Four new contract files use the actual registered routes. They protect template/rule create-update-list-delete success envelopes, scalar normalization, stable slugs, null slices, complete v1 error envelopes/request IDs, repeated corrupt-row GET failures and audit side effects, SQL list failure mapping with sessions still valid, five role states across nine endpoints, independent role expectations and CSRF precedence. Previews retain all five format content types and their actual sample output, malformed/unknown-field/invalid-input/render-error responses.
+
+All three public delivery URLs retain block/not-found precedence and explicit browser dispatch while subbody keeps its forced body format. Stored legacy custom headers cannot override canonical metadata, safe root headers still apply, optional browser Happ crypto failure keeps the plain link, and deleting a referenced template uses the unchanged foreign-key SET NULL behavior and default delivery. Existing all-excluded 422, empty/integrity 503 and HTML/CSS/JSON/URL escaping suites remain required. No runtime data or foreign-key constraint was bypassed. The initial four files score 10.00; targeted registered-contract and existing delivery/escaping checks pass before extraction.
+
+Continue by separating template HTTP, rule HTTP and the pure preview renderer without changing their bodies or route registrations. Require full local/hosted validation and actionable review resolution before requirement-level A04 acceptance. R14 queue/source lifecycle follows after acceptance; broader A01 and A05-A06/A08-A14 remain incomplete.

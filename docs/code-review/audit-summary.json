@@ -3996,8 +3996,8 @@
       "R11a": "merged_pr19",
       "R11b": "completed_pr20_pr21_pr22_a07_accepted",
       "R12": "completed_pr23",
-      "R13a": "locally_validated_hosted_acceptance_pending",
-      "R13b": "not_started",
+      "R13a": "completed_pr24",
+      "R13b": "registered_route_characterization_passes",
       "R14": "not_started",
       "R15a": "not_started",
       "R15b": "not_started",
@@ -4033,10 +4033,10 @@
         "scope": "Repository test maintainability, with assertions and transitions retained"
       }
     ],
-    "nextBatch": "R13a",
+    "nextBatch": "R13b",
     "nextBatchPriority": "P1",
     "nextBatchRemainingPrerequisites": [
-      "R12 is accepted in PR23. Continue R13a persistence extraction from its passing read/write characterization.",
+      "R12/R13a are accepted in PR23/PR24. Continue R13b HTTP/preview separation from registered-route characterization and require full acceptance.",
       "A07 is accepted in PR22; broader A01 and A04-A06/A08-A14 remain."
     ],
     "remainingCriticalRisk": "A00/A02/A03/A07 and R12 are accepted. R13a persistence validation is in progress; broader A01 and A04-A06/A08-A14 remain. OS I/O trigger frequency remains unmeasured.",
