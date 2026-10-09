@@ -158,7 +158,7 @@ export function KeyEditorModal({
   const [showConflictDialog, setShowConflictDialog] = useState(false);
   const [showDiscardConfirm, setShowDiscardConfirm] = useState(false);
   const [isDirty, setIsDirty] = useState(false);
-  const beginSessionRequest = useEditorRequestSession(open, keyId, { setLoading, setRevealing, setShowConflictDialog });
+  const beginSessionRequest = useEditorRequestSession(open, keyId, { setLoading, setRevealing, setShowConflictDialog, setSaving, setCloning });
 
   const templatePreviewParts = useMemo(
     () => informationalTemplatePreviewParts(templateText),
@@ -303,6 +303,7 @@ export function KeyEditorModal({
   // Reveal secret call
   const handleReveal = async (target: "raw" | "structured-secrets") => {
     if (!keyId || !detail) return;
+    if (revealing) return;
     const inSession = beginSessionRequest();
     setRevealing(true);
     try {
@@ -356,22 +357,22 @@ export function KeyEditorModal({
   // Clone call
   const handleClone = async () => {
     if (!keyId || !detail) return;
+    const inSession = beginSessionRequest();
     setCloning(true);
     try {
       await keysApi.clone(keyId, {
         expected_profile_revision: detail.profile_revision,
       });
-      toast("Локальный клон успешно создан", "success");
+      inSession(() => toast("Локальный клон успешно создан", "success"));
       await onRefresh();
-      onClose();
+      inSession(onClose);
     } catch (error) {
-      if (error instanceof ApiError && error.status === 409) {
-        setShowConflictDialog(true);
-      } else {
-        toast(error instanceof Error ? error.message : "Ошибка клонирования", "error");
-      }
+      inSession(() => {
+        if (error instanceof ApiError && error.status === 409) setShowConflictDialog(true);
+        else toast(error instanceof Error ? error.message : "Ошибка клонирования", "error");
+      });
     } finally {
-      setCloning(false);
+      inSession(() => setCloning(false));
     }
   };
 
@@ -430,6 +431,7 @@ export function KeyEditorModal({
   const handleSubmit = async (event: FormEvent) => {
     event.preventDefault();
     if (!label.trim()) return;
+    const inSession = beginSessionRequest();
     setSaving(true);
     try {
       const state = {
@@ -442,18 +444,20 @@ export function KeyEditorModal({
       };
       if (keyId && detail) {
         await keysApi.updateProfile(keyId, buildEditorUpdateCommand(state, detail));
-        toast(isSourceOwned ? "Локальные параметры профиля обновлены" : "Профиль успешно обновлён", "success");
+        inSession(() => toast(isSourceOwned ? "Локальные параметры профиля обновлены" : "Профиль успешно обновлён", "success"));
       } else {
         await keysApi.createProfile(buildEditorCreateCommand(state));
-        toast("Профиль успешно создан", "success");
+        inSession(() => toast("Профиль успешно создан", "success"));
       }
       await onRefresh();
-      onClose();
+      inSession(onClose);
     } catch (error) {
-      if (error instanceof ApiError && error.status === 409) setShowConflictDialog(true);
-      else toast(error instanceof Error ? error.message : "Ошибка сохранения", "error");
+      inSession(() => {
+        if (error instanceof ApiError && error.status === 409) setShowConflictDialog(true);
+        else toast(error instanceof Error ? error.message : "Ошибка сохранения", "error");
+      });
     } finally {
-      setSaving(false);
+      inSession(() => setSaving(false));
     }
   };
 

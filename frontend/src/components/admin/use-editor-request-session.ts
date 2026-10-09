@@ -7,10 +7,12 @@ interface SessionTransientState {
   setLoading: (value: boolean) => void;
   setRevealing: (value: boolean) => void;
   setShowConflictDialog: (value: boolean) => void;
+  setSaving: (value: boolean) => void;
+  setCloning: (value: boolean) => void;
 }
 
 export function useEditorRequestSession(open: boolean, keyId: number | undefined, transient: SessionTransientState) {
-  const { setLoading, setRevealing, setShowConflictDialog } = transient;
+  const { setLoading, setRevealing, setShowConflictDialog, setSaving, setCloning } = transient;
   const generation = useRef(0);
   const active = useRef(false);
   useLayoutEffect(() => {
@@ -19,11 +21,13 @@ export function useEditorRequestSession(open: boolean, keyId: number | undefined
     setLoading(false);
     setRevealing(false);
     setShowConflictDialog(false);
+    setSaving(false);
+    setCloning(false);
     return () => {
       generation.current += 1;
       active.current = false;
     };
-  }, [open, keyId, setLoading, setRevealing, setShowConflictDialog]);
+  }, [open, keyId, setLoading, setRevealing, setShowConflictDialog, setSaving, setCloning]);
 
   return useCallback(() => {
     const requestedGeneration = generation.current;
