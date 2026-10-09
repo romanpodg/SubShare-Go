@@ -17,25 +17,19 @@ import { useToast } from "@/components/ui/Toast";
 import { ApiError, keys as keysApi } from "@/lib/api";
 import { copyToClipboard } from "@/lib/clipboard";
 import {
-  buildXrayJSONConfiguration,
-  createConfigurationFromXrayJSON,
   parseEditableConfiguration,
   parseXrayJSONConfiguration,
   patchEditableConfiguration,
   type XrayJSONDraft,
   type XrayJSONPatch,
 } from "@/lib/configuration";
-import { formatXrayJSONWithinLimit, inspectXrayJSONDocument } from "@/lib/xray-json-document";
 import type {
-  CreateKeyProfileInput,
   ExternalProfileProtocol,
   KeyCategory,
   KeyEditorSchemaResponse,
   KeyProfileDetailResponse,
   KeyRawSecretResponse,
   KeyStructuredSecretsResponse,
-  StructuredProfilePatch,
-  UpdateKeyProfileInput,
 } from "@/lib/types";
 import { CreateKeyCategoryModal } from "./CreateKeyCategoryModal";
 import { KeyEditorConflictDialog } from "./KeyEditorConflictDialog";
@@ -47,40 +41,28 @@ import {
 } from "./protocol-editor-capabilities";
 import { LegacyXrayFields } from "./protocol-editors/LegacyXrayFields";
 import {
-  buildHysteria2Patch,
   Hysteria2Fields,
 } from "./protocol-editors/Hysteria2Fields";
 import {
-  buildShadowsocksPatch,
   ShadowsocksFields,
 } from "./protocol-editors/ShadowsocksFields";
 import { TuicV4ReadOnlyBanner } from "./protocol-editors/TuicV4ReadOnlyBanner";
 import {
-  buildTUICPatch,
   TuicV5Fields,
 } from "./protocol-editors/TuicV5Fields";
 
+import { buildEditorCreateCommand } from "./key-editor-create-command";
+import { buildEditorUpdateCommand } from "./key-editor-update-command";
+import { isXrayJSONRaw, projectEditorRawDisplay } from "./key-editor-raw-policy";
+
+import { emptyLegacyDraft } from "./key-editor-command-state";
+import { buildEditorDetailProjection } from "./key-editor-detail-projection";
+
 const LABEL_LIMIT = 255;
 
-function emptyLegacyDraft(protocol: "vless" | "vmess" | "trojan" = "vless"): XrayJSONDraft {
-  return {
-    protocol,
-    server: "",
-    port: "443",
-    identifier: "",
-    network: "tcp",
-    security: "none",
-    path: "",
-    host: "",
-    sni: "",
-    alpn: "",
-    remark: "",
-  };
-}
 
-function isXrayJSONRaw(protocol: ExternalProfileProtocol, raw: string) {
-  return protocol === "xray-json" || raw.trim().startsWith("{");
-}
+
+
 
 export interface KeyEditorModalProps {
   open: boolean;
@@ -248,6 +230,36 @@ export function KeyEditorModal({
     setTuicHeartbeat("10s");
   }, [defaultMode, initialCategory, initialKind, initialLabel, initialProtocol, keyId]);
 
+  const applyDetailProjection = useCallback((projection: NonNullable<ReturnType<typeof buildEditorDetailProjection>>) => {
+    setServer(projection.server);
+    setPort(projection.port);
+    setDisplayName(projection.displayName);
+    if (projection.legacy) {
+      setLegacyDraft(projection.legacy);
+      setLegacySecretsRevealed(false);
+    }
+    if (projection.shadowsocks) {
+      setSsMethod(projection.shadowsocks.method);
+      setSsPluginName(projection.shadowsocks.pluginName);
+    }
+    if (projection.hysteria2) {
+      setHy2Sni(projection.hysteria2.sni);
+      setHy2Insecure(projection.hysteria2.insecure);
+      setHy2CertSha(projection.hysteria2.certificate);
+      setHy2ObfsType(projection.hysteria2.obfuscation);
+    }
+    if (projection.tuic) {
+      setTuicSni(projection.tuic.sni);
+      setTuicAlpn(projection.tuic.alpn);
+      setTuicSkipCert(projection.tuic.skipCert);
+      setTuicCc(projection.tuic.cc);
+      setTuicUdpRelay(projection.tuic.relay);
+      setTuicUdpOverStream(projection.tuic.udpOverStream);
+      setTuicZeroRtt(projection.tuic.zeroRtt);
+      setTuicHeartbeat(projection.tuic.heartbeat);
+    }
+  }, []);
+
   // Load detail & schemas
   const loadDetailAndSchema = useCallback(async () => {
     setLoading(true);
@@ -276,53 +288,15 @@ export function KeyEditorModal({
           setMode("structured");
         }
 
-        if (k.safe_structured) {
-          setServer(k.safe_structured.server || "");
-          setPort(k.safe_structured.port || "");
-          setDisplayName(
-            k.ownership === "external_source" && !k.client_display_name_overridden
-              ? ""
-              : (k.client_display_name || k.safe_structured.display_name || k.label)
-          );
-
-          if (isLegacyEditorProtocol(k.protocol)) {
-            setLegacyDraft({
-              ...emptyLegacyDraft(k.protocol),
-              server: k.safe_structured.server || "",
-              port: k.safe_structured.port || "443",
-              remark: k.safe_structured.display_name || k.label,
-            });
-            setLegacySecretsRevealed(false);
-          }
-
-          if (k.safe_structured.shadowsocks) {
-            setSsMethod(k.safe_structured.shadowsocks.method || "2022-blake3-aes-128-gcm");
-            setSsPluginName(k.safe_structured.shadowsocks.plugin_name || "");
-          }
-          if (k.safe_structured.hysteria2) {
-            setHy2Sni(k.safe_structured.hysteria2.sni || "");
-            setHy2Insecure(k.safe_structured.hysteria2.insecure || false);
-            setHy2CertSha(k.safe_structured.hysteria2.certificate_sha256 || "");
-            setHy2ObfsType(k.safe_structured.hysteria2.obfuscation_type || "");
-          }
-          if (k.safe_structured.tuic) {
-            setTuicSni(k.safe_structured.tuic.sni || "");
-            setTuicAlpn((k.safe_structured.tuic.alpn || []).join(","));
-            setTuicSkipCert(k.safe_structured.tuic.skip_cert_verify || false);
-            setTuicCc(k.safe_structured.tuic.congestion_controller || "bbr");
-            setTuicUdpRelay(k.safe_structured.tuic.udp_relay_mode || "native");
-            setTuicUdpOverStream(k.safe_structured.tuic.udp_over_stream || false);
-            setTuicZeroRtt(k.safe_structured.tuic.zero_rtt || false);
-            setTuicHeartbeat(k.safe_structured.tuic.heartbeat || "10s");
-          }
-        }
+        const projection = buildEditorDetailProjection(k);
+        if (projection) applyDetailProjection(projection);
       }
     } catch (error) {
       toast(error instanceof Error ? error.message : "Ошибка загрузки", "error");
     } finally {
       setLoading(false);
     }
-  }, [keyId, toast]);
+  }, [keyId, toast, applyDetailProjection]);
 
   useEffect(() => {
     if (open) {
@@ -345,26 +319,9 @@ export function KeyEditorModal({
       if (target === "raw") {
         const rawRes = res.data as KeyRawSecretResponse;
         setAuthoritativeRaw(rawRes.raw_uri);
-        let displayRaw = rawRes.raw_uri;
-        let formattingWarning = "";
-        if (isXrayJSONRaw(detail.protocol, rawRes.raw_uri)) {
-          try {
-            const inspection = inspectXrayJSONDocument(rawRes.raw_uri);
-            if (inspection.duplicateKeys.length > 0) {
-              formattingWarning = "JSON оставлен без форматирования: обнаружены повторяющиеся ключи.";
-            } else {
-              const formatted = formatXrayJSONWithinLimit(rawRes.raw_uri);
-              displayRaw = formatted.value;
-              if (formatted.exceededLimit) {
-                formattingWarning = "JSON оставлен без форматирования: форматированная версия превышает допустимый размер.";
-              }
-            }
-          } catch {
-            displayRaw = rawRes.raw_uri;
-          }
-        }
-        setRawUri(displayRaw);
-        setRawFormattingWarning(formattingWarning);
+        const display = projectEditorRawDisplay(detail.protocol, rawRes.raw_uri);
+        setRawUri(display.value);
+        setRawFormattingWarning(display.warning);
         setRevealedRaw(true);
         setRawEdited(false);
         setRawValidationError("");
@@ -467,226 +424,36 @@ export function KeyEditorModal({
     }
   };
 
-  const buildLegacyCreateRaw = () =>
-    createConfigurationFromXrayJSON(buildXrayJSONConfiguration({
-      ...legacyDraft,
-      remark: displayName.trim() || label.trim(),
-    }));
 
-  const validateRawBeforeSubmit = (value: string) => {
-    if (!value.trim()) throw new Error("Сначала заполните raw-конфигурацию");
-    if (isXrayJSONRaw(protocol, value)) {
-      const inspection = inspectXrayJSONDocument(value);
-      if (inspection.duplicateKeys.length > 0) {
-        throw new Error("XRAY-JSON содержит повторяющиеся ключи. Устраните неоднозначность перед сохранением.");
-      }
-      parseXrayJSONConfiguration(value);
-    }
-    else if (isLegacyEditorProtocol(protocol)) parseEditableConfiguration(value);
-  };
+
+
 
   // Submit Handler
   const handleSubmit = async (event: FormEvent) => {
     event.preventDefault();
     if (!label.trim()) return;
-
     setSaving(true);
     try {
+      const state = {
+        label, displayName, category, status, kind, templateText, mode, protocol,
+        server, port, rawUri, authoritativeRaw, revealedRaw, structuredEdited, rawEdited, legacyDraft,
+        ssMethod, ssPassword, ssPluginName, ssPluginOptions,
+        hy2Auth, hy2Sni, hy2Insecure, hy2CertSha, hy2ObfsType, hy2ObfsPassword,
+        tuicUuid, tuicPassword, tuicSni, tuicAlpn, tuicSkipCert, tuicCc, tuicUdpRelay,
+        tuicUdpOverStream, tuicZeroRtt, tuicHeartbeat,
+      };
       if (keyId && detail) {
-        // Update existing key
-        if (isSourceOwned) {
-          const currentClientDisplayNameOverride = detail.client_display_name_overridden
-            ? detail.client_display_name.trim()
-            : "";
-          await keysApi.updateProfile(keyId, {
-            label: detail.label,
-            client_display_name: displayName.trim() !== currentClientDisplayNameOverride
-              ? displayName.trim()
-              : undefined,
-            category: detail.category,
-            status,
-            kind: detail.kind,
-            template_text: detail.template_text,
-            profile_revision: detail.profile_revision,
-            patch_mode: "structured",
-          });
-          toast("Локальные параметры профиля обновлены", "success");
-          await onRefresh();
-          onClose();
-          return;
-        }
-
-        let patch: StructuredProfilePatch | undefined;
-
-        if (mode === "structured" && kind === "real") {
-          patch = {};
-          if (server !== (detail.safe_structured?.server || "")) {
-            patch.server = { operation: "set", value: server };
-          }
-          if (port !== (detail.safe_structured?.port || "")) {
-            patch.port = { operation: "set", value: port };
-          }
-          if (protocol === "shadowsocks") {
-            patch.shadowsocks = buildShadowsocksPatch(
-              detail.safe_structured?.shadowsocks?.method || "2022-blake3-aes-128-gcm",
-              ssMethod,
-              ssPassword,
-              detail.safe_structured?.shadowsocks?.plugin_name || "",
-              ssPluginName,
-              "",
-              ssPluginOptions
-            );
-          } else if (protocol === "hysteria2") {
-            patch.hysteria2 = buildHysteria2Patch(
-              detail.safe_structured?.hysteria2?.sni || "", hy2Sni,
-              detail.safe_structured?.hysteria2?.insecure || false, hy2Insecure,
-              detail.safe_structured?.hysteria2?.certificate_sha256 || "", hy2CertSha,
-              detail.safe_structured?.hysteria2?.obfuscation_type || "", hy2ObfsType,
-              hy2Auth,
-              hy2ObfsPassword
-            );
-          } else if (protocol === "tuic") {
-            patch.tuic = buildTUICPatch(
-              detail.safe_structured?.tuic?.sni || "", tuicSni,
-              (detail.safe_structured?.tuic?.alpn || []).join(","), tuicAlpn,
-              detail.safe_structured?.tuic?.skip_cert_verify || false, tuicSkipCert,
-              detail.safe_structured?.tuic?.congestion_controller || "bbr", tuicCc,
-              detail.safe_structured?.tuic?.udp_relay_mode || "native", tuicUdpRelay,
-              detail.safe_structured?.tuic?.udp_over_stream || false, tuicUdpOverStream,
-              detail.safe_structured?.tuic?.zero_rtt || false, tuicZeroRtt,
-              detail.safe_structured?.tuic?.heartbeat || "10s", tuicHeartbeat,
-              tuicUuid,
-              tuicPassword
-            );
-          }
-        }
-
-        let patchMode: "raw" | "structured" = mode;
-        let rawForUpdate: string | undefined;
-        if (kind === "real" && isLegacyEditorProtocol(protocol)) {
-          if (revealedRaw) {
-            validateRawBeforeSubmit(rawUri);
-            patchMode = "raw";
-            rawForUpdate = structuredEdited || rawEdited ? rawUri : authoritativeRaw;
-          } else if (mode === "raw") {
-            throw new Error("Сначала раскройте raw-конфигурацию");
-          } else {
-            patchMode = "structured";
-            patch ||= {};
-          }
-        } else if (kind === "real" && protocol === "xray-json") {
-          if (rawEdited) {
-            validateRawBeforeSubmit(rawUri);
-            patchMode = "raw";
-            rawForUpdate = rawUri;
-          } else {
-            patchMode = "structured";
-            patch = {};
-          }
-        } else if (kind === "real" && mode === "raw") {
-          if (!revealedRaw) throw new Error("Сначала раскройте raw-конфигурацию");
-          if (structuredEdited) throw new Error("Structured-версия уже изменена. Вернитесь в structured режим для сохранения или откройте профиль заново.");
-          patchMode = "raw";
-          rawForUpdate = rawEdited ? rawUri : authoritativeRaw;
-        } else if (kind === "real" && rawEdited) {
-          throw new Error("Raw-версия уже изменена. Вернитесь в raw режим для сохранения или откройте профиль заново.");
-        }
-
-        const updateInput: UpdateKeyProfileInput = {
-          label: label.trim(),
-          client_display_name: displayName.trim() !== detail.client_display_name
-            ? (displayName.trim() || label.trim())
-            : undefined,
-          category,
-          status,
-          kind,
-          template_text: templateText,
-          profile_revision: detail.profile_revision,
-          patch_mode: patchMode,
-          raw_uri: patchMode === "raw" ? rawForUpdate : undefined,
-          structured_patch: patchMode === "structured" ? (patch || {}) : undefined,
-        };
-
-        await keysApi.updateProfile(keyId, updateInput);
-        toast("Профиль успешно обновлён", "success");
+        await keysApi.updateProfile(keyId, buildEditorUpdateCommand(state, detail));
+        toast(isSourceOwned ? "Локальные параметры профиля обновлены" : "Профиль успешно обновлён", "success");
       } else {
-        // Create new local key
-        let patch: StructuredProfilePatch | undefined;
-
-        if (mode === "structured" && kind === "real") {
-          patch = {
-            server: { operation: "set", value: server },
-            port: { operation: "set", value: port },
-            display_name: { operation: "set", value: displayName || label },
-          };
-          if (protocol === "shadowsocks") {
-            patch.shadowsocks = {
-              method: { operation: "set", value: ssMethod },
-              password: { operation: "set", value: ssPassword || "" },
-              plugin_name: ssPluginName ? { operation: "set", value: ssPluginName } : undefined,
-              plugin_options: ssPluginOptions ? { operation: "set", value: ssPluginOptions } : undefined,
-            };
-          } else if (protocol === "hysteria2") {
-            patch.hysteria2 = {
-              authentication: { operation: "set", value: hy2Auth || "" },
-              sni: hy2Sni ? { operation: "set", value: hy2Sni } : undefined,
-              insecure: { operation: "set", value: hy2Insecure },
-              certificate_sha256: hy2CertSha ? { operation: "set", value: hy2CertSha } : undefined,
-              obfuscation_type: hy2ObfsType ? { operation: "set", value: hy2ObfsType } : undefined,
-              obfuscation_password: hy2ObfsPassword ? { operation: "set", value: hy2ObfsPassword } : undefined,
-            };
-          } else if (protocol === "tuic") {
-            patch.tuic = {
-              uuid: { operation: "set", value: tuicUuid || "" },
-              password: { operation: "set", value: tuicPassword || "" },
-              sni: tuicSni ? { operation: "set", value: tuicSni } : undefined,
-              alpn: tuicAlpn ? { operation: "set", value: tuicAlpn.split(",").map((s) => s.trim()).filter(Boolean) } : undefined,
-              skip_cert_verify: { operation: "set", value: tuicSkipCert },
-              congestion_controller: { operation: "set", value: tuicCc },
-              udp_relay_mode: { operation: "set", value: tuicUdpRelay },
-              udp_over_stream: { operation: "set", value: tuicUdpOverStream },
-              zero_rtt: { operation: "set", value: tuicZeroRtt },
-              heartbeat: { operation: "set", value: tuicHeartbeat },
-            };
-          }
-        }
-
-        let creationMode: "raw" | "structured" = mode;
-        let rawForCreate = mode === "raw" ? rawUri : undefined;
-        if (kind === "real" && isLegacyEditorProtocol(protocol) && mode === "structured") {
-          rawForCreate = buildLegacyCreateRaw();
-          validateRawBeforeSubmit(rawForCreate);
-          creationMode = "raw";
-          patch = undefined;
-        } else if (kind === "real" && mode === "raw") {
-          validateRawBeforeSubmit(rawUri);
-        }
-
-        const createInput: CreateKeyProfileInput = {
-          label: label.trim(),
-          client_display_name: displayName.trim() || label.trim(),
-          category,
-          status,
-          kind,
-          template_text: templateText,
-          creation_mode: creationMode,
-          raw_uri: creationMode === "raw" ? rawForCreate : undefined,
-          protocol,
-          structured: creationMode === "structured" ? patch : undefined,
-        };
-
-        await keysApi.createProfile(createInput);
+        await keysApi.createProfile(buildEditorCreateCommand(state));
         toast("Профиль успешно создан", "success");
       }
-
       await onRefresh();
       onClose();
     } catch (error) {
-      if (error instanceof ApiError && error.status === 409) {
-        setShowConflictDialog(true);
-      } else {
-        toast(error instanceof Error ? error.message : "Ошибка сохранения", "error");
-      }
+      if (error instanceof ApiError && error.status === 409) setShowConflictDialog(true);
+      else toast(error instanceof Error ? error.message : "Ошибка сохранения", "error");
     } finally {
       setSaving(false);
     }
@@ -706,7 +473,8 @@ export function KeyEditorModal({
     ? "Добавить информационный ключ"
     : "Добавить конфигурацию";
 
-  return (
+  const renderEditor = () => {
+    return (
     <>
       <Modal
         open={open}
@@ -1181,4 +949,7 @@ export function KeyEditorModal({
       />
     </>
   );
+  };
+
+  return renderEditor();
 }
