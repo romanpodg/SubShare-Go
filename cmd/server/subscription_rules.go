@@ -9,7 +9,6 @@ import (
 	"github.com/romanpodg/SubShare-Go/internal/delivery"
 	"github.com/romanpodg/SubShare-Go/internal/httpapi"
 	"net/http"
-	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -72,200 +71,6 @@ type responseRuleInput struct {
 	ResponseType string                  `json:"response_type"`
 	TemplateID   *int64                  `json:"template_id"`
 	Headers      []responseHeader        `json:"headers"`
-}
-
-var templateSlugSanitizer = regexp.MustCompile(`[^a-z0-9]+`)
-
-func normalizeTemplateFormat(raw string) (string, bool) {
-	value := strings.ToLower(strings.TrimSpace(raw))
-	switch value {
-	case "base64", "plain", "xray-json", "mihomo", "sing-box":
-		return value, true
-	default:
-		return "", false
-	}
-}
-
-func normalizeResponseType(raw string) (string, bool) {
-	value := strings.ToLower(strings.TrimSpace(raw))
-	switch value {
-	case "browser", "base64", "plain", "xray-json", "mihomo", "sing-box", "block", "not-found":
-		return value, true
-	default:
-		return "", false
-	}
-}
-
-func templateSlug(name string) string {
-	slug := templateSlugSanitizer.ReplaceAllString(strings.ToLower(strings.TrimSpace(name)), "-")
-	slug = strings.Trim(slug, "-")
-	if slug == "" {
-		slug = "template"
-	}
-	return slug
-}
-
-func validateTemplateInput(input templateInput) (templateInput, error) {
-	input.Name = strings.TrimSpace(input.Name)
-	if input.Name == "" || len([]rune(input.Name)) > 80 {
-		return input, fmt.Errorf("name must contain 1..80 characters")
-	}
-	format, ok := normalizeTemplateFormat(input.Format)
-	if !ok {
-		return input, fmt.Errorf("unsupported template format")
-	}
-	input.Format = format
-	if len(input.Content) > 1<<20 {
-		return input, fmt.Errorf("template content is too large")
-	}
-	if (format == "mihomo" || format == "sing-box" || format == "xray-json") && strings.TrimSpace(input.Content) != "" &&
-		!strings.Contains(input.Content, "{{subscription}}") {
-		return input, fmt.Errorf("custom template must contain {{subscription}}")
-	}
-	return input, nil
-}
-
-func validateResponseRuleInput(input responseRuleInput) (responseRuleInput, error) {
-	input.Name = strings.TrimSpace(input.Name)
-	input.Description = strings.TrimSpace(input.Description)
-	if input.Name == "" || len([]rune(input.Name)) > 80 {
-		return input, fmt.Errorf("name must contain 1..80 characters")
-	}
-	if len([]rune(input.Description)) > 250 {
-		return input, fmt.Errorf("description is too long")
-	}
-	input.Operator = strings.ToUpper(strings.TrimSpace(input.Operator))
-	if input.Operator != "AND" && input.Operator != "OR" {
-		return input, fmt.Errorf("operator must be AND or OR")
-	}
-	responseType, ok := normalizeResponseType(input.ResponseType)
-	if !ok {
-		return input, fmt.Errorf("unsupported response type")
-	}
-	input.ResponseType = responseType
-	if input.Priority < 0 || input.Priority > 100000 {
-		return input, fmt.Errorf("priority must be between 0 and 100000")
-	}
-	if len(input.Conditions) > 20 {
-		return input, fmt.Errorf("too many conditions")
-	}
-	for index := range input.Conditions {
-		if err := normalizeResponseRuleCondition(&input.Conditions[index]); err != nil {
-			return input, err
-		}
-	}
-	if len(input.Headers) > 30 {
-		return input, fmt.Errorf("too many response headers")
-	}
-	for index := range input.Headers {
-		header := &input.Headers[index]
-		header.Key = http.CanonicalHeaderKey(strings.TrimSpace(header.Key))
-		header.Value = strings.TrimSpace(header.Value)
-		if !safeCustomResponseHeader(header.Key, header.Value) {
-			return input, fmt.Errorf("unsafe response header %q", header.Key)
-		}
-	}
-	return input, nil
-}
-
-// normalizeResponseRuleCondition trims and upper/lower-cases the condition in
-// place and validates its operator and value.
-func normalizeResponseRuleCondition(condition *responseRuleCondition) error {
-	condition.HeaderName = strings.ToLower(strings.TrimSpace(condition.HeaderName))
-	condition.Operator = strings.ToUpper(strings.TrimSpace(condition.Operator))
-	condition.Value = strings.TrimSpace(condition.Value)
-	if condition.HeaderName == "" || len(condition.HeaderName) > 80 ||
-		strings.ContainsAny(condition.HeaderName, "\r\n:") {
-		return fmt.Errorf("invalid condition header name")
-	}
-	switch condition.Operator {
-	case "EQUALS", "NOT_EQUALS", "CONTAINS", "NOT_CONTAINS", "STARTS_WITH", "NOT_STARTS_WITH", "ENDS_WITH", "NOT_ENDS_WITH", "REGEX", "NOT_REGEX":
-	default:
-		return fmt.Errorf("unsupported condition operator")
-	}
-	if condition.Value == "" || len(condition.Value) > 255 {
-		return fmt.Errorf("condition value must contain 1..255 characters")
-	}
-	if condition.Operator == "REGEX" || condition.Operator == "NOT_REGEX" {
-		if _, err := regexp.Compile(condition.Value); err != nil {
-			return fmt.Errorf("invalid condition regex")
-		}
-	}
-	return nil
-}
-
-func safeCustomResponseHeader(key, value string) bool {
-	if key == "" || len(key) > 80 || len(value) > 1024 || strings.ContainsAny(key+value, "\r\n") {
-		return false
-	}
-	switch strings.ToLower(key) {
-	case "set-cookie", "content-length", "transfer-encoding", "connection", "content-type",
-		"content-disposition", "strict-transport-security", "access-control-allow-origin",
-		"announce", "profile-title", "profile-update-interval", "profile-web-page-url",
-		"support-url", "subscription-userinfo", "routing":
-		return false
-	default:
-		return true
-	}
-}
-
-func ruleConditionMatches(condition responseRuleCondition, header http.Header) bool {
-	actual := strings.Join(header.Values(condition.HeaderName), ",")
-	expected := condition.Value
-	if !condition.CaseSensitive {
-		actual = strings.ToLower(actual)
-		expected = strings.ToLower(expected)
-	}
-	switch condition.Operator {
-	case "EQUALS":
-		return actual == expected
-	case "NOT_EQUALS":
-		return actual != expected
-	case "CONTAINS":
-		return strings.Contains(actual, expected)
-	case "NOT_CONTAINS":
-		return !strings.Contains(actual, expected)
-	case "STARTS_WITH":
-		return strings.HasPrefix(actual, expected)
-	case "NOT_STARTS_WITH":
-		return !strings.HasPrefix(actual, expected)
-	case "ENDS_WITH":
-		return strings.HasSuffix(actual, expected)
-	case "NOT_ENDS_WITH":
-		return !strings.HasSuffix(actual, expected)
-	case "REGEX", "NOT_REGEX":
-		re, err := regexp.Compile(expected)
-		if err != nil {
-			return false
-		}
-		matched := re.MatchString(actual)
-		if condition.Operator == "NOT_REGEX" {
-			return !matched
-		}
-		return matched
-	default:
-		return false
-	}
-}
-
-func responseRuleMatches(rule responseRule, header http.Header) bool {
-	if len(rule.Conditions) == 0 {
-		return true
-	}
-	if rule.Operator == "OR" {
-		for _, condition := range rule.Conditions {
-			if ruleConditionMatches(condition, header) {
-				return true
-			}
-		}
-		return false
-	}
-	for _, condition := range rule.Conditions {
-		if !ruleConditionMatches(condition, header) {
-			return false
-		}
-	}
-	return true
 }
 
 func (a *App) listSubscriptionTemplates() ([]subscriptionTemplate, error) {
@@ -352,12 +157,7 @@ func (a *App) matchSubscriptionResponseRule(r *http.Request) (*responseRule, err
 	if err != nil {
 		return nil, err
 	}
-	for index := range rules {
-		if rules[index].Enabled && responseRuleMatches(rules[index], r.Header) {
-			return &rules[index], nil
-		}
-	}
-	return nil, nil
+	return firstMatchingResponseRule(rules, r.Header), nil
 }
 
 func (a *App) apiV1ListTemplates(w http.ResponseWriter, r *http.Request) {
@@ -532,12 +332,12 @@ func (a *App) saveResponseRule(w http.ResponseWriter, r *http.Request, id *int64
 	if input.TemplateID != nil {
 		var enabled int
 		var templateFormat string
-		if err := a.db.QueryRow(`SELECT enabled, format FROM subscription_templates WHERE id = ?`, *input.TemplateID).Scan(&enabled, &templateFormat); err != nil || enabled == 0 {
+		if err := a.db.QueryRow(`SELECT enabled, format FROM subscription_templates WHERE id = ?`, *input.TemplateID).Scan(&enabled, &templateFormat); err != nil {
 			httpapi.WriteV1Error(w, r, http.StatusBadRequest, "template_invalid", "selected template does not exist or is disabled")
 			return
 		}
-		if templateFormat != input.ResponseType {
-			httpapi.WriteV1Error(w, r, http.StatusBadRequest, "template_format_mismatch", "selected template format must match the rule response type")
+		if failure := validateResponseTemplateReference(input.ResponseType, templateFormat, enabled != 0); failure != nil {
+			httpapi.WriteV1Error(w, r, http.StatusBadRequest, failure.Code, failure.Message)
 			return
 		}
 	} else if input.ResponseType == "browser" || input.ResponseType == "block" || input.ResponseType == "not-found" {
