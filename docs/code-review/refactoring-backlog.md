@@ -30,8 +30,8 @@ Completed work:
 | A01 / P1 | R03/R04 merged; R05a/R05b included in dc91072 merge | Other A01 mutation boundaries remain |
 | A02 / P1 | Completed; R06/R07a/R07b/R08/R08c merged with hosted checks/review clear | Retain encrypted command, projection, ownership and rollback contracts |
 | A03 / P1 | Completed; R09/R10a/R10b/R10c merged | Retain preservation/shared/UTF-8 contracts; remaining parser complexity stays visible |
-| A04 / P1 | R12/R13a accepted in PR23/PR24; R13b HTTP/preview separation locally validated | R13b hosted checks/review and requirement-level acceptance |
-| A05 / P1 | Not started | R14/R15a/R15b queue/source lifecycle, overlap and source-create transaction |
+| A04 / P1 | Completed; R12/R13a/R13b merged in PR23-PR25 | Final six checks/review clear at 49d5627; retain [requirement evidence](r13b-response-http.md) |
+| A05 / P1 | R14 initial job/source lifecycle characterization passes; broader matrix remains | R14 remaining failure/overlap/update/delete/shutdown cases, then R15a/R15b |
 | A06 / P1 | Not started | R16a/R16b actual-route authorization matrix and guard evaluation |
 | A07 / P1 | Completed; R11a/R11b and corrections merged in PR19-PR22 | Final six checks/review clear at b6fb366; retain [requirement evidence](r11b-reveal-provenance.md) |
 | A08 / P1 | Not started | R17a/R17b ordering/actions and shared presentation |

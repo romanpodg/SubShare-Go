@@ -1,6 +1,6 @@
 # R13b — Response-rule and template HTTP/preview boundaries
 
-Status: locally validated on `refactor/response-policy-http`, incorporating accepted R13a main `aff9073` through a normal fast-forward. Characterization commit `a086689` precedes production separation; hosted/A04 acceptance remains.
+Status: accepted in [PR25](https://github.com/romanpodg/SubShare-Go/pull/25), merge `817107b5e60533266010314ee76bde896798c32f`. All six final-head checks pass at `49d56275643d8f0ee493e92806f0c9f21556a399` in [run 37930778446](https://github.com/romanpodg/SubShare-Go/actions/runs/37930778446); final automated review is clear and the verified P2 checkpoint finding is replied to/resolved. Characterization commit `a086689` precedes separation. A04 is accepted against the matrix below.
 
 Four new contract files use the actual registered routes. They protect template/rule create-update-list-delete success envelopes, scalar normalization, stable slugs, null slices, complete v1 error envelopes/request IDs, repeated corrupt-row GET failures and audit side effects, SQL list failure mapping with sessions still valid, five role states across nine endpoints, independent role expectations and CSRF precedence. Previews retain all five format content types and their actual sample output, malformed/unknown-field/invalid-input/render-error responses.
 
@@ -24,7 +24,7 @@ Template HTTP, rule HTTP and pure preview rendering now have three focused modul
 | Escaping and optional crypto network failure | Existing PublicPageEscapesScriptCSSAndUnsafeURLs plus R13b actual browser route and local 503 crypto fallback |
 | Architectural/behavior criteria | Pure policy, SQL adapter and HTTP/preview boundaries; exact bodies/SQL and all full/format checks required; remaining core health 10.00 |
 
-Accept A04 only after R13b full local/hosted checks and actionable review resolution; this table does not claim pending checks passed. Optional official-client/snapshot skips and unavailable local CGO remain limits, covered separately by existing hosted checks where configured.
+A04 is accepted after R13b full local/hosted checks and actionable review resolution. Optional official-client/snapshot skips and unavailable local CGO remain limits, covered separately by existing hosted checks where configured. Continue R14; no broader backlog completion is claimed.
 
 Final local validation passes: 1,351 Go cases pass / five unchanged optional skips, no failures; uncached atomic coverage (server 65.2%), vet/build/lint, strict delta, body parity and secret scanning pass. All seven new production/test files and the remaining core score 10.00. Require the six final-head hosted checks and completed actionable review before accepting A04 and continuing R14.
 
