@@ -3994,8 +3994,8 @@
       "R10b": "merged_pr17",
       "R10c": "merged_pr18",
       "R11a": "merged_pr19",
-      "R11b": "pr20_pr21_merged_final_credential_correction_locally_validated",
-      "R12": "not_started",
+      "R11b": "completed_pr20_pr21_pr22_a07_accepted",
+      "R12": "locally_validated_hosted_acceptance_pending",
       "R13a": "not_started",
       "R13b": "not_started",
       "R14": "not_started",
@@ -4033,13 +4033,13 @@
         "scope": "Repository test maintainability, with assertions and transitions retained"
       }
     ],
-    "nextBatch": "R11b",
+    "nextBatch": "R12",
     "nextBatchPriority": "P1",
     "nextBatchRemainingPrerequisites": [
-      "R11a is accepted. Retarget PR20 to main and require all final hosted checks/review, then continue broader R11b.",
-      "Retain the accepted 63-combination corpus and 3792 added cases. R10a/R10b are merged; R10c supplements their unchanged production behavior. A03 boundary/shared fixtures are accepted in PR18; proceed to R11a."
+      "Require R12 final hosted checks/review before acceptance, then continue R13a persistence contracts.",
+      "A07 is accepted in PR22; broader A01 and A04-A06/A08-A14 remain."
     ],
-    "remainingCriticalRisk": "R01-R10c and the R08c assignment correction are merged; A03 is accepted. R11a is merged; PR20 request-session correction and broader R11b remain. Broader A01 mutation boundaries and A04-A14 remain. OS I/O trigger frequency remains unmeasured.",
+    "remainingCriticalRisk": "A00/A02/A03/A07 are accepted. R12 policy validation is in progress; broader A01 and A04-A06/A08-A14 remain. OS I/O trigger frequency remains unmeasured.",
     "r06CharacterizationCommit": "6a12236614e5",
     "r07aExecutionRecord": "docs/code-review/r07a-category-ordering.md",
     "autonomousContinuationRecord": "docs/code-review/autonomous-continuation.md",
@@ -4153,6 +4153,18 @@
       "allSixChecksPassed": true,
       "automatedReview": "completed_no_major_issues"
     },
+    "r11bRevealHostedAcceptance": {
+      "pullRequest": "https://github.com/romanpodg/SubShare-Go/pull/22",
+      "validatedHead": "b6fb366940f7d0588d8e86c794f0b7e463c7db6d",
+      "mergeCommit": "d65519bc094ea7fce4f85778ff62214fa0ec68fe",
+      "actionsRun": "https://github.com/romanpodg/SubShare-Go/actions/runs/37900481284",
+      "allSixChecksPassed": true,
+      "automatedReview": "completed_no_major_issues",
+      "actionableFinding": "4226450495_reproduced_fixed_replied_resolved",
+      "a07Accepted": true
+    },
+    "r12ExecutionRecord": "docs/code-review/r12-response-policy.md",
+    "r12CharacterizationCommit": "32b5cd7",
     "r11bRevealExecutionRecord": "docs/code-review/r11b-reveal-provenance.md",
     "r11bDraftExecutionRecord": "docs/code-review/r11b-draft-state.md",
     "r11bExecutionRecord": "docs/code-review/r11b-request-session.md",
@@ -4168,7 +4180,7 @@
       "secretScans": "passed",
       "finalCodeScene": "passed_strict_candidate_base_all_new_files_10_after_service_recovery",
       "hostedAcceptance": "pending_six_main_final_gates",
-      "broaderR11bCompletion": "unfinished"
+      "broaderR11bCompletion": "accepted_pr22"
     },
     "r11aHostedAcceptance": {
       "pullRequest": "https://github.com/romanpodg/SubShare-Go/pull/19",

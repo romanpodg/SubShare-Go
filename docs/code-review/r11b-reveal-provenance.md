@@ -1,6 +1,6 @@
 # R11b — Credential provenance and revision-owned reveal correction
 
-Status: locally validated on `fix/editor-reveal-draft-preservation`, based on accepted typed-draft main `1d73705`; hosted acceptance remains. Corrective behavior is explicitly distinguished from the earlier draft refactoring.
+Status: accepted in [PR22](https://github.com/romanpodg/SubShare-Go/pull/22), merge `d65519bc094ea7fce4f85778ff62214fa0ec68fe`. All six checks pass at `b6fb366940f7d0588d8e86c794f0b7e463c7db6d`; final automated review is clear and the verified P1 finding is replied to and resolved. Corrective behavior is explicitly distinguished from the earlier draft refactoring.
 
 Regression commit `511568a` first reproduces thirteen reachable failures: pending reveals overwrite connection/credential edits, read-only reveal values become credential patches during metadata saves, unknown plugin options cannot be explicitly cleared, and revision refresh retains stale revealed data. Four further cases reproduce old-revision completion after a newer read, and an edit-load failure reproduces an unintended create request. Tests precede correction commit `aa6dc7f`; raw failing and corrected results remain ignored under `.cache/r11b-reveal/`.
 
@@ -23,7 +23,7 @@ All 22 new cases and all 4,048 full frontend cases pass, together with nonincrem
 | Dirty cancel/confirm and repeated actions | Mounted lifecycle dialog, repeated submit and repeated pending reveal cases |
 | Explicit draft/session lifetime and validation | Typed forty-field draft/reset hook, session/profile leases and secret provenance; full frontend/browser/strict checks pass |
 
-Require all six final-head hosted checks and clear actionable automated review before accepting this correction and A07. Presentation length remains visible (the existing renderer is not claimed decomposed). Then continue R12/R13 response policy and the unchanged broader backlog; the persistent goal is not complete.
+A07 is accepted after the requirement matrix above, the final correction below, all six final-head checks in [run 37900481284](https://github.com/romanpodg/SubShare-Go/actions/runs/37900481284) and clear automated review. Presentation length remains visible (the existing renderer is not claimed decomposed). Continue R12/R13 response policy and the unchanged broader backlog; the persistent goal is not complete.
 
 ## Retained raw edit review correction
 
