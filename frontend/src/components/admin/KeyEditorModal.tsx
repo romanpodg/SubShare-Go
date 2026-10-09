@@ -20,7 +20,6 @@ import {
   parseEditableConfiguration,
   parseXrayJSONConfiguration,
   patchEditableConfiguration,
-  type XrayJSONDraft,
   type XrayJSONPatch,
 } from "@/lib/configuration";
 import type {
@@ -37,7 +36,6 @@ import { informationalTemplatePreviewParts, keyTemplateVariables } from "./keyTe
 import {
   isLegacyEditorProtocol,
   PROTOCOL_EDITOR_CAPABILITIES,
-  protocolEditorCapability,
 } from "./protocol-editor-capabilities";
 import { LegacyXrayFields } from "./protocol-editors/LegacyXrayFields";
 import {
@@ -60,11 +58,9 @@ import { buildEditorDetailProjection } from "./key-editor-detail-projection";
 import { applyEditorLoadedDetail } from "./apply-editor-loaded-detail";
 import { useEditorRequestSession } from "./use-editor-request-session";
 
+import { useEditorDraft } from "./use-editor-draft";
+
 const LABEL_LIMIT = 255;
-
-
-
-
 
 export interface KeyEditorModalProps {
   open: boolean;
@@ -89,8 +85,6 @@ export function KeyEditorModal({
 }: KeyEditorModalProps) {
   const { toast } = useToast();
 
-  const defaultMode = protocolEditorCapability(initialProtocol) ? "structured" : "raw";
-
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [revealing, setRevealing] = useState(false);
@@ -99,65 +93,34 @@ export function KeyEditorModal({
   const [schemaResponse, setSchemaResponse] = useState<KeyEditorSchemaResponse | null>(null);
 
   // Form State
-  const [label, setLabel] = useState(initialLabel);
-  const [status, setStatus] = useState<"active" | "non-active">("active");
-  const [kind, setKind] = useState<"real" | "informational">(initialKind);
-  const [category, setCategory] = useState(initialCategory);
-  const [templateText, setTemplateText] = useState("");
+  const { draft, setters, resetDraft } = useEditorDraft({ initialLabel, initialCategory, initialKind, initialProtocol, keyId });
+  const {
+    label, status, kind, category, templateText, mode, protocol,
+    rawUri, authoritativeRaw, revealedRaw, rawEdited, structuredEdited,
+    rawValidationError, rawFormattingWarning, legacyDraft, legacySecretsRevealed,
+    server, port, displayName, ssMethod, ssPassword, ssPluginName, ssPluginOptions,
+    hy2Auth, hy2Sni, hy2Insecure, hy2CertSha, hy2ObfsType, hy2ObfsPassword,
+    tuicUuid, tuicPassword, tuicSni, tuicAlpn, tuicSkipCert, tuicCc, tuicUdpRelay,
+    tuicUdpOverStream, tuicZeroRtt, tuicHeartbeat, isDirty,
+  } = draft;
+  const {
+    setLabel, setStatus, setKind, setCategory, setTemplateText, setMode, setProtocol,
+    setRawUri, setAuthoritativeRaw, setRevealedRaw, setRawEdited, setStructuredEdited,
+    setRawValidationError, setRawFormattingWarning, setLegacyDraft, setLegacySecretsRevealed,
+    setServer, setPort, setDisplayName, setSsMethod, setSsPassword, setSsPluginName, setSsPluginOptions,
+    setHy2Auth, setHy2Sni, setHy2Insecure, setHy2CertSha, setHy2ObfsType, setHy2ObfsPassword,
+    setTuicUuid, setTuicPassword, setTuicSni, setTuicAlpn, setTuicSkipCert, setTuicCc, setTuicUdpRelay,
+    setTuicUdpOverStream, setTuicZeroRtt, setTuicHeartbeat, setIsDirty,
+  } = setters;
+
   const templateTextRef = useRef<HTMLTextAreaElement | null>(null);
-  const [mode, setMode] = useState<"structured" | "raw">(defaultMode);
-  const [protocol, setProtocol] = useState<ExternalProfileProtocol>(initialProtocol || "shadowsocks");
-
-  // Raw URI / JSON state
-  const [rawUri, setRawUri] = useState("");
-  const [authoritativeRaw, setAuthoritativeRaw] = useState("");
-  const [revealedRaw, setRevealedRaw] = useState(false);
-  const [rawEdited, setRawEdited] = useState(false);
-  const [structuredEdited, setStructuredEdited] = useState(false);
-  const [rawValidationError, setRawValidationError] = useState("");
-  const [rawFormattingWarning, setRawFormattingWarning] = useState("");
-  const [legacyDraft, setLegacyDraft] = useState<XrayJSONDraft>(() =>
-    emptyLegacyDraft(isLegacyEditorProtocol(initialProtocol || "shadowsocks") ? initialProtocol as "vless" | "vmess" | "trojan" : "vless")
-  );
-  const [legacySecretsRevealed, setLegacySecretsRevealed] = useState(!keyId);
-
-  // Structured fields state
-  const [server, setServer] = useState("");
-  const [port, setPort] = useState("");
-  const [displayName, setDisplayName] = useState("");
-
-  // Shadowsocks fields
-  const [ssMethod, setSsMethod] = useState("2022-blake3-aes-128-gcm");
-  const [ssPassword, setSsPassword] = useState<string | undefined>(undefined);
-  const [ssPluginName, setSsPluginName] = useState<string | undefined>(undefined);
-  const [ssPluginOptions, setSsPluginOptions] = useState<string | undefined>(undefined);
-
-  // Hysteria 2 fields
-  const [hy2Auth, setHy2Auth] = useState<string | undefined>(undefined);
-  const [hy2Sni, setHy2Sni] = useState("");
-  const [hy2Insecure, setHy2Insecure] = useState(false);
-  const [hy2CertSha, setHy2CertSha] = useState("");
-  const [hy2ObfsType, setHy2ObfsType] = useState("");
-  const [hy2ObfsPassword, setHy2ObfsPassword] = useState<string | undefined>(undefined);
-
-  // TUIC fields
-  const [tuicUuid, setTuicUuid] = useState<string | undefined>(undefined);
-  const [tuicPassword, setTuicPassword] = useState<string | undefined>(undefined);
-  const [tuicSni, setTuicSni] = useState("");
-  const [tuicAlpn, setTuicAlpn] = useState("h3");
-  const [tuicSkipCert, setTuicSkipCert] = useState(false);
-  const [tuicCc, setTuicCc] = useState("bbr");
-  const [tuicUdpRelay, setTuicUdpRelay] = useState("native");
-  const [tuicUdpOverStream, setTuicUdpOverStream] = useState(false);
-  const [tuicZeroRtt, setTuicZeroRtt] = useState(false);
-  const [tuicHeartbeat, setTuicHeartbeat] = useState("10s");
 
   // Modal dialog states
   const [availableCategories, setAvailableCategories] = useState<KeyCategory[]>([]);
   const [showCreateCategory, setShowCreateCategory] = useState(false);
   const [showConflictDialog, setShowConflictDialog] = useState(false);
   const [showDiscardConfirm, setShowDiscardConfirm] = useState(false);
-  const [isDirty, setIsDirty] = useState(false);
+
   const beginSessionRequest = useEditorRequestSession(open, keyId, { setLoading, setRevealing, setShowConflictDialog, setSaving, setCloning });
 
   const templatePreviewParts = useMemo(
@@ -177,7 +140,7 @@ export function KeyEditorModal({
       templateTextRef.current?.focus();
       templateTextRef.current?.setSelectionRange(caret, caret);
     });
-  }, [templateText]);
+  }, [templateText, setTemplateText, setIsDirty]);
 
   const handleCloseAttempt = () => {
     if (isDirty) {
@@ -189,49 +152,10 @@ export function KeyEditorModal({
 
   // Clear state on unmount/close
   const clearSensitiveState = useCallback(() => {
-    setIsDirty(false);
     setShowDiscardConfirm(false);
     setDetail(null);
-    setLabel(initialLabel);
-    setStatus("active");
-    setKind(initialKind);
-    setCategory(initialCategory);
-    setTemplateText("");
-    setMode(defaultMode);
-    setProtocol(initialProtocol || "shadowsocks");
-    setRawUri("");
-    setAuthoritativeRaw("");
-    setRevealedRaw(false);
-    setRawEdited(false);
-    setStructuredEdited(false);
-    setRawValidationError("");
-    setRawFormattingWarning("");
-    setLegacyDraft(emptyLegacyDraft(isLegacyEditorProtocol(initialProtocol || "shadowsocks") ? initialProtocol as "vless" | "vmess" | "trojan" : "vless"));
-    setLegacySecretsRevealed(!keyId);
-    setServer("");
-    setPort("");
-    setDisplayName("");
-    setSsMethod("2022-blake3-aes-128-gcm");
-    setSsPassword(undefined);
-    setSsPluginName(undefined);
-    setSsPluginOptions(undefined);
-    setHy2Auth(undefined);
-    setHy2Sni("");
-    setHy2Insecure(false);
-    setHy2CertSha("");
-    setHy2ObfsType("");
-    setHy2ObfsPassword(undefined);
-    setTuicUuid(undefined);
-    setTuicPassword(undefined);
-    setTuicSni("");
-    setTuicAlpn("h3");
-    setTuicSkipCert(false);
-    setTuicCc("bbr");
-    setTuicUdpRelay("native");
-    setTuicUdpOverStream(false);
-    setTuicZeroRtt(false);
-    setTuicHeartbeat("10s");
-  }, [defaultMode, initialCategory, initialKind, initialLabel, initialProtocol, keyId]);
+    resetDraft({ initialLabel, initialCategory, initialKind, initialProtocol, keyId });
+  }, [initialCategory, initialKind, initialLabel, initialProtocol, keyId, resetDraft]);
 
   const applyDetailProjection = useCallback((projection: NonNullable<ReturnType<typeof buildEditorDetailProjection>>) => {
     setServer(projection.server);
@@ -261,7 +185,10 @@ export function KeyEditorModal({
       setTuicZeroRtt(projection.tuic.zeroRtt);
       setTuicHeartbeat(projection.tuic.heartbeat);
     }
-  }, []);
+  }, [setServer, setPort, setDisplayName, setLegacyDraft, setLegacySecretsRevealed,
+    setSsMethod, setSsPluginName, setHy2Sni, setHy2Insecure, setHy2CertSha, setHy2ObfsType,
+    setTuicSni, setTuicAlpn, setTuicSkipCert, setTuicCc, setTuicUdpRelay,
+    setTuicUdpOverStream, setTuicZeroRtt, setTuicHeartbeat]);
 
   // Load detail & schemas
   const loadDetailAndSchema = useCallback(async () => {
@@ -289,7 +216,8 @@ export function KeyEditorModal({
     } finally {
       inSession(() => setLoading(false));
     }
-  }, [keyId, toast, applyDetailProjection, beginSessionRequest]);
+  }, [keyId, toast, applyDetailProjection, beginSessionRequest,
+    setLabel, setStatus, setKind, setCategory, setTemplateText, setProtocol, setMode]);
 
   useEffect(() => {
     if (open) {
@@ -422,10 +350,6 @@ export function KeyEditorModal({
       setRawValidationError(error instanceof Error ? error.message : "Некорректная конфигурация");
     }
   };
-
-
-
-
 
   // Submit Handler
   const handleSubmit = async (event: FormEvent) => {
