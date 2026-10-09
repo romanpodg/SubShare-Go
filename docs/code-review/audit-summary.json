@@ -3994,7 +3994,7 @@
       "R10b": "merged_pr17",
       "R10c": "merged_pr18",
       "R11a": "merged_pr19",
-      "R11b": "pr20_first_request_session_correction_local_functional_and_strict_quality_passed_hosted_pending",
+      "R11b": "pr20_merged_typed_draft_action_phase_locally_validated",
       "R12": "not_started",
       "R13a": "not_started",
       "R13b": "not_started",
@@ -4137,6 +4137,15 @@
       "deepNestedComplexity": "removed",
       "initialHostedGate": "failed_correction_pending_hosted_validation"
     },
+    "r11bRequestHostedAcceptance": {
+      "pullRequest": "https://github.com/romanpodg/SubShare-Go/pull/20",
+      "validatedHead": "00261fbcc46f0d339e997e6431616e46c901614a",
+      "mergeCommit": "93d8488de3d14e3e465ac5ff6f6450fde394bedb",
+      "actionsRun": "https://github.com/romanpodg/SubShare-Go/actions/runs/37873213935",
+      "allSixChecksPassed": true,
+      "automatedReview": "completed_no_major_issues"
+    },
+    "r11bDraftExecutionRecord": "docs/code-review/r11b-draft-state.md",
     "r11bExecutionRecord": "docs/code-review/r11b-request-session.md",
     "r11bFirstPhaseValidation": {
       "pullRequest": "https://github.com/romanpodg/SubShare-Go/pull/20",

@@ -1,6 +1,6 @@
 # R11b — Request-session correction, first phase
 
-Status: separately identified correction published in [PR #20](https://github.com/romanpodg/SubShare-Go/pull/20), locally validated with final hosted acceptance pending. Original correction source is `beed5b0c5f0568b2cc19728ec927bc0eadbd5cf3`; quality source `5db7328` has clear automated review and three hosted CodeScene gates passing. R11a is accepted at main merge `691901b`; this branch inherits it through normal merges with source intact. Broader R11b draft/lifecycle work remains unfinished.
+Status: accepted in [PR #20](https://github.com/romanpodg/SubShare-Go/pull/20), merged at `93d8488`. Original correction source is `beed5b0c5f0568b2cc19728ec927bc0eadbd5cf3`; the final integrated head is `00261fb`. Broader R11b draft/lifecycle work continues separately.
 
 Three deterministic desired assertions fail against the R11a source before correction: an old detail changes the reopened profile's label, an old raw reveal changes its server and reveals the previous profile's credential, and an old load error appears in the new session. This demonstrates the original A07 risk using synthetic data, not operational credentials. The failing regressions are committed separately at `429efad`, with raw results in ignored `.cache/r11b/baseline-races.json`.
 
@@ -17,3 +17,7 @@ PR20 originally targeted `refactor/editor-profile-commands` to isolate its corre
 On 2026-10-09, the normal merge of accepted R11a retains both audit statuses after resolving its sole documentation conflict. Integrated source passes all 4,014 unit cases, 20 browser cases (zero failures/errors/skips), and strict delta. Publish this history and retarget PR20 to main for the full hosted backend/frontend/deployment/quality/Codecov gates before merge.
 
 Retarget to main succeeded at `4db5e02`. The base-edit event left only the prior candidate-branch CodeScene check; the CI workflow's main-target jobs had not run on this head. This documentation-only synchronize checkpoint records the accepted base and triggers normal main checks without changing validated source. Require actual six-check results, not the earlier stacked approval alone.
+
+## Final hosted acceptance
+
+All six main checks pass at `00261fbcc46f0d339e997e6431616e46c901614a` in [Actions run 37873213935](https://github.com/romanpodg/SubShare-Go/actions/runs/37873213935), including all three CodeScene gates. Final automated review reports no major issues; no inline threads remain. Normal merge `93d8488de3d14e3e465ac5ff6f6450fde394bedb` is accepted. Typed draft/action completion work follows in its own characterization/correction/refactoring commits; this first phase does not complete A07.
