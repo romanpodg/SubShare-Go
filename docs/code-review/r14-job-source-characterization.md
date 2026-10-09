@@ -1,6 +1,6 @@
 # R14 — Job/source lifecycle, failure and overlap characterization
 
-Status: locally validated on `test/job-source-lifecycle`, based on accepted A04 main `817107b`. Production jobs/source code remains unchanged; hosted/race R14 acceptance and A05 completion remain.
+Status: accepted in [PR26](https://github.com/romanpodg/SubShare-Go/pull/26), merge `1785f86f9f41daedddcd6f20f99a6273d0c4b59e`. All six checks pass at `1bef17145dff7d4162c15a7b3e5ed102aa744470` in [run 37937613254](https://github.com/romanpodg/SubShare-Go/actions/runs/37937613254), including the new job/source race step; final automated review is clear with no threads. Production jobs/source code remains unchanged in R14; A05 completion remains.
 
 Initial cases pass for queued→running→terminal state/timestamps, conditional running transition, existing unconditional terminal overwrite, queue/start zero sentinels on rejected inserts, best-effort ignored transition/finish writes, zero-ID no-ops and idempotent interrupted-job/source recovery. Actual registered source queue returns 202/job ID and reaches a controlled fetch only after running/syncing writes; success retains imported encrypted profiles/run/audit, fetch 503 becomes failed job/run/source, and real queue insert failure withholds 202 and creates no run. Three new files score 10.00.
 
