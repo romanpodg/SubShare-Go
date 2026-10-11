@@ -32,7 +32,7 @@ describe("shared API responses through the actual request boundary", () => {
     });
   }
 
-  for (const name of ["patch-omitted", "patch-null", "patch-empty", "patch-status-null"] as const) {
+  for (const name of ["patch-omitted", "patch-null", "patch-empty", "patch-status-null", "patch-refresh-max", "patch-refresh-over-max"] as const) {
     it(name, async () => {
       const c = fixture.cases[name];
       const fetch = vi.fn().mockResolvedValue(new Response(JSON.stringify(c.response), { status: c.status }));
@@ -40,7 +40,10 @@ describe("shared API responses through the actual request boundary", () => {
       setCsrfToken("fixture-csrf");
       const result = users.updateSubscription(1, c.body);
       if (c.status === 200) expect(await result).toEqual(c.response);
-      else await expect(result).rejects.toMatchObject({ status: c.status, code: "status_invalid", fieldErrors: {}, requestId: "mutation-fixture" });
+      else {
+        if (!("code" in c.response)) throw new Error("Failed response fixture has no error code");
+        await expect(result).rejects.toMatchObject({ status: c.status, code: c.response.code, fieldErrors: {}, requestId: "mutation-fixture" });
+      }
       expect(fetch).toHaveBeenCalledWith(c.path, expect.objectContaining({ method: "PATCH", body: JSON.stringify(c.body), credentials: "same-origin", headers: { "Content-Type": "application/json", "X-CSRF-Token": "fixture-csrf" } }));
     });
   }

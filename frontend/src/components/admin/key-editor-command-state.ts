@@ -1,5 +1,5 @@
 import type { XrayJSONDraft } from "@/lib/configuration";
-import type { ExternalProfileProtocol } from "@/lib/types";
+import type { KeyProfileProtocol } from "@/lib/types";
 
 export function editorInitialText(value: string | undefined, fallback = "") { return value || fallback; }
 export function editorInitialFlag(value: boolean | undefined) { return value || false; }
@@ -28,7 +28,7 @@ export interface EditorCommandState {
   kind: "real" | "informational";
   templateText: string;
   mode: "raw" | "structured";
-  protocol: ExternalProfileProtocol;
+  protocol: KeyProfileProtocol;
   server: string;
   port: string;
   rawUri: string;

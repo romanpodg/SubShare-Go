@@ -568,6 +568,46 @@
         "status": "active",
         "title": "Override"
       }
+    },
+    "patch-refresh-max": {
+      "method": "PATCH",
+      "path": "/api/v1/users/1/subscription",
+      "openapi_path": "/users/{id}/subscription",
+      "body": {
+        "subscription_refresh_hours": 720
+      },
+      "response": {
+        "message": "subscription updated"
+      },
+      "status": 200,
+      "stored": {
+        "info_url": "https://user.example/info",
+        "refresh_hours": 720,
+        "status": "active",
+        "title": "Override"
+      }
+    },
+    "patch-refresh-over-max": {
+      "method": "PATCH",
+      "path": "/api/v1/users/1/subscription",
+      "openapi_path": "/users/{id}/subscription",
+      "body": {
+        "subscription_refresh_hours": 721
+      },
+      "response": {
+        "code": "subscription_refresh_invalid",
+        "error": "subscription_refresh_hours must be between 1 and 720",
+        "field_errors": {},
+        "message": "subscription_refresh_hours must be between 1 and 720",
+        "request_id": "mutation-fixture"
+      },
+      "status": 400,
+      "stored": {
+        "info_url": "https://user.example/info",
+        "refresh_hours": 24,
+        "status": "active",
+        "title": "Override"
+      }
     }
   }
 }

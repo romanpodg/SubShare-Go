@@ -1,4 +1,4 @@
-import type { ExternalProfileProtocol } from "@/lib/types";
+import type { KeyProfileProtocol } from "@/lib/types";
 
 export type EditableProtocol =
   | "vless"
@@ -24,10 +24,10 @@ export const PROTOCOL_EDITOR_CAPABILITIES: readonly ProtocolEditorCapability[] =
   { protocol: "tuic", label: "TUIC v5", structured: true, editor: "tuic" },
 ] as const;
 
-export function protocolEditorCapability(protocol: ExternalProfileProtocol | undefined) {
+export function protocolEditorCapability(protocol: KeyProfileProtocol | undefined) {
   return PROTOCOL_EDITOR_CAPABILITIES.find((item) => item.protocol === protocol);
 }
 
-export function isLegacyEditorProtocol(protocol: ExternalProfileProtocol): protocol is "vless" | "vmess" | "trojan" {
+export function isLegacyEditorProtocol(protocol: KeyProfileProtocol): protocol is "vless" | "vmess" | "trojan" {
   return protocol === "vless" || protocol === "vmess" || protocol === "trojan";
 }

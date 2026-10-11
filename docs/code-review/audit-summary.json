@@ -4006,7 +4006,7 @@
       "R16b": "completed_pr31_a06_accepted",
       "R17a": "completed_pr32_controller_accepted",
       "R17b": "completed_pr33_presentation_a08_accepted",
-      "R18a": "tests_first_shared_route_request_contracts_declaration_drift_reproduced",
+      "R18a": "response_declarations_documentation_locally_validated_hosted_review_pending",
       "R18b": "not_started",
       "R19": "not_started",
       "R20": "not_started",
@@ -4037,7 +4037,7 @@
     "nextBatch": "R18a",
     "nextBatchPriority": "P2",
     "nextBatchRemainingPrerequisites": [
-      "R17a/R17b and A08 are accepted in PR32/PR33. R18a has twenty-one shared safe fixtures with passing registered-route/persisted-PATCH and frontend request contracts. Tests reproduce ownership object/string, informational empty-protocol and missing OpenAPI response documentation drift. Commit the tests-first baseline, correct response declarations/docs without runtime changes, then require full/hosted/review gates before R18b request integration.",
+      "R17a/R17b and A08 are accepted. R18a retains tests-first 50ec2da and locally validated response declaration/documentation corrections with 23 shared cases. Final 4,425 Go passes/five optional skips, 4,118 frontend cases, types/lint/export/browser, strict delta and secret gates pass. Require all six final-head hosted checks and resolved actionable review before R18b request integration.",
       "A00/A02/A03/A04/A05/A06/A07/A08 are accepted; broader A01/A09-A14 remain."
     ],
     "remainingCriticalRisk": "A00/A02/A03/A04/A05/A06/A07/A08 are accepted. R18a shared API contracts are next. Concurrent tracking can fail with SQLITE_BUSY; accepted A05 preserves that characterized best-effort policy. Source update category preparation retains its audited pre-transaction behavior. Broader A01/A09-A14 remain. OS I/O trigger frequency remains unmeasured.",

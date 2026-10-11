@@ -1,14 +1,14 @@
 import { buildXrayJSONConfiguration, createConfigurationFromXrayJSON, parseEditableConfiguration, parseXrayJSONConfiguration } from "@/lib/configuration";
 import { formatXrayJSONWithinLimit, inspectXrayJSONDocument } from "@/lib/xray-json-document";
-import type { ExternalProfileProtocol } from "@/lib/types";
+import type { KeyProfileProtocol } from "@/lib/types";
 import type { EditorCommandState } from "./key-editor-command-state";
 import { isLegacyEditorProtocol } from "./protocol-editor-capabilities";
 
-export function isXrayJSONRaw(protocol: ExternalProfileProtocol, raw: string) {
+export function isXrayJSONRaw(protocol: KeyProfileProtocol, raw: string) {
   return protocol === "xray-json" || raw.trim().startsWith("{");
 }
 
-export function validateEditorRaw(protocol: ExternalProfileProtocol, value: string) {
+export function validateEditorRaw(protocol: KeyProfileProtocol, value: string) {
   if (!value.trim()) throw new Error("Сначала заполните raw-конфигурацию");
   if (isXrayJSONRaw(protocol, value)) {
     const inspection = inspectXrayJSONDocument(value);
@@ -26,7 +26,7 @@ export function buildLegacyCreateRaw(state: EditorCommandState) {
   }));
 }
 
-export function projectEditorRawDisplay(protocol: ExternalProfileProtocol, raw: string) {
+export function projectEditorRawDisplay(protocol: KeyProfileProtocol, raw: string) {
   const original = { value: raw, warning: "" };
   if (!isXrayJSONRaw(protocol, raw)) return original;
   try {

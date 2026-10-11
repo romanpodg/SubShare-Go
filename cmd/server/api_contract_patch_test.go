@@ -37,3 +37,29 @@ func apiContractStoredPatch(t *testing.T, app *App) map[string]any {
 	}
 	return stored
 }
+
+func TestAPIContractBlankProtocolDoesNotEnableRealStructuredCreation(t *testing.T) {
+	for _, kind := range []string{"informational", "real"} {
+		t.Run(kind, func(t *testing.T) {
+			f := newUserMutationFixture(t)
+			mode := "raw"
+			if kind == "real" {
+				mode = "structured"
+			}
+			payload := map[string]any{"label": "Contract info", "status": "active", "kind": kind, "creation_mode": mode, "protocol": "", "template_text": "literal info"}
+			if kind == "real" {
+				payload["structured"] = map[string]any{}
+			}
+			body := mutationJSON(t, payload)
+			w := f.request(http.MethodPost, "/api/v1/keys", body)
+			if kind == "real" {
+				requireRepositoryEqual(t, "existing unsupported structured protocol failure", w.Code, http.StatusInternalServerError)
+				requireRepositoryEqual(t, "safe existing failure code", decodeJSONMap(t, w)["code"], "create_failed")
+				requireRepositoryEqual(t, "no invalid real profile committed", mutationCount(t, f.app, "SELECT COUNT(*) FROM vless_keys"), 0)
+				return
+			}
+			requireRepositoryEqual(t, "informational empty wire protocol accepted", w.Code, http.StatusCreated)
+			requireRepositoryEqual(t, "existing informational creation normalization", decodeJSONMap(t, w)["data"].(map[string]any)["protocol"], "legacy")
+		})
+	}
+}

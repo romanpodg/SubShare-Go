@@ -599,7 +599,7 @@ export interface KeyProfileDetailResponse {
   ownership: KeyOwnership;
   external_source_id: number | null;
   external_source_name: string;
-  protocol: ExternalProfileProtocol;
+  protocol: KeyProfileProtocol;
   profile_schema_version: number;
   profile_compatibility: ExternalProfileCompatibility;
   profile_warnings: string[];
@@ -687,6 +687,10 @@ export interface UpdateKeyProfileInput {
   structured_patch?: StructuredProfilePatch;
 }
 
+// Some informational profiles have no protocol; an empty wire value does not add a
+// supported real-profile protocol or a structured editor capability.
+export type KeyProfileProtocol = ExternalProfileProtocol | "";
+
 export interface CreateKeyProfileInput {
   label: string;
   client_display_name?: string;
@@ -697,7 +701,7 @@ export interface CreateKeyProfileInput {
   template_text?: string;
   creation_mode: "raw" | "structured";
   raw_uri?: string;
-  protocol?: ExternalProfileProtocol;
+  protocol?: KeyProfileProtocol;
   structured?: StructuredProfilePatch;
 }
 

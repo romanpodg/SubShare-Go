@@ -103,7 +103,12 @@ paths:
               schema:
                 type: object
                 properties:
-                  data: { type: object, additionalProperties: true }
+                  data: { $ref: "#/components/schemas/UserDetail" }
+        "400":
+          description: Invalid user ID
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/LegacyError" }
         "404": { $ref: "#/components/responses/Error" }
     delete:
       tags: [Users]
@@ -119,6 +124,7 @@ paths:
       summary: Partially update user subscription overrides
       description: >-
         Omitted fields are preserved; null clears an override so the global value is inherited.
+        Status cannot be null; its rejection leaves the stored subscription unchanged.
         Concurrent changes are retried against the latest subscription and timezone.
         Sustained contention returns HTTP 409 with code subscription_conflict; retry the request.
       parameters:
@@ -129,7 +135,11 @@ paths:
           application/json:
             schema: { $ref: "#/components/schemas/PatchUserSubscription" }
       responses:
-        "200": { description: Subscription settings updated }
+        "200":
+          description: Subscription settings updated
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Message" }
         "400": { $ref: "#/components/responses/Error" }
         "404": { $ref: "#/components/responses/Error" }
         "409": { $ref: "#/components/responses/Error" }
@@ -687,7 +697,11 @@ paths:
       tags: [Subscription]
       summary: Get compatibility subscription settings
       responses:
-        "200": { description: Subscription settings }
+        "200":
+          description: Subscription settings
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/SubscriptionSettings" }
         default: { $ref: "#/components/responses/Error" }
     put:
       deprecated: true
@@ -733,7 +747,11 @@ paths:
       summary: Get public panel branding settings
       security: []
       responses:
-        "200": { description: Panel settings }
+        "200":
+          description: Panel settings
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/PanelSettings" }
         default: { $ref: "#/components/responses/Error" }
     put:
       tags: [System]
@@ -1132,15 +1150,82 @@ components:
       type: object
       additionalProperties: false
       properties:
-        status: { type: [string, "null"], enum: [active, paused, blocked, null] }
+        status: { type: string, enum: [active, paused, blocked] }
         starts_at: { type: [string, "null"], format: date-time }
         expires_at: { type: [string, "null"], format: date-time }
         blocked_reason: { type: [string, "null"], maxLength: 500 }
         subscription_name: { type: [string, "null"], maxLength: 200 }
-        subscription_refresh_hours: { type: [integer, "null"], minimum: 1, maximum: 8760 }
+        subscription_refresh_hours: { type: [integer, "null"], minimum: 0, maximum: 720, description: Zero or null clears the override. }
         subscription_info_url: { type: [string, "null"], format: uri }
         subscription_extra_url: { type: [string, "null"], format: uri }
         subscription_extra_status: { type: [string, "null"], maxLength: 200 }
+    Message:
+      type: object
+      required: [message]
+      properties:
+        message: { type: string }
+    LegacyError:
+      type: object
+      required: [error]
+      properties:
+        error: { type: string }
+    SubscriptionSettings:
+      type: object
+      required: [title, refresh_hours, info_url, extra_url, extra_status, subscription_format, show_subscription_expiration, time_zone, language, provider_id, happ_no_limit_mode, happ_no_limit_mode_xhttp_only, happ_mandatory_hwid, happ_notify_expiration, happ_hide_server_settings, happ_subscription_body]
+      properties:
+        title: { type: string }
+        refresh_hours: { type: integer }
+        info_url: { type: string }
+        extra_url: { type: string }
+        extra_status: { type: string }
+        subscription_format: { type: string, enum: [links, xray-json] }
+        show_subscription_expiration: { type: boolean }
+        time_zone: { type: string }
+        language: { type: string }
+        provider_id: { type: string }
+        happ_no_limit_mode: { type: boolean }
+        happ_no_limit_mode_xhttp_only: { type: boolean }
+        happ_mandatory_hwid: { type: boolean }
+        happ_notify_expiration: { type: boolean }
+        happ_hide_server_settings: { type: boolean }
+        happ_subscription_body: { type: string }
+    PanelSettings:
+      type: object
+      required: [panelTitle, logoDataUrl, faviconDataUrl, pageTitleAdmin, pageTitleAdminLogin, pageTitleSubscription]
+      properties:
+        panelTitle: { type: string }
+        logoDataUrl: { type: string }
+        faviconDataUrl: { type: string }
+        pageTitleAdmin: { type: string }
+        pageTitleAdminLogin: { type: string }
+        pageTitleSubscription: { type: string }
+        subscriptionPageConfig: { type: string }
+    UserDetail:
+      allOf:
+        - { $ref: "#/components/schemas/UserSummary" }
+        - type: object
+          required: [token, time_zone, language, activation_code, subscription_id, subscription_name, subscription_refresh_hours, subscription_info_url, subscription_extra_url, subscription_extra_status, activation_used_at, blocked_reason, assigned_key_ids, connected_hwids, connected_devices, key_assignment_mode]
+          properties:
+            token: { type: string, const: "", description: Redacted compatibility field. }
+            time_zone: { type: string }
+            language: { type: string }
+            activation_code: { type: string }
+            subscription_id: { type: string }
+            subscription_name: { type: string }
+            subscription_refresh_hours: { type: integer }
+            subscription_info_url: { type: string }
+            subscription_extra_url: { type: string }
+            subscription_extra_status: { type: string }
+            activation_used_at: { type: string }
+            blocked_reason: { type: string }
+            assigned_key_ids: { type: string }
+            connected_hwids:
+              type: array
+              items: { type: string }
+            connected_devices:
+              type: array
+              items: { type: object, additionalProperties: true }
+            key_assignment_mode: { type: string, enum: [all, selected] }
     KeyAssignment:
       type: object
       additionalProperties: false
@@ -1212,10 +1297,13 @@ components:
         last_latency_ms: { type: integer, format: int64 }
         last_checked_at: { type: string }
         template_text: { type: string }
-        ownership: { type: object, additionalProperties: true }
+        ownership: { type: string, enum: [local, external_source] }
         external_source_id: { type: [integer, "null"], format: int64 }
         external_source_name: { type: string }
-        protocol: { $ref: "#/components/schemas/ProfileProtocol" }
+        protocol:
+          type: string
+          description: Empty for informational profiles that do not contain a protocol configuration.
+          enum: ["", legacy, vless, vmess, trojan, xray-json, shadowsocks, hysteria2, tuic]
         profile_schema_version: { type: integer, minimum: 0 }
         profile_compatibility: { $ref: "#/components/schemas/ProfileCompatibility" }
         profile_warnings:
@@ -1243,7 +1331,10 @@ components:
         template_text: { type: string, maxLength: 8192 }
         creation_mode: { type: string, enum: [raw, structured] }
         raw_uri: { type: string, writeOnly: true, maxLength: 65535 }
-        protocol: { $ref: "#/components/schemas/ProfileProtocol" }
+        protocol:
+          type: string
+          description: Empty is allowed for informational profiles. Real structured creation requires a supported protocol.
+          enum: ["", legacy, vless, vmess, trojan, xray-json, shadowsocks, hysteria2, tuic]
         structured:
           type: object
           writeOnly: true

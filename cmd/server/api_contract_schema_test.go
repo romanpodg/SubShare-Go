@@ -20,25 +20,26 @@ func TestAPIContractOpenAPIResponses(t *testing.T) {
 			continue
 		}
 		t.Run(name, func(t *testing.T) {
-			paths := document["paths"].(map[string]any)
-			operation := paths[c.OpenAPIPath].(map[string]any)[strings.ToLower(c.Method)].(map[string]any)
-			responses := operation["responses"].(map[string]any)
-			response := responses[strconv.Itoa(c.Status)]
-			if response == nil {
-				response = responses["default"]
-			}
-			if response == nil {
-				t.Fatalf("missing documented response %d", c.Status)
-			}
-			resolved := resolveAPIContractSchema(t, document, response)
-			content, ok := resolved["content"].(map[string]any)
-			if !ok {
-				t.Fatal("missing response content schema")
-			}
-			media := content["application/json"].(map[string]any)
+			contract := apiSchemaContract{t, document}
 			var value any
 			requireRepositorySuccess(t, json.Unmarshal(c.Response, &value))
-			apiSchemaContract{t, document}.assert(media["schema"], value, "response")
+			contract.assert(contract.responseSchema(c), value, "response")
+		})
+	}
+}
+
+func TestAPIContractOpenAPIPatchAdmission(t *testing.T) {
+	var document map[string]any
+	requireRepositorySuccess(t, yaml.Unmarshal(openAPISpec, &document))
+	operation := document["paths"].(map[string]any)["/users/{id}/subscription"].(map[string]any)["patch"].(map[string]any)
+	content := operation["requestBody"].(map[string]any)["content"].(map[string]any)["application/json"].(map[string]any)
+	schema := resolveAPIContractSchema(t, document, content["schema"])
+	for name, test := range loadAPIContracts(t) {
+		if test.Method != "PATCH" {
+			continue
+		}
+		t.Run(name, func(t *testing.T) {
+			apiSchemaContract{t, document}.assertPatchAdmission(schema, test)
 		})
 	}
 }
@@ -68,6 +69,41 @@ type apiSchemaContract struct {
 	document map[string]any
 }
 
+func (contract apiSchemaContract) responseSchema(c apiContractCase) any {
+	contract.t.Helper()
+	paths := contract.document["paths"].(map[string]any)
+	operation := paths[c.OpenAPIPath].(map[string]any)[strings.ToLower(c.Method)].(map[string]any)
+	responses := operation["responses"].(map[string]any)
+	response := responses[strconv.Itoa(c.Status)]
+	if response == nil {
+		response = responses["default"]
+	}
+	if response == nil {
+		contract.t.Fatalf("missing documented response %d", c.Status)
+	}
+	resolved := resolveAPIContractSchema(contract.t, contract.document, response)
+	content, ok := resolved["content"].(map[string]any)
+	if !ok {
+		contract.t.Fatal("missing response content schema")
+	}
+	return content["application/json"].(map[string]any)["schema"]
+}
+
+func (c apiSchemaContract) assertPatchAdmission(schema map[string]any, test apiContractCase) {
+	c.t.Helper()
+	var body map[string]any
+	requireRepositorySuccess(c.t, json.Unmarshal(test.Body, &body))
+	if test.Status == 200 {
+		c.assert(schema, body, "request")
+		return
+	}
+	for field, value := range body {
+		property := schema["properties"].(map[string]any)[field].(map[string]any)
+		admitted := apiContractMatchesType(property["type"], value) && apiContractMatchesBounds(property, value)
+		requireRepositoryEqual(c.t, "documented rejected field", admitted, false)
+	}
+}
+
 func (c apiSchemaContract) assert(raw, value any, location string) {
 	c.t.Helper()
 	schema := resolveAPIContractSchema(c.t, c.document, raw)
@@ -80,6 +116,9 @@ func (c apiSchemaContract) assert(raw, value any, location string) {
 		c.t.Fatalf("%s type %T contradicts documented %v", location, value, kind)
 	}
 	c.assertEnum(schema, value, location)
+	if !apiContractMatchesBounds(schema, value) {
+		c.t.Fatalf("%s value %v contradicts documented numeric bounds", location, value)
+	}
 	if object, ok := value.(map[string]any); ok {
 		c.assertObject(schema, object, location)
 	}
@@ -146,4 +185,14 @@ func apiContractMatchesType(kind, value any) bool {
 	primitiveTypes := map[any]reflect.Type{"null": nil, "string": reflect.TypeOf(""), "boolean": reflect.TypeOf(false), "object": reflect.TypeOf(map[string]any{}), "array": reflect.TypeOf([]any{}), "number": reflect.TypeOf(float64(0))}
 	expected, known := primitiveTypes[kind]
 	return known && reflect.TypeOf(value) == expected
+}
+
+func apiContractMatchesBounds(schema map[string]any, value any) bool {
+	number, numeric := value.(float64)
+	if !numeric {
+		return true
+	}
+	minimum, hasMinimum := schema["minimum"].(int)
+	maximum, hasMaximum := schema["maximum"].(int)
+	return (!hasMinimum || number >= float64(minimum)) && (!hasMaximum || number <= float64(maximum))
 }
