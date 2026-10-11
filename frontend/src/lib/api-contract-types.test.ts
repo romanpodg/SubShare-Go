@@ -1,4 +1,3 @@
-import fs from "node:fs";
 import path from "node:path";
 import ts from "typescript";
 import { expect, it } from "vitest";
@@ -8,9 +7,6 @@ function contractTypeSource() {
   const user = { ...fixture.cases["user-detail"].response.data };
   const { token: redactedToken, ...typedUser } = user;
   if (redactedToken !== "") throw new Error("User fixture contains an unredacted token");
-  const context = ts.createSourceFile("context.tsx", fs.readFileSync(path.resolve(__dirname, "../context/PanelSettingsContext.tsx"), "utf8"), ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
-  const panel = context.statements.find((node) => ts.isInterfaceDeclaration(node) && node.name.text === "APIPanelSettings");
-  if (!panel) throw new Error("Panel API shape is missing");
   const samples: [string, string, unknown][] = [
     ["user", "User", typedUser],
     ["userSummary", "UserSummary", fixture.cases["user-list"].response.data[0]],
@@ -22,13 +18,12 @@ function contractTypeSource() {
     ["settings", "SubscriptionSettings", fixture.cases.settings.response],
     ["key", "KeyProfileDetailResponse", fixture.cases["key-detail"].response.data],
     ["info", "KeyProfileDetailResponse", fixture.cases["key-info"].response.data],
-    ["panel", "APIPanelSettings", fixture.cases["panel-settings"].response],
+    ["panel", "PanelSettingsResponse", fixture.cases["panel-settings"].response],
     ["error", "ErrorContract", fixture.cases["missing-user"].response],
   ];
   return [
-    'import type { User, UserSummary, SourceDetail, SourceSummary, SubscriptionSettings, KeyProfileDetailResponse, PageMeta } from "./types";',
+    'import type { User, UserSummary, SourceDetail, SourceSummary, SubscriptionSettings, KeyProfileDetailResponse, PageMeta, PanelSettingsResponse } from "./types";',
     'import type { ApiError, users } from "./api";',
-    panel.getText(context),
     'type ErrorContract = Pick<ApiError, "code" | "message" | "field_errors" | "request_id"> & { error?: string };',
     ...samples.map(([name, type, value]) => `const ${name} = ${JSON.stringify(value)} satisfies ${type};`),
     ...(["patch-omitted", "patch-null", "patch-empty", "patch-status-null", "patch-refresh-max", "patch-refresh-over-max"] as const).map((name) => {

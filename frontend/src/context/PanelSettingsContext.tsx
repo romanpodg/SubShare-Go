@@ -2,7 +2,8 @@
 
 import { createContext, useContext, useState, useEffect, useRef, useCallback, ReactNode } from "react";
 import { usePathname } from "next/navigation";
-import { getCsrfToken } from "@/lib/api";
+import { panelSettings as panelSettingsAPI } from "@/lib/api";
+import type { PanelSettingsResponse } from "@/lib/types";
 
 export interface PanelSettings {
   panelTitle: string;
@@ -13,16 +14,6 @@ export interface PanelSettings {
     adminLogin: string;
     subscription: string;
   };
-}
-
-// Shape returned by GET /api/panel-settings (flat)
-interface APIPanelSettings {
-  panelTitle: string;
-  logoDataUrl: string;
-  faviconDataUrl: string;
-  pageTitleAdmin: string;
-  pageTitleAdminLogin: string;
-  pageTitleSubscription: string;
 }
 
 const DEFAULT_SETTINGS: PanelSettings = {
@@ -38,7 +29,7 @@ const DEFAULT_SETTINGS: PanelSettings = {
 
 const STORAGE_KEY = "subshare_panel_settings";
 
-function fromAPI(api: APIPanelSettings): PanelSettings {
+function fromAPI(api: PanelSettingsResponse): PanelSettings {
   return {
     panelTitle: api.panelTitle || DEFAULT_SETTINGS.panelTitle,
     logoDataUrl: api.logoDataUrl || "",
@@ -51,7 +42,7 @@ function fromAPI(api: APIPanelSettings): PanelSettings {
   };
 }
 
-function toAPI(s: PanelSettings): APIPanelSettings {
+function toAPI(s: PanelSettings): PanelSettingsResponse {
   return {
     panelTitle: s.panelTitle,
     logoDataUrl: s.logoDataUrl,
@@ -102,16 +93,8 @@ function isDefaultSettings(s: PanelSettings): boolean {
 
 async function saveToAPI(s: PanelSettings): Promise<boolean> {
   try {
-    const token = getCsrfToken();
-    const headers: Record<string, string> = { "Content-Type": "application/json" };
-    if (token) headers["X-CSRF-Token"] = token;
-    const r = await fetch("/api/v1/panel-settings", {
-      method: "PUT",
-      headers,
-      credentials: "same-origin",
-      body: JSON.stringify(toAPI(s)),
-    });
-    return r.ok;
+    await panelSettingsAPI.update(toAPI(s));
+    return true;
   } catch {
     return false;
   }
@@ -174,8 +157,7 @@ export function PanelSettingsProvider({ children }: { children: ReactNode }) {
   // If the API still has pure defaults but we have richer local cache, push the cache up
   // (migrates users who saved before the backend endpoint existed).
   useEffect(() => {
-    fetch("/api/v1/panel-settings")
-      .then((r) => (r.ok ? (r.json() as Promise<APIPanelSettings>) : Promise.reject(r.status)))
+    panelSettingsAPI.get()
       .then((api) => {
         const apiSettings = fromAPI(api);
 
