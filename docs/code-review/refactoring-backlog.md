@@ -32,9 +32,9 @@ Completed work:
 | A03 / P1 | Completed; R09/R10a/R10b/R10c merged | Retain preservation/shared/UTF-8 contracts; remaining parser complexity stays visible |
 | A04 / P1 | Completed; R12/R13a/R13b merged in PR23-PR25 | Final six checks/review clear at 49d5627; retain [requirement evidence](r13b-response-http.md) |
 | A05 / P1 | Completed; R14/R14c/R15a/R15b accepted in PR26-PR29 | Six final-head checks/race/review clear at 99f82f1; retain [A05 evidence](r15b-source-create.md) |
-| A06 / P1 | R16a accepted in PR30; R16b shared guard passes full local validation | R16b hosted/race/review and final [A06 acceptance](r16b-shared-guards.md) |
+| A06 / P1 | Completed; R16a/R16b accepted in PR30/PR31 | Six final-head checks/race/review clear at f4aee31; retain [A06 evidence](r16b-shared-guards.md) |
 | A07 / P1 | Completed; R11a/R11b and corrections merged in PR19-PR22 | Final six checks/review clear at b6fb366; retain [requirement evidence](r11b-reveal-provenance.md) |
-| A08 / P1 | Not started | R17a/R17b ordering/actions and shared presentation |
+| A08 / P1 | R17a controller locally validated after tests-first 0c4a247/904b717 | R17a hosted/review acceptance, then R17b shared presentation |
 | A09 / P2 | Not started | R18a/R18b Go/TS/OpenAPI contracts and request errors |
 | A10 / P2 | Not started | R19 backend Xray interpretation |
 | A11 / P2 | Not started | R20 supported-consumer check and unused declarations |
@@ -46,7 +46,7 @@ All six checks passed for a438377: backend, frontend, Docker smoke, CodeScene, C
 
 Codecov: project **48.02%** versus main **46.89%**; main.go **18.46%** versus **8.01%**; sqlite.go **64.70%** versus **60.78%**; whole-PR patch **80.09%**. Test Analytics: **848 passed, 5 skipped, no failures/errors**. Bundle upload/check passed; size/delta figures were unavailable in inspected results. Local statements remain **52.4%**, with unchanged coverage across 140 repository blocks. Optional snapshot/client fixtures and local race execution remain unverified. Passing frontend CI does not complete its planned refactoring.
 
-**Current review boundary:** R01-R16a and separate correctness fixes are merged through PR30. A00/A02/A03/A04/A05/A07 are accepted. R16b shared guard passes full local validation against the accepted real-route matrix; hosted/race/review acceptance remains. Broader A01/A06/A08-A14 remain incomplete. Historical audit measurements remain distinct from current validation.
+**Current review boundary:** R01-R16b and separate correctness fixes are merged through PR31. A00/A02/A03/A04/A05/A06/A07 are accepted. R17a controller passes full frontend/browser/local validation after tests-first characterization; hosted/review acceptance remains. Broader A01/A08-A14 remain incomplete. Historical audit measurements remain distinct from current validation.
 
 ## P0
 

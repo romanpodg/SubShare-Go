@@ -1,9 +1,20 @@
 "use client";
 
+import { filterKeyList, normalizeCategory, keyInactiveInLinkFormat } from "./key-list-state";
+import { useKeyListOrder } from "./use-key-list-order";
+import { useKeyListSelection } from "./use-key-list-selection";
+import { useKeyListSingleDeletion, useKeyListBulkDeletion } from "./use-key-list-deletion";
+import { useKeyListHealth } from "./use-key-list-health";
+import { useKeyListCreation } from "./use-key-list-creation";
+import { useKeyListCategoryData } from "./use-key-list-category-data";
+import { keyListDragVelocity } from "./key-list-drag";
+import { useKeyListDrag } from "./use-key-list-drag";
+import { useKeyListHiddenCategories } from "./use-key-list-hidden-categories";
+import { keyListCategoryNames, keyListCategoryCounts, keyListCategoryMetadata, keyListCategoryGroups, moveKeyListCategoryBlock, moveKeyListKeyCategory } from "./key-list-categories";
+import { useKeyListCategoryNavigation } from "./use-key-list-category-navigation";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
-import type { KeyCategory, KeySummary } from "@/lib/types";
-import { keys as keysApi } from "@/lib/api";
+import type { KeySummary } from "@/lib/types";
 import { useToast } from "@/components/ui/Toast";
 import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
@@ -41,10 +52,6 @@ import {
 
 const UNCATEGORIZED_LABEL = "Без категории";
 
-function normalizeCategory(value: string | null | undefined): string {
-  return (value || "").trim();
-}
-
 function categoryDisplayName(value: string) {
   return value || UNCATEGORIZED_LABEL;
 }
@@ -62,95 +69,13 @@ function detectConfigScheme(raw: string) {
   }
 }
 
-function moveArrayItem<T>(items: T[], fromIndex: number, toIndex: number): T[] {
-  if (fromIndex < 0 || fromIndex >= items.length) {
-    return items;
-  }
-
-  const next = [...items];
-  const [item] = next.splice(fromIndex, 1);
-
-  let targetIndex = toIndex;
-  if (fromIndex < targetIndex) {
-    targetIndex -= 1;
-  }
-  if (targetIndex < 0) {
-    targetIndex = 0;
-  }
-  if (targetIndex > next.length) {
-    targetIndex = next.length;
-  }
-
-  next.splice(targetIndex, 0, item);
-  return next;
-}
-
-const DRAG_AUTO_SCROLL_EDGE_PX = 120;
-const DRAG_AUTO_SCROLL_MAX_PX = 28;
-
 export function dragAutoScrollVelocity(
   pointerY: number,
   top: number,
   bottom: number,
-  edgeSize = DRAG_AUTO_SCROLL_EDGE_PX,
-  maxVelocity = DRAG_AUTO_SCROLL_MAX_PX
-): number {
-  const height = bottom - top;
-  if (!Number.isFinite(pointerY) || height <= 0 || edgeSize <= 0 || maxVelocity <= 0) {
-    return 0;
-  }
-
-  const edge = Math.min(edgeSize, height / 2);
-  const upperBoundary = top + edge;
-  const lowerBoundary = bottom - edge;
-
-  if (pointerY < upperBoundary) {
-    const proximity = Math.min(1, Math.max(0, (upperBoundary - pointerY) / edge));
-    return proximity === 0 ? 0 : -Math.max(2, Math.round(maxVelocity * proximity * proximity));
-  }
-  if (pointerY > lowerBoundary) {
-    const proximity = Math.min(1, Math.max(0, (pointerY - lowerBoundary) / edge));
-    return proximity === 0 ? 0 : Math.max(2, Math.round(maxVelocity * proximity * proximity));
-  }
-  return 0;
-}
-
-function dragScrollTargetAt(clientX: number, clientY: number): { target: HTMLElement; velocity: number } | null {
-  const candidates: HTMLElement[] = [];
-  let element = document.elementFromPoint(clientX, clientY);
-
-  while (element instanceof HTMLElement) {
-    const style = window.getComputedStyle(element);
-    if (
-      /(auto|scroll)/.test(style.overflowY) &&
-      element.scrollHeight > element.clientHeight + 1
-    ) {
-      candidates.push(element);
-    }
-    element = element.parentElement;
-  }
-
-  const root = document.scrollingElement;
-  if (root instanceof HTMLElement && !candidates.includes(root)) {
-    candidates.push(root);
-  }
-
-  for (const target of candidates) {
-    const isRoot = target === document.scrollingElement;
-    const rect = isRoot
-      ? { top: 0, bottom: window.innerHeight }
-      : target.getBoundingClientRect();
-    const velocity = dragAutoScrollVelocity(clientY, rect.top, rect.bottom);
-    const canScrollUp = target.scrollTop > 0;
-    const canScrollDown = target.scrollTop + target.clientHeight < target.scrollHeight - 1;
-
-    if ((velocity < 0 && canScrollUp) || (velocity > 0 && canScrollDown)) {
-      return { target, velocity };
-    }
-  }
-
-  return null;
-}
+  edgeSize = 120,
+  maxVelocity = 28
+): number { return keyListDragVelocity({ pointerY, top, bottom, edgeSize, maxVelocity }); }
 
 interface InsertGapActionsProps {
   index: number;
@@ -245,16 +170,14 @@ export function KeysSection({ keys, subscriptionFormat, onRefresh }: Props) {
 
   const [collapsed, setCollapsed] = useState(false);
   const [hiddenPane, setHiddenPane] = useState<"informational" | "real" | null>(null);
-  const [hiddenCategories, setHiddenCategories] = useState<Record<string, boolean>>({});
 
-  const [orderedKeys, setOrderedKeys] = useState<KeySummary[]>(keys);
-  const [keyCategories, setKeyCategories] = useState<KeyCategory[]>([]);
+  const { orderedKeys, reordering, hasUnsavedOrder, moveKeyToIndex, saveOrder } = useKeyListOrder({ keys, onRefresh, toast });
+  const { keyCategories, loadKeyCategories } = useKeyListCategoryData();
 
   // Search and status filter states
   const [searchQuery, setSearchQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState<"all" | "active" | "inactive">("all");
 
-  const [showAddKey, setShowAddKey] = useState(false);
   const [showBulkEdit, setShowBulkEdit] = useState(false);
   const [editKey, setEditKey] = useState<KeySummary | null>(null);
   const [showCreateCategory, setShowCreateCategory] = useState(false);
@@ -262,116 +185,18 @@ export function KeysSection({ keys, subscriptionFormat, onRefresh }: Props) {
   const [activeCategoryName, setActiveCategoryName] = useState("");
   const [createCategoryInitial, setCreateCategoryInitial] = useState("");
 
-  const [checkingAll, setCheckingAll] = useState(false);
-  const [deleteTarget, setDeleteTarget] = useState<{ id: number; label: string } | null>(null);
-  const [deleting, setDeleting] = useState(false);
-  const [bulkDeleteTargetIDs, setBulkDeleteTargetIDs] = useState<number[] | null>(null);
-  const [bulkDeleting, setBulkDeleting] = useState(false);
-
-  const [selectedKeyIDs, setSelectedKeyIDs] = useState<number[]>([]);
-  const [dragging, setDragging] = useState<{ id: number } | null>(null);
-  const [reordering, setReordering] = useState(false);
-  const [hasUnsavedOrder, setHasUnsavedOrder] = useState(false);
-  const [insertAtIndex, setInsertAtIndex] = useState<number | null>(null);
-  const [addKeyCategoryHint, setAddKeyCategoryHint] = useState<string | undefined>(undefined);
-  const [addKeyKind, setAddKeyKind] = useState<"real" | "informational">("real");
+  const { dragging, setDragging, beginKeyDrag, dropKeyOnTarget, dropKeyAtEnd } = useKeyListDrag(moveKeyToIndex);
 
   const selectAllRef = useRef<HTMLInputElement | null>(null);
-  const uncategorizedBlockRef = useRef<HTMLDivElement | null>(null);
-  const categoryBlockRefs = useRef<Map<string, HTMLDivElement>>(new Map());
-  const dragAutoScrollRef = useRef<{
-    frame: number | null;
-    target: HTMLElement | null;
-    velocity: number;
-  }>({ frame: null, target: null, velocity: 0 });
-
-  const stopDragAutoScroll = useCallback(() => {
-    const state = dragAutoScrollRef.current;
-    if (state.frame !== null) {
-      window.cancelAnimationFrame(state.frame);
-    }
-    state.frame = null;
-    state.target = null;
-    state.velocity = 0;
-  }, []);
-
-  const updateDragAutoScroll = useCallback(
-    (clientX: number, clientY: number) => {
-      const decision = dragScrollTargetAt(clientX, clientY);
-      if (!decision) {
-        stopDragAutoScroll();
-        return;
-      }
-
-      const state = dragAutoScrollRef.current;
-      state.target = decision.target;
-      state.velocity = decision.velocity;
-      if (state.frame !== null) {
-        return;
-      }
-
-      const scrollFrame = () => {
-        const current = dragAutoScrollRef.current;
-        if (!current.target || current.velocity === 0) {
-          current.frame = null;
-          return;
-        }
-
-        const before = current.target.scrollTop;
-        current.target.scrollTop += current.velocity;
-        if (current.target.scrollTop === before) {
-          current.frame = null;
-          current.target = null;
-          current.velocity = 0;
-          return;
-        }
-        current.frame = window.requestAnimationFrame(scrollFrame);
-      };
-
-      state.frame = window.requestAnimationFrame(scrollFrame);
-    },
-    [stopDragAutoScroll]
-  );
+  const { uncategorizedBlockRef, categoryBlockRefs, scrollToCategory } = useKeyListCategoryNavigation();
 
   // Filter keys based on search query and status filter
-  const filteredOrderedKeys = useMemo(() => {
-    return orderedKeys.filter((key) => {
-      const query = searchQuery.toLowerCase().trim();
-      if (query) {
-        const labelMatch = key.label?.toLowerCase().includes(query);
-        const categoryMatch = key.category?.toLowerCase().includes(query);
-        const sourceMatch = key.external_source_name?.toLowerCase().includes(query);
-        const protocolMatch = key.protocol?.toLowerCase().includes(query);
-        const idMatch = String(key.id).includes(query);
-        if (!labelMatch && !categoryMatch && !sourceMatch && !protocolMatch && !idMatch) {
-          return false;
-        }
-      }
-      if (statusFilter !== "all") {
-        if (key.status !== statusFilter) {
-          return false;
-        }
-      }
-      return true;
-    });
-  }, [orderedKeys, searchQuery, statusFilter]);
+  const filteredOrderedKeys = useMemo(() => filterKeyList(orderedKeys, { searchQuery, statusFilter }), [orderedKeys, searchQuery, statusFilter]);
 
-  const selectedCount = selectedKeyIDs.length;
-  const allSelected = filteredOrderedKeys.length > 0 && filteredOrderedKeys.every((key) => selectedKeyIDs.includes(key.id));
-  const partiallySelected = selectedCount > 0 && !allSelected;
-  const selectedKeys = filteredOrderedKeys.filter((key) => selectedKeyIDs.includes(key.id));
+  const { selectedKeyIDs, setSelectedKeyIDs, selectedCount, allSelected, partiallySelected, selectedKeys, toggleKeySelection, toggleSelectAllKeys } = useKeyListSelection(orderedKeys, filteredOrderedKeys);
+
   const informationalKeysCount = filteredOrderedKeys.filter((key) => key.kind === "informational").length;
   const realKeysCount = filteredOrderedKeys.length - informationalKeysCount;
-
-  useEffect(() => {
-    if (!hasUnsavedOrder) {
-      setOrderedKeys(keys);
-    }
-  }, [keys, hasUnsavedOrder]);
-
-  useEffect(() => {
-    setSelectedKeyIDs((previous) => previous.filter((id) => orderedKeys.some((key) => key.id === id)));
-  }, [orderedKeys]);
 
   useEffect(() => {
     if (!selectAllRef.current) {
@@ -380,96 +205,15 @@ export function KeysSection({ keys, subscriptionFormat, onRefresh }: Props) {
     selectAllRef.current.indeterminate = selectedCount > 0 && !allSelected;
   }, [selectedCount, allSelected]);
 
-  useEffect(() => {
-    if (!dragging) {
-      stopDragAutoScroll();
-      return;
-    }
-
-    const handleDragOver = (event: DragEvent) => {
-      updateDragAutoScroll(event.clientX, event.clientY);
-    };
-    const handleDragFinished = () => {
-      stopDragAutoScroll();
-    };
-
-    document.addEventListener("dragover", handleDragOver, true);
-    document.addEventListener("drop", handleDragFinished, true);
-    document.addEventListener("dragend", handleDragFinished, true);
-
-    return () => {
-      document.removeEventListener("dragover", handleDragOver, true);
-      document.removeEventListener("drop", handleDragFinished, true);
-      document.removeEventListener("dragend", handleDragFinished, true);
-      stopDragAutoScroll();
-    };
-  }, [dragging, stopDragAutoScroll, updateDragAutoScroll]);
-
-  const loadKeyCategories = useCallback(async () => {
-    try {
-      const response = await keysApi.listCategories();
-      setKeyCategories(response.categories || []);
-    } catch {
-      // Categories are auxiliary UI data.
-    }
-  }, []);
-
-  useEffect(() => {
-    void loadKeyCategories();
-  }, [loadKeyCategories]);
-
   const keyIndexByID = useMemo(() => {
     return new Map<number, number>(orderedKeys.map((key, index) => [key.id, index]));
   }, [orderedKeys]);
 
-  const allCategoryNames = useMemo(() => {
-    const orderedNames: string[] = [];
-    const seen = new Set<string>();
+  const allCategoryNames = useMemo(() => keyListCategoryNames(keyCategories, orderedKeys), [orderedKeys, keyCategories]);
 
-    for (const category of keyCategories) {
-      const name = normalizeCategory(category.name);
-      if (!name || seen.has(name)) {
-        continue;
-      }
-      seen.add(name);
-      orderedNames.push(name);
-    }
+  const { hiddenCategories, setHiddenCategories } = useKeyListHiddenCategories(allCategoryNames);
 
-    for (const key of orderedKeys) {
-      const category = normalizeCategory(key.category);
-      if (!category || seen.has(category)) {
-        continue;
-      }
-      seen.add(category);
-      orderedNames.push(category);
-    }
-
-    return orderedNames;
-  }, [orderedKeys, keyCategories]);
-
-  useEffect(() => {
-    setHiddenCategories((previous) => {
-      const next: Record<string, boolean> = {};
-      for (const categoryName of allCategoryNames) {
-        if (previous[categoryName]) {
-          next[categoryName] = true;
-        }
-      }
-      return next;
-    });
-  }, [allCategoryNames]);
-
-  const categoryCounts = useMemo(() => {
-    const counts = new Map<string, number>();
-    for (const key of filteredOrderedKeys) {
-      const category = normalizeCategory(key.category);
-      if (!category) {
-        continue;
-      }
-      counts.set(category, (counts.get(category) || 0) + 1);
-    }
-    return counts;
-  }, [filteredOrderedKeys]);
+  const categoryCounts = useMemo(() => keyListCategoryCounts(filteredOrderedKeys), [filteredOrderedKeys]);
 
   const uncategorizedKeys = useMemo(() => {
     return filteredOrderedKeys.filter((key) => !normalizeCategory(key.category));
@@ -477,25 +221,14 @@ export function KeysSection({ keys, subscriptionFormat, onRefresh }: Props) {
 
   const uncategorizedCount = uncategorizedKeys.length;
 
-  const categoryMeta = useMemo(() => {
-    const map = new Map<string, KeyCategory>();
-    for (const category of keyCategories) {
-      map.set(normalizeCategory(category.name), category);
-    }
-    return map;
-  }, [keyCategories]);
+  const categoryMeta = useMemo(() => keyListCategoryMetadata(keyCategories), [keyCategories]);
 
   const getCategoryColor = useCallback(
     (categoryName: string) => normalizeKeyCategoryColor(categoryMeta.get(categoryName)?.color || DEFAULT_KEY_CATEGORY_COLOR),
     [categoryMeta]
   );
 
-  const categoryGroups = useMemo<CategoryGroup[]>(() => {
-    return allCategoryNames.map((categoryName) => ({
-      category: categoryName,
-      keys: filteredOrderedKeys.filter((key) => normalizeCategory(key.category) === categoryName),
-    }));
-  }, [allCategoryNames, filteredOrderedKeys]);
+  const categoryGroups = useMemo<CategoryGroup[]>(() => keyListCategoryGroups(allCategoryNames, filteredOrderedKeys), [allCategoryNames, filteredOrderedKeys]);
 
   const activeCategoryKeys = useMemo(() => {
     return filteredOrderedKeys.filter((key) => normalizeCategory(key.category) === activeCategoryName);
@@ -515,37 +248,6 @@ export function KeysSection({ keys, subscriptionFormat, onRefresh }: Props) {
   const informationalHidden = hiddenPane === "informational";
   const realHidden = hiddenPane === "real";
 
-  const scrollToCategory = useCallback((categoryName: string | null) => {
-    const target = categoryName
-      ? categoryBlockRefs.current.get(categoryName)
-      : uncategorizedBlockRef.current;
-    if (!target) {
-      return;
-    }
-
-    const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-    target.scrollIntoView({
-      behavior: reduceMotion ? "auto" : "smooth",
-      block: "start",
-    });
-    window.requestAnimationFrame(() => target.focus({ preventScroll: true }));
-  }, []);
-
-  const moveKeyToIndex = useCallback((keyID: number, targetIndex: number) => {
-    setOrderedKeys((previous) => {
-      const fromIndex = previous.findIndex((item) => item.id === keyID);
-      if (fromIndex === -1) {
-        return previous;
-      }
-      const next = moveArrayItem(previous, fromIndex, targetIndex);
-      if (next === previous) {
-        return previous;
-      }
-      return next;
-    });
-    setHasUnsavedOrder(true);
-  }, []);
-
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const dropDraggedAtIndex = useCallback(
     (targetIndex: number) => {
@@ -563,148 +265,14 @@ export function KeysSection({ keys, subscriptionFormat, onRefresh }: Props) {
     await loadKeyCategories();
   }, [onRefresh, loadKeyCategories]);
 
-  const handleDelete = (id: number, label: string) => {
-    setDeleteTarget({ id, label });
-  };
+  const { deleteTarget, setDeleteTarget, deleting, handleDelete, confirmDelete } = useKeyListSingleDeletion({ refreshKeysData, toast });
+const { bulkDeleteTargetIDs, setBulkDeleteTargetIDs, bulkDeleting, openDeleteSelectedDialog, confirmBulkDelete } = useKeyListBulkDeletion({ selectedKeyIDs, setSelectedKeyIDs, refreshKeysData, toast });
 
-  const confirmDelete = async () => {
-    if (!deleteTarget) {
-      return;
-    }
+  const { checkingAll, handleCheck, handleCheckAll } = useKeyListHealth({ onRefresh, toast });
 
-    setDeleting(true);
-    try {
-      await keysApi.delete(deleteTarget.id);
-      toast("Конфигурация удалена", "success");
-      await refreshKeysData();
-    } catch {
-      toast("Не удалось удалить конфигурацию", "error");
-    } finally {
-      setDeleting(false);
-      setDeleteTarget(null);
-    }
-  };
+  const moveCategoryBlock = (categoryName: string, direction: -1 | 1) => moveKeyListCategoryBlock({ categoryName, direction, allCategoryNames, toast, refreshKeysData });
 
-  const toggleKeySelection = (id: number) => {
-    setSelectedKeyIDs((previous) =>
-      previous.includes(id) ? previous.filter((value) => value !== id) : [...previous, id]
-    );
-  };
-
-  const toggleSelectAllKeys = () => {
-    if (allSelected) {
-      setSelectedKeyIDs((previous) => previous.filter((id) => !filteredOrderedKeys.some((key) => key.id === id)));
-    } else {
-      setSelectedKeyIDs((previous) => {
-        const next = [...previous];
-        filteredOrderedKeys.forEach((key) => {
-          if (!next.includes(key.id)) {
-            next.push(key.id);
-          }
-        });
-        return next;
-      });
-    }
-  };
-
-  const openDeleteSelectedDialog = () => {
-    if (selectedKeyIDs.length === 0) {
-      return;
-    }
-    setBulkDeleteTargetIDs([...selectedKeyIDs]);
-  };
-
-  const confirmBulkDelete = async () => {
-    if (!bulkDeleteTargetIDs || bulkDeleteTargetIDs.length === 0) {
-      return;
-    }
-
-    setBulkDeleting(true);
-    try {
-      const targetIDs = [...bulkDeleteTargetIDs];
-      const response = await keysApi.bulkDelete(targetIDs);
-      const deletedCount = response.deleted ?? targetIDs.length;
-      toast(
-        deletedCount === 1 ? "Конфигурация удалена" : `Удалено конфигураций: ${deletedCount}`,
-        "success"
-      );
-      setSelectedKeyIDs([]);
-      await refreshKeysData();
-    } catch (error: unknown) {
-      toast(error instanceof Error ? error.message : "Не удалось удалить выбранные конфигурации", "error");
-    } finally {
-      setBulkDeleting(false);
-      setBulkDeleteTargetIDs(null);
-    }
-  };
-
-  const handleCheck = async (id: number) => {
-    try {
-      await keysApi.check(id);
-      toast("Конфигурация проверена", "success");
-      await onRefresh();
-    } catch {
-      toast("Не удалось проверить конфигурацию", "error");
-    }
-  };
-
-  const handleCheckAll = async () => {
-    setCheckingAll(true);
-    try {
-      await keysApi.checkAll();
-      toast("Проверка конфигураций запущена", "success");
-    } catch {
-      toast("Не удалось проверить конфигурации", "error");
-    } finally {
-      setCheckingAll(false);
-    }
-  };
-
-  const saveOrder = async () => {
-    const ids = orderedKeys.map((item) => item.id);
-    setReordering(true);
-    try {
-      await keysApi.reorder(ids);
-      await onRefresh();
-      setHasUnsavedOrder(false);
-      toast("Порядок конфигураций сохранен", "success");
-    } catch {
-      toast("Не удалось изменить порядок конфигураций", "error");
-    } finally {
-      setReordering(false);
-    }
-  };
-
-  const moveCategoryBlock = async (categoryName: string, direction: -1 | 1) => {
-    const currentIndex = allCategoryNames.findIndex((item) => item === categoryName);
-    const targetIndex = currentIndex + direction;
-    if (currentIndex < 0 || targetIndex < 0 || targetIndex >= allCategoryNames.length) {
-      return;
-    }
-
-    const nextOrder = [...allCategoryNames];
-    const [item] = nextOrder.splice(currentIndex, 1);
-    nextOrder.splice(targetIndex, 0, item);
-
-    try {
-      await keysApi.reorderCategories(nextOrder);
-      toast(`Категория "${categoryName}" перемещена`, "success");
-      await refreshKeysData();
-    } catch (error: unknown) {
-      toast(error instanceof Error ? error.message : "Не удалось изменить порядок категорий", "error");
-    }
-  };
-
-  const startAddConfiguration = (
-    index: number,
-    categoryHint?: string,
-    kind: "real" | "informational" = "real"
-  ) => {
-    setInsertAtIndex(index);
-    setAddKeyCategoryHint(categoryHint ? normalizeCategory(categoryHint) : undefined);
-    setAddKeyKind(kind);
-    setShowAddKey(true);
-  };
+  const { showAddKey, setShowAddKey, insertAtIndex, setInsertAtIndex, addKeyCategoryHint, setAddKeyCategoryHint, addKeyKind, startAddConfiguration, closeKeyCreation, completeKeyCreation } = useKeyListCreation({ refreshKeysData });
 
   const openCreateCategory = (initialName?: string) => {
     setCreateCategoryInitial(initialName?.trim() || "");
@@ -723,26 +291,11 @@ export function KeysSection({ keys, subscriptionFormat, onRefresh }: Props) {
     setShowAddKey(true);
   };
 
-  const moveKeyToCategory = async (key: KeySummary, nextCategory: string) => {
-    await keysApi.update(key.id, {
-      label: key.label,
-      status: key.status,
-      kind: key.kind,
-      category: nextCategory,
-      uuid: "",
-      host: "",
-      port: "",
-      query: "",
-      fragment: "",
-      template_text: key.kind === "informational" ? key.template_text : undefined,
-    });
-    await refreshKeysData();
-  };
+  const moveKeyToCategory = (key: KeySummary, nextCategory: string) => moveKeyListKeyCategory({ key, nextCategory, refreshKeysData });
 
   const renderKeyCard = (key: KeySummary) => {
     const isReal = key.kind !== "informational";
-    const isInactiveJSON =
-      isReal && subscriptionFormat === "links" && (key.protocol === "vless" || key.protocol === "vmess" || key.protocol === "trojan" || key.protocol === "legacy");
+    const isInactiveJSON = keyInactiveInLinkFormat(key, subscriptionFormat);
     const isDragging = dragging?.id === key.id;
     const isSelected = selectedKeyIDs.includes(key.id);
     const isExternalKey = key.external_source_id > 0;
@@ -751,24 +304,12 @@ export function KeysSection({ keys, subscriptionFormat, onRefresh }: Props) {
     return (
       <div
         draggable={!reordering}
-        onDragStart={(event) => {
-          setDragging({ id: key.id });
-          event.dataTransfer.effectAllowed = "move";
-          event.dataTransfer.setData("text/plain", String(key.id));
-        }}
+        onDragStart={(event) => beginKeyDrag(event, key.id)}
         onDragEnd={() => setDragging(null)}
         onDragOver={(event) => {
           event.preventDefault();
         }}
-        onDrop={(event) => {
-          event.preventDefault();
-          event.stopPropagation();
-          if (!dragging || dragging.id === key.id) {
-            return;
-          }
-          moveKeyToIndex(dragging.id, globalIndex);
-          setDragging(null);
-        }}
+        onDrop={(event) => dropKeyOnTarget(event, { id: key.id, index: globalIndex })}
         className={`ui-key-card ${isDragging ? "opacity-40" : "opacity-100"} ${
           isSelected
             ? "!border-accent/60 !bg-accent/5"
@@ -924,15 +465,7 @@ export function KeysSection({ keys, subscriptionFormat, onRefresh }: Props) {
         <div 
           className={`ui-key-order-column ui-key-order-column-info ${informationalHidden ? "hidden" : ""}`}
           onDragOver={(event) => event.preventDefault()}
-          onDrop={(event) => {
-            event.preventDefault();
-            if (dragging) {
-              const lastKey = sectionKeys[sectionKeys.length - 1];
-              const targetIndex = lastKey ? (keyIndexByID.get(lastKey.id) ?? 0) + 1 : orderedKeys.length;
-              moveKeyToIndex(dragging.id, targetIndex);
-              setDragging(null);
-            }
-          }}
+          onDrop={(event) => dropKeyAtEnd(event, { sectionKeys, keyIndexByID, totalCount: orderedKeys.length })}
         >
           <div className="ui-key-column-title mb-2">
             <span>Информационные сообщения ({infoKeysCount})</span>
@@ -958,15 +491,7 @@ export function KeysSection({ keys, subscriptionFormat, onRefresh }: Props) {
                   className="ui-key-order-gap"
                   aria-hidden="true"
                   onDragOver={(event) => event.preventDefault()}
-                  onDrop={(event) => {
-                    event.preventDefault();
-                    event.stopPropagation();
-                    if (!dragging || dragging.id === row.key.id) {
-                      return;
-                    }
-                    moveKeyToIndex(dragging.id, keyIndexByID.get(row.key.id) ?? rowIndex);
-                    setDragging(null);
-                  }}
+                  onDrop={(event) => dropKeyOnTarget(event, { id: row.key.id, index: keyIndexByID.get(row.key.id) ?? rowIndex })}
                 />
               )}
             </div>
@@ -977,15 +502,7 @@ export function KeysSection({ keys, subscriptionFormat, onRefresh }: Props) {
         <div 
           className={`ui-key-order-column ui-key-order-column-real ${realHidden ? "hidden" : ""}`}
           onDragOver={(event) => event.preventDefault()}
-          onDrop={(event) => {
-            event.preventDefault();
-            if (dragging) {
-              const lastKey = sectionKeys[sectionKeys.length - 1];
-              const targetIndex = lastKey ? (keyIndexByID.get(lastKey.id) ?? 0) + 1 : orderedKeys.length;
-              moveKeyToIndex(dragging.id, targetIndex);
-              setDragging(null);
-            }
-          }}
+          onDrop={(event) => dropKeyAtEnd(event, { sectionKeys, keyIndexByID, totalCount: orderedKeys.length })}
         >
           <div className="ui-key-column-title mb-2">
             <span>Рабочие конфигурации ({realKeysCount})</span>
@@ -1011,15 +528,7 @@ export function KeysSection({ keys, subscriptionFormat, onRefresh }: Props) {
                   className="ui-key-order-gap"
                   aria-hidden="true"
                   onDragOver={(event) => event.preventDefault()}
-                  onDrop={(event) => {
-                    event.preventDefault();
-                    event.stopPropagation();
-                    if (!dragging || dragging.id === row.key.id) {
-                      return;
-                    }
-                    moveKeyToIndex(dragging.id, keyIndexByID.get(row.key.id) ?? rowIndex);
-                    setDragging(null);
-                  }}
+                  onDrop={(event) => dropKeyOnTarget(event, { id: row.key.id, index: keyIndexByID.get(row.key.id) ?? rowIndex })}
                 />
               )}
             </div>
@@ -1534,39 +1043,12 @@ export function KeysSection({ keys, subscriptionFormat, onRefresh }: Props) {
 
       <AddKeyModal
         open={showAddKey}
-        onClose={() => {
-          setShowAddKey(false);
-          setInsertAtIndex(null);
-          setAddKeyCategoryHint(undefined);
-          setAddKeyKind("real");
-        }}
+        onClose={closeKeyCreation}
         onRefresh={refreshKeysData}
         insertAtIndex={insertAtIndex}
         initialCategory={addKeyCategoryHint}
         initialKind={addKeyKind}
-        onCreated={() => {
-          if (insertAtIndex !== null) {
-            setTimeout(async () => {
-              try {
-                const { data: freshKeys } = await keysApi.listSummaries({ page_size: 200 });
-                if (!freshKeys || freshKeys.length === 0) {
-                  return;
-                }
-                const newKey = freshKeys[freshKeys.length - 1];
-                const withoutNew = freshKeys.filter((item: KeySummary) => item.id !== newKey.id);
-                const targetIndex = Math.min(insertAtIndex, withoutNew.length);
-                withoutNew.splice(targetIndex, 0, newKey);
-                await keysApi.reorder(withoutNew.map((item: KeySummary) => item.id));
-                await refreshKeysData();
-              } catch {
-                // The key is still created even if reorder fails.
-              }
-              setInsertAtIndex(null);
-              setAddKeyCategoryHint(undefined);
-              setAddKeyKind("real");
-            }, 100);
-          }
-        }}
+        onCreated={completeKeyCreation}
       />
 
       {editKey ? (
