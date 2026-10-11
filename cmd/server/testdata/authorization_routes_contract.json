@@ -1,0 +1,737 @@
+[
+  {
+    "pattern": "DELETE /api/admin/admins/{id}",
+    "guard": "owner",
+    "scope": "*",
+    "status": 404
+  },
+  {
+    "pattern": "DELETE /api/admin/keys/{id}",
+    "guard": "admin",
+    "scope": "keys:write",
+    "status": 404
+  },
+  {
+    "pattern": "DELETE /api/admin/users/{id}",
+    "guard": "admin",
+    "scope": "users:write",
+    "status": 404
+  },
+  {
+    "pattern": "DELETE /api/admin/users/{id}/hwid/{hwid}",
+    "guard": "admin",
+    "scope": "users:write",
+    "status": 404
+  },
+  {
+    "pattern": "DELETE /api/v1/admins/{id}",
+    "guard": "owner",
+    "scope": "*",
+    "status": 404,
+    "code": "compatibility_error"
+  },
+  {
+    "pattern": "DELETE /api/v1/api-tokens/{id}",
+    "guard": "owner",
+    "scope": "*",
+    "interactive": true,
+    "status": 404,
+    "code": "token_not_found"
+  },
+  {
+    "pattern": "DELETE /api/v1/keys/{id}",
+    "guard": "admin",
+    "scope": "keys:write",
+    "status": 404,
+    "code": "compatibility_error"
+  },
+  {
+    "pattern": "DELETE /api/v1/response-rules/{id}",
+    "guard": "owner",
+    "scope": "settings:write",
+    "status": 404,
+    "code": "rule_not_found"
+  },
+  {
+    "pattern": "DELETE /api/v1/sources/{id}",
+    "guard": "owner",
+    "scope": "keys:write",
+    "status": 404,
+    "code": "source_not_found"
+  },
+  {
+    "pattern": "DELETE /api/v1/templates/{id}",
+    "guard": "owner",
+    "scope": "settings:write",
+    "status": 404,
+    "code": "template_not_found"
+  },
+  {
+    "pattern": "DELETE /api/v1/users/{id}",
+    "guard": "admin",
+    "scope": "users:write",
+    "status": 404,
+    "code": "compatibility_error"
+  },
+  {
+    "pattern": "DELETE /api/v1/users/{id}/hwid/{hwid}",
+    "guard": "admin",
+    "scope": "users:write",
+    "status": 404
+  },
+  {
+    "pattern": "GET /api/admin/admins",
+    "guard": "owner",
+    "scope": "read",
+    "status": 200
+  },
+  {
+    "pattern": "GET /api/admin/export/users",
+    "guard": "admin",
+    "scope": "read",
+    "status": 200
+  },
+  {
+    "pattern": "GET /api/admin/external-sources/categories",
+    "guard": "owner",
+    "scope": "read",
+    "status": 200
+  },
+  {
+    "pattern": "GET /api/admin/key-categories",
+    "guard": "admin",
+    "scope": "read",
+    "status": 200
+  },
+  {
+    "pattern": "GET /api/admin/routing-settings",
+    "guard": "admin",
+    "scope": "read",
+    "status": 200
+  },
+  {
+    "pattern": "GET /api/admin/subscription-page-config",
+    "guard": "admin",
+    "scope": "read",
+    "status": 200
+  },
+  {
+    "pattern": "GET /api/admin/subscription-settings",
+    "guard": "admin",
+    "scope": "read",
+    "status": 200
+  },
+  {
+    "pattern": "GET /api/admin/users",
+    "guard": "admin",
+    "scope": "read",
+    "status": 200
+  },
+  {
+    "pattern": "GET /api/admin/users/{id}/subscription-urls",
+    "guard": "admin",
+    "scope": "read",
+    "status": 404
+  },
+  {
+    "pattern": "GET /api/auth/me",
+    "guard": "admin",
+    "scope": "read",
+    "status": 200
+  },
+  {
+    "pattern": "GET /api/panel-settings",
+    "guard": "public",
+    "scope": "read",
+    "status": 200
+  },
+  {
+    "pattern": "GET /api/subscription-page-config",
+    "guard": "public",
+    "scope": "read",
+    "status": 200
+  },
+  {
+    "pattern": "GET /api/v1/admins",
+    "guard": "owner",
+    "scope": "read",
+    "status": 200
+  },
+  {
+    "pattern": "GET /api/v1/api-tokens",
+    "guard": "owner",
+    "scope": "read",
+    "status": 200
+  },
+  {
+    "pattern": "GET /api/v1/audit-events",
+    "guard": "admin",
+    "scope": "read",
+    "status": 200
+  },
+  {
+    "pattern": "GET /api/v1/build-info",
+    "guard": "admin",
+    "scope": "read",
+    "status": 200
+  },
+  {
+    "pattern": "GET /api/v1/dashboard",
+    "guard": "admin",
+    "scope": "read",
+    "status": 200
+  },
+  {
+    "pattern": "GET /api/v1/jobs",
+    "guard": "admin",
+    "scope": "read",
+    "status": 200
+  },
+  {
+    "pattern": "GET /api/v1/jobs/{id}",
+    "guard": "admin",
+    "scope": "read",
+    "status": 404,
+    "code": "job_not_found"
+  },
+  {
+    "pattern": "GET /api/v1/key-categories",
+    "guard": "admin",
+    "scope": "read",
+    "status": 200
+  },
+  {
+    "pattern": "GET /api/v1/key-editor-schema",
+    "guard": "admin",
+    "scope": "read",
+    "status": 200
+  },
+  {
+    "pattern": "GET /api/v1/keys",
+    "guard": "admin",
+    "scope": "read",
+    "status": 200
+  },
+  {
+    "pattern": "GET /api/v1/keys/{id}",
+    "guard": "admin",
+    "scope": "read",
+    "status": 404,
+    "code": "key_not_found"
+  },
+  {
+    "pattern": "GET /api/v1/openapi.yaml",
+    "guard": "admin",
+    "scope": "read",
+    "status": 200
+  },
+  {
+    "pattern": "GET /api/v1/panel-settings",
+    "guard": "public",
+    "scope": "read",
+    "status": 200
+  },
+  {
+    "pattern": "GET /api/v1/response-rules",
+    "guard": "admin",
+    "scope": "read",
+    "status": 200
+  },
+  {
+    "pattern": "GET /api/v1/routing-settings",
+    "guard": "admin",
+    "scope": "read",
+    "status": 200
+  },
+  {
+    "pattern": "GET /api/v1/source-categories",
+    "guard": "admin",
+    "scope": "read",
+    "status": 200
+  },
+  {
+    "pattern": "GET /api/v1/sources",
+    "guard": "admin",
+    "scope": "read",
+    "status": 200
+  },
+  {
+    "pattern": "GET /api/v1/sources/{id}",
+    "guard": "owner",
+    "scope": "read",
+    "status": 404,
+    "code": "source_not_found"
+  },
+  {
+    "pattern": "GET /api/v1/sources/{id}/sync-runs",
+    "guard": "admin",
+    "scope": "read",
+    "status": 200
+  },
+  {
+    "pattern": "GET /api/v1/subscription-delivery-settings",
+    "guard": "admin",
+    "scope": "read",
+    "status": 200
+  },
+  {
+    "pattern": "GET /api/v1/subscription-page-config",
+    "guard": "public",
+    "scope": "read",
+    "status": 200
+  },
+  {
+    "pattern": "GET /api/v1/subscription-settings",
+    "guard": "admin",
+    "scope": "read",
+    "status": 200
+  },
+  {
+    "pattern": "GET /api/v1/templates",
+    "guard": "admin",
+    "scope": "read",
+    "status": 200
+  },
+  {
+    "pattern": "GET /api/v1/users",
+    "guard": "admin",
+    "scope": "read",
+    "status": 200
+  },
+  {
+    "pattern": "GET /api/v1/users/full",
+    "guard": "admin",
+    "scope": "read",
+    "status": 200
+  },
+  {
+    "pattern": "GET /api/v1/users/{id}",
+    "guard": "admin",
+    "scope": "read",
+    "status": 404,
+    "code": "user_not_found"
+  },
+  {
+    "pattern": "GET /api/v1/users/{id}/subscription-urls",
+    "guard": "admin",
+    "scope": "read",
+    "status": 404
+  },
+  {
+    "pattern": "PATCH /api/v1/users/{id}/subscription",
+    "guard": "admin",
+    "scope": "users:write",
+    "status": 400,
+    "code": "invalid_body"
+  },
+  {
+    "pattern": "POST /api/admin/admins",
+    "guard": "owner",
+    "scope": "*",
+    "status": 400
+  },
+  {
+    "pattern": "POST /api/admin/external-sources/categories",
+    "guard": "owner",
+    "scope": "keys:write",
+    "status": 400
+  },
+  {
+    "pattern": "POST /api/admin/key-categories",
+    "guard": "admin",
+    "scope": "keys:write",
+    "status": 400
+  },
+  {
+    "pattern": "POST /api/admin/key-categories/delete",
+    "guard": "admin",
+    "scope": "keys:write",
+    "status": 400
+  },
+  {
+    "pattern": "POST /api/admin/keys",
+    "guard": "admin",
+    "scope": "keys:write",
+    "status": 400
+  },
+  {
+    "pattern": "POST /api/admin/keys/bulk/delete",
+    "guard": "admin",
+    "scope": "keys:write",
+    "status": 400
+  },
+  {
+    "pattern": "POST /api/admin/keys/bulk/status",
+    "guard": "admin",
+    "scope": "keys:write",
+    "status": 400
+  },
+  {
+    "pattern": "POST /api/admin/keys/check-all",
+    "guard": "admin",
+    "scope": "keys:write",
+    "status": 200
+  },
+  {
+    "pattern": "POST /api/admin/keys/{id}/check",
+    "guard": "admin",
+    "scope": "keys:write",
+    "status": 404
+  },
+  {
+    "pattern": "POST /api/admin/users",
+    "guard": "admin",
+    "scope": "users:write",
+    "status": 400
+  },
+  {
+    "pattern": "POST /api/v1/admins",
+    "guard": "owner",
+    "scope": "*",
+    "status": 400,
+    "code": "compatibility_error"
+  },
+  {
+    "pattern": "POST /api/v1/api-tokens",
+    "guard": "owner",
+    "scope": "*",
+    "interactive": true,
+    "status": 400,
+    "code": "invalid_body"
+  },
+  {
+    "pattern": "POST /api/v1/jobs/{id}/retry",
+    "guard": "owner",
+    "scope": "settings:write",
+    "status": 404,
+    "code": "job_not_found"
+  },
+  {
+    "pattern": "POST /api/v1/key-categories",
+    "guard": "admin",
+    "scope": "keys:write",
+    "status": 400
+  },
+  {
+    "pattern": "POST /api/v1/key-categories/delete",
+    "guard": "admin",
+    "scope": "keys:write",
+    "status": 400
+  },
+  {
+    "pattern": "POST /api/v1/keys",
+    "guard": "admin",
+    "scope": "keys:write",
+    "status": 400,
+    "code": "invalid_body"
+  },
+  {
+    "pattern": "POST /api/v1/keys/bulk/delete",
+    "guard": "admin",
+    "scope": "keys:write",
+    "status": 400
+  },
+  {
+    "pattern": "POST /api/v1/keys/bulk/status",
+    "guard": "admin",
+    "scope": "keys:write",
+    "status": 400
+  },
+  {
+    "pattern": "POST /api/v1/keys/check-all",
+    "guard": "admin",
+    "scope": "keys:write",
+    "status": 202
+  },
+  {
+    "pattern": "POST /api/v1/keys/{id}/check",
+    "guard": "admin",
+    "scope": "keys:write",
+    "status": 404,
+    "code": "compatibility_error"
+  },
+  {
+    "pattern": "POST /api/v1/keys/{id}/clone",
+    "guard": "admin",
+    "scope": "keys:write",
+    "status": 400,
+    "code": "invalid_body"
+  },
+  {
+    "pattern": "POST /api/v1/keys/{id}/reveal",
+    "guard": "admin",
+    "scope": "keys:write",
+    "status": 400,
+    "code": "invalid_body"
+  },
+  {
+    "pattern": "POST /api/v1/response-rules",
+    "guard": "owner",
+    "scope": "settings:write",
+    "status": 400,
+    "code": "invalid_body"
+  },
+  {
+    "pattern": "POST /api/v1/sources",
+    "guard": "owner",
+    "scope": "keys:write",
+    "status": 400,
+    "code": "validation_failed"
+  },
+  {
+    "pattern": "POST /api/v1/sources/preview",
+    "guard": "owner",
+    "scope": "keys:write",
+    "status": 400,
+    "code": "validation_failed"
+  },
+  {
+    "pattern": "POST /api/v1/sources/{id}/sync",
+    "guard": "owner",
+    "scope": "keys:write",
+    "status": 404,
+    "code": "source_not_found"
+  },
+  {
+    "pattern": "POST /api/v1/templates",
+    "guard": "owner",
+    "scope": "settings:write",
+    "status": 400,
+    "code": "invalid_body"
+  },
+  {
+    "pattern": "POST /api/v1/templates/preview",
+    "guard": "owner",
+    "scope": "settings:write",
+    "status": 400,
+    "code": "invalid_body"
+  },
+  {
+    "pattern": "POST /api/v1/users",
+    "guard": "admin",
+    "scope": "users:write",
+    "status": 400,
+    "code": "compatibility_error"
+  },
+  {
+    "pattern": "PUT /api/admin/admins/{id}",
+    "guard": "owner",
+    "scope": "*",
+    "status": 400
+  },
+  {
+    "pattern": "PUT /api/admin/external-sources/categories/rename",
+    "guard": "owner",
+    "scope": "keys:write",
+    "status": 400
+  },
+  {
+    "pattern": "PUT /api/admin/key-categories",
+    "guard": "admin",
+    "scope": "keys:write",
+    "status": 400
+  },
+  {
+    "pattern": "PUT /api/admin/key-categories/order",
+    "guard": "admin",
+    "scope": "keys:write",
+    "status": 400
+  },
+  {
+    "pattern": "PUT /api/admin/key-categories/rename",
+    "guard": "admin",
+    "scope": "keys:write",
+    "status": 400
+  },
+  {
+    "pattern": "PUT /api/admin/keys/order",
+    "guard": "admin",
+    "scope": "keys:write",
+    "status": 400
+  },
+  {
+    "pattern": "PUT /api/admin/keys/{id}",
+    "guard": "admin",
+    "scope": "keys:write",
+    "status": 400
+  },
+  {
+    "pattern": "PUT /api/admin/panel-settings",
+    "guard": "owner",
+    "scope": "settings:write",
+    "status": 400
+  },
+  {
+    "pattern": "PUT /api/admin/routing-settings",
+    "guard": "owner",
+    "scope": "settings:write",
+    "status": 400
+  },
+  {
+    "pattern": "PUT /api/admin/subscription-page-config",
+    "guard": "owner",
+    "scope": "settings:write",
+    "status": 400
+  },
+  {
+    "pattern": "PUT /api/admin/subscription-settings",
+    "guard": "owner",
+    "scope": "settings:write",
+    "status": 400
+  },
+  {
+    "pattern": "PUT /api/admin/users/{id}/hwid",
+    "guard": "admin",
+    "scope": "users:write",
+    "status": 400
+  },
+  {
+    "pattern": "PUT /api/admin/users/{id}/keys",
+    "guard": "admin",
+    "scope": "users:write",
+    "status": 400
+  },
+  {
+    "pattern": "PUT /api/admin/users/{id}/settings",
+    "guard": "admin",
+    "scope": "users:write",
+    "status": 400
+  },
+  {
+    "pattern": "PUT /api/admin/users/{id}/subscription",
+    "guard": "admin",
+    "scope": "users:write",
+    "status": 400
+  },
+  {
+    "pattern": "PUT /api/v1/admins/{id}",
+    "guard": "owner",
+    "scope": "*",
+    "status": 400,
+    "code": "compatibility_error"
+  },
+  {
+    "pattern": "PUT /api/v1/key-categories",
+    "guard": "admin",
+    "scope": "keys:write",
+    "status": 400
+  },
+  {
+    "pattern": "PUT /api/v1/key-categories/order",
+    "guard": "admin",
+    "scope": "keys:write",
+    "status": 400
+  },
+  {
+    "pattern": "PUT /api/v1/key-categories/rename",
+    "guard": "admin",
+    "scope": "keys:write",
+    "status": 400
+  },
+  {
+    "pattern": "PUT /api/v1/keys/order",
+    "guard": "admin",
+    "scope": "keys:write",
+    "status": 400
+  },
+  {
+    "pattern": "PUT /api/v1/keys/{id}",
+    "guard": "admin",
+    "scope": "keys:write",
+    "status": 400,
+    "code": "invalid_body"
+  },
+  {
+    "pattern": "PUT /api/v1/panel-settings",
+    "guard": "owner",
+    "scope": "settings:write",
+    "status": 400
+  },
+  {
+    "pattern": "PUT /api/v1/response-rules/{id}",
+    "guard": "owner",
+    "scope": "settings:write",
+    "status": 400,
+    "code": "invalid_body"
+  },
+  {
+    "pattern": "PUT /api/v1/routing-settings",
+    "guard": "owner",
+    "scope": "settings:write",
+    "status": 400
+  },
+  {
+    "pattern": "PUT /api/v1/sources/{id}",
+    "guard": "owner",
+    "scope": "keys:write",
+    "status": 404,
+    "code": "source_not_found"
+  },
+  {
+    "pattern": "PUT /api/v1/subscription-delivery-settings",
+    "guard": "owner",
+    "scope": "settings:write",
+    "status": 400,
+    "code": "invalid_body"
+  },
+  {
+    "pattern": "PUT /api/v1/subscription-page-config",
+    "guard": "owner",
+    "scope": "settings:write",
+    "status": 400
+  },
+  {
+    "pattern": "PUT /api/v1/subscription-settings",
+    "guard": "owner",
+    "scope": "settings:write",
+    "status": 400
+  },
+  {
+    "pattern": "PUT /api/v1/templates/{id}",
+    "guard": "owner",
+    "scope": "settings:write",
+    "status": 400,
+    "code": "invalid_body"
+  },
+  {
+    "pattern": "PUT /api/v1/users/{id}/hwid",
+    "guard": "admin",
+    "scope": "users:write",
+    "status": 400,
+    "code": "compatibility_error"
+  },
+  {
+    "pattern": "PUT /api/v1/users/{id}/key-assignment",
+    "guard": "admin",
+    "scope": "users:write",
+    "status": 400,
+    "code": "invalid_body"
+  },
+  {
+    "pattern": "PUT /api/v1/users/{id}/keys",
+    "guard": "admin",
+    "scope": "users:write",
+    "status": 400,
+    "code": "compatibility_error"
+  },
+  {
+    "pattern": "PUT /api/v1/users/{id}/settings",
+    "guard": "admin",
+    "scope": "users:write",
+    "status": 400,
+    "code": "compatibility_error"
+  },
+  {
+    "pattern": "PUT /api/v1/users/{id}/subscription",
+    "guard": "admin",
+    "scope": "users:write",
+    "status": 400,
+    "code": "compatibility_error"
+  },
+  {
+    "pattern": "POST /api/auth/logout",
+    "guard": "admin",
+    "scope": "",
+    "status": 200
+  }
+]
