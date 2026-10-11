@@ -32,6 +32,7 @@ import type {
   KeyEditorSchemaResponse,
   RoutingSettings,
   RoutingSettingsUpdate,
+  PanelSettingsResponse,
 } from "./types";
 
 let csrfToken: string | null = null;
@@ -290,6 +291,12 @@ export const subscriptionSettings = {
   get: () => request<SubscriptionSettings>("GET", "/api/v1/subscription-settings"),
   update: (data: SubscriptionSettings) =>
     request<{ message: string }>("PUT", "/api/v1/subscription-settings", data),
+};
+
+export const panelSettings = {
+  get: () => request<PanelSettingsResponse>("GET", "/api/v1/panel-settings"),
+  update: (data: PanelSettingsResponse) =>
+    request<PanelSettingsResponse>("PUT", "/api/v1/panel-settings", data),
 };
 
 export const routingSettings = {

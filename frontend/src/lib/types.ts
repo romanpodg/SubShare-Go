@@ -102,6 +102,15 @@ export interface SubscriptionSettings {
   happ_subscription_body: string;
 }
 
+export interface PanelSettingsResponse {
+  panelTitle: string;
+  logoDataUrl: string;
+  faviconDataUrl: string;
+  pageTitleAdmin: string;
+  pageTitleAdminLogin: string;
+  pageTitleSubscription: string;
+}
+
 export interface ExternalSubscriptionSource {
   id: number;
   name: string;

@@ -4006,8 +4006,8 @@
       "R16b": "completed_pr31_a06_accepted",
       "R17a": "completed_pr32_controller_accepted",
       "R17b": "completed_pr33_presentation_a08_accepted",
-      "R18a": "pr34_p2_create_request_discrimination_locally_validated_publish_final_gates_pending",
-      "R18b": "not_started",
+      "R18a": "completed_pr34_p2_resolved_final_checks_review_accepted",
+      "R18b": "pr35_p2_branding_field_correction_final_validation_pending",
       "R19": "not_started",
       "R20": "not_started",
       "R21": "not_started",
@@ -4034,13 +4034,13 @@
         "scope": "Repository test maintainability, with assertions and transitions retained"
       }
     ],
-    "nextBatch": "R18a",
+    "nextBatch": "R18b",
     "nextBatchPriority": "P2",
     "nextBatchRemainingPrerequisites": [
-      "R18a PR34 is open at initial 3971602. P2 4242294152 blocks acceptance; tests-first 778ecf1 reproduces it. Real/informational create types and OpenAPI now discriminate protocol admission, with passing focused/Go/static/full frontend and final browser checks. Publish/reply/resolve, request final review and require all six final-head checks before R18b.",
+      "R18b PR35 is open at 2295468. P2 4242453821 blocks acceptance; tests-first 1da8102 reproduces unsupported branding-field admission. The corrected DTO/schema excludes subscription config, keeping its dedicated API. Full 4,143 frontend and focused Go/type/lint checks pass; finish static/strict/secret, publish/reply/resolve, final-head six checks/review and A09 acceptance before R19.",
       "A00/A02/A03/A04/A05/A06/A07/A08 are accepted; broader A01/A09-A14 remain."
     ],
-    "remainingCriticalRisk": "A00/A02/A03/A04/A05/A06/A07/A08 are accepted. R18a shared API contracts are next. Concurrent tracking can fail with SQLITE_BUSY; accepted A05 preserves that characterized best-effort policy. Source update category preparation retains its audited pre-transaction behavior. Broader A01/A09-A14 remain. OS I/O trigger frequency remains unmeasured.",
+    "remainingCriticalRisk": "A00/A02/A03/A04/A05/A06/A07/A08 and R18a are accepted. R18b request integration/A09 acceptance remains; denied branding persistence acknowledgment/reopening stays R21. Concurrent tracking can fail with SQLITE_BUSY; accepted A05 preserves that characterized best-effort policy. Source update category preparation retains its audited pre-transaction behavior. Broader A01/A09-A14 remain. OS I/O trigger frequency remains unmeasured.",
     "r06CharacterizationCommit": "6a12236614e5",
     "r07aExecutionRecord": "docs/code-review/r07a-category-ordering.md",
     "autonomousContinuationRecord": "docs/code-review/autonomous-continuation.md",

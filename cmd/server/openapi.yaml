@@ -1199,7 +1199,6 @@ components:
         pageTitleAdmin: { type: string }
         pageTitleAdminLogin: { type: string }
         pageTitleSubscription: { type: string }
-        subscriptionPageConfig: { type: string }
     UserDetail:
       allOf:
         - { $ref: "#/components/schemas/UserSummary" }
