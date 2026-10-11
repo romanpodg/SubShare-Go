@@ -1,0 +1,36 @@
+# R18a — Shared safe API contract fixtures
+
+Status: [PR34](https://github.com/romanpodg/SubShare-Go/pull/34) is open on `refactor/api-contract-declarations`, after tests-first `50ec2da` (preserved remotely on `test/api-contract-fixtures`), based on accepted A08 merge `52d99e9`. The completed corpus has 23 frozen cases. Initial head `3971602` passed local validation, but its P2 create-request widening finding blocks acceptance until the correction's final-head checks/review pass.
+
+`testdata/api/contracts.json` is shared by Go route/DTO/schema tests and frontend actual request/TypeScript compiler tests. The TypeScript test compiles fixture literals with `satisfies` against the current declarations rather than casting responses. Panel branding's private wire interface is read from its source declaration. Synthetic identifiers/URLs and disposable encrypted profiles keep the corpus safe. V1 and legacy user responses retain the redacted empty token field; the TypeScript User projection deliberately excludes only that known server-only field.
+
+Go checks exact response objects, including omitted safe_structured for informational profiles, nullable category/source IDs, non-null empty arrays, masked source URLs and sanitized detail/error payloads. Source timestamps retain the historical host-local wall-clock format: only their two expected timestamp fields derive the exact local conversion of the fixed UTC seed; no actual response is normalized. Shared patches assert both request bytes and persisted override/null behavior. Public branding aliases execute without a session in Go.
+
+## Reproduced declaration/documentation drift
+
+- Actual key detail ownership is the string `local`; OpenAPI declares an object.
+- Some actual informational details have protocol `""`; the TypeScript detail declaration excludes it. The response/editor wire type now admits that existing value. The supported real protocol union and editor capability table remain unchanged. Raw informational creation accepts the empty input and normalizes it to legacy; real structured creation still fails without a supported protocol.
+- OpenAPI omits response content schemas for subscription settings, public panel settings and successful PATCH, plus the actual invalid-ID 400 response.
+- Shared PATCH admission fixtures reproduce stale refresh bounds: zero clears the override, 720 is accepted and 721 is rejected; the previous schema declared 1–8760. The documentation now reflects the existing 0–720/null semantics and rejects null status.
+
+Artifacts: `.cache/r18a/openapi-before.log` contains the failing documentation cases; `types-confirmed-before.log` contains the precise empty-protocol type diagnostic. Initial TypeScript virtual-file lookup failed because Windows path separators differed; the repaired harness reproduces the actual declaration mismatch. An initial informational discovery SQL row lacked its required encrypted storage unit and returned integrity error; discovery now creates the unit through the real storage seam. Those discovery/harness failures are not acceptance evidence.
+
+All five new test files score 10.00 after the schema helper was separated into named shape checks. The helper validates the fixture-used response subset (refs/allOf/required/primitive-null/array/enum), not the entire OpenAPI specification. Legacy aliases absent from the versioned OpenAPI document are protected by registered-route fixtures. No generation tooling or runtime response validation is introduced.
+
+## Implemented correction and validation
+
+Response schemas now describe the actual user/settings/panel/message/legacy-error shapes, string ownership and informational empty protocol. Type annotations carry that wire value through the existing editor draft/guard/raw helpers without casts or runtime changes. Six production JavaScript outputs are byte-identical after TypeScript emission with comments removed (`.cache/r18a/prove-runtime.mjs`). No handler SQL, endpoint, runtime validation or supported capability changes.
+
+Final frontend validation passes 4,118 tests in 43 files, TypeScript and full lint. Static export and all 22 desktop/mobile browser cases pass with the same emitted production code. Go vet/build/lint pass. All new/changed scored test/editor files are 10.00; types are unscored. Focused final Go/OpenAPI/PATCH contracts pass after the numeric-bound extension; schema admission/response selection phases remove the interim overall-complexity warning without suppressions. Final strict delta and staged/history secret scans pass.
+
+The earlier complete Go run passes 4,414 cases / five unchanged optional skips, retained under `.cache/r18a/before-refresh-extension-*`. Final uncached/atomic-coverage run 32810 exits zero with 4,425 passes / five unchanged optional skips (server statements 75.8%) and includes the completed corpus/final schema helpers. Artifacts are `.cache/r18a/go-full.log`, `go-events.json`, `go-junit.xml` and `coverage.out`. An initial full run was stopped when new protocol-admission fixture expectations were wrong; its artifacts remain under `.cache/r18a/aborted-protocol-expectation-*`. The corrected fixture preserves existing raw informational creation, rejects mixed structured/raw input, and retains the generic HTTP 500/create_failed response for empty real structured protocol with no committed profile. No error-policy correction is included here.
+
+Commit/push/open the locally validated independent main PR and require all six final-head hosted checks plus resolved actionable automated review before R18a acceptance. Request failure consolidation remains R18b; branding acknowledgment/reopen behavior remains R21. A09 and broader A01/A09-A14 remain incomplete. Goal active; heartbeat paused per user.
+
+## PR34 review correction
+
+P2 comment `4242294152` / thread `PRRT_kwDORQFS886rPSMe` correctly identified that the initial create input/schema admitted explicit empty protocols for real profiles. Tests-first `778ecf1` reproduces the TypeScript and missing-schema discrimination failures. Create inputs now use real/informational variants: real retains the original supported protocol type; informational admits the existing empty wire value. OpenAPI uses named `oneOf` variants and the `kind` discriminator with matching mappings.
+
+The editor builder preserves existing field order and informational/nonempty real payloads. For an empty real protocol it omits the field; the actual Go request DTO decodes omitted/empty to identical complete command values, verified by a regression, retaining the existing server failure policy. Six other emitted production modules remain identical. Focused Go/OpenAPI/DTO and editor/type contracts pass, including negative real-create and positive informational-create admission. Full frontend passes 4,120 tests; static/backend build/lint and browser validation pass. Final field-order adjustment also passes focused/type/static export and all 22 browser cases in run 80114. All changed scored files remain 10.00. No production lint/type assertion suppression is used.
+
+Publish the correction after final checks, verify/reply/resolve the finding, request final automated review, and require all six final-head checks before merge. Initial-head checks or review completion with an unresolved finding are not acceptance evidence.

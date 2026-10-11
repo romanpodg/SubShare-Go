@@ -1,6 +1,6 @@
 # R17b — Key-list card, aligned rows and category presentation
 
-Status: locally validated presentation extraction on `refactor/key-list-presentation`, based on accepted R17a merge `516e977` and tests-first parity commit `e725609`. Hosted checks and final automated review remain before R17b/A08 acceptance. No R17b PR exists at this checkpoint.
+Status: accepted in [PR33](https://github.com/romanpodg/SubShare-Go/pull/33), merge `52d99e90818f88c08a49f490616aab19589a96ea`, after tests-first parity `e725609`. All six final-head checks pass at `37157f5aeebdf0e26ee54a257626f6ef2223cf6d` in [run 38138897545](https://github.com/romanpodg/SubShare-Go/actions/runs/38138897545). Automated review completed with a positive reaction and no review threads. A08 is accepted against the matrix below.
 
 The matrix covers both subscription formats, real/informational kinds, active/non-active status and local/source profiles; effective/fallback client names, safe literal labels/source fallback, health/action availability, one shared subscription position across opposite-column gaps, and pane hiding/restoration. Accepted R17a action/selection/category/creation/drag fixtures remain the action authority; desktop/mobile geometry and normal/reduced-motion autoscroll remain in browser tests.
 
@@ -14,9 +14,9 @@ The matrix covers both subscription formats, real/informational kinds, active/no
 - KeysSection Code Health improves from 8.04 to 9.68. New presentation components, pure projections and parity tests score 10.00; the declaration-only context file is unscored. The pre-existing five-argument public drag helper finding remains visible. Final strict delta and staged whitespace checks pass; no rule suppressions were added.
 - Initial render-call replacement produced invalid JSX and ran no tests. Those failed artifacts remain under `.cache/r17b`; the repaired candidate passed the final checks above. Backend production is unchanged; hosted backend/race checks remain required.
 
-Local artifacts: `.cache/r17b/focused-repaired-after.json`, `full-after.json`, `full-after.log`, `lint-repaired-after.log`, `build-after.log`, `browser-after.log`, `presentation-delta.json`, `prove-markup.mjs` and `prove-projections.mjs`. Final staged/history secret scans precede publication.
+Local artifacts: `.cache/r17b/focused-repaired-after.json`, `full-after.json`, `full-after.log`, `lint-repaired-after.log`, `build-after.log`, `browser-after.log`, `presentation-delta.json`, `prove-markup.mjs` and `prove-projections.mjs`. Final staged/history secret scans pass. Hosted CodeScene reports 8.05 to 9.69, distinct from local 8.04 to 9.68; bundle increase is 1.71 kB (0.08%) within its configured gate. All four hosted race steps, frontend browser checks and Docker persistence validation pass. Copilot quota failure is not counted as review approval; the configured automated review completed cleanly at the exact final head.
 
-## A08 requirement evidence (acceptance pending)
+## Accepted A08 requirement evidence
 
 | Requirement | Evidence |
 | --- | --- |
@@ -26,6 +26,6 @@ Local artifacts: `.cache/r17b/focused-repaired-after.json`, `full-after.json`, `
 | Health errors and drag end/unmount cleanup | Accepted mounted action/health cases verify failure state and matched listener removal |
 | Card/row parity and action sharing | Nineteen tests-first matrix cases, public projection/body proof, typed contexts and unchanged four markup trees |
 | Layout, near-edge scrolling and reduced motion | All 22 desktop/mobile browser cases pass locally |
-| Quality and final integration | Local strict delta passes; all six final-head hosted checks and resolved actionable automated review remain required |
+| Quality and final integration | Local strict delta and all six final-head hosted checks pass; exact-head automated review completed with a positive reaction and no threads |
 
-Broader A01/A09-A14 and the whole goal remain incomplete. After R17b acceptance, record the final head/merge/run and accept A08 against this matrix, then continue R18a. Heartbeat stays paused per user; foreground goal stays active.
+Broader A01/A09-A14 and the whole goal remain incomplete. Next is R18a shared safe API contract fixtures. Heartbeat stays paused per user; foreground goal stays active.

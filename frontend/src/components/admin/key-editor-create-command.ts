@@ -65,7 +65,7 @@ function createContent(state: EditorCommandState, patch: StructuredProfilePatch 
 
 export function buildEditorCreateCommand(state: EditorCommandState): CreateKeyProfileInput {
   const content = createContent(state, createStructuredPatch(state));
-  return {
+  const input = {
     label: state.label.trim(),
     client_display_name: state.displayName.trim() || state.label.trim(),
     category: state.category,
@@ -77,4 +77,6 @@ export function buildEditorCreateCommand(state: EditorCommandState): CreateKeyPr
     protocol: state.protocol,
     structured: content.mode === "structured" ? content.patch : undefined,
   };
+  if (state.kind === "informational") return { ...input, kind: state.kind };
+  return { ...input, kind: state.kind, protocol: state.protocol || undefined };
 }

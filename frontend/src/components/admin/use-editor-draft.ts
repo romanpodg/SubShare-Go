@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useMemo, useState, type Dispatch, type SetStateAction } from "react";
-import type { ExternalProfileProtocol } from "@/lib/types";
+import type { ExternalProfileProtocol, KeyProfileProtocol } from "@/lib/types";
 import type { KeyStructuredSecretsResponse } from "@/lib/types";
 import type { XrayJSONPatch } from "@/lib/configuration";
 import { emptyLegacyDraft, type EditorCommandState } from "./key-editor-command-state";
@@ -128,7 +128,7 @@ export function useEditorDraft(defaults: DraftDefaults) {
   const commandState = useMemo(() => editorCommandState(draft), [draft]);
   const acceptNativeReveal = useCallback((secrets: KeyStructuredSecretsResponse["secrets"], revision: number) => setDraft((previous) =>
     previous.profileRevision === revision ? applyNativeReveal(previous, secrets) : previous), []);
-  const acceptRawReveal = useCallback((protocol: ExternalProfileProtocol, raw: string, revision: number) => setDraft((previous) =>
+  const acceptRawReveal = useCallback((protocol: KeyProfileProtocol, raw: string, revision: number) => setDraft((previous) =>
     previous.profileRevision === revision ? applyRawReveal(previous, protocol, raw) : previous), []);
   const acceptRevision = useCallback((revision: number) => setDraft((previous) => loadDraftRevision(previous, revision)), []);
   const rememberLegacyEdit = useCallback((patch: XrayJSONPatch) => setDraft((previous) => recordLegacyEdit(previous, patch)), []);

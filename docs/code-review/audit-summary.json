@@ -4005,8 +4005,8 @@
       "R16a": "completed_pr30_authorization_race_accepted",
       "R16b": "completed_pr31_a06_accepted",
       "R17a": "completed_pr32_controller_accepted",
-      "R17b": "presentation_extraction_locally_validated_hosted_review_pending",
-      "R18a": "not_started",
+      "R17b": "completed_pr33_presentation_a08_accepted",
+      "R18a": "pr34_p2_create_request_discrimination_locally_validated_publish_final_gates_pending",
       "R18b": "not_started",
       "R19": "not_started",
       "R20": "not_started",
@@ -4034,13 +4034,13 @@
         "scope": "Repository test maintainability, with assertions and transitions retained"
       }
     ],
-    "nextBatch": "R17b",
-    "nextBatchPriority": "P1",
+    "nextBatch": "R18a",
+    "nextBatchPriority": "P2",
     "nextBatchRemainingPrerequisites": [
-      "R17a is accepted in PR32. R17b retains tests-first e725609 and completed presentation extraction. All 4,099 frontend unit cases, types/lint/export, 22 browser cases and strict delta pass locally. Publish the candidate and require all six final-head hosted checks and resolved actionable automated review before A08 acceptance, then continue R18a.",
-      "A00/A02/A03/A04/A05/A06/A07 are accepted; broader A01/A08-A14 remain."
+      "R18a PR34 is open at initial 3971602. P2 4242294152 blocks acceptance; tests-first 778ecf1 reproduces it. Real/informational create types and OpenAPI now discriminate protocol admission, with passing focused/Go/static/full frontend and final browser checks. Publish/reply/resolve, request final review and require all six final-head checks before R18b.",
+      "A00/A02/A03/A04/A05/A06/A07/A08 are accepted; broader A01/A09-A14 remain."
     ],
-    "remainingCriticalRisk": "A00/A02/A03/A04/A05/A06/A07 and R17a are accepted. R17b presentation extraction is locally validated; final hosted checks/review remain before A08 acceptance. Concurrent tracking can fail with SQLITE_BUSY; accepted A05 preserves that characterized best-effort policy. Source update category preparation retains its audited pre-transaction behavior. Broader A01/A08-A14 remain. OS I/O trigger frequency remains unmeasured.",
+    "remainingCriticalRisk": "A00/A02/A03/A04/A05/A06/A07/A08 are accepted. R18a shared API contracts are next. Concurrent tracking can fail with SQLITE_BUSY; accepted A05 preserves that characterized best-effort policy. Source update category preparation retains its audited pre-transaction behavior. Broader A01/A09-A14 remain. OS I/O trigger frequency remains unmeasured.",
     "r06CharacterizationCommit": "6a12236614e5",
     "r07aExecutionRecord": "docs/code-review/r07a-category-ordering.md",
     "autonomousContinuationRecord": "docs/code-review/autonomous-continuation.md",

@@ -1,5 +1,5 @@
 import { parseEditableConfiguration, patchEditableConfiguration, type XrayJSONPatch } from "@/lib/configuration";
-import type { ExternalProfileProtocol, KeyStructuredSecretsResponse } from "@/lib/types";
+import type { KeyProfileProtocol, KeyStructuredSecretsResponse } from "@/lib/types";
 import type { EditorCommandState } from "./key-editor-command-state";
 import type { EditorDraftState } from "./use-editor-draft";
 import { projectEditorRawDisplay } from "./key-editor-raw-policy";
@@ -61,7 +61,7 @@ export function recordLegacyEdit(draft: EditorDraftState, patch: XrayJSONPatch) 
   return { ...draft, legacyEdits: { ...draft.legacyEdits, ...patch } };
 }
 
-function rawRevealBase(draft: EditorDraftState, protocol: ExternalProfileProtocol, raw: string) {
+function rawRevealBase(draft: EditorDraftState, protocol: KeyProfileProtocol, raw: string) {
   const display = projectEditorRawDisplay(protocol, raw);
   return {
     ...draft, authoritativeRaw: raw, revealedRaw: true,
@@ -88,7 +88,7 @@ function legacyReveal(draft: EditorDraftState, raw: string) {
   }
 }
 
-export function applyRawReveal(draft: EditorDraftState, protocol: ExternalProfileProtocol, raw: string) {
+export function applyRawReveal(draft: EditorDraftState, protocol: KeyProfileProtocol, raw: string) {
   const next = rawRevealBase(draft, protocol, raw);
   return isLegacyEditorProtocol(protocol) ? legacyReveal(next, raw) : next;
 }
