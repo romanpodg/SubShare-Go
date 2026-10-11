@@ -34,7 +34,7 @@ Completed work:
 | A05 / P1 | Completed; R14/R14c/R15a/R15b accepted in PR26-PR29 | Six final-head checks/race/review clear at 99f82f1; retain [A05 evidence](r15b-source-create.md) |
 | A06 / P1 | Completed; R16a/R16b accepted in PR30/PR31 | Six final-head checks/race/review clear at f4aee31; retain [A06 evidence](r16b-shared-guards.md) |
 | A07 / P1 | Completed; R11a/R11b and corrections merged in PR19-PR22 | Final six checks/review clear at b6fb366; retain [requirement evidence](r11b-reveal-provenance.md) |
-| A08 / P1 | R17a controller locally validated after tests-first 0c4a247/904b717 | R17a hosted/review acceptance, then R17b shared presentation |
+| A08 / P1 | R17a accepted in PR32; R17b presentation extraction locally validated | Six final-head hosted checks/review and [A08 matrix](r17b-key-list-presentation.md) acceptance |
 | A09 / P2 | Not started | R18a/R18b Go/TS/OpenAPI contracts and request errors |
 | A10 / P2 | Not started | R19 backend Xray interpretation |
 | A11 / P2 | Not started | R20 supported-consumer check and unused declarations |
@@ -46,7 +46,7 @@ All six checks passed for a438377: backend, frontend, Docker smoke, CodeScene, C
 
 Codecov: project **48.02%** versus main **46.89%**; main.go **18.46%** versus **8.01%**; sqlite.go **64.70%** versus **60.78%**; whole-PR patch **80.09%**. Test Analytics: **848 passed, 5 skipped, no failures/errors**. Bundle upload/check passed; size/delta figures were unavailable in inspected results. Local statements remain **52.4%**, with unchanged coverage across 140 repository blocks. Optional snapshot/client fixtures and local race execution remain unverified. Passing frontend CI does not complete its planned refactoring.
 
-**Current review boundary:** R01-R16b and separate correctness fixes are merged through PR31. A00/A02/A03/A04/A05/A06/A07 are accepted. R17a controller passes full frontend/browser/local validation after tests-first characterization; hosted/review acceptance remains. Broader A01/A08-A14 remain incomplete. Historical audit measurements remain distinct from current validation.
+**Current review boundary:** R01-R17a and separate correctness fixes are merged through PR32. A00/A02/A03/A04/A05/A06/A07 are accepted. R17b's tests-first parity baseline and presentation extraction pass 4,099 unit cases, types/lint/export, 22 browser cases and strict delta locally; hosted/review and final A08 acceptance remain. Broader A01/A08-A14 remain incomplete. Historical audit measurements remain distinct from current validation.
 
 ## P0
 

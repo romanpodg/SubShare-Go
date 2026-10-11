@@ -1,6 +1,6 @@
 "use client";
 
-import { filterKeyList, normalizeCategory, keyInactiveInLinkFormat } from "./key-list-state";
+import { filterKeyList, normalizeCategory } from "./key-list-state";
 import { useKeyListOrder } from "./use-key-list-order";
 import { useKeyListSelection } from "./use-key-list-selection";
 import { useKeyListSingleDeletion, useKeyListBulkDeletion } from "./use-key-list-deletion";
@@ -12,6 +12,9 @@ import { useKeyListDrag } from "./use-key-list-drag";
 import { useKeyListHiddenCategories } from "./use-key-list-hidden-categories";
 import { keyListCategoryNames, keyListCategoryCounts, keyListCategoryMetadata, keyListCategoryGroups, moveKeyListCategoryBlock, moveKeyListKeyCategory } from "./key-list-categories";
 import { useKeyListCategoryNavigation } from "./use-key-list-category-navigation";
+import { KeyListRows } from "./KeyListRows";
+import { KeyListCategoryBlock } from "./KeyListCategoryBlock";
+export { alignKeysBySubscriptionOrder, keyCardClientDisplayName, type AlignedKeyRow } from "./key-list-presentation";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import type { KeySummary } from "@/lib/types";
@@ -20,22 +23,16 @@ import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
 import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 import { Select } from "@/components/ui/Select";
-import { StatusBadge } from "@/components/ui/StatusBadge";
 import { AddKeyModal } from "./AddKeyModal";
 import { BulkEditKeysModal } from "./BulkEditKeysModal";
 import { EditKeyModal } from "./EditKeyModal";
 import { CreateKeyCategoryModal } from "./CreateKeyCategoryModal";
 import { KeyCategoryEditorModal } from "./KeyCategoryEditorModal";
-import { EmojiText } from "@/components/ui/EmojiText";
-import { KeyHealthBadge } from "./KeyHealthBadge";
 import {
   DEFAULT_KEY_CATEGORY_COLOR,
-  alphaHexColor,
   normalizeKeyCategoryColor,
 } from "./keyCategoryColors";
 import {
-  ArrowDown,
-  ArrowUp,
   ChevronDown,
   Eye,
   EyeOff,
@@ -51,10 +48,6 @@ import {
 } from "lucide-react";
 
 const UNCATEGORIZED_LABEL = "Без категории";
-
-function categoryDisplayName(value: string) {
-  return value || UNCATEGORIZED_LABEL;
-}
 
 // eslint-disable-next-line @typescript-eslint/no-unused-vars
 function detectConfigScheme(raw: string) {
@@ -145,24 +138,6 @@ interface Props {
 interface CategoryGroup {
   category: string;
   keys: KeySummary[];
-}
-
-export interface AlignedKeyRow {
-  key: KeySummary;
-  informational: KeySummary | null;
-  real: KeySummary | null;
-}
-
-export function alignKeysBySubscriptionOrder(keys: KeySummary[]): AlignedKeyRow[] {
-  return keys.map((key) => ({
-    key,
-    informational: key.kind === "informational" ? key : null,
-    real: key.kind === "informational" ? null : key,
-  }));
-}
-
-export function keyCardClientDisplayName(key: KeySummary): string {
-  return key.client_display_name.trim() || key.label;
 }
 
 export function KeysSection({ keys, subscriptionFormat, onRefresh }: Props) {
@@ -257,7 +232,7 @@ export function KeysSection({ keys, subscriptionFormat, onRefresh }: Props) {
       moveKeyToIndex(dragging.id, targetIndex);
       setDragging(null);
     },
-    [dragging, moveKeyToIndex]
+    [dragging, moveKeyToIndex, setDragging]
   );
 
   const refreshKeysData = useCallback(async () => {
@@ -293,250 +268,9 @@ const { bulkDeleteTargetIDs, setBulkDeleteTargetIDs, bulkDeleting, openDeleteSel
 
   const moveKeyToCategory = (key: KeySummary, nextCategory: string) => moveKeyListKeyCategory({ key, nextCategory, refreshKeysData });
 
-  const renderKeyCard = (key: KeySummary) => {
-    const isReal = key.kind !== "informational";
-    const isInactiveJSON = keyInactiveInLinkFormat(key, subscriptionFormat);
-    const isDragging = dragging?.id === key.id;
-    const isSelected = selectedKeyIDs.includes(key.id);
-    const isExternalKey = key.external_source_id > 0;
-    const globalIndex = keyIndexByID.get(key.id) ?? 0;
+  const presentationContext = { subscriptionFormat, selectedKeyIDs, dragging, reordering, keyIndexByID, toggleKeySelection, beginKeyDrag, dropKeyOnTarget, dropKeyAtEnd, setDragging, handleCheck, handleDelete, setEditKey, orderedKeys, informationalHidden, realHidden, startAddConfiguration, hiddenCategories, categoryCounts, getCategoryColor, allCategoryNames, categoryBlockRefs, moveCategoryBlock, openCategoryEditor, setHiddenCategories };
 
-    return (
-      <div
-        draggable={!reordering}
-        onDragStart={(event) => beginKeyDrag(event, key.id)}
-        onDragEnd={() => setDragging(null)}
-        onDragOver={(event) => {
-          event.preventDefault();
-        }}
-        onDrop={(event) => dropKeyOnTarget(event, { id: key.id, index: globalIndex })}
-        className={`ui-key-card ${isDragging ? "opacity-40" : "opacity-100"} ${
-          isSelected
-            ? "!border-accent/60 !bg-accent/5"
-            : isInactiveJSON
-              ? "!border-zinc-700 !bg-zinc-900/25"
-              : ""
-        }`}
-      >
-        <div className="mb-2 flex min-w-0 items-center gap-2">
-          <label className="flex h-9 w-9 shrink-0 cursor-pointer items-center justify-center rounded-sm border border-border bg-surface-1 transition-colors hover:border-border/70 hover:bg-surface-2/60">
-            <input
-              type="checkbox"
-              checked={isSelected}
-              onChange={() => toggleKeySelection(key.id)}
-              aria-label={`Выбрать конфигурацию ${key.label}`}
-              className="peer sr-only"
-            />
-            <span
-              className={`flex h-5 w-5 items-center justify-center rounded-md border shadow-[inset_0_1px_0_rgba(255,255,255,0.04)] transition-all peer-focus-visible:ring-2 peer-focus-visible:ring-accent peer-focus-visible:ring-offset-2 peer-focus-visible:ring-offset-surface-1 ${
-                isSelected
-                  ? "border-accent/80 bg-accent/20 text-accent"
-                  : "border-border bg-surface-2 text-transparent"
-              }`}
-            >
-              <svg
-                viewBox="0 0 16 16"
-                aria-hidden="true"
-                className={`h-3.5 w-3.5 transition-opacity ${isSelected ? "opacity-100" : "opacity-0"}`}
-              >
-                <path
-                  d="M4 8.25 6.5 10.75 12 5.25"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  strokeWidth="2"
-                />
-              </svg>
-            </span>
-          </label>
-          <span
-            className="shrink-0 cursor-grab text-zinc-500 transition-colors hover:text-zinc-300 active:cursor-grabbing"
-            aria-label="Перетащить конфигурацию"
-            title="Перетащите для изменения порядка"
-          >
-            <svg width="14" height="14" viewBox="0 0 14 14" fill="currentColor" aria-hidden>
-              <circle cx="4" cy="3" r="1" />
-              <circle cx="10" cy="3" r="1" />
-              <circle cx="4" cy="7" r="1" />
-              <circle cx="10" cy="7" r="1" />
-              <circle cx="4" cy="11" r="1" />
-              <circle cx="10" cy="11" r="1" />
-            </svg>
-          </span>
-          <span className="shrink-0 font-mono text-[12px] text-zinc-500">ID {key.id}</span>
-          <EmojiText
-            text={key.label}
-            truncate
-            className={`ui-key-card-title min-w-0 flex-1 text-[15px] font-semibold leading-5 ${
-              isInactiveJSON ? "text-zinc-300" : "text-zinc-100"
-            }`}
-          />
-          <div className="flex shrink-0 flex-wrap items-center justify-end gap-1.5">
-            <StatusBadge status={key.status} />
-            {isInactiveJSON ? (
-              <span className="border border-border bg-surface-1 px-2.5 py-1 text-[12px] text-zinc-300">
-                <EmojiText text="Неактивен JSON" />
-              </span>
-            ) : null}
-          </div>
-        </div>
-
-        {isExternalKey ? (
-          <div className="mb-2 min-w-0">
-            <span className="inline-flex max-w-full min-w-0 border border-border bg-surface-1 px-2.5 py-1 text-[12px] text-zinc-300">
-              <EmojiText
-                text={key.external_source_name ? `Источник: ${key.external_source_name}` : "Сторонняя подписка"}
-                truncate
-                className="ui-key-card-source min-w-0"
-              />
-            </span>
-          </div>
-        ) : null}
-
-        {isReal ? (
-          <>
-            <div className={`mb-2 flex min-w-0 items-baseline gap-1 text-sm leading-5 ${isInactiveJSON ? "text-zinc-500" : "text-zinc-400"}`}>
-              <span className="shrink-0">Название в клиенте:</span>
-              <EmojiText
-                text={keyCardClientDisplayName(key)}
-                truncate
-                className="ui-key-card-client-name min-w-0 flex-1 text-zinc-300"
-              />
-            </div>
-            {isInactiveJSON ? (
-              <div className="mb-2 text-[13px] leading-5 text-zinc-500">
-                JSON-конфиг отключен для ссылочного формата подписки
-              </div>
-            ) : null}
-            <KeyHealthBadge healthKey={key} />
-            <div className="flex flex-nowrap gap-1.5 overflow-x-auto">
-              <Button variant="ghost" className="text-xs" onClick={() => handleCheck(key.id)}>
-                Проверить
-              </Button>
-              <Button variant="ghost" className="text-xs" onClick={() => setEditKey(key)}>
-                Изменить
-              </Button>
-              <Button variant="danger" className="text-xs" onClick={() => handleDelete(key.id, key.label)}>
-                Удалить
-              </Button>
-            </div>
-          </>
-        ) : (
-          <>
-            <div className="mb-2 text-sm leading-5 text-zinc-400">
-              <EmojiText text={key.template_text || key.label} />
-            </div>
-            <div className="mb-2 text-[13px] text-zinc-500">
-              Категория: <span className="text-zinc-300">{categoryDisplayName(normalizeCategory(key.category))}</span>
-            </div>
-            <div className="flex flex-nowrap gap-1.5 overflow-x-auto">
-              <Button variant="ghost" className="text-xs" onClick={() => setEditKey(key)}>
-                Изменить
-              </Button>
-              <Button variant="danger" className="text-xs" onClick={() => handleDelete(key.id, key.label)}>
-                Удалить
-              </Button>
-            </div>
-          </>
-        )}
-      </div>
-    );
-  };
-
-  const renderKeyRows = (sectionKeys: KeySummary[], categoryHint?: string) => {
-    const alignedRows = alignKeysBySubscriptionOrder(sectionKeys);
-    const infoKeys = alignedRows.map((row) => row.informational);
-    const realKeys = alignedRows.map((row) => row.real);
-    const infoKeysCount = infoKeys.filter((key) => key !== null).length;
-    const realKeysCount = realKeys.filter((key) => key !== null).length;
-
-    if (sectionKeys.length === 0) {
-      return null;
-    }
-
-    return (
-      <div
-        className={`ui-key-order-grid ${
-          informationalHidden ? "ui-key-order-grid-info-hidden" : realHidden ? "ui-key-order-grid-real-hidden" : ""
-        }`}
-      >
-        {/* Информационная колонка */}
-        <div 
-          className={`ui-key-order-column ui-key-order-column-info ${informationalHidden ? "hidden" : ""}`}
-          onDragOver={(event) => event.preventDefault()}
-          onDrop={(event) => dropKeyAtEnd(event, { sectionKeys, keyIndexByID, totalCount: orderedKeys.length })}
-        >
-          <div className="ui-key-column-title mb-2">
-            <span>Информационные сообщения ({infoKeysCount})</span>
-            <button
-              onClick={() => startAddConfiguration(orderedKeys.length, categoryHint, "informational")}
-              className="inline-flex h-9 min-h-9 -translate-y-0.5 shrink-0 items-center gap-1.5 border border-border bg-surface-1 px-3 font-mono text-[11px] font-semibold uppercase tracking-[0.08em] text-accent transition-colors hover:border-[var(--border-strong)] hover:bg-surface-2"
-            >
-              <Plus className="h-3.5 w-3.5" aria-hidden="true" />
-              Добавить
-            </button>
-          </div>
-          {alignedRows.map((row, rowIndex) => (
-            <div
-              key={`informational-slot-${row.key.id}`}
-              className={`ui-key-order-slot ${row.informational ? "" : "ui-key-order-placeholder-slot"}`}
-              style={{ gridRow: rowIndex + 2 }}
-              data-order-position={(keyIndexByID.get(row.key.id) ?? rowIndex) + 1}
-            >
-              {row.informational ? (
-                renderKeyCard(row.informational)
-              ) : (
-                <div
-                  className="ui-key-order-gap"
-                  aria-hidden="true"
-                  onDragOver={(event) => event.preventDefault()}
-                  onDrop={(event) => dropKeyOnTarget(event, { id: row.key.id, index: keyIndexByID.get(row.key.id) ?? rowIndex })}
-                />
-              )}
-            </div>
-          ))}
-        </div>
-
-        {/* Колонка конфигураций */}
-        <div 
-          className={`ui-key-order-column ui-key-order-column-real ${realHidden ? "hidden" : ""}`}
-          onDragOver={(event) => event.preventDefault()}
-          onDrop={(event) => dropKeyAtEnd(event, { sectionKeys, keyIndexByID, totalCount: orderedKeys.length })}
-        >
-          <div className="ui-key-column-title mb-2">
-            <span>Рабочие конфигурации ({realKeysCount})</span>
-            <button
-              onClick={() => startAddConfiguration(orderedKeys.length, categoryHint, "real")}
-              className="inline-flex h-9 min-h-9 -translate-y-0.5 shrink-0 items-center gap-1.5 border border-border bg-surface-1 px-3 font-mono text-[11px] font-semibold uppercase tracking-[0.08em] text-accent transition-colors hover:border-[var(--border-strong)] hover:bg-surface-2"
-            >
-              <Plus className="h-3.5 w-3.5" aria-hidden="true" />
-              Добавить
-            </button>
-          </div>
-          {alignedRows.map((row, rowIndex) => (
-            <div
-              key={`real-slot-${row.key.id}`}
-              className={`ui-key-order-slot ${row.real ? "" : "ui-key-order-placeholder-slot"}`}
-              style={{ gridRow: rowIndex + 2 }}
-              data-order-position={(keyIndexByID.get(row.key.id) ?? rowIndex) + 1}
-            >
-              {row.real ? (
-                renderKeyCard(row.real)
-              ) : (
-                <div
-                  className="ui-key-order-gap"
-                  aria-hidden="true"
-                  onDragOver={(event) => event.preventDefault()}
-                  onDrop={(event) => dropKeyOnTarget(event, { id: row.key.id, index: keyIndexByID.get(row.key.id) ?? rowIndex })}
-                />
-              )}
-            </div>
-          ))}
-        </div>
-      </div>
-    );
-  };
+  const renderKeyRows = (sectionKeys: KeySummary[], categoryHint?: string) => <KeyListRows sectionKeys={sectionKeys} categoryHint={categoryHint} context={presentationContext} />;
 
   const renderUncategorizedSection = () => {
     if (uncategorizedCount === 0) {
@@ -566,142 +300,10 @@ const { bulkDeleteTargetIDs, setBulkDeleteTargetIDs, bulkDeleting, openDeleteSel
     );
   };
 
-  const renderCategoryBlock = (categoryName: string, categoryKeys: KeySummary[], empty?: boolean) => {
-    const hidden = Boolean(hiddenCategories[categoryName]);
-    const count = categoryCounts.get(categoryName) || 0;
-    const categoryColor = getCategoryColor(categoryName);
-    const categoryIndex = allCategoryNames.findIndex((item) => item === categoryName);
+  const renderCategoryBlock = (categoryName: string, categoryKeys: KeySummary[], empty?: boolean) => <KeyListCategoryBlock key={`${categoryName}-${empty ? "empty" : categoryKeys[0]?.id ?? "run"}`} categoryName={categoryName} categoryKeys={categoryKeys} empty={empty} context={presentationContext} />;
 
-    return (
-      <div
-        key={`${categoryName}-${empty ? "empty" : categoryKeys[0]?.id ?? "run"}`}
-        ref={(node) => {
-          if (node) {
-            categoryBlockRefs.current.set(categoryName, node);
-          } else {
-            categoryBlockRefs.current.delete(categoryName);
-          }
-        }}
-        tabIndex={-1}
-        data-category-block={categoryName}
-        className="ui-key-category-block relative scroll-mt-24 focus:outline-none"
-      >
-        <div
-          className="ui-key-category-panel min-w-0 rounded-2xl border p-3"
-          style={{
-            borderColor: alphaHexColor(categoryColor, "33"),
-            backgroundColor: alphaHexColor(categoryColor, "08"),
-          }}
-        >
-          <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
-            <div className="flex flex-wrap items-center gap-2">
-              <span
-                className="rounded-full border px-2.5 py-1 text-xs font-medium"
-                style={{
-                  borderColor: alphaHexColor(categoryColor, "66"),
-                  backgroundColor: alphaHexColor(categoryColor, "18"),
-                  color: categoryColor,
-                }}
-              >
-                {categoryName} ({count})
-              </span>
-              <span className="text-xs text-zinc-500">
-                Инфо: {categoryKeys.filter((key) => key.kind === "informational").length} · Конфигурации:{" "}
-                {categoryKeys.filter((key) => key.kind !== "informational").length}
-              </span>
-            </div>
-
-            <div className="ui-key-category-controls flex flex-wrap items-center gap-1">
-              <Button
-                variant="ghost"
-                className="ui-key-category-icon w-11 px-0"
-                onClick={() => void moveCategoryBlock(categoryName, -1)}
-                disabled={categoryIndex <= 0}
-                aria-label={`Переместить категорию «${categoryName}» вверх`}
-                title="Переместить вверх"
-              >
-                <ArrowUp className="h-4 w-4" aria-hidden="true" />
-              </Button>
-              <Button
-                variant="ghost"
-                className="ui-key-category-icon w-11 px-0"
-                onClick={() => void moveCategoryBlock(categoryName, 1)}
-                disabled={categoryIndex === -1 || categoryIndex >= allCategoryNames.length - 1}
-                aria-label={`Переместить категорию «${categoryName}» вниз`}
-                title="Переместить вниз"
-              >
-                <ArrowDown className="h-4 w-4" aria-hidden="true" />
-              </Button>
-              <Button
-                variant="ghost"
-                className="ui-key-category-icon w-11 px-0"
-                onClick={() => openCategoryEditor(categoryName)}
-                aria-label={`Редактировать категорию «${categoryName}»`}
-                title="Редактировать категорию"
-              >
-                <Pencil className="h-4 w-4" aria-hidden="true" />
-              </Button>
-              <Button
-                variant="ghost"
-                className="ui-key-category-icon w-11 px-0"
-                onClick={() =>
-                  setHiddenCategories((previous) => ({
-                    ...previous,
-                    [categoryName]: !previous[categoryName],
-                  }))
-                }
-                aria-label={`${hidden ? "Показать" : "Скрыть"} категорию «${categoryName}»`}
-                title={hidden ? "Показать категорию" : "Скрыть категорию"}
-              >
-                {hidden ? (
-                  <Eye className="h-4 w-4" aria-hidden="true" />
-                ) : (
-                  <EyeOff className="h-4 w-4" aria-hidden="true" />
-                )}
-              </Button>
-            </div>
-          </div>
-
-          {hidden ? (
-            <div className="rounded-lg border border-zinc-700 bg-zinc-900/30 px-3 py-3 text-sm text-zinc-400">
-              Категория скрыта. Конфигураций внутри: {count}.
-            </div>
-          ) : empty ? (
-            <div className="rounded-lg border border-dashed border-border bg-surface-2/20 px-4 py-8 text-center text-sm text-zinc-500">
-              Категория создана, но в ней пока нет ключей.
-            </div>
-          ) : (
-            renderKeyRows(categoryKeys, categoryName)
-          )}
-        </div>
-
-        <div
-          className="ui-key-category-rail"
-          style={{
-            "--ui-key-category-color": categoryColor,
-            "--ui-key-category-rail-color": alphaHexColor(categoryColor, "73"),
-          } as React.CSSProperties}
-          aria-hidden="true"
-        >
-          <div className="ui-key-category-rail-line" />
-          <div className="ui-key-category-rail-label flex justify-center pt-3">
-            <span
-              className="ui-key-category-rail-badge inline-flex max-h-52 overflow-hidden rounded-xl px-2 py-3 text-[10px] font-semibold uppercase tracking-[0.16em] text-zinc-900 shadow-[0_8px_24px_rgba(0,0,0,0.35)]"
-              style={{ writingMode: "vertical-rl", textOrientation: "mixed" }}
-              title={categoryName}
-            >
-              {categoryName}
-            </span>
-          </div>
-        </div>
-      </div>
-    );
-  };
-
-  return (
-    <Card className="ui-key-module-card !p-0">
-      <div className="ui-section-header ui-section-header--responsive ui-key-module-header">
-        <div className="ui-key-module-title">
+  const renderKeyListSelectionTitle = () => (
+<div className="ui-key-module-title">
           <button
             onClick={() => setCollapsed(!collapsed)}
             className="ui-icon-button"
@@ -758,8 +360,10 @@ const { bulkDeleteTargetIDs, setBulkDeleteTargetIDs, bulkDeleting, openDeleteSel
             </span>
           </h2>
         </div>
+);
 
-        <div
+const renderKeyListToolbar = () => (
+<div
           className={`ui-toolbar-actions ui-key-module-actions ${
             selectedCount > 0 ? "ui-key-module-actions--selection" : ""
           }`}
@@ -813,11 +417,10 @@ const { bulkDeleteTargetIDs, setBulkDeleteTargetIDs, bulkDeleting, openDeleteSel
             <Plus className="h-4 w-4" aria-hidden="true" />
           </Button>
         </div>
-      </div>
+);
 
-      {/* Панель поиска и фильтров */}
-      {!collapsed && (
-        <div className="ui-list-filters">
+const renderKeyListFilters = () => (
+<div className="ui-list-filters">
           <div className="flex-1 relative flex items-center">
             <Search className="pointer-events-none absolute left-3 h-4 w-4 text-zinc-500" aria-hidden="true" />
             <input
@@ -853,11 +456,10 @@ const { bulkDeleteTargetIDs, setBulkDeleteTargetIDs, bulkDeleting, openDeleteSel
             />
           </div>
         </div>
-      )}
+);
 
-      {!collapsed ? (
-        <div className="space-y-4 p-4">
-          <div className="grid text-sm font-medium text-zinc-300" style={gridLayoutStyle}>
+const renderKeyListPaneControls = () => (
+<div className="grid text-sm font-medium text-zinc-300" style={gridLayoutStyle}>
             <div
               className={`flex items-center justify-between gap-2 overflow-hidden transition-all duration-300 ${
                 informationalHidden ? "-translate-x-10 opacity-0 pointer-events-none" : "translate-x-0 opacity-100"
@@ -894,9 +496,10 @@ const { bulkDeleteTargetIDs, setBulkDeleteTargetIDs, bulkDeleting, openDeleteSel
               ) : null}
             </div>
           </div>
+);
 
-          {uncategorizedCount > 0 || allCategoryNames.length > 0 ? (
-            <section className="ui-key-category-nav" aria-labelledby="key-category-nav-title">
+const renderKeyListCategoryNavigation = () => (
+<section className="ui-key-category-nav" aria-labelledby="key-category-nav-title">
               <div className="ui-key-category-nav-header">
                 <div>
                   <div id="key-category-nav-title" className="font-medium text-zinc-300">
@@ -991,6 +594,14 @@ const { bulkDeleteTargetIDs, setBulkDeleteTargetIDs, bulkDeleting, openDeleteSel
                 })}
               </div>
             </section>
+);
+
+const renderKeyListContent = () => (
+<div className="space-y-4 p-4">
+          {renderKeyListPaneControls()}
+
+          {uncategorizedCount > 0 || allCategoryNames.length > 0 ? (
+            renderKeyListCategoryNavigation()
           ) : null}
 
           {renderUncategorizedSection()}
@@ -1015,6 +626,23 @@ const { bulkDeleteTargetIDs, setBulkDeleteTargetIDs, bulkDeleting, openDeleteSel
             </div>
           ) : null}
         </div>
+);
+
+return (
+    <Card className="ui-key-module-card !p-0">
+      <div className="ui-section-header ui-section-header--responsive ui-key-module-header">
+        {renderKeyListSelectionTitle()}
+
+        {renderKeyListToolbar()}
+      </div>
+
+      {/* Панель поиска и фильтров */}
+      {!collapsed && (
+        renderKeyListFilters()
+      )}
+
+      {!collapsed ? (
+        renderKeyListContent()
       ) : null}
 
       <ConfirmDialog
