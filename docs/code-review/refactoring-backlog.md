@@ -35,7 +35,7 @@ Completed work:
 | A06 / P1 | Completed; R16a/R16b accepted in PR30/PR31 | Six final-head checks/race/review clear at f4aee31; retain [A06 evidence](r16b-shared-guards.md) |
 | A07 / P1 | Completed; R11a/R11b and corrections merged in PR19-PR22 | Final six checks/review clear at b6fb366; retain [requirement evidence](r11b-reveal-provenance.md) |
 | A08 / P1 | Completed; R17a/R17b accepted in PR32/PR33 | Six final-head checks/review clear at 37157f5; retain [A08 matrix](r17b-key-list-presentation.md) |
-| A09 / P2 | R18a PR34 open; P2 create-input discrimination correction in validation | Publish/resolve finding, final-head hosted/review acceptance, then R18b |
+| A09 / P2 | R18a accepted in PR34; fourteen R18b prerequisite cases pass | R18b canonical branding requests and final [A09 matrix](r18b-branding-requests.md) acceptance |
 | A10 / P2 | Not started | R19 backend Xray interpretation |
 | A11 / P2 | Not started | R20 supported-consumer check and unused declarations |
 | A12 / P2 | Not started | R21 branding save acknowledgment and reopen state |
@@ -46,7 +46,7 @@ All six checks passed for a438377: backend, frontend, Docker smoke, CodeScene, C
 
 Codecov: project **48.02%** versus main **46.89%**; main.go **18.46%** versus **8.01%**; sqlite.go **64.70%** versus **60.78%**; whole-PR patch **80.09%**. Test Analytics: **848 passed, 5 skipped, no failures/errors**. Bundle upload/check passed; size/delta figures were unavailable in inspected results. Local statements remain **52.4%**, with unchanged coverage across 140 repository blocks. Optional snapshot/client fixtures and local race execution remain unverified. Passing frontend CI does not complete its planned refactoring.
 
-**Current review boundary:** R01-R17b and separate correctness fixes are merged through PR33. A00/A02/A03/A04/A05/A06/A07/A08 are accepted. R18a shared API contract fixtures are next. Broader A01/A09-A14 remain incomplete. Historical audit measurements remain distinct from current validation.
+**Current review boundary:** R01-R18a and separate correctness fixes are merged through PR34. A00/A02/A03/A04/A05/A06/A07/A08 are accepted. R18b starts from fourteen request/branding prerequisite cases; canonical integration and A09 acceptance remain. Broader A01/A09-A14 remain incomplete. Historical audit measurements remain distinct from current validation.
 
 ## P0
 
