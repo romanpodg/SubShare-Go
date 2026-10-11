@@ -38,9 +38,8 @@ function contractTypeSource() {
   ].join("\n");
 }
 
-it("shared actual-response fixtures satisfy the declared TypeScript boundaries", () => {
+function contractDiagnostics(source: string) {
   const file = path.resolve(__dirname, "api-contract-generated.ts");
-  const source = contractTypeSource();
   const host = ts.createCompilerHost({});
   const original = host.getSourceFile;
   const exists = host.fileExists;
@@ -49,6 +48,20 @@ it("shared actual-response fixtures satisfy the declared TypeScript boundaries",
     ? ts.createSourceFile(name, source, language, true)
     : original(name, language, error, fresh);
   const program = ts.createProgram([file], { strict: true, noEmit: true, skipLibCheck: true, target: ts.ScriptTarget.ES2021, module: ts.ModuleKind.ESNext, moduleResolution: ts.ModuleResolutionKind.Bundler, types: [] }, host);
-  const diagnostics = ts.getPreEmitDiagnostics(program).map((item) => ts.flattenDiagnosticMessageText(item.messageText, "\n"));
+  return ts.getPreEmitDiagnostics(program).map((item) => ts.flattenDiagnosticMessageText(item.messageText, "\n"));
+}
+
+it("shared actual-response fixtures satisfy the declared TypeScript boundaries", () => {
+  const diagnostics = contractDiagnostics(contractTypeSource());
+  expect(diagnostics, diagnostics.join("\n")).toEqual([]);
+});
+
+it("rejects an empty protocol in a real structured create declaration", () => {
+  const diagnostics = contractDiagnostics('import type { CreateKeyProfileInput } from "./types"; const input = { label: "fixture", status: "active", kind: "real", creation_mode: "structured", protocol: "", structured: {} } satisfies CreateKeyProfileInput;');
+  expect(diagnostics).not.toEqual([]);
+});
+
+it("allows the existing empty informational create protocol", () => {
+  const diagnostics = contractDiagnostics('import type { CreateKeyProfileInput } from "./types"; const input = { label: "fixture", status: "active", kind: "informational", creation_mode: "raw", protocol: "", template_text: "info" } satisfies CreateKeyProfileInput;');
   expect(diagnostics, diagnostics.join("\n")).toEqual([]);
 });
