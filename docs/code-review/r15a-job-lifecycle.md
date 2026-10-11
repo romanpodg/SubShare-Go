@@ -1,0 +1,9 @@
+# R15a — Job queue, transitions and retry commands
+
+Status: tests-first continuation on `refactor/job-lifecycle-commands`, based on accepted R14c merge `2d894fa`. R14 lifecycle/fault/overlap/recovery contracts and the R14c ownership/request/status protections are accepted prerequisites. No R15a production extraction or PR exists at this checkpoint.
+
+Eleven additional registered-route cases pass against unchanged production using a test-only overlay: warning terminal state, empty/negative/overflow/hex source targets, status-before-kind rejection precedence, whitespace/plus/leading-zero source identities, exact accepted envelope, retained original eligibility and retained persisted target text. The same file is now saved in the workspace for the tests-first commit. Results are ignored under `.cache/r15a/edges-before.json`.
+
+Separate best-effort job/run tracking and interrupted recovery, detached worker execution, HTTP adaptation and pure retry preparation. Keep every tracking SQL statement and worker body unchanged; expose one queue-and-dispatch command using the existing goroutines. Keep principal lookup after successful validation, current retry error/status precedence, deleted-target asynchronous failure, original failed-job eligibility, health concurrency ten, source reconciliation ownership and exact public DTO/envelopes. No durable scheduler, tracking transaction, schema or new manager is introduced. Contended tracking's recorded SQLITE_BUSY outcome remains explicit rather than silently corrected in a refactor.
+
+Require the existing complete lifecycle/fault/ownership matrix plus the additional edge cases, full Go/coverage/vet/build/lint, strict quality/secret gates, all six final-head checks and dedicated hosted lifecycle race, and resolved actionable review. R15b owns the independent source-create transaction boundary; A05 and the entire backlog remain incomplete.
