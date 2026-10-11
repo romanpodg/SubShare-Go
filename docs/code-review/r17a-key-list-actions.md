@@ -1,0 +1,9 @@
+# R17a — Key-list order, selection and action contracts
+
+Status: initial tests-first continuation on `test/key-list-action-contracts`, based on accepted A06 merge `e453edb`. Eleven mounted cases pass against unchanged `KeysSection`; remaining prerequisites/controller and full/hosted acceptance remain. No R17 PR exists at this checkpoint.
+
+The mounted baseline uses actual dialogs/buttons and mocked request boundaries. It protects cancelled deletion, hidden selected IDs sent under filtering, failed deletion selection/retry, pending confirmation's disabled repeat guard, partial reported deletion count with current selection clearing, full-ID order under filtering, unsaved/refetch behavior, failed order save/retry, health launch failure, removed-ID pruning and filtered select-all retaining hidden selection. The first drag expectation assumed insertion after the target; code/evidence shows existing insertion before it, and the corrected full-ID expectation passes without a production change. The failed baseline remains ignored at `.cache/r17a/actions-baseline.json`; the corrected eleven-case result is `actions-selection.json`. A first working-directory invocation ran no tests and is not validation evidence.
+
+Final eleven-case types/lint and quality pass; the baseline scores 10.00. Complete remaining category moves/uncategorized/new-key placement, single-delete/health failures and drag end/unmount listener cleanup, retaining actual browser near-edge/reduced-motion/mobile geometry cases. Keep card/row parity explicit for R17b. Run the full Vitest/types/lint/export/browser gates and save the tests-first baseline before controller extraction. Retain current action/toast/confirmation/selection/order and editor refresh contracts; no visual restyling, duplicate action logic or second state manager.
+
+A08 and the full goal remain incomplete. Heartbeat remains paused per the user; the persistent goal stays active.

@@ -4003,8 +4003,8 @@
       "R15a": "completed_pr28_race_review_accepted",
       "R15b": "completed_pr29_a05_accepted",
       "R16a": "completed_pr30_authorization_race_accepted",
-      "R16b": "locally_validated_hosted_race_review_acceptance_pending",
-      "R17a": "not_started",
+      "R16b": "completed_pr31_a06_accepted",
+      "R17a": "initial_mounted_action_order_baseline_passed",
       "R17b": "not_started",
       "R18a": "not_started",
       "R18b": "not_started",
@@ -4034,13 +4034,13 @@
         "scope": "Repository test maintainability, with assertions and transitions retained"
       }
     ],
-    "nextBatch": "R16b",
+    "nextBatch": "R17a",
     "nextBatchPriority": "P1",
     "nextBatchRemainingPrerequisites": [
-      "R16a is accepted in PR30. R16b shared guard and full local validation pass; require final-head hosted/race/review acceptance before A06 completion, then R17a.",
-      "A00/A02/A03/A04/A05/A07 are accepted; broader A01/A06/A08-A14 remain."
+      "R16a/R16b and A06 are accepted in PR30/PR31. R17a's initial eleven mounted action/order cases pass against unchanged production; complete remaining category/drag/cleanup/placement prerequisites before controller extraction, then full frontend/browser/hosted/review acceptance. R17b remains separate.",
+      "A00/A02/A03/A04/A05/A06/A07 are accepted; broader A01/A08-A14 remain."
     ],
-    "remainingCriticalRisk": "A00/A02/A03/A04/A05/A07 and R16a are accepted. R16b hosted/race/review acceptance remains before A06 completion. Concurrent tracking can fail with SQLITE_BUSY; accepted A05 preserves that characterized best-effort policy. Source update category preparation retains its audited pre-transaction behavior. Broader A01/A06/A08-A14 remain. OS I/O trigger frequency remains unmeasured.",
+    "remainingCriticalRisk": "A00/A02/A03/A04/A05/A06/A07 are accepted. R17a prerequisite/controller and R17b presentation acceptance remain before A08 completion. Concurrent tracking can fail with SQLITE_BUSY; accepted A05 preserves that characterized best-effort policy. Source update category preparation retains its audited pre-transaction behavior. Broader A01/A08-A14 remain. OS I/O trigger frequency remains unmeasured.",
     "r06CharacterizationCommit": "6a12236614e5",
     "r07aExecutionRecord": "docs/code-review/r07a-category-ordering.md",
     "autonomousContinuationRecord": "docs/code-review/autonomous-continuation.md",

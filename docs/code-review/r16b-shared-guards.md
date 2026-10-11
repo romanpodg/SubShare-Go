@@ -1,6 +1,6 @@
 # R16b — Shared administrative access evaluation
 
-Status: locally validated on `refactor/shared-admin-guards`, based on accepted R16a merge `4b6cf82`. Hosted/race/review acceptance remains; no R16b PR exists at this checkpoint.
+Status: accepted in [PR31](https://github.com/romanpodg/SubShare-Go/pull/31), merge `e453edbe72b608056bd504400cb440c5a44634d5`. All six checks and authorization race pass at `f4aee31cdff272417c945167fce295b07e4ac439` in [run 38118329248](https://github.com/romanpodg/SubShare-Go/actions/runs/38118329248). Final automated review completed with a positive reaction and no threads. A06 is accepted against the matrix below.
 
 `requireAdmin` and `requireSuperAdmin` retain the explicit route-facing API. They delegate principal resolution, role denial, API token scope and CSRF enforcement to one guard. A typed role/method descriptor carries no credentials to the pure role callback. Denial order, legacy/v1 envelopes, bearer/cookie precedence, interactive token management, constant-time CSRF and SHA256 storage remain. Handler principal queries retain their current timing; no request-context principal cache or generic route permissions dispatcher is introduced.
 
@@ -15,4 +15,4 @@ All 2,949 focused cases pass after application: the complete 2,930 accepted real
 | Reduced duplicated guards with explicit routes and unchanged privileges | One shared guard with two named role policies; protected route declarations unchanged and 2,949 focused cases passing |
 | Principal downgrade/removal condition | No principal context caching introduced; handler principal queries retain their original timing |
 
-Require full local/secret checks, all six final-head hosted gates including authorization race, and resolved actionable review before A06 acceptance. Then proceed R17a ordering/selection/action characterization and controller extraction. Broader A01/A08-A14 and the entire goal remain incomplete; heartbeat stays paused per the user.
+A06 is accepted after the full local/secret checks, six final-head hosted gates including authorization race and clear automated review. R17a ordering/selection/action characterization and controller extraction follow. Broader A01/A08-A14 and the entire goal remain incomplete; heartbeat stays paused per the user.
