@@ -1,6 +1,6 @@
 # R15b — Source-create transaction command
 
-Status: locally validated extraction on `refactor/source-create-command`, based on accepted R15a merge `e52f3a4`, after tests-first commit `9e42a08`. Hosted/race/review acceptance remains; no R15b PR exists at this checkpoint.
+Status: accepted in [PR29](https://github.com/romanpodg/SubShare-Go/pull/29), merge `25b9062251a2ae4084802092ee69021b1480eb8b`, after tests-first `9e42a08`. All six checks and the extended lifecycle race pass at `99f82f166e6e4fd656e6c6fdfbe37d53e90920b8` in [run 38115455757](https://github.com/romanpodg/SubShare-Go/actions/runs/38115455757). Automated review completed with a positive reaction and no threads. A05 is accepted against the matrix below.
 
 Sixteen actual registered-route cases pass against unchanged source creation: source/category/key-category write and resolution errors, second profile/credential/all-mode assignment failure, source completion failure, rejected begin/commit, duplicate URL committed while an earlier fetch waits, shared category reuse and encrypted assignment success, and failed response read after a committed full unit. The read-fault seam extends the existing disposable SQLite driver. Its first test-only matcher failed to recognize multiline SQL; the corrected matcher is proven and the failed result stays ignored under `.cache/r15b/before.json`, with the passing baseline at `baseline.json`. All five fixture/contract files score 10.00. No production behavior was changed to pass these tests.
 
@@ -16,8 +16,8 @@ The workflow's existing lifecycle race step includes `TestSourceCreate` cases. R
 | Bounded fetch/concurrency and detached shutdown versus recovery | Accepted fetch/timeout/cancel/cap/shutdown fixtures and hosted lifecycle race |
 | Required versus best-effort tracking/status/audit | Accepted real-SQL fault fixtures and documented SQLite contention; tracking policy unchanged |
 | Reverse completion and mid-fetch URL/HWID/category/enable/delete | Separate accepted R14c corrective PR27, transactional snapshot and owner/status regressions |
-| Category/source/profile/credential/assignment atomic create | Sixteen R15b actual-route cases, real statement triggers and wrapped begin/commit failures; full local validation passes, hosted acceptance pending |
+| Category/source/profile/credential/assignment atomic create | Sixteen R15b actual-route cases, real statement triggers and wrapped begin/commit failures; full/hosted/race acceptance at 99f82f1 |
 | Duplicate URL, post-commit response failure, safe projections | R15b gated duplicate and committed-read failure plus retained source HTTP/legacy contracts |
 | Meaningful lifecycle/transaction boundaries with existing scheduler/store | Accepted R15a typed queue/dispatch/HTTP/tracking seams; R15b single command and SQL/body proof |
 
-A05 is unaccepted until R15b's final-head hosted/race/review gates pass. R16a is next after this batch; broader A01/A06/A08-A14 remain.
+A05 is accepted after R14/R14c/R15a/R15b in PR26-PR29, including the separately reviewed race correction and preserved best-effort policy. R16a is next; broader A01/A06/A08-A14 and the entire goal remain incomplete.

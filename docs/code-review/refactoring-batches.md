@@ -41,8 +41,9 @@ PR #8 is merged at **d87b122**. R05a started [PR #9](https://github.com/romanpod
 | R14 | Completed; PR26 merged at 1785f86 | Six checks and dedicated race step pass at 1bef171; review clear |
 | R14c corrective follow-up | Completed; PR27 merged at 2d894fa after tests-first 3868185/4125761 | Six checks and race pass at 336dd47; both P2 findings resolved; final review clear |
 | R15a | Completed; PR28 merged at e52f3a4 after tests-first e35a1e9 | Six checks and race pass at 15189d1; final review clear; see [record](r15a-job-lifecycle.md) |
-| R15b | Locally validated after tests-first 9e42a08; 1,440 pass / five optional skips; quality/analysis/parity pass | Hosted/race/review and A05 acceptance; see [record](r15b-source-create.md) |
-| R16a–R23 sub-batches | Not started | Original scopes/dependencies below remain authoritative |
+| R15b | Completed; PR29 merged at 25b9062 after tests-first 9e42a08; A05 accepted | Six checks and race pass at 99f82f1; final review clear; see [record](r15b-source-create.md) |
+| R16a | Locally validated tests-only matrix; 4,370 pass / five optional skips; production unchanged | Hosted/race/review acceptance; see [record](r16a-route-authorization.md) |
+| R16b–R23 sub-batches | Not started | Original scopes/dependencies below remain authoritative |
 
 Partial means acceptance criteria are not yet satisfied. The e3ceaba repository split predates R01 and does not complete A01. PR #7 and PR #8 are merged; dc91072 merges the activation and device continuation. R06 assurance and R07a extraction remain separate changes. The original plan and R01 execution notes below are historical records.
 
