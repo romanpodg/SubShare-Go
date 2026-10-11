@@ -1,0 +1,7 @@
+# R17b — Key-list card, aligned rows and category presentation
+
+Status: tests-first continuation on `test/key-list-presentation-contracts`, based on accepted R17a merge `516e977`. Nineteen mounted parity cases pass against accepted production, plus types/lint and CodeScene 10.00. No presentation extraction or R17b PR exists at this checkpoint.
+
+The matrix covers both subscription formats, real/informational kinds, active/non-active status and local/source profiles; effective/fallback client names, safe literal labels/source fallback, health/action availability, one shared subscription position across opposite-column gaps, and pane hiding/restoration. Accepted R17a action/selection/category/creation/drag fixtures remain the action authority; desktop/mobile geometry and normal/reduced-motion autoscroll remain in browser tests.
+
+Separate the existing card, aligned rows and category block into React presentation components with explicit typed data/action boundaries. Preserve DOM/class/style/text, React keys/refs, complete order positions, callback request targets and existing selection/confirmation state. Share the tested controller rather than duplicate mutation logic. Keep styling and endpoint behavior unchanged. Require full Vitest/types/lint/export/browser, strict quality/secret gates, all six final-head hosted checks and resolved actionable review before A08 acceptance. Broader A01/A09-A14 and the whole goal remain incomplete; heartbeat stays paused per user.
