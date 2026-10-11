@@ -1305,5 +1305,1339 @@
       "outbound_index": 1,
       "error": ""
     }
+  },
+  {
+    "name": "ss-only",
+    "raw": "{\"outbounds\":[{\"protocol\":\"shadowsocks\",\"tag\":\"SS\",\"settings\":{\"address\":\"ss.example\",\"port\":8388,\"cipher\":\"aes-128-gcm\",\"password\":\"fixture-password\"}}]}",
+    "go": {
+      "target": {
+        "error": "XRAY-JSON must contain outbound with protocol vless/vmess/trojan and valid server settings",
+        "host": "",
+        "port": ""
+      },
+      "drafts": null,
+      "draft_error": "XRAY-JSON contains no supported outbound",
+      "projected": [
+        {
+          "Protocol": "shadowsocks",
+          "Server": "ss.example",
+          "Port": 8388,
+          "Identifier": "fixture-password",
+          "Remark": "SS",
+          "ShadowsocksMethod": "aes-128-gcm"
+        }
+      ],
+      "rejected": 0,
+      "project_error": ""
+    },
+    "frontend": {
+      "draft": null,
+      "outbound_index": null,
+      "error": "Не найден outbound с протоколом vless/vmess/trojan"
+    }
+  },
+  {
+    "name": "ss-before-native",
+    "raw": "{\"outbounds\":[{\"protocol\":\"shadowsocks\",\"tag\":\"SS\",\"settings\":{\"address\":\"ss.example\",\"port\":8388,\"cipher\":\"aes-128-gcm\",\"password\":\"fixture-password\"}},{\"protocol\":\"vless\",\"settings\":{\"vnext\":[{\"address\":\"first.example\",\"port\":2443,\"users\":[{\"id\":\"11111111-1111-4111-8111-111111111111\"}]}]}}]}",
+    "go": {
+      "target": {
+        "error": "",
+        "host": "first.example",
+        "port": "2443"
+      },
+      "drafts": [
+        {
+          "Protocol": "vless",
+          "Server": "first.example",
+          "Port": 2443,
+          "Identifier": "11111111-1111-4111-8111-111111111111",
+          "Network": "tcp",
+          "Security": "none"
+        }
+      ],
+      "draft_error": "",
+      "projected": [
+        {
+          "Protocol": "shadowsocks",
+          "Server": "ss.example",
+          "Port": 8388,
+          "Identifier": "fixture-password",
+          "Remark": "SS",
+          "ShadowsocksMethod": "aes-128-gcm"
+        },
+        {
+          "Protocol": "vless",
+          "Server": "first.example",
+          "Port": 2443,
+          "Identifier": "11111111-1111-4111-8111-111111111111",
+          "Network": "tcp",
+          "Security": "none"
+        }
+      ],
+      "rejected": 0,
+      "project_error": ""
+    },
+    "frontend": {
+      "draft": {
+        "protocol": "vless",
+        "server": "first.example",
+        "port": "2443",
+        "identifier": "11111111-1111-4111-8111-111111111111",
+        "network": "tcp",
+        "security": "none",
+        "path": "",
+        "host": "",
+        "sni": "",
+        "alpn": "",
+        "remark": "",
+        "flow": "",
+        "encryption": "",
+        "fingerprint": "",
+        "publicKey": "",
+        "shortId": "",
+        "spiderX": "",
+        "allowInsecure": false,
+        "grpcAuthority": "",
+        "headerType": "",
+        "vmessSecurity": "",
+        "vmessAlterId": ""
+      },
+      "outbound_index": 1,
+      "error": ""
+    }
+  },
+  {
+    "name": "hy2-only",
+    "raw": "{\"outbounds\":[{\"protocol\":\"hysteria2\",\"tag\":\"H2\",\"settings\":{\"address\":\"hy.example\",\"port\":443,\"version\":2,\"auth\":\"fixture-auth\"},\"streamSettings\":{\"tlsSettings\":{\"serverName\":\"sni.example\",\"alpn\":[\"h3\"],\"allowInsecure\":\"true\",\"pinnedPeerCertSha256\":\"fixture-cert\"}}}]}",
+    "go": {
+      "target": {
+        "error": "XRAY-JSON must contain outbound with protocol vless/vmess/trojan and valid server settings",
+        "host": "",
+        "port": ""
+      },
+      "drafts": null,
+      "draft_error": "XRAY-JSON contains no supported outbound",
+      "projected": [
+        {
+          "Protocol": "hysteria2",
+          "Server": "hy.example",
+          "Port": 443,
+          "Identifier": "fixture-auth",
+          "Remark": "H2",
+          "SNI": "sni.example",
+          "ALPN": "h3",
+          "AllowInsecure": true,
+          "CertificateSHA256": "fixture-cert"
+        }
+      ],
+      "rejected": 0,
+      "project_error": ""
+    },
+    "frontend": {
+      "draft": null,
+      "outbound_index": null,
+      "error": "Не найден outbound с протоколом vless/vmess/trojan"
+    }
+  },
+  {
+    "name": "hy2-before-native",
+    "raw": "{\"outbounds\":[{\"protocol\":\"hysteria2\",\"tag\":\"H2\",\"settings\":{\"address\":\"hy.example\",\"port\":443,\"version\":2,\"auth\":\"fixture-auth\"},\"streamSettings\":{\"tlsSettings\":{\"serverName\":\"sni.example\",\"alpn\":[\"h3\"],\"allowInsecure\":\"true\",\"pinnedPeerCertSha256\":\"fixture-cert\"}}},{\"protocol\":\"vless\",\"settings\":{\"vnext\":[{\"address\":\"first.example\",\"port\":2443,\"users\":[{\"id\":\"11111111-1111-4111-8111-111111111111\"}]}]}}]}",
+    "go": {
+      "target": {
+        "error": "",
+        "host": "first.example",
+        "port": "2443"
+      },
+      "drafts": [
+        {
+          "Protocol": "vless",
+          "Server": "first.example",
+          "Port": 2443,
+          "Identifier": "11111111-1111-4111-8111-111111111111",
+          "Network": "tcp",
+          "Security": "none"
+        }
+      ],
+      "draft_error": "",
+      "projected": [
+        {
+          "Protocol": "hysteria2",
+          "Server": "hy.example",
+          "Port": 443,
+          "Identifier": "fixture-auth",
+          "Remark": "H2",
+          "SNI": "sni.example",
+          "ALPN": "h3",
+          "AllowInsecure": true,
+          "CertificateSHA256": "fixture-cert"
+        },
+        {
+          "Protocol": "vless",
+          "Server": "first.example",
+          "Port": 2443,
+          "Identifier": "11111111-1111-4111-8111-111111111111",
+          "Network": "tcp",
+          "Security": "none"
+        }
+      ],
+      "rejected": 0,
+      "project_error": ""
+    },
+    "frontend": {
+      "draft": {
+        "protocol": "vless",
+        "server": "first.example",
+        "port": "2443",
+        "identifier": "11111111-1111-4111-8111-111111111111",
+        "network": "tcp",
+        "security": "none",
+        "path": "",
+        "host": "",
+        "sni": "",
+        "alpn": "",
+        "remark": "",
+        "flow": "",
+        "encryption": "",
+        "fingerprint": "",
+        "publicKey": "",
+        "shortId": "",
+        "spiderX": "",
+        "allowInsecure": false,
+        "grpcAuthority": "",
+        "headerType": "",
+        "vmessSecurity": "",
+        "vmessAlterId": ""
+      },
+      "outbound_index": 1,
+      "error": ""
+    }
+  },
+  {
+    "name": "tuic-only",
+    "raw": "{\"outbounds\":[{\"protocol\":\"tuic\",\"tag\":\"TUIC\",\"settings\":{\"server\":\"tuic.example\",\"port\":443,\"uuid\":\"33333333-3333-4333-8333-333333333333\",\"password\":\"fixture-password\",\"serverName\":\"sni.example\",\"alpn\":[\"h3\"],\"skip_cert_verify\":\"true\",\"congestionController\":\"bbr\",\"udpRelayMode\":\"native\",\"udp_over_stream\":true,\"zeroRTT\":\"true\",\"heartbeat\":\"10s\"}}]}",
+    "go": {
+      "target": {
+        "error": "XRAY-JSON must contain outbound with protocol vless/vmess/trojan and valid server settings",
+        "host": "",
+        "port": ""
+      },
+      "drafts": null,
+      "draft_error": "XRAY-JSON contains no supported outbound",
+      "projected": [
+        {
+          "Protocol": "tuic",
+          "Server": "tuic.example",
+          "Port": 443,
+          "Identifier": "33333333-3333-4333-8333-333333333333",
+          "Remark": "TUIC",
+          "SNI": "sni.example",
+          "ALPN": "h3",
+          "AllowInsecure": true,
+          "TUICPassword": "fixture-password",
+          "CongestionController": "bbr",
+          "UDPRelayMode": "native",
+          "UDPOverStream": true,
+          "ZeroRTT": true,
+          "Heartbeat": "10s"
+        }
+      ],
+      "rejected": 0,
+      "project_error": ""
+    },
+    "frontend": {
+      "draft": null,
+      "outbound_index": null,
+      "error": "Не найден outbound с протоколом vless/vmess/trojan"
+    }
+  },
+  {
+    "name": "tuic-before-native",
+    "raw": "{\"outbounds\":[{\"protocol\":\"tuic\",\"tag\":\"TUIC\",\"settings\":{\"server\":\"tuic.example\",\"port\":443,\"uuid\":\"33333333-3333-4333-8333-333333333333\",\"password\":\"fixture-password\",\"serverName\":\"sni.example\",\"alpn\":[\"h3\"],\"skip_cert_verify\":\"true\",\"congestionController\":\"bbr\",\"udpRelayMode\":\"native\",\"udp_over_stream\":true,\"zeroRTT\":\"true\",\"heartbeat\":\"10s\"}},{\"protocol\":\"vless\",\"settings\":{\"vnext\":[{\"address\":\"first.example\",\"port\":2443,\"users\":[{\"id\":\"11111111-1111-4111-8111-111111111111\"}]}]}}]}",
+    "go": {
+      "target": {
+        "error": "",
+        "host": "first.example",
+        "port": "2443"
+      },
+      "drafts": [
+        {
+          "Protocol": "vless",
+          "Server": "first.example",
+          "Port": 2443,
+          "Identifier": "11111111-1111-4111-8111-111111111111",
+          "Network": "tcp",
+          "Security": "none"
+        }
+      ],
+      "draft_error": "",
+      "projected": [
+        {
+          "Protocol": "tuic",
+          "Server": "tuic.example",
+          "Port": 443,
+          "Identifier": "33333333-3333-4333-8333-333333333333",
+          "Remark": "TUIC",
+          "SNI": "sni.example",
+          "ALPN": "h3",
+          "AllowInsecure": true,
+          "TUICPassword": "fixture-password",
+          "CongestionController": "bbr",
+          "UDPRelayMode": "native",
+          "UDPOverStream": true,
+          "ZeroRTT": true,
+          "Heartbeat": "10s"
+        },
+        {
+          "Protocol": "vless",
+          "Server": "first.example",
+          "Port": 2443,
+          "Identifier": "11111111-1111-4111-8111-111111111111",
+          "Network": "tcp",
+          "Security": "none"
+        }
+      ],
+      "rejected": 0,
+      "project_error": ""
+    },
+    "frontend": {
+      "draft": {
+        "protocol": "vless",
+        "server": "first.example",
+        "port": "2443",
+        "identifier": "11111111-1111-4111-8111-111111111111",
+        "network": "tcp",
+        "security": "none",
+        "path": "",
+        "host": "",
+        "sni": "",
+        "alpn": "",
+        "remark": "",
+        "flow": "",
+        "encryption": "",
+        "fingerprint": "",
+        "publicKey": "",
+        "shortId": "",
+        "spiderX": "",
+        "allowInsecure": false,
+        "grpcAuthority": "",
+        "headerType": "",
+        "vmessSecurity": "",
+        "vmessAlterId": ""
+      },
+      "outbound_index": 1,
+      "error": ""
+    }
+  },
+  {
+    "name": "ss-plugin-object",
+    "raw": "{\"outbounds\":[{\"protocol\":\"shadowsocks\",\"tag\":\"SS\",\"settings\":{\"address\":\"ss.example\",\"port\":8388,\"cipher\":\"aes-128-gcm\",\"password\":\"fixture-password\",\"plugin\":{\"type\":\"obfs-local\",\"opts\":\"obfs=tls;obfs-host=cdn.example\"}}},{\"protocol\":\"vless\",\"settings\":{\"vnext\":[{\"address\":\"first.example\",\"port\":2443,\"users\":[{\"id\":\"11111111-1111-4111-8111-111111111111\"}]}]}}]}",
+    "go": {
+      "target": {
+        "error": "",
+        "host": "first.example",
+        "port": "2443"
+      },
+      "drafts": [
+        {
+          "Protocol": "vless",
+          "Server": "first.example",
+          "Port": 2443,
+          "Identifier": "11111111-1111-4111-8111-111111111111",
+          "Network": "tcp",
+          "Security": "none"
+        }
+      ],
+      "draft_error": "",
+      "projected": [
+        {
+          "Protocol": "shadowsocks",
+          "Server": "ss.example",
+          "Port": 8388,
+          "Identifier": "fixture-password",
+          "Remark": "SS",
+          "ShadowsocksMethod": "aes-128-gcm",
+          "Plugin": "obfs-local;obfs=tls;obfs-host=cdn.example"
+        },
+        {
+          "Protocol": "vless",
+          "Server": "first.example",
+          "Port": 2443,
+          "Identifier": "11111111-1111-4111-8111-111111111111",
+          "Network": "tcp",
+          "Security": "none"
+        }
+      ],
+      "rejected": 0,
+      "project_error": ""
+    },
+    "frontend": {
+      "draft": {
+        "protocol": "vless",
+        "server": "first.example",
+        "port": "2443",
+        "identifier": "11111111-1111-4111-8111-111111111111",
+        "network": "tcp",
+        "security": "none",
+        "path": "",
+        "host": "",
+        "sni": "",
+        "alpn": "",
+        "remark": "",
+        "flow": "",
+        "encryption": "",
+        "fingerprint": "",
+        "publicKey": "",
+        "shortId": "",
+        "spiderX": "",
+        "allowInsecure": false,
+        "grpcAuthority": "",
+        "headerType": "",
+        "vmessSecurity": "",
+        "vmessAlterId": ""
+      },
+      "outbound_index": 1,
+      "error": ""
+    }
+  },
+  {
+    "name": "ss-options-without-plugin",
+    "raw": "{\"outbounds\":[{\"protocol\":\"shadowsocks\",\"tag\":\"SS\",\"settings\":{\"address\":\"ss.example\",\"port\":8388,\"cipher\":\"aes-128-gcm\",\"password\":\"fixture-password\",\"plugin_opts\":\"fixture-options\"}},{\"protocol\":\"vless\",\"settings\":{\"vnext\":[{\"address\":\"first.example\",\"port\":2443,\"users\":[{\"id\":\"11111111-1111-4111-8111-111111111111\"}]}]}}]}",
+    "go": {
+      "target": {
+        "error": "",
+        "host": "first.example",
+        "port": "2443"
+      },
+      "drafts": [
+        {
+          "Protocol": "vless",
+          "Server": "first.example",
+          "Port": 2443,
+          "Identifier": "11111111-1111-4111-8111-111111111111",
+          "Network": "tcp",
+          "Security": "none"
+        }
+      ],
+      "draft_error": "",
+      "projected": [
+        {
+          "Protocol": "vless",
+          "Server": "first.example",
+          "Port": 2443,
+          "Identifier": "11111111-1111-4111-8111-111111111111",
+          "Network": "tcp",
+          "Security": "none"
+        }
+      ],
+      "rejected": 1,
+      "project_error": ""
+    },
+    "frontend": {
+      "draft": {
+        "protocol": "vless",
+        "server": "first.example",
+        "port": "2443",
+        "identifier": "11111111-1111-4111-8111-111111111111",
+        "network": "tcp",
+        "security": "none",
+        "path": "",
+        "host": "",
+        "sni": "",
+        "alpn": "",
+        "remark": "",
+        "flow": "",
+        "encryption": "",
+        "fingerprint": "",
+        "publicKey": "",
+        "shortId": "",
+        "spiderX": "",
+        "allowInsecure": false,
+        "grpcAuthority": "",
+        "headerType": "",
+        "vmessSecurity": "",
+        "vmessAlterId": ""
+      },
+      "outbound_index": 1,
+      "error": ""
+    }
+  },
+  {
+    "name": "ss-missing-cipher",
+    "raw": "{\"outbounds\":[{\"protocol\":\"shadowsocks\",\"tag\":\"SS\",\"settings\":{\"address\":\"ss.example\",\"port\":8388,\"password\":\"fixture-password\"}},{\"protocol\":\"vless\",\"settings\":{\"vnext\":[{\"address\":\"first.example\",\"port\":2443,\"users\":[{\"id\":\"11111111-1111-4111-8111-111111111111\"}]}]}}]}",
+    "go": {
+      "target": {
+        "error": "",
+        "host": "first.example",
+        "port": "2443"
+      },
+      "drafts": [
+        {
+          "Protocol": "vless",
+          "Server": "first.example",
+          "Port": 2443,
+          "Identifier": "11111111-1111-4111-8111-111111111111",
+          "Network": "tcp",
+          "Security": "none"
+        }
+      ],
+      "draft_error": "",
+      "projected": [
+        {
+          "Protocol": "vless",
+          "Server": "first.example",
+          "Port": 2443,
+          "Identifier": "11111111-1111-4111-8111-111111111111",
+          "Network": "tcp",
+          "Security": "none"
+        }
+      ],
+      "rejected": 1,
+      "project_error": ""
+    },
+    "frontend": {
+      "draft": {
+        "protocol": "vless",
+        "server": "first.example",
+        "port": "2443",
+        "identifier": "11111111-1111-4111-8111-111111111111",
+        "network": "tcp",
+        "security": "none",
+        "path": "",
+        "host": "",
+        "sni": "",
+        "alpn": "",
+        "remark": "",
+        "flow": "",
+        "encryption": "",
+        "fingerprint": "",
+        "publicKey": "",
+        "shortId": "",
+        "spiderX": "",
+        "allowInsecure": false,
+        "grpcAuthority": "",
+        "headerType": "",
+        "vmessSecurity": "",
+        "vmessAlterId": ""
+      },
+      "outbound_index": 1,
+      "error": ""
+    }
+  },
+  {
+    "name": "ss-extra-servers",
+    "raw": "{\"outbounds\":[{\"protocol\":\"shadowsocks\",\"tag\":\"SS\",\"settings\":{\"servers\":[{\"address\":\"ss.example\",\"port\":8388,\"cipher\":\"aes-128-gcm\",\"password\":\"fixture-password\"},{\"address\":\"extra.example\",\"port\":8388,\"cipher\":\"aes-128-gcm\",\"password\":\"extra-fixture-password\"}]}},{\"protocol\":\"vless\",\"settings\":{\"vnext\":[{\"address\":\"first.example\",\"port\":2443,\"users\":[{\"id\":\"11111111-1111-4111-8111-111111111111\"}]}]}}]}",
+    "go": {
+      "target": {
+        "error": "",
+        "host": "first.example",
+        "port": "2443"
+      },
+      "drafts": [
+        {
+          "Protocol": "vless",
+          "Server": "first.example",
+          "Port": 2443,
+          "Identifier": "11111111-1111-4111-8111-111111111111",
+          "Network": "tcp",
+          "Security": "none"
+        }
+      ],
+      "draft_error": "",
+      "projected": [
+        {
+          "Protocol": "shadowsocks",
+          "Server": "ss.example",
+          "Port": 8388,
+          "Identifier": "fixture-password",
+          "Remark": "SS",
+          "ShadowsocksMethod": "aes-128-gcm"
+        },
+        {
+          "Protocol": "shadowsocks",
+          "Server": "extra.example",
+          "Port": 8388,
+          "Identifier": "extra-fixture-password",
+          "Remark": "SS",
+          "ShadowsocksMethod": "aes-128-gcm"
+        },
+        {
+          "Protocol": "vless",
+          "Server": "first.example",
+          "Port": 2443,
+          "Identifier": "11111111-1111-4111-8111-111111111111",
+          "Network": "tcp",
+          "Security": "none"
+        }
+      ],
+      "rejected": 0,
+      "project_error": ""
+    },
+    "frontend": {
+      "draft": {
+        "protocol": "vless",
+        "server": "first.example",
+        "port": "2443",
+        "identifier": "11111111-1111-4111-8111-111111111111",
+        "network": "tcp",
+        "security": "none",
+        "path": "",
+        "host": "",
+        "sni": "",
+        "alpn": "",
+        "remark": "",
+        "flow": "",
+        "encryption": "",
+        "fingerprint": "",
+        "publicKey": "",
+        "shortId": "",
+        "spiderX": "",
+        "allowInsecure": false,
+        "grpcAuthority": "",
+        "headerType": "",
+        "vmessSecurity": "",
+        "vmessAlterId": ""
+      },
+      "outbound_index": 1,
+      "error": ""
+    }
+  },
+  {
+    "name": "ss-invalid-second-server",
+    "raw": "{\"outbounds\":[{\"protocol\":\"shadowsocks\",\"tag\":\"SS\",\"settings\":{\"servers\":[{\"address\":\"ss.example\",\"port\":8388,\"cipher\":\"aes-128-gcm\",\"password\":\"fixture-password\"},false]}},{\"protocol\":\"vless\",\"settings\":{\"vnext\":[{\"address\":\"first.example\",\"port\":2443,\"users\":[{\"id\":\"11111111-1111-4111-8111-111111111111\"}]}]}}]}",
+    "go": {
+      "target": {
+        "error": "",
+        "host": "first.example",
+        "port": "2443"
+      },
+      "drafts": [
+        {
+          "Protocol": "vless",
+          "Server": "first.example",
+          "Port": 2443,
+          "Identifier": "11111111-1111-4111-8111-111111111111",
+          "Network": "tcp",
+          "Security": "none"
+        }
+      ],
+      "draft_error": "",
+      "projected": [
+        {
+          "Protocol": "vless",
+          "Server": "first.example",
+          "Port": 2443,
+          "Identifier": "11111111-1111-4111-8111-111111111111",
+          "Network": "tcp",
+          "Security": "none"
+        }
+      ],
+      "rejected": 1,
+      "project_error": ""
+    },
+    "frontend": {
+      "draft": {
+        "protocol": "vless",
+        "server": "first.example",
+        "port": "2443",
+        "identifier": "11111111-1111-4111-8111-111111111111",
+        "network": "tcp",
+        "security": "none",
+        "path": "",
+        "host": "",
+        "sni": "",
+        "alpn": "",
+        "remark": "",
+        "flow": "",
+        "encryption": "",
+        "fingerprint": "",
+        "publicKey": "",
+        "shortId": "",
+        "spiderX": "",
+        "allowInsecure": false,
+        "grpcAuthority": "",
+        "headerType": "",
+        "vmessSecurity": "",
+        "vmessAlterId": ""
+      },
+      "outbound_index": 1,
+      "error": ""
+    }
+  },
+  {
+    "name": "hysteria-alias-auth",
+    "raw": "{\"outbounds\":[{\"protocol\":\"hysteria\",\"tag\":\"H2\",\"settings\":{\"address\":\"hy.example\",\"port\":443,\"version\":2},\"streamSettings\":{\"tlsSettings\":{\"serverName\":\"sni.example\",\"alpn\":[\"h3\"],\"allowInsecure\":\"true\",\"pinnedPeerCertSha256\":\"fixture-cert\"},\"hysteriaSettings\":{\"version\":\"2\",\"auth\":\"fixture-alias-auth\"}}},{\"protocol\":\"vless\",\"settings\":{\"vnext\":[{\"address\":\"first.example\",\"port\":2443,\"users\":[{\"id\":\"11111111-1111-4111-8111-111111111111\"}]}]}}]}",
+    "go": {
+      "target": {
+        "error": "",
+        "host": "first.example",
+        "port": "2443"
+      },
+      "drafts": [
+        {
+          "Protocol": "vless",
+          "Server": "first.example",
+          "Port": 2443,
+          "Identifier": "11111111-1111-4111-8111-111111111111",
+          "Network": "tcp",
+          "Security": "none"
+        }
+      ],
+      "draft_error": "",
+      "projected": [
+        {
+          "Protocol": "hysteria2",
+          "Server": "hy.example",
+          "Port": 443,
+          "Identifier": "fixture-alias-auth",
+          "Remark": "H2",
+          "SNI": "sni.example",
+          "ALPN": "h3",
+          "AllowInsecure": true,
+          "CertificateSHA256": "fixture-cert"
+        },
+        {
+          "Protocol": "vless",
+          "Server": "first.example",
+          "Port": 2443,
+          "Identifier": "11111111-1111-4111-8111-111111111111",
+          "Network": "tcp",
+          "Security": "none"
+        }
+      ],
+      "rejected": 0,
+      "project_error": ""
+    },
+    "frontend": {
+      "draft": {
+        "protocol": "vless",
+        "server": "first.example",
+        "port": "2443",
+        "identifier": "11111111-1111-4111-8111-111111111111",
+        "network": "tcp",
+        "security": "none",
+        "path": "",
+        "host": "",
+        "sni": "",
+        "alpn": "",
+        "remark": "",
+        "flow": "",
+        "encryption": "",
+        "fingerprint": "",
+        "publicKey": "",
+        "shortId": "",
+        "spiderX": "",
+        "allowInsecure": false,
+        "grpcAuthority": "",
+        "headerType": "",
+        "vmessSecurity": "",
+        "vmessAlterId": ""
+      },
+      "outbound_index": 1,
+      "error": ""
+    }
+  },
+  {
+    "name": "hysteria-version-one",
+    "raw": "{\"outbounds\":[{\"protocol\":\"hysteria2\",\"tag\":\"H2\",\"settings\":{\"address\":\"hy.example\",\"port\":443,\"version\":1,\"auth\":\"fixture-auth\"},\"streamSettings\":{\"tlsSettings\":{\"serverName\":\"sni.example\",\"alpn\":[\"h3\"],\"allowInsecure\":\"true\",\"pinnedPeerCertSha256\":\"fixture-cert\"}}},{\"protocol\":\"vless\",\"settings\":{\"vnext\":[{\"address\":\"first.example\",\"port\":2443,\"users\":[{\"id\":\"11111111-1111-4111-8111-111111111111\"}]}]}}]}",
+    "go": {
+      "target": {
+        "error": "",
+        "host": "first.example",
+        "port": "2443"
+      },
+      "drafts": [
+        {
+          "Protocol": "vless",
+          "Server": "first.example",
+          "Port": 2443,
+          "Identifier": "11111111-1111-4111-8111-111111111111",
+          "Network": "tcp",
+          "Security": "none"
+        }
+      ],
+      "draft_error": "",
+      "projected": [
+        {
+          "Protocol": "vless",
+          "Server": "first.example",
+          "Port": 2443,
+          "Identifier": "11111111-1111-4111-8111-111111111111",
+          "Network": "tcp",
+          "Security": "none"
+        }
+      ],
+      "rejected": 1,
+      "project_error": ""
+    },
+    "frontend": {
+      "draft": {
+        "protocol": "vless",
+        "server": "first.example",
+        "port": "2443",
+        "identifier": "11111111-1111-4111-8111-111111111111",
+        "network": "tcp",
+        "security": "none",
+        "path": "",
+        "host": "",
+        "sni": "",
+        "alpn": "",
+        "remark": "",
+        "flow": "",
+        "encryption": "",
+        "fingerprint": "",
+        "publicKey": "",
+        "shortId": "",
+        "spiderX": "",
+        "allowInsecure": false,
+        "grpcAuthority": "",
+        "headerType": "",
+        "vmessSecurity": "",
+        "vmessAlterId": ""
+      },
+      "outbound_index": 1,
+      "error": ""
+    }
+  },
+  {
+    "name": "hy2-hop-and-mask",
+    "raw": "{\"outbounds\":[{\"protocol\":\"hysteria2\",\"tag\":\"H2\",\"settings\":{\"address\":\"hy.example\",\"port\":443,\"version\":2,\"auth\":\"fixture-auth\"},\"streamSettings\":{\"tlsSettings\":{\"serverName\":\"sni.example\",\"alpn\":[\"h3\"],\"allowInsecure\":\"true\",\"pinnedPeerCertSha256\":\"fixture-cert\"},\"finalmask\":{\"quicParams\":{\"udpHop\":{\"ports\":\"443,8443-8445\"}},\"udp\":[{\"type\":\"salamander\",\"settings\":{\"password\":\"fixture-obfuscation\"}}]}}},{\"protocol\":\"vless\",\"settings\":{\"vnext\":[{\"address\":\"first.example\",\"port\":2443,\"users\":[{\"id\":\"11111111-1111-4111-8111-111111111111\"}]}]}}]}",
+    "go": {
+      "target": {
+        "error": "",
+        "host": "first.example",
+        "port": "2443"
+      },
+      "drafts": [
+        {
+          "Protocol": "vless",
+          "Server": "first.example",
+          "Port": 2443,
+          "Identifier": "11111111-1111-4111-8111-111111111111",
+          "Network": "tcp",
+          "Security": "none"
+        }
+      ],
+      "draft_error": "",
+      "projected": [
+        {
+          "Protocol": "hysteria2",
+          "Server": "hy.example",
+          "Port": 443,
+          "Identifier": "fixture-auth",
+          "Remark": "H2",
+          "SNI": "sni.example",
+          "ALPN": "h3",
+          "AllowInsecure": true,
+          "PortExpression": "443,8443-8445",
+          "CertificateSHA256": "fixture-cert",
+          "ObfuscationType": "salamander",
+          "ObfuscationPassword": "fixture-obfuscation"
+        },
+        {
+          "Protocol": "vless",
+          "Server": "first.example",
+          "Port": 2443,
+          "Identifier": "11111111-1111-4111-8111-111111111111",
+          "Network": "tcp",
+          "Security": "none"
+        }
+      ],
+      "rejected": 0,
+      "project_error": ""
+    },
+    "frontend": {
+      "draft": {
+        "protocol": "vless",
+        "server": "first.example",
+        "port": "2443",
+        "identifier": "11111111-1111-4111-8111-111111111111",
+        "network": "tcp",
+        "security": "none",
+        "path": "",
+        "host": "",
+        "sni": "",
+        "alpn": "",
+        "remark": "",
+        "flow": "",
+        "encryption": "",
+        "fingerprint": "",
+        "publicKey": "",
+        "shortId": "",
+        "spiderX": "",
+        "allowInsecure": false,
+        "grpcAuthority": "",
+        "headerType": "",
+        "vmessSecurity": "",
+        "vmessAlterId": ""
+      },
+      "outbound_index": 1,
+      "error": ""
+    }
+  },
+  {
+    "name": "hy2-ambiguous-masks",
+    "raw": "{\"outbounds\":[{\"protocol\":\"hysteria2\",\"tag\":\"H2\",\"settings\":{\"address\":\"hy.example\",\"port\":443,\"version\":2,\"auth\":\"fixture-auth\"},\"streamSettings\":{\"tlsSettings\":{\"serverName\":\"sni.example\",\"alpn\":[\"h3\"],\"allowInsecure\":\"true\",\"pinnedPeerCertSha256\":\"fixture-cert\"},\"finalmask\":{\"quicParams\":{\"udpHop\":{\"ports\":\"443,8443-8445\"}},\"udp\":[{\"type\":\"salamander\",\"settings\":{\"password\":\"fixture-obfuscation\"}},{\"type\":\"salamander\",\"settings\":{\"password\":\"fixture-obfuscation\"}}]}}},{\"protocol\":\"vless\",\"settings\":{\"vnext\":[{\"address\":\"first.example\",\"port\":2443,\"users\":[{\"id\":\"11111111-1111-4111-8111-111111111111\"}]}]}}]}",
+    "go": {
+      "target": {
+        "error": "",
+        "host": "first.example",
+        "port": "2443"
+      },
+      "drafts": [
+        {
+          "Protocol": "vless",
+          "Server": "first.example",
+          "Port": 2443,
+          "Identifier": "11111111-1111-4111-8111-111111111111",
+          "Network": "tcp",
+          "Security": "none"
+        }
+      ],
+      "draft_error": "",
+      "projected": [
+        {
+          "Protocol": "vless",
+          "Server": "first.example",
+          "Port": 2443,
+          "Identifier": "11111111-1111-4111-8111-111111111111",
+          "Network": "tcp",
+          "Security": "none"
+        }
+      ],
+      "rejected": 1,
+      "project_error": ""
+    },
+    "frontend": {
+      "draft": {
+        "protocol": "vless",
+        "server": "first.example",
+        "port": "2443",
+        "identifier": "11111111-1111-4111-8111-111111111111",
+        "network": "tcp",
+        "security": "none",
+        "path": "",
+        "host": "",
+        "sni": "",
+        "alpn": "",
+        "remark": "",
+        "flow": "",
+        "encryption": "",
+        "fingerprint": "",
+        "publicKey": "",
+        "shortId": "",
+        "spiderX": "",
+        "allowInsecure": false,
+        "grpcAuthority": "",
+        "headerType": "",
+        "vmessSecurity": "",
+        "vmessAlterId": ""
+      },
+      "outbound_index": 1,
+      "error": ""
+    }
+  },
+  {
+    "name": "hy2-wrong-mask-type",
+    "raw": "{\"outbounds\":[{\"protocol\":\"hysteria2\",\"tag\":\"H2\",\"settings\":{\"address\":\"hy.example\",\"port\":443,\"version\":2,\"auth\":\"fixture-auth\"},\"streamSettings\":{\"tlsSettings\":{\"serverName\":\"sni.example\",\"alpn\":[\"h3\"],\"allowInsecure\":\"true\",\"pinnedPeerCertSha256\":\"fixture-cert\"},\"finalmask\":{\"quicParams\":{\"udpHop\":{\"ports\":\"443,8443-8445\"}},\"udp\":[false]}}},{\"protocol\":\"vless\",\"settings\":{\"vnext\":[{\"address\":\"first.example\",\"port\":2443,\"users\":[{\"id\":\"11111111-1111-4111-8111-111111111111\"}]}]}}]}",
+    "go": {
+      "target": {
+        "error": "",
+        "host": "first.example",
+        "port": "2443"
+      },
+      "drafts": [
+        {
+          "Protocol": "vless",
+          "Server": "first.example",
+          "Port": 2443,
+          "Identifier": "11111111-1111-4111-8111-111111111111",
+          "Network": "tcp",
+          "Security": "none"
+        }
+      ],
+      "draft_error": "",
+      "projected": [
+        {
+          "Protocol": "vless",
+          "Server": "first.example",
+          "Port": 2443,
+          "Identifier": "11111111-1111-4111-8111-111111111111",
+          "Network": "tcp",
+          "Security": "none"
+        }
+      ],
+      "rejected": 1,
+      "project_error": ""
+    },
+    "frontend": {
+      "draft": {
+        "protocol": "vless",
+        "server": "first.example",
+        "port": "2443",
+        "identifier": "11111111-1111-4111-8111-111111111111",
+        "network": "tcp",
+        "security": "none",
+        "path": "",
+        "host": "",
+        "sni": "",
+        "alpn": "",
+        "remark": "",
+        "flow": "",
+        "encryption": "",
+        "fingerprint": "",
+        "publicKey": "",
+        "shortId": "",
+        "spiderX": "",
+        "allowInsecure": false,
+        "grpcAuthority": "",
+        "headerType": "",
+        "vmessSecurity": "",
+        "vmessAlterId": ""
+      },
+      "outbound_index": 1,
+      "error": ""
+    }
+  },
+  {
+    "name": "hy2-unsupported-mask",
+    "raw": "{\"outbounds\":[{\"protocol\":\"hysteria2\",\"tag\":\"H2\",\"settings\":{\"address\":\"hy.example\",\"port\":443,\"version\":2,\"auth\":\"fixture-auth\"},\"streamSettings\":{\"tlsSettings\":{\"serverName\":\"sni.example\",\"alpn\":[\"h3\"],\"allowInsecure\":\"true\",\"pinnedPeerCertSha256\":\"fixture-cert\"},\"finalmask\":{\"quicParams\":{\"udpHop\":{\"ports\":\"443,8443-8445\"}},\"udp\":[{\"type\":\"unknown\",\"settings\":{\"password\":\"fixture-obfuscation\"}}]}}},{\"protocol\":\"vless\",\"settings\":{\"vnext\":[{\"address\":\"first.example\",\"port\":2443,\"users\":[{\"id\":\"11111111-1111-4111-8111-111111111111\"}]}]}}]}",
+    "go": {
+      "target": {
+        "error": "",
+        "host": "first.example",
+        "port": "2443"
+      },
+      "drafts": [
+        {
+          "Protocol": "vless",
+          "Server": "first.example",
+          "Port": 2443,
+          "Identifier": "11111111-1111-4111-8111-111111111111",
+          "Network": "tcp",
+          "Security": "none"
+        }
+      ],
+      "draft_error": "",
+      "projected": [
+        {
+          "Protocol": "vless",
+          "Server": "first.example",
+          "Port": 2443,
+          "Identifier": "11111111-1111-4111-8111-111111111111",
+          "Network": "tcp",
+          "Security": "none"
+        }
+      ],
+      "rejected": 1,
+      "project_error": ""
+    },
+    "frontend": {
+      "draft": {
+        "protocol": "vless",
+        "server": "first.example",
+        "port": "2443",
+        "identifier": "11111111-1111-4111-8111-111111111111",
+        "network": "tcp",
+        "security": "none",
+        "path": "",
+        "host": "",
+        "sni": "",
+        "alpn": "",
+        "remark": "",
+        "flow": "",
+        "encryption": "",
+        "fingerprint": "",
+        "publicKey": "",
+        "shortId": "",
+        "spiderX": "",
+        "allowInsecure": false,
+        "grpcAuthority": "",
+        "headerType": "",
+        "vmessSecurity": "",
+        "vmessAlterId": ""
+      },
+      "outbound_index": 1,
+      "error": ""
+    }
+  },
+  {
+    "name": "hy2-missing-auth",
+    "raw": "{\"outbounds\":[{\"protocol\":\"hysteria2\",\"tag\":\"H2\",\"settings\":{\"address\":\"hy.example\",\"port\":443,\"version\":2},\"streamSettings\":{\"tlsSettings\":{\"serverName\":\"sni.example\",\"alpn\":[\"h3\"],\"allowInsecure\":\"true\",\"pinnedPeerCertSha256\":\"fixture-cert\"}}},{\"protocol\":\"vless\",\"settings\":{\"vnext\":[{\"address\":\"first.example\",\"port\":2443,\"users\":[{\"id\":\"11111111-1111-4111-8111-111111111111\"}]}]}}]}",
+    "go": {
+      "target": {
+        "error": "",
+        "host": "first.example",
+        "port": "2443"
+      },
+      "drafts": [
+        {
+          "Protocol": "vless",
+          "Server": "first.example",
+          "Port": 2443,
+          "Identifier": "11111111-1111-4111-8111-111111111111",
+          "Network": "tcp",
+          "Security": "none"
+        }
+      ],
+      "draft_error": "",
+      "projected": [
+        {
+          "Protocol": "vless",
+          "Server": "first.example",
+          "Port": 2443,
+          "Identifier": "11111111-1111-4111-8111-111111111111",
+          "Network": "tcp",
+          "Security": "none"
+        }
+      ],
+      "rejected": 1,
+      "project_error": ""
+    },
+    "frontend": {
+      "draft": {
+        "protocol": "vless",
+        "server": "first.example",
+        "port": "2443",
+        "identifier": "11111111-1111-4111-8111-111111111111",
+        "network": "tcp",
+        "security": "none",
+        "path": "",
+        "host": "",
+        "sni": "",
+        "alpn": "",
+        "remark": "",
+        "flow": "",
+        "encryption": "",
+        "fingerprint": "",
+        "publicKey": "",
+        "shortId": "",
+        "spiderX": "",
+        "allowInsecure": false,
+        "grpcAuthority": "",
+        "headerType": "",
+        "vmessSecurity": "",
+        "vmessAlterId": ""
+      },
+      "outbound_index": 1,
+      "error": ""
+    }
+  },
+  {
+    "name": "tuic-extra-servers",
+    "raw": "{\"outbounds\":[{\"protocol\":\"tuic\",\"tag\":\"TUIC\",\"settings\":{\"servers\":[{\"server\":\"tuic.example\",\"port\":443,\"uuid\":\"33333333-3333-4333-8333-333333333333\",\"password\":\"fixture-password\",\"serverName\":\"sni.example\",\"alpn\":[\"h3\"],\"skip_cert_verify\":\"true\",\"congestionController\":\"bbr\",\"udpRelayMode\":\"native\",\"udp_over_stream\":true,\"zeroRTT\":\"true\",\"heartbeat\":\"10s\"},{\"server\":\"extra.example\",\"port\":443,\"uuid\":\"33333333-3333-4333-8333-333333333333\",\"password\":\"extra-fixture-password\",\"serverName\":\"sni.example\",\"alpn\":[\"h3\"],\"skip_cert_verify\":\"true\",\"congestionController\":\"bbr\",\"udpRelayMode\":\"native\",\"udp_over_stream\":true,\"zeroRTT\":\"true\",\"heartbeat\":\"10s\"}]}},{\"protocol\":\"vless\",\"settings\":{\"vnext\":[{\"address\":\"first.example\",\"port\":2443,\"users\":[{\"id\":\"11111111-1111-4111-8111-111111111111\"}]}]}}]}",
+    "go": {
+      "target": {
+        "error": "",
+        "host": "first.example",
+        "port": "2443"
+      },
+      "drafts": [
+        {
+          "Protocol": "vless",
+          "Server": "first.example",
+          "Port": 2443,
+          "Identifier": "11111111-1111-4111-8111-111111111111",
+          "Network": "tcp",
+          "Security": "none"
+        }
+      ],
+      "draft_error": "",
+      "projected": [
+        {
+          "Protocol": "tuic",
+          "Server": "tuic.example",
+          "Port": 443,
+          "Identifier": "33333333-3333-4333-8333-333333333333",
+          "Remark": "TUIC",
+          "SNI": "sni.example",
+          "ALPN": "h3",
+          "AllowInsecure": true,
+          "TUICPassword": "fixture-password",
+          "CongestionController": "bbr",
+          "UDPRelayMode": "native",
+          "UDPOverStream": true,
+          "ZeroRTT": true,
+          "Heartbeat": "10s"
+        },
+        {
+          "Protocol": "tuic",
+          "Server": "extra.example",
+          "Port": 443,
+          "Identifier": "33333333-3333-4333-8333-333333333333",
+          "Remark": "TUIC",
+          "SNI": "sni.example",
+          "ALPN": "h3",
+          "AllowInsecure": true,
+          "TUICPassword": "extra-fixture-password",
+          "CongestionController": "bbr",
+          "UDPRelayMode": "native",
+          "UDPOverStream": true,
+          "ZeroRTT": true,
+          "Heartbeat": "10s"
+        },
+        {
+          "Protocol": "vless",
+          "Server": "first.example",
+          "Port": 2443,
+          "Identifier": "11111111-1111-4111-8111-111111111111",
+          "Network": "tcp",
+          "Security": "none"
+        }
+      ],
+      "rejected": 0,
+      "project_error": ""
+    },
+    "frontend": {
+      "draft": {
+        "protocol": "vless",
+        "server": "first.example",
+        "port": "2443",
+        "identifier": "11111111-1111-4111-8111-111111111111",
+        "network": "tcp",
+        "security": "none",
+        "path": "",
+        "host": "",
+        "sni": "",
+        "alpn": "",
+        "remark": "",
+        "flow": "",
+        "encryption": "",
+        "fingerprint": "",
+        "publicKey": "",
+        "shortId": "",
+        "spiderX": "",
+        "allowInsecure": false,
+        "grpcAuthority": "",
+        "headerType": "",
+        "vmessSecurity": "",
+        "vmessAlterId": ""
+      },
+      "outbound_index": 1,
+      "error": ""
+    }
+  },
+  {
+    "name": "tuic-invalid-second-server",
+    "raw": "{\"outbounds\":[{\"protocol\":\"tuic\",\"tag\":\"TUIC\",\"settings\":{\"servers\":[{\"server\":\"tuic.example\",\"port\":443,\"uuid\":\"33333333-3333-4333-8333-333333333333\",\"password\":\"fixture-password\",\"serverName\":\"sni.example\",\"alpn\":[\"h3\"],\"skip_cert_verify\":\"true\",\"congestionController\":\"bbr\",\"udpRelayMode\":\"native\",\"udp_over_stream\":true,\"zeroRTT\":\"true\",\"heartbeat\":\"10s\"},null]}},{\"protocol\":\"vless\",\"settings\":{\"vnext\":[{\"address\":\"first.example\",\"port\":2443,\"users\":[{\"id\":\"11111111-1111-4111-8111-111111111111\"}]}]}}]}",
+    "go": {
+      "target": {
+        "error": "",
+        "host": "first.example",
+        "port": "2443"
+      },
+      "drafts": [
+        {
+          "Protocol": "vless",
+          "Server": "first.example",
+          "Port": 2443,
+          "Identifier": "11111111-1111-4111-8111-111111111111",
+          "Network": "tcp",
+          "Security": "none"
+        }
+      ],
+      "draft_error": "",
+      "projected": [
+        {
+          "Protocol": "vless",
+          "Server": "first.example",
+          "Port": 2443,
+          "Identifier": "11111111-1111-4111-8111-111111111111",
+          "Network": "tcp",
+          "Security": "none"
+        }
+      ],
+      "rejected": 1,
+      "project_error": ""
+    },
+    "frontend": {
+      "draft": {
+        "protocol": "vless",
+        "server": "first.example",
+        "port": "2443",
+        "identifier": "11111111-1111-4111-8111-111111111111",
+        "network": "tcp",
+        "security": "none",
+        "path": "",
+        "host": "",
+        "sni": "",
+        "alpn": "",
+        "remark": "",
+        "flow": "",
+        "encryption": "",
+        "fingerprint": "",
+        "publicKey": "",
+        "shortId": "",
+        "spiderX": "",
+        "allowInsecure": false,
+        "grpcAuthority": "",
+        "headerType": "",
+        "vmessSecurity": "",
+        "vmessAlterId": ""
+      },
+      "outbound_index": 1,
+      "error": ""
+    }
+  },
+  {
+    "name": "tuic-missing-password",
+    "raw": "{\"outbounds\":[{\"protocol\":\"tuic\",\"tag\":\"TUIC\",\"settings\":{\"server\":\"tuic.example\",\"port\":443,\"uuid\":\"33333333-3333-4333-8333-333333333333\",\"serverName\":\"sni.example\",\"alpn\":[\"h3\"],\"skip_cert_verify\":\"true\",\"congestionController\":\"bbr\",\"udpRelayMode\":\"native\",\"udp_over_stream\":true,\"zeroRTT\":\"true\",\"heartbeat\":\"10s\"}},{\"protocol\":\"vless\",\"settings\":{\"vnext\":[{\"address\":\"first.example\",\"port\":2443,\"users\":[{\"id\":\"11111111-1111-4111-8111-111111111111\"}]}]}}]}",
+    "go": {
+      "target": {
+        "error": "",
+        "host": "first.example",
+        "port": "2443"
+      },
+      "drafts": [
+        {
+          "Protocol": "vless",
+          "Server": "first.example",
+          "Port": 2443,
+          "Identifier": "11111111-1111-4111-8111-111111111111",
+          "Network": "tcp",
+          "Security": "none"
+        }
+      ],
+      "draft_error": "",
+      "projected": [
+        {
+          "Protocol": "vless",
+          "Server": "first.example",
+          "Port": 2443,
+          "Identifier": "11111111-1111-4111-8111-111111111111",
+          "Network": "tcp",
+          "Security": "none"
+        }
+      ],
+      "rejected": 1,
+      "project_error": ""
+    },
+    "frontend": {
+      "draft": {
+        "protocol": "vless",
+        "server": "first.example",
+        "port": "2443",
+        "identifier": "11111111-1111-4111-8111-111111111111",
+        "network": "tcp",
+        "security": "none",
+        "path": "",
+        "host": "",
+        "sni": "",
+        "alpn": "",
+        "remark": "",
+        "flow": "",
+        "encryption": "",
+        "fingerprint": "",
+        "publicKey": "",
+        "shortId": "",
+        "spiderX": "",
+        "allowInsecure": false,
+        "grpcAuthority": "",
+        "headerType": "",
+        "vmessSecurity": "",
+        "vmessAlterId": ""
+      },
+      "outbound_index": 1,
+      "error": ""
+    }
   }
 ]
