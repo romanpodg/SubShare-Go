@@ -4002,8 +4002,8 @@
       "R14c": "completed_pr27_race_review_accepted",
       "R15a": "completed_pr28_race_review_accepted",
       "R15b": "completed_pr29_a05_accepted",
-      "R16a": "locally_validated_hosted_race_review_acceptance_pending",
-      "R16b": "not_started",
+      "R16a": "completed_pr30_authorization_race_accepted",
+      "R16b": "locally_validated_hosted_race_review_acceptance_pending",
       "R17a": "not_started",
       "R17b": "not_started",
       "R18a": "not_started",
@@ -4034,13 +4034,13 @@
         "scope": "Repository test maintainability, with assertions and transitions retained"
       }
     ],
-    "nextBatch": "R16a",
+    "nextBatch": "R16b",
     "nextBatchPriority": "P1",
     "nextBatchRemainingPrerequisites": [
-      "R14/R14c/R15a/R15b and A05 are accepted in PR26-PR29. R16a complete actual-route characterization and full local validation pass with unchanged production; require final-head hosted/race/review acceptance before R16b shared guard extraction.",
+      "R16a is accepted in PR30. R16b shared guard and full local validation pass; require final-head hosted/race/review acceptance before A06 completion, then R17a.",
       "A00/A02/A03/A04/A05/A07 are accepted; broader A01/A06/A08-A14 remain."
     ],
-    "remainingCriticalRisk": "A00/A02/A03/A04/A05/A07 are accepted. R16a authorization characterization acceptance and R16b shared guard evaluation remain before A06 completion. Concurrent tracking can fail with SQLITE_BUSY; accepted A05 preserves that characterized best-effort policy. Source update category preparation retains its audited pre-transaction behavior. Broader A01/A06/A08-A14 remain. OS I/O trigger frequency remains unmeasured.",
+    "remainingCriticalRisk": "A00/A02/A03/A04/A05/A07 and R16a are accepted. R16b hosted/race/review acceptance remains before A06 completion. Concurrent tracking can fail with SQLITE_BUSY; accepted A05 preserves that characterized best-effort policy. Source update category preparation retains its audited pre-transaction behavior. Broader A01/A06/A08-A14 remain. OS I/O trigger frequency remains unmeasured.",
     "r06CharacterizationCommit": "6a12236614e5",
     "r07aExecutionRecord": "docs/code-review/r07a-category-ordering.md",
     "autonomousContinuationRecord": "docs/code-review/autonomous-continuation.md",

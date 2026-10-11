@@ -1,6 +1,6 @@
 # R16a — Actual registered-route authorization contracts
 
-Status: locally validated tests-only continuation on `test/registered-route-authorization`, based on accepted A05 merge `25b9062`. No production guard or route changes; hosted/race/review acceptance remains. No R16a PR exists at this checkpoint.
+Status: accepted in [PR30](https://github.com/romanpodg/SubShare-Go/pull/30), merge `4b6cf82d815b52f317845a7b542afed764eb6af2`. All six checks and the new actual-route authorization race pass at `01e6785a455f9258bb47adb7735a15970cd19962` in [run 38117356256](https://github.com/romanpodg/SubShare-Go/actions/runs/38117356256). Final automated review completed with a positive reaction and no threads. Production guards/registrations remain unchanged in R16a; R16b and A06 acceptance remain.
 
 The initial matrix passes 2,907 cases across 116 registered route patterns, 18 anonymous/session/token principals and GET/HEAD behavior. It covers owner/operator/viewer, legacy role aliases, API token creator roles, read/users/keys/settings/wildcard/empty scopes, valid/missing/invalid CSRF, owner-only reads/writes, interactive token mint/revoke and four public configuration aliases. Permitted handler statuses/codes are frozen from a safe valid-owner probe using malformed write payloads and absent IDs. Runtime tests use the actual registered ServeMux, match its pattern and compare independent frozen permissions; they never call production guard or scope helpers to obtain expected decisions. Accepted asynchronous health jobs are joined before fixture cleanup.
 
