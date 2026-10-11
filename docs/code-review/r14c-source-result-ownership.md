@@ -1,6 +1,6 @@
 # R14c — Bind source results to their owning fetch
 
-Status: PR #27 is open on `fix/source-sync-stale-results`, based on accepted R14 main `1785f86`. Tests-first commits `3868185` and `4125761` reproduce the original hazards and review gaps before their respective fixes. Final-head hosted/race/review acceptance remains.
+Status: accepted in [PR27](https://github.com/romanpodg/SubShare-Go/pull/27), merge `2d894fa71e9e2bf49c25e1d675990caf1157693f`. All six checks and the dedicated lifecycle race step pass at `336dd47a702b130dc51443835db5bbf2b935541a` in [run 38113420821](https://github.com/romanpodg/SubShare-Go/actions/runs/38113420821). Both P2 findings are verified/replied/resolved and final automated review reports no major issues. Tests-first commits `3868185` and `4125761` preserve the failing evidence. R15a/R15b and A05 acceptance remain.
 
 The separately accepted R14 characterization is replaced by protection expectations: the newer started fetch retains its result when an older one finishes later; a changed source URL rejects old fetched bytes; and an older failed request cannot replace a newer successful source status. All three fail against unchanged production. Raw failing results stay ignored under `.cache/r14c/stale-before.json`. The original R14 history retains the prior characterization, so the corrective behavior is explicit rather than a silent refactor.
 
