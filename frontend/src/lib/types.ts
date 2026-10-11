@@ -691,19 +691,22 @@ export interface UpdateKeyProfileInput {
 // supported real-profile protocol or a structured editor capability.
 export type KeyProfileProtocol = ExternalProfileProtocol | "";
 
-export interface CreateKeyProfileInput {
+interface CreateKeyProfileFields {
   label: string;
   client_display_name?: string;
   category_id?: number | null;
   category?: string;
   status: "active" | "non-active";
-  kind: "real" | "informational";
   template_text?: string;
   creation_mode: "raw" | "structured";
   raw_uri?: string;
-  protocol?: KeyProfileProtocol;
   structured?: StructuredProfilePatch;
 }
+
+export type CreateKeyProfileInput = CreateKeyProfileFields & (
+  | { kind: "real"; protocol?: ExternalProfileProtocol }
+  | { kind: "informational"; protocol?: KeyProfileProtocol }
+);
 
 export interface DeclarativeWarningRule {
   field: string;

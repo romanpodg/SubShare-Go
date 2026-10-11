@@ -1318,6 +1318,31 @@ components:
           items: { type: object, additionalProperties: true }
         capabilities: { type: object, additionalProperties: true }
     CreateKeyProfile:
+      oneOf:
+        - { $ref: "#/components/schemas/CreateRealKeyProfile" }
+        - { $ref: "#/components/schemas/CreateInformationalKeyProfile" }
+      discriminator:
+        propertyName: kind
+        mapping:
+          real: "#/components/schemas/CreateRealKeyProfile"
+          informational: "#/components/schemas/CreateInformationalKeyProfile"
+    CreateRealKeyProfile:
+      allOf:
+        - { $ref: "#/components/schemas/CreateKeyProfileFields" }
+        - type: object
+          properties:
+            kind: { type: string, enum: [real] }
+            protocol: { $ref: "#/components/schemas/ProfileProtocol" }
+    CreateInformationalKeyProfile:
+      allOf:
+        - { $ref: "#/components/schemas/CreateKeyProfileFields" }
+        - type: object
+          properties:
+            kind: { type: string, enum: [informational] }
+            protocol:
+              type: string
+              enum: ["", legacy, vless, vmess, trojan, xray-json, shadowsocks, hysteria2, tuic]
+    CreateKeyProfileFields:
       type: object
       additionalProperties: false
       required: [label, status, kind, creation_mode]
@@ -1331,10 +1356,7 @@ components:
         template_text: { type: string, maxLength: 8192 }
         creation_mode: { type: string, enum: [raw, structured] }
         raw_uri: { type: string, writeOnly: true, maxLength: 65535 }
-        protocol:
-          type: string
-          description: Empty is allowed for informational profiles. Real structured creation requires a supported protocol.
-          enum: ["", legacy, vless, vmess, trojan, xray-json, shadowsocks, hysteria2, tuic]
+        protocol: { type: string }
         structured:
           type: object
           writeOnly: true

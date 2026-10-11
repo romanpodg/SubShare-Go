@@ -2,8 +2,11 @@ package main
 
 import (
 	"database/sql"
+	"encoding/json"
 	"net/http"
 	"testing"
+
+	"github.com/romanpodg/SubShare-Go/internal/model"
 )
 
 func TestAPIContractRegisteredSubscriptionPatches(t *testing.T) {
@@ -20,6 +23,13 @@ func TestAPIContractRegisteredSubscriptionPatches(t *testing.T) {
 			requireRepositoryEqual(t, "persisted patch semantics", apiContractStoredPatch(t, f.app), apiContractExpected(t, name, c.Stored))
 		})
 	}
+}
+
+func TestAPIContractOmittedEmptyCreateProtocolKeepsCommandValue(t *testing.T) {
+	var before, after model.CreateKeyProfileRequest
+	requireRepositorySuccess(t, json.Unmarshal([]byte(`{"label":"fixture","status":"active","kind":"real","creation_mode":"structured","protocol":"","structured":{}}`), &before))
+	requireRepositorySuccess(t, json.Unmarshal([]byte(`{"label":"fixture","status":"active","kind":"real","creation_mode":"structured","structured":{}}`), &after))
+	requireRepositoryEqual(t, "empty protocol omission preserves decoded command", after, before)
 }
 
 func apiContractStoredPatch(t *testing.T, app *App) map[string]any {
