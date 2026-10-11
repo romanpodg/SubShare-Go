@@ -4007,7 +4007,7 @@
       "R17a": "completed_pr32_controller_accepted",
       "R17b": "completed_pr33_presentation_a08_accepted",
       "R18a": "completed_pr34_p2_resolved_final_checks_review_accepted",
-      "R18b": "canonical_branding_request_integration_locally_validated_final_gates_pending",
+      "R18b": "pr35_p2_branding_field_correction_final_validation_pending",
       "R19": "not_started",
       "R20": "not_started",
       "R21": "not_started",
@@ -4037,7 +4037,7 @@
     "nextBatch": "R18b",
     "nextBatchPriority": "P2",
     "nextBatchRemainingPrerequisites": [
-      "R18a is accepted. R18b retains tests-first 5c9374f and locally validated canonical branding GET/PUT integration. Final 4,142 frontend cases, types/lint/export, 22 browser cases and unchanged mapping/cache/request proofs pass. Finish strict/secret gates, publish and require all six final-head checks/resolved actionable review before A09 acceptance and R19.",
+      "R18b PR35 is open at 2295468. P2 4242453821 blocks acceptance; tests-first 1da8102 reproduces unsupported branding-field admission. The corrected DTO/schema excludes subscription config, keeping its dedicated API. Full 4,143 frontend and focused Go/type/lint checks pass; finish static/strict/secret, publish/reply/resolve, final-head six checks/review and A09 acceptance before R19.",
       "A00/A02/A03/A04/A05/A06/A07/A08 are accepted; broader A01/A09-A14 remain."
     ],
     "remainingCriticalRisk": "A00/A02/A03/A04/A05/A06/A07/A08 and R18a are accepted. R18b request integration/A09 acceptance remains; denied branding persistence acknowledgment/reopening stays R21. Concurrent tracking can fail with SQLITE_BUSY; accepted A05 preserves that characterized best-effort policy. Source update category preparation retains its audited pre-transaction behavior. Broader A01/A09-A14 remain. OS I/O trigger frequency remains unmeasured.",

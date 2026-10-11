@@ -109,7 +109,6 @@ export interface PanelSettingsResponse {
   pageTitleAdmin: string;
   pageTitleAdminLogin: string;
   pageTitleSubscription: string;
-  subscriptionPageConfig?: string;
 }
 
 export interface ExternalSubscriptionSource {

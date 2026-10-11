@@ -1,6 +1,6 @@
 # R18b — Branding through the existing request/error boundary
 
-Status: canonical branding request integration locally validated on `refactor/branding-api-requests`, after tests-first `5c9374f`, based on accepted R18a merge `eab5d8b`. Hosted/review acceptance remains; no R18b PR exists at this checkpoint.
+Status: [PR35](https://github.com/romanpodg/SubShare-Go/pull/35) is open on `refactor/branding-api-requests`, after tests-first `5c9374f`, based on accepted R18a merge `eab5d8b`. Initial head `2295468` passes local integration gates, but P2 branding-field admission blocks acceptance until the correction's final-head checks/review pass.
 
 The canonical request suite protects GET credentials without mutation CSRF, exact mutation JSON/current CSRF, 401 clearing/notification across structured/empty/malformed responses, 403 field errors/request IDs without logout, header-ID fallback, network rejection identity, invalid successful JSON and empty success/204. Mounted context cases retain public branding load/flat-to-nested title mapping, cache/default fallback and PUT mapping/CSRF. Current local optimistic state after a denied PUT is characterization, not proof of remote persistence; acknowledgment/reopening correction remains R21.
 
@@ -22,3 +22,9 @@ Both baseline suites, new panel suite and updated shared type tests score 10.00.
 | Integration/quality/final review | Full frontend/types/lint/export/browser, retained-body proofs, strict delta and secret scans pass locally; six final-head hosted checks/review remain |
 
 Baseline 5c9374f is committed/pushed. Publish the validated integration after final strict/secret checks and accept A09 only after all six final-head checks and resolved actionable review; then proceed R19 Xray interpretation/traversal. A12/R21 and broader A01/A09-A14 remain incomplete. Goal active; heartbeat paused per user.
+
+## PR35 review correction
+
+P2 `4242453821` / `PRRT_kwDORQFS886rPqus` identifies an unsupported `subscriptionPageConfig` field in the new branding DTO. The actual Go model marks it `json:"-"`, and the branding update SQL does not persist it. Tests-first `1da8102` reproduces TypeScript admission and OpenAPI-versus-actual-Go wire-field drift. Remove the field from the branding type and response schema; page configuration remains on its existing dedicated GET/PUT API. Request/context emitted runtime and all seven retained bodies remain identical.
+
+Full frontend now passes 4,143 cases; types/lint, focused Go/OpenAPI/DTO and static Go checks pass, regression files score 10.00. This type/documentation-only correction does not change the runtime already validated by static export and 22 browser cases. Finish strict/secret gates, publish, verify/reply/resolve the finding and request final automated review; require all six final-head checks before A09 acceptance.
