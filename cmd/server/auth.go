@@ -18,55 +18,11 @@ import (
 )
 
 func (a *App) requireAdmin(next http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		session, _, ok := a.adminSessionFromRequest(r)
-		if !ok {
-			writeAdminAuthError(w, r, http.StatusUnauthorized, "unauthorized", "authentication required")
-			return
-		}
-		if isUnsafeHTTPMethod(r.Method) && session.Role == "viewer" {
-			writeAdminAuthError(w, r, http.StatusForbidden, "viewer_read_only", "viewer role is read-only")
-			return
-		}
-		if session.AuthKind == "api_token" && !apiTokenAllows(session.Scopes, r.Method, r.URL.Path) {
-			writeAdminAuthError(w, r, http.StatusForbidden, "token_scope_forbidden", "API token scope does not allow this action")
-			return
-		}
-		if isUnsafeHTTPMethod(r.Method) && session.AuthKind != "api_token" {
-			csrfToken := strings.TrimSpace(r.Header.Get("X-CSRF-Token"))
-			if !secureEqual(csrfToken, session.CSRFToken) {
-				writeAdminAuthError(w, r, http.StatusForbidden, "csrf_invalid", "invalid CSRF token")
-				return
-			}
-		}
-		next.ServeHTTP(w, r)
-	})
+	return a.requireAdministrativeAccess(next, rejectViewerMutation)
 }
 
 func (a *App) requireSuperAdmin(next http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		session, _, ok := a.adminSessionFromRequest(r)
-		if !ok {
-			writeAdminAuthError(w, r, http.StatusUnauthorized, "unauthorized", "authentication required")
-			return
-		}
-		if !isOwnerRole(session.Role) {
-			writeAdminAuthError(w, r, http.StatusForbidden, "owner_required", "owner role is required")
-			return
-		}
-		if session.AuthKind == "api_token" && !apiTokenAllows(session.Scopes, r.Method, r.URL.Path) {
-			writeAdminAuthError(w, r, http.StatusForbidden, "token_scope_forbidden", "API token scope does not allow this action")
-			return
-		}
-		if isUnsafeHTTPMethod(r.Method) && session.AuthKind != "api_token" {
-			csrfToken := strings.TrimSpace(r.Header.Get("X-CSRF-Token"))
-			if !secureEqual(csrfToken, session.CSRFToken) {
-				writeAdminAuthError(w, r, http.StatusForbidden, "csrf_invalid", "invalid CSRF token")
-				return
-			}
-		}
-		next.ServeHTTP(w, r)
-	})
+	return a.requireAdministrativeAccess(next, rejectNonOwner)
 }
 
 func writeAdminAuthError(w http.ResponseWriter, r *http.Request, status int, code, message string) {
