@@ -36,4 +36,3 @@ test("key drag autoscrolls near the viewport edge with reduced motion", async ({
   await page.emulateMedia({ reducedMotion: "reduce" });
   await expectKeyDragAutoScroll(page);
 });
-

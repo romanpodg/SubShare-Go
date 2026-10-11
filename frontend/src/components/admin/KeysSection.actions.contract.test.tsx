@@ -231,4 +231,25 @@ describe("KeysSection action and order contracts", () => {
     expect(refresh).not.toHaveBeenCalled();
     expect(screen.getByRole("button", { name: "Перенести" })).not.toBeDisabled();
   });
+  it("does not restore selection when a removed ID later reappears", async () => {
+    const refresh = vi.fn();
+    const { rerender } = render(<KeysSection keys={[fixtureKey(1)]} subscriptionFormat="links" onRefresh={refresh} />);
+    selectKey("key-1");
+    rerender(<KeysSection keys={[]} subscriptionFormat="links" onRefresh={refresh} />);
+    await waitFor(() => expect(screen.queryByRole("button", { name: "Удалить выбранные ключи (1)" })).not.toBeInTheDocument());
+    rerender(<KeysSection keys={[fixtureKey(1)]} subscriptionFormat="links" onRefresh={refresh} />);
+    await waitFor(() => expect(screen.getByRole("checkbox", { name: "Выбрать конфигурацию key-1" })).not.toBeChecked());
+  });
+  it("does not restore a removed category's hidden flag when it reappears", async () => {
+    const refresh = vi.fn();
+    const key = { ...fixtureKey(1), category: "A" };
+    const { rerender } = render(<KeysSection keys={[key]} subscriptionFormat="links" onRefresh={refresh} />);
+    const block = document.querySelector('[data-category-block="A"]') as HTMLElement;
+    fireEvent.click(within(block).getByRole("button", { name: "Скрыть категорию «A»" }));
+    expect(screen.queryByRole("checkbox", { name: "Выбрать конфигурацию key-1" })).not.toBeInTheDocument();
+    rerender(<KeysSection keys={[]} subscriptionFormat="links" onRefresh={refresh} />);
+    await waitFor(() => expect(document.querySelector('[data-category-block="A"]')).toBeNull());
+    rerender(<KeysSection keys={[key]} subscriptionFormat="links" onRefresh={refresh} />);
+    await waitFor(() => expect(screen.getByRole("checkbox", { name: "Выбрать конфигурацию key-1" })).toBeInTheDocument());
+  });
 });
