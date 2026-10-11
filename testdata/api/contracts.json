@@ -1,0 +1,573 @@
+{
+  "fixture_version": 1,
+  "cases": {
+    "user-list": {
+      "method": "GET",
+      "path": "/api/v1/users",
+      "openapi_path": "/users",
+      "anonymous": false,
+      "response": {
+        "data": [
+          {
+            "connected_device_count": 0,
+            "created_at": "2026-01-02T03:04:05Z",
+            "effective_status": "active",
+            "email": "contract@example.test",
+            "expires_at": "",
+            "id": 1,
+            "max_devices": 1,
+            "name": "Contract user",
+            "starts_at": "",
+            "status": "active"
+          }
+        ],
+        "meta": {
+          "page": 1,
+          "page_size": 25,
+          "total": 1,
+          "total_pages": 1
+        }
+      },
+      "status": 200
+    },
+    "user-detail": {
+      "method": "GET",
+      "path": "/api/v1/users/1",
+      "openapi_path": "/users/{id}",
+      "anonymous": false,
+      "response": {
+        "data": {
+          "activation_code": "fixture-activation",
+          "activation_used_at": "",
+          "assigned_key_ids": "",
+          "blocked_reason": "",
+          "connected_device_count": 0,
+          "connected_devices": [],
+          "connected_hwids": [],
+          "created_at": "2026-01-02T03:04:05Z",
+          "effective_status": "active",
+          "email": "contract@example.test",
+          "expires_at": "",
+          "id": 1,
+          "key_assignment_mode": "selected",
+          "language": "ru",
+          "max_devices": 1,
+          "name": "Contract user",
+          "starts_at": "",
+          "status": "active",
+          "subscription_extra_status": "",
+          "subscription_extra_url": "",
+          "subscription_id": "fixture-subscription",
+          "subscription_info_url": "",
+          "subscription_name": "",
+          "subscription_refresh_hours": 12,
+          "time_zone": "Europe/Moscow",
+          "token": ""
+        }
+      },
+      "status": 200
+    },
+    "user-legacy-list": {
+      "method": "GET",
+      "path": "/api/admin/users",
+      "openapi_path": "",
+      "anonymous": false,
+      "response": {
+        "users": [
+          {
+            "activation_code": "fixture-activation",
+            "activation_used_at": "",
+            "assigned_key_ids": "",
+            "blocked_reason": "",
+            "connected_device_count": 0,
+            "connected_devices": [],
+            "connected_hwids": [],
+            "created_at": "2026-01-02T03:04:05Z",
+            "effective_status": "active",
+            "email": "contract@example.test",
+            "expires_at": "",
+            "id": 1,
+            "key_assignment_mode": "selected",
+            "language": "ru",
+            "max_devices": 1,
+            "name": "Contract user",
+            "starts_at": "",
+            "status": "active",
+            "subscription_extra_status": "",
+            "subscription_extra_url": "",
+            "subscription_id": "fixture-subscription",
+            "subscription_info_url": "",
+            "subscription_name": "",
+            "subscription_refresh_hours": 12,
+            "time_zone": "Europe/Moscow",
+            "token": ""
+          }
+        ]
+      },
+      "status": 200
+    },
+    "user-full-alias": {
+      "method": "GET",
+      "path": "/api/v1/users/full",
+      "openapi_path": "",
+      "anonymous": false,
+      "response": {
+        "users": [
+          {
+            "activation_code": "fixture-activation",
+            "activation_used_at": "",
+            "assigned_key_ids": "",
+            "blocked_reason": "",
+            "connected_device_count": 0,
+            "connected_devices": [],
+            "connected_hwids": [],
+            "created_at": "2026-01-02T03:04:05Z",
+            "effective_status": "active",
+            "email": "contract@example.test",
+            "expires_at": "",
+            "id": 1,
+            "key_assignment_mode": "selected",
+            "language": "ru",
+            "max_devices": 1,
+            "name": "Contract user",
+            "starts_at": "",
+            "status": "active",
+            "subscription_extra_status": "",
+            "subscription_extra_url": "",
+            "subscription_id": "fixture-subscription",
+            "subscription_info_url": "",
+            "subscription_name": "",
+            "subscription_refresh_hours": 12,
+            "time_zone": "Europe/Moscow",
+            "token": ""
+          }
+        ]
+      },
+      "status": 200
+    },
+    "users-empty": {
+      "method": "GET",
+      "path": "/api/v1/users?query=absent",
+      "openapi_path": "/users",
+      "anonymous": false,
+      "response": {
+        "data": [],
+        "meta": {
+          "page": 1,
+          "page_size": 25,
+          "total": 0,
+          "total_pages": 0
+        }
+      },
+      "status": 200
+    },
+    "source-list": {
+      "method": "GET",
+      "path": "/api/v1/sources",
+      "openapi_path": "/sources",
+      "anonymous": false,
+      "response": {
+        "data": [
+          {
+            "category": "general",
+            "created_at": "2026-01-02 03:04:05",
+            "enabled": true,
+            "has_hwid_value": false,
+            "id": 1,
+            "import_status": "idle",
+            "imported_keys": 0,
+            "key_category": "",
+            "last_error": "",
+            "last_import_count": 0,
+            "last_synced_at": "",
+            "name": "profiles",
+            "pass_hwid": false,
+            "source_url_masked": "https://provider.example/•••",
+            "updated_at": "2026-01-02 03:04:05"
+          }
+        ],
+        "meta": {
+          "page": 1,
+          "page_size": 25,
+          "total": 1,
+          "total_pages": 1
+        }
+      },
+      "status": 200
+    },
+    "source-detail": {
+      "method": "GET",
+      "path": "/api/v1/sources/1",
+      "openapi_path": "/sources/{id}",
+      "anonymous": false,
+      "response": {
+        "data": {
+          "category": "general",
+          "created_at": "2026-01-02 03:04:05",
+          "enabled": true,
+          "has_hwid_value": false,
+          "hwid_model_name": "",
+          "hwid_version": "",
+          "id": 1,
+          "import_status": "idle",
+          "imported_keys": 0,
+          "key_category": "",
+          "key_insert_mode": "bottom",
+          "last_error": "",
+          "last_import_count": 0,
+          "last_synced_at": "",
+          "meta_announce": "",
+          "meta_refresh_hours": 0,
+          "meta_support_url": "",
+          "meta_title": "",
+          "meta_web_page_url": "",
+          "name": "profiles",
+          "pass_hwid": false,
+          "source_url": "https://provider.example/contract",
+          "source_url_masked": "https://provider.example/•••",
+          "updated_at": "2026-01-02 03:04:05"
+        }
+      },
+      "status": 200
+    },
+    "sources-empty": {
+      "method": "GET",
+      "path": "/api/v1/sources?query=absent",
+      "openapi_path": "/sources",
+      "anonymous": false,
+      "response": {
+        "data": [],
+        "meta": {
+          "page": 1,
+          "page_size": 25,
+          "total": 0,
+          "total_pages": 0
+        }
+      },
+      "status": 200
+    },
+    "settings": {
+      "method": "GET",
+      "path": "/api/v1/subscription-settings",
+      "openapi_path": "/subscription-settings",
+      "anonymous": false,
+      "response": {
+        "extra_status": "",
+        "extra_url": "",
+        "happ_hide_server_settings": false,
+        "happ_mandatory_hwid": false,
+        "happ_no_limit_mode": false,
+        "happ_no_limit_mode_xhttp_only": false,
+        "happ_notify_expiration": false,
+        "happ_subscription_body": "",
+        "info_url": "",
+        "language": "ru",
+        "provider_id": "",
+        "refresh_hours": 12,
+        "show_subscription_expiration": false,
+        "subscription_format": "links",
+        "time_zone": "Europe/Moscow",
+        "title": "AllKeys"
+      },
+      "status": 200
+    },
+    "settings-legacy": {
+      "method": "GET",
+      "path": "/api/admin/subscription-settings",
+      "openapi_path": "",
+      "anonymous": false,
+      "response": {
+        "extra_status": "",
+        "extra_url": "",
+        "happ_hide_server_settings": false,
+        "happ_mandatory_hwid": false,
+        "happ_no_limit_mode": false,
+        "happ_no_limit_mode_xhttp_only": false,
+        "happ_notify_expiration": false,
+        "happ_subscription_body": "",
+        "info_url": "",
+        "language": "ru",
+        "provider_id": "",
+        "refresh_hours": 12,
+        "show_subscription_expiration": false,
+        "subscription_format": "links",
+        "time_zone": "Europe/Moscow",
+        "title": "AllKeys"
+      },
+      "status": 200
+    },
+    "panel-settings": {
+      "method": "GET",
+      "path": "/api/v1/panel-settings",
+      "openapi_path": "/panel-settings",
+      "anonymous": true,
+      "response": {
+        "faviconDataUrl": "",
+        "logoDataUrl": "",
+        "pageTitleAdmin": "Панель управления — SubShare",
+        "pageTitleAdminLogin": "Вход — SubShare",
+        "pageTitleSubscription": "VPN-подписка — SubShare",
+        "panelTitle": "SubShare"
+      },
+      "status": 200
+    },
+    "panel-settings-alias": {
+      "method": "GET",
+      "path": "/api/panel-settings",
+      "openapi_path": "",
+      "anonymous": true,
+      "response": {
+        "faviconDataUrl": "",
+        "logoDataUrl": "",
+        "pageTitleAdmin": "Панель управления — SubShare",
+        "pageTitleAdminLogin": "Вход — SubShare",
+        "pageTitleSubscription": "VPN-подписка — SubShare",
+        "panelTitle": "SubShare"
+      },
+      "status": 200
+    },
+    "key-detail": {
+      "method": "GET",
+      "path": "/api/v1/keys/1",
+      "openapi_path": "/keys/{id}",
+      "anonymous": false,
+      "response": {
+        "data": {
+          "capabilities": {
+            "base64": {
+              "status": "supported",
+              "target_version": "whole-body-standard-base64"
+            },
+            "compatibility-raw": {
+              "reason_code": "protocol_unsupported_by_format",
+              "status": "unsupported"
+            },
+            "connectivity-probe": {
+              "reason_code": "tcp_reachability_only",
+              "status": "conditionally_supported",
+              "target_version": "subshare-current"
+            },
+            "mihomo": {
+              "status": "supported",
+              "target_version": "1.19.28"
+            },
+            "plain": {
+              "status": "supported",
+              "target_version": "sip-uri"
+            },
+            "sing-box": {
+              "status": "supported",
+              "target_version": "1.13.12"
+            },
+            "structured-editing": {
+              "status": "supported",
+              "target_version": "subshare-current"
+            },
+            "xray-json": {
+              "status": "supported",
+              "target_version": "26.7.28"
+            }
+          },
+          "category": "",
+          "category_id": null,
+          "check_error": {
+            "code": "none",
+            "message": ""
+          },
+          "check_status": "unknown",
+          "client_display_name": "fixture-profile",
+          "client_display_name_overridden": false,
+          "created_at": "2026-01-02T03:04:05Z",
+          "external_source_id": null,
+          "external_source_name": "",
+          "id": 1,
+          "kind": "real",
+          "label": "fixture-profile",
+          "last_checked_at": "",
+          "last_latency_ms": 0,
+          "ownership": "local",
+          "profile_compatibility": "legacy",
+          "profile_revision": 1,
+          "profile_schema_version": 0,
+          "profile_warnings": [],
+          "protocol": "legacy",
+          "safe_structured": {
+            "display_name": "",
+            "port": "443",
+            "port_kind": "single",
+            "server": "example.com"
+          },
+          "status": "active",
+          "template_text": "",
+          "unknown_query_parameters": [
+            {
+              "has_value": true,
+              "key": "type"
+            }
+          ],
+          "updated_at": "2026-01-02T03:04:05Z"
+        }
+      },
+      "status": 200
+    },
+    "key-info": {
+      "method": "GET",
+      "path": "/api/v1/keys/2",
+      "openapi_path": "/keys/{id}",
+      "anonymous": false,
+      "response": {
+        "data": {
+          "capabilities": {},
+          "category": "",
+          "category_id": null,
+          "check_error": {
+            "code": "none",
+            "message": ""
+          },
+          "check_status": "unknown",
+          "client_display_name": "Contract info",
+          "client_display_name_overridden": false,
+          "created_at": "2026-01-02T03:04:05Z",
+          "external_source_id": null,
+          "external_source_name": "",
+          "id": 2,
+          "kind": "informational",
+          "label": "Contract info",
+          "last_checked_at": "",
+          "last_latency_ms": 0,
+          "ownership": "local",
+          "profile_compatibility": "full",
+          "profile_revision": 1,
+          "profile_schema_version": 1,
+          "profile_warnings": [],
+          "protocol": "",
+          "status": "active",
+          "template_text": "Read <literal> text",
+          "unknown_query_parameters": [],
+          "updated_at": "2026-01-02T03:04:05Z"
+        }
+      },
+      "status": 200
+    },
+    "keys-empty": {
+      "method": "GET",
+      "path": "/api/v1/keys?query=absent",
+      "openapi_path": "/keys",
+      "anonymous": false,
+      "response": {
+        "data": [],
+        "meta": {
+          "page": 1,
+          "page_size": 25,
+          "total": 0,
+          "total_pages": 0
+        }
+      },
+      "status": 200
+    },
+    "missing-user": {
+      "method": "GET",
+      "path": "/api/v1/users/999",
+      "openapi_path": "/users/{id}",
+      "anonymous": false,
+      "response": {
+        "code": "user_not_found",
+        "error": "user not found",
+        "field_errors": {},
+        "message": "user not found",
+        "request_id": "mutation-fixture"
+      },
+      "status": 404
+    },
+    "invalid-user": {
+      "method": "GET",
+      "path": "/api/v1/users/not-an-id",
+      "openapi_path": "/users/{id}",
+      "anonymous": false,
+      "response": {
+        "error": "invalid id"
+      },
+      "status": 400
+    },
+    "patch-omitted": {
+      "method": "PATCH",
+      "path": "/api/v1/users/1/subscription",
+      "openapi_path": "/users/{id}/subscription",
+      "body": {
+        "status": "paused"
+      },
+      "response": {
+        "message": "subscription updated"
+      },
+      "status": 200,
+      "stored": {
+        "info_url": "https://user.example/info",
+        "refresh_hours": 24,
+        "status": "paused",
+        "title": "Override"
+      }
+    },
+    "patch-null": {
+      "method": "PATCH",
+      "path": "/api/v1/users/1/subscription",
+      "openapi_path": "/users/{id}/subscription",
+      "body": {
+        "subscription_name": null,
+        "subscription_info_url": null,
+        "subscription_refresh_hours": null
+      },
+      "response": {
+        "message": "subscription updated"
+      },
+      "status": 200,
+      "stored": {
+        "info_url": null,
+        "refresh_hours": 0,
+        "status": "active",
+        "title": null
+      }
+    },
+    "patch-empty": {
+      "method": "PATCH",
+      "path": "/api/v1/users/1/subscription",
+      "openapi_path": "/users/{id}/subscription",
+      "body": {
+        "subscription_name": "",
+        "subscription_info_url": "",
+        "subscription_refresh_hours": 0
+      },
+      "response": {
+        "message": "subscription updated"
+      },
+      "status": 200,
+      "stored": {
+        "info_url": null,
+        "refresh_hours": 0,
+        "status": "active",
+        "title": null
+      }
+    },
+    "patch-status-null": {
+      "method": "PATCH",
+      "path": "/api/v1/users/1/subscription",
+      "openapi_path": "/users/{id}/subscription",
+      "body": {
+        "status": null
+      },
+      "response": {
+        "code": "status_invalid",
+        "error": "status cannot be null",
+        "field_errors": {},
+        "message": "status cannot be null",
+        "request_id": "mutation-fixture"
+      },
+      "status": 400,
+      "stored": {
+        "info_url": "https://user.example/info",
+        "refresh_hours": 24,
+        "status": "active",
+        "title": "Override"
+      }
+    }
+  }
+}
