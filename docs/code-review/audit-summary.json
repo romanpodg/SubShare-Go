@@ -4005,7 +4005,7 @@
       "R16a": "completed_pr30_authorization_race_accepted",
       "R16b": "completed_pr31_a06_accepted",
       "R17a": "completed_pr32_controller_accepted",
-      "R17b": "tests_first_presentation_parity_passed_extraction_pending",
+      "R17b": "presentation_extraction_locally_validated_hosted_review_pending",
       "R18a": "not_started",
       "R18b": "not_started",
       "R19": "not_started",
@@ -4037,10 +4037,10 @@
     "nextBatch": "R17b",
     "nextBatchPriority": "P1",
     "nextBatchRemainingPrerequisites": [
-      "R17a is accepted in PR32. R17b's nineteen-case card/row parity baseline passes with types/lint/quality; commit tests first, separate presentation through the existing tested controller, then require final full frontend/browser/hosted/review acceptance before A08 completion.",
+      "R17a is accepted in PR32. R17b retains tests-first e725609 and completed presentation extraction. All 4,099 frontend unit cases, types/lint/export, 22 browser cases and strict delta pass locally. Publish the candidate and require all six final-head hosted checks and resolved actionable automated review before A08 acceptance, then continue R18a.",
       "A00/A02/A03/A04/A05/A06/A07 are accepted; broader A01/A08-A14 remain."
     ],
-    "remainingCriticalRisk": "A00/A02/A03/A04/A05/A06/A07 and R17a are accepted. R17b presentation/final acceptance remains before A08 completion; parity baseline passes. Concurrent tracking can fail with SQLITE_BUSY; accepted A05 preserves that characterized best-effort policy. Source update category preparation retains its audited pre-transaction behavior. Broader A01/A08-A14 remain. OS I/O trigger frequency remains unmeasured.",
+    "remainingCriticalRisk": "A00/A02/A03/A04/A05/A06/A07 and R17a are accepted. R17b presentation extraction is locally validated; final hosted checks/review remain before A08 acceptance. Concurrent tracking can fail with SQLITE_BUSY; accepted A05 preserves that characterized best-effort policy. Source update category preparation retains its audited pre-transaction behavior. Broader A01/A08-A14 remain. OS I/O trigger frequency remains unmeasured.",
     "r06CharacterizationCommit": "6a12236614e5",
     "r07aExecutionRecord": "docs/code-review/r07a-category-ordering.md",
     "autonomousContinuationRecord": "docs/code-review/autonomous-continuation.md",
