@@ -77,7 +77,7 @@ jobs:
       - name: Race-check job and source lifecycle
         run: >-
           go test -race ./cmd/server
-          -run '^(TestJobLifecycle.*|TestJobSource.*|TestJobRetry.*|TestJobRecovery.*)$'
+          -run '^(TestJobLifecycle.*|TestJobSource.*|TestJobRetry.*|TestJobRecovery.*|TestSourceCreate.*)$'
           -count=1
 
       # Fork PRs have no repository secrets; tests still run, uploads are skipped.

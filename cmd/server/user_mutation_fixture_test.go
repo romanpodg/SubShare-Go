@@ -95,6 +95,7 @@ type mutationSQLFaults struct {
 	activationRowsAffectedErr error
 	deviceRowsAffectedErr     error
 	beforeExec                func(string)
+	queryErr                  func(string) error
 }
 
 type mutationSQLDriver struct{ faults *mutationSQLFaults }
@@ -169,6 +170,11 @@ type mutationSQLResult struct {
 func (result mutationSQLResult) RowsAffected() (int64, error) { return 0, result.err }
 
 func (c *mutationSQLConn) QueryContext(ctx context.Context, query string, args []driver.NamedValue) (driver.Rows, error) {
+	if c.faults.queryErr != nil {
+		if err := c.faults.queryErr(query); err != nil {
+			return nil, err
+		}
+	}
 	return c.Conn.(driver.QueryerContext).QueryContext(ctx, query, args)
 }
 

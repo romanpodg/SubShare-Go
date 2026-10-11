@@ -267,31 +267,6 @@ func (a *App) apiV1PreviewSource(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// ensureKeyCategory creates the key category when missing and returns its id
-// as a nullable SQL argument (nil when no category is requested). Error
-// messages are safe to return to the client.
-func ensureKeyCategory(tx *sql.Tx, keyCategory string) (any, error) {
-	if keyCategory == "" {
-		return nil, nil
-	}
-	var nextCategoryOrder int64
-	if err := tx.QueryRow(`SELECT COALESCE(MAX(sort_order), 0) + 1 FROM key_categories`).Scan(&nextCategoryOrder); err != nil {
-		return nil, errors.New("failed to save key category")
-	}
-	if _, err := tx.Exec(`
-			INSERT INTO key_categories(name, color, sort_order, updated_at)
-			VALUES(?, '#d8b33d', ?, CURRENT_TIMESTAMP)
-			ON CONFLICT(name) DO NOTHING
-		`, keyCategory, nextCategoryOrder); err != nil {
-		return nil, errors.New("failed to save key category")
-	}
-	var resolvedID int64
-	if err := tx.QueryRow(`SELECT id FROM key_categories WHERE name = ?`, keyCategory).Scan(&resolvedID); err != nil {
-		return nil, errors.New("failed to resolve key category")
-	}
-	return resolvedID, nil
-}
-
 func (a *App) apiV1CreateSource(w http.ResponseWriter, r *http.Request) {
 	var req model.ExternalSourceImportRequest
 	if err := httpapi.ReadJSON(r, &req); err != nil {
@@ -332,70 +307,19 @@ func (a *App) apiV1CreateSource(w http.ResponseWriter, r *http.Request) {
 		httpapi.WriteFieldError(w, r, http.StatusBadRequest, "source_empty", "no keys to import", "source_url")
 		return
 	}
-	category := sources.NormalizeCategory(req.Category)
-	keyCategory := normalizeKeyCategory(req.KeyCategory)
-	tx, err := a.db.Begin()
-	if err != nil {
-		httpapi.WriteV1Error(w, r, http.StatusInternalServerError, "source_create_failed", "failed to create source")
-		return
-	}
-	defer tx.Rollback()
-	if _, err := tx.Exec(`INSERT OR IGNORE INTO external_source_categories(name) VALUES(?)`, category); err != nil {
-		httpapi.WriteV1Error(w, r, http.StatusInternalServerError, "source_category_failed", "failed to save source category")
-		return
-	}
-	var sourceCategoryID int64
-	if err := tx.QueryRow(`SELECT id FROM external_source_categories WHERE name = ?`, category).Scan(&sourceCategoryID); err != nil {
-		httpapi.WriteV1Error(w, r, http.StatusInternalServerError, "source_category_failed", "failed to resolve source category")
-		return
-	}
-	keyCategoryID, err := ensureKeyCategory(tx, keyCategory)
-	if err != nil {
-		httpapi.WriteV1Error(w, r, http.StatusInternalServerError, "key_category_failed", err.Error())
-		return
-	}
-
-	result, err := tx.Exec(`
-		INSERT INTO external_subscription_sources(
-			name, source_category_id, category, key_category_id, key_category, key_insert_mode, source_url, enabled, apply_remote_metadata,
-			pass_hwid, hwid_version, hwid_model_name, hwid_value, import_status, updated_at
-		) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'syncing', CURRENT_TIMESTAMP)
-	`, name, sourceCategoryID, category, keyCategoryID, keyCategory, sources.NormalizeKeyInsertMode(req.KeyInsertMode), sourceURL,
-		boolToInt(req.Enabled), boolToInt(req.ApplyRemoteMetadata), boolToInt(hwidProfile.PassHWID),
-		nullStringValue(hwidProfile.Version), nullStringValue(hwidProfile.ModelName), nullStringValue(hwidProfile.HWID))
-	if err != nil {
-		if strings.Contains(strings.ToLower(err.Error()), "unique") {
-			httpapi.WriteFieldError(w, r, http.StatusConflict, "source_url_conflict", "source URL already exists", "source_url")
-			return
-		}
-		httpapi.WriteV1Error(w, r, http.StatusInternalServerError, "source_create_failed", "failed to create source")
-		return
-	}
-	sourceID, _ := result.LastInsertId()
 	source := externalSourceRow{
-		ID:                  sourceID,
-		Name:                name,
-		Category:            category,
-		KeyCategory:         keyCategory,
-		KeyInsertMode:       sources.NormalizeKeyInsertMode(req.KeyInsertMode),
-		SourceURL:           sourceURL,
-		Enabled:             req.Enabled,
-		ApplyRemoteMetadata: req.ApplyRemoteMetadata,
-		PassHWID:            hwidProfile.PassHWID,
-		HWIDVersion:         hwidProfile.Version,
-		HWIDModelName:       hwidProfile.ModelName,
-		HWIDValue:           hwidProfile.HWID,
-		ImportStatus:        "syncing",
+		Name: name, Category: sources.NormalizeCategory(req.Category), KeyCategory: normalizeKeyCategory(req.KeyCategory),
+		KeyInsertMode: sources.NormalizeKeyInsertMode(req.KeyInsertMode), SourceURL: sourceURL,
+		Enabled: req.Enabled, ApplyRemoteMetadata: req.ApplyRemoteMetadata,
+		PassHWID: hwidProfile.PassHWID, HWIDVersion: hwidProfile.Version,
+		HWIDModelName: hwidProfile.ModelName, HWIDValue: hwidProfile.HWID, ImportStatus: "syncing",
 	}
-	syncResult, err := sources.Sync(a.store().SourceSyncOn(context.Background(), tx), source.syncTarget(), parsed, a.externalProfileFingerprintKeys())
+	created, err := a.createExternalSource(source, parsed)
 	if err != nil {
-		httpapi.WriteV1Error(w, r, http.StatusInternalServerError, "source_create_failed", "failed to save imported source")
+		writeSourceCreateCommandError(w, r, err)
 		return
 	}
-	if err := tx.Commit(); err != nil {
-		httpapi.WriteV1Error(w, r, http.StatusInternalServerError, "source_create_failed", "failed to save imported source")
-		return
-	}
+	sourceID, syncResult := created.ID, created.Sync
 	row, err := a.getExternalSourceByID(sourceID)
 	if err != nil {
 		httpapi.WriteV1Error(w, r, http.StatusInternalServerError, "source_create_failed", "source created but response could not be loaded")

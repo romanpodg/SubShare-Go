@@ -1,6 +1,6 @@
 # R15a — Job queue, transitions and retry commands
 
-Status: locally validated extraction on `refactor/job-lifecycle-commands`, based on accepted R14c merge `2d894fa`, after tests-first commit `e35a1e9`. R14 lifecycle/fault/overlap/recovery contracts and the R14c ownership/request/status protections are accepted prerequisites. Hosted/race/review acceptance remains; no R15a PR exists at this checkpoint.
+Status: accepted in [PR28](https://github.com/romanpodg/SubShare-Go/pull/28), merge `e52f3a4873b2dc5d80be0ef43983b97d72018da2`, after tests-first commit `e35a1e9`. All six checks and the dedicated lifecycle race step pass at `15189d1810e32027f0d491b6e54143faf119007c` in [run 38114446212](https://github.com/romanpodg/SubShare-Go/actions/runs/38114446212). Final automated review completed with a positive reaction and no threads. R15b and A05 acceptance remain.
 
 Eleven additional registered-route cases pass against unchanged production using a test-only overlay: warning terminal state, empty/negative/overflow/hex source targets, status-before-kind rejection precedence, whitespace/plus/leading-zero source identities, exact accepted envelope, retained original eligibility and retained persisted target text. The same file is now saved in the workspace for the tests-first commit. Results are ignored under `.cache/r15a/edges-before.json`.
 
