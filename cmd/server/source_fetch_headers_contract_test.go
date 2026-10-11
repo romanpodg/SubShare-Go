@@ -2,7 +2,10 @@ package main
 
 import (
 	"net/http"
+	"strings"
+	"sync/atomic"
 	"testing"
+	"time"
 )
 
 func seedSourceFetchHeaders(t *testing.T, app *App, sourceID int64) {
@@ -56,4 +59,39 @@ func TestJobSourceInvalidatedFailureKeepsCurrentNonSyncingState(t *testing.T) {
 	close(fetch.release)
 	waitControlledSourceJob(t, done)
 	assertJobSourceStatus(t, f.app, sourceID, "ok")
+}
+
+func TestJobSourceHeaderEditDuringFailurePublicationEndsSyncing(t *testing.T) {
+	f, faults := newFaultedMutationFixture(t)
+	sourceID, fetch := configureJobSourceFixture(t, f)
+	seedSourceFetchHeaders(t, f.app, sourceID)
+	fetch.status = http.StatusServiceUnavailable
+	var publications atomic.Int32
+	reached := make(chan struct{})
+	resume := make(chan struct{})
+	t.Cleanup(func() {
+		select {
+		case <-resume:
+		default:
+			close(resume)
+		}
+	})
+	faults.beforeExec = func(query string) {
+		if strings.Contains(query, "AND (pass_hwid <> 0) = ?") && publications.Add(1) == 2 {
+			close(reached)
+			<-resume
+		}
+	}
+	_, done := startControlledSourceJob(t, f, sourceID)
+	waitJobFetch(t, fetch)
+	close(fetch.release)
+	select {
+	case <-reached:
+	case <-time.After(5 * time.Second):
+		t.Fatal("failure publication did not reach its checked write boundary")
+	}
+	execRepositoryFixtureSQL(t, f.app, `UPDATE external_subscription_sources SET pass_hwid = 0 WHERE id = ?`, sourceID)
+	close(resume)
+	waitControlledSourceJob(t, done)
+	assertJobSourceStatus(t, f.app, sourceID, "error")
 }

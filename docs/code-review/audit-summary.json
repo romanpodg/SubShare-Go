@@ -4037,10 +4037,10 @@
     "nextBatch": "R14c",
     "nextBatchPriority": "P1",
     "nextBatchRemainingPrerequisites": [
-      "R14 is accepted in PR26. R14c fetch ownership/transactional URL correction and full local validation are complete; require final-head hosted/race checks and review before correction acceptance, then R15.",
+      "R14 is accepted in PR26. PR27 fetch ownership/transactional request-input correction and both review fixes pass full local validation; require final-head hosted/race checks and review before correction acceptance, then R15.",
       "A00/A02/A03/A04/A07 are accepted; broader A01 and A05-A06/A08-A14 remain."
     ],
-    "remainingCriticalRisk": "A00/A02/A03/A04/A07 and R14 are accepted. R14c full local protections/validation pass with hosted/race correction acceptance pending. Concurrent tracking can fail with SQLITE_BUSY and remains recorded for separate lifecycle work. Broader A01 and A05-A06/A08-A14 remain. OS I/O trigger frequency remains unmeasured.",
+    "remainingCriticalRisk": "A00/A02/A03/A04/A07 and R14 are accepted. PR27 request-input and status-publication review fixes pass full local validation with final-head hosted/race/review acceptance pending. Concurrent tracking can fail with SQLITE_BUSY and remains recorded for separate lifecycle work. Broader A01 and A05-A06/A08-A14 remain. OS I/O trigger frequency remains unmeasured.",
     "r06CharacterizationCommit": "6a12236614e5",
     "r07aExecutionRecord": "docs/code-review/r07a-category-ordering.md",
     "autonomousContinuationRecord": "docs/code-review/autonomous-continuation.md",
