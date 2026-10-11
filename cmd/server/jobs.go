@@ -188,102 +188,12 @@ func keyHealthCheckJobStatus(summary keyHealthCheckJobSummary, fatalErr error) s
 	return "succeeded"
 }
 
-func (a *App) recoverInterruptedJobs() {
-	_, _ = a.db.Exec(`
-		UPDATE background_jobs
-		SET status = 'failed',
-		    error_message = 'interrupted by service restart',
-		    finished_at = CURRENT_TIMESTAMP
-		WHERE status IN ('queued', 'running')
-	`)
-	_, _ = a.db.Exec(`
-		UPDATE source_sync_runs
-		SET status = 'failed',
-		    error_message = 'interrupted by service restart',
-		    finished_at = CURRENT_TIMESTAMP
-		WHERE status = 'running'
-	`)
-	_, _ = a.db.Exec(`
-		UPDATE external_subscription_sources
-		SET import_status = 'error',
-		    last_error = 'synchronization interrupted by service restart',
-		    updated_at = CURRENT_TIMESTAMP
-		WHERE import_status = 'syncing'
-	`)
-}
-
 func nullTimePointer(value sql.NullTime) *time.Time {
 	if !value.Valid {
 		return nil
 	}
 	result := value.Time
 	return &result
-}
-
-func (a *App) startTrackedJob(kind, targetType, targetID string) int64 {
-	result, err := a.db.Exec(`
-		INSERT INTO background_jobs(kind, status, target_type, target_id, started_at)
-		VALUES(?, 'running', ?, ?, CURRENT_TIMESTAMP)
-	`, kind, targetType, targetID)
-	if err != nil {
-		return 0
-	}
-	id, _ := result.LastInsertId()
-	return id
-}
-
-func (a *App) queueTrackedJob(kind, targetType, targetID string) int64 {
-	result, err := a.db.Exec(`
-		INSERT INTO background_jobs(kind, status, target_type, target_id, run_after)
-		VALUES(?, 'queued', ?, ?, CURRENT_TIMESTAMP)
-	`, kind, targetType, targetID)
-	if err != nil {
-		return 0
-	}
-	id, _ := result.LastInsertId()
-	return id
-}
-
-func (a *App) markTrackedJobRunning(id int64) {
-	if id == 0 {
-		return
-	}
-	_, _ = a.db.Exec(`
-		UPDATE background_jobs
-		SET status = 'running', started_at = CURRENT_TIMESTAMP, error_message = ''
-		WHERE id = ? AND status = 'queued'
-	`, id)
-}
-
-func (a *App) finishTrackedJob(id int64, err error) {
-	if id == 0 {
-		return
-	}
-	if err != nil {
-		_, _ = a.db.Exec(`UPDATE background_jobs SET status = 'failed', error_message = ?, finished_at = CURRENT_TIMESTAMP WHERE id = ?`, err.Error(), id)
-		return
-	}
-	_, _ = a.db.Exec(`UPDATE background_jobs SET status = 'succeeded', error_message = '', finished_at = CURRENT_TIMESTAMP WHERE id = ?`, id)
-}
-
-func (a *App) finishKeyHealthCheckJob(id int64, summary keyHealthCheckJobSummary, fatalErr error) {
-	if id == 0 {
-		return
-	}
-	countsJSON, err := json.Marshal(summary)
-	if err != nil {
-		countsJSON = []byte("{}")
-	}
-	status := keyHealthCheckJobStatus(summary, fatalErr)
-	errorMessage := ""
-	if fatalErr != nil {
-		errorMessage = fatalErr.Error()
-	}
-	_, _ = a.db.Exec(`
-		UPDATE background_jobs
-		SET status = ?, error_message = ?, result_counts_json = ?, finished_at = CURRENT_TIMESTAMP
-		WHERE id = ?
-	`, status, errorMessage, string(countsJSON), id)
 }
 
 func decodeKeyHealthCheckJobCounts(item *backgroundJob, raw string) {
@@ -294,37 +204,6 @@ func decodeKeyHealthCheckJobCounts(item *backgroundJob, raw string) {
 	if json.Unmarshal([]byte(raw), &counts) == nil {
 		item.ResultCounts = &counts
 	}
-}
-
-func (a *App) startSourceSyncRun(sourceID int64) int64 {
-	result, err := a.db.Exec(`INSERT INTO source_sync_runs(source_id, status) VALUES(?, 'running')`, sourceID)
-	if err != nil {
-		return 0
-	}
-	id, _ := result.LastInsertId()
-	return id
-}
-
-func (a *App) finishSourceSyncRun(id int64, result sources.SyncResult, err error) {
-	if id == 0 {
-		return
-	}
-	if err != nil {
-		_, _ = a.db.Exec(`UPDATE source_sync_runs SET status = 'failed', error_message = ?, result_counts_json = ?, finished_at = CURRENT_TIMESTAMP WHERE id = ?`, err.Error(), marshalExternalCounts(result.Counts), id)
-		return
-	}
-	_, _ = a.db.Exec(`
-		UPDATE source_sync_runs SET status = 'succeeded', imported_count = ?, skipped_count = ?,
-		       result_counts_json = ?, error_message = '', finished_at = CURRENT_TIMESTAMP WHERE id = ?
-	`, result.Imported, result.Skipped, marshalExternalCounts(result.Counts), id)
-}
-
-func marshalExternalCounts(counts sources.Counts) string {
-	payload, err := json.Marshal(counts)
-	if err != nil {
-		return "{}"
-	}
-	return string(payload)
 }
 
 func (a *App) apiV1ListJobs(w http.ResponseWriter, r *http.Request) {
@@ -434,141 +313,15 @@ func (a *App) apiV1ListSourceSyncRuns(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *App) apiV1QueueSourceSync(w http.ResponseWriter, r *http.Request) {
-	sourceID, ok := httpapi.PathID(w, r, "id")
-	if !ok {
-		return
-	}
-	if _, err := a.getExternalSourceByID(sourceID); errors.Is(err, sql.ErrNoRows) {
-		httpapi.WriteV1Error(w, r, http.StatusNotFound, "source_not_found", "source not found")
-		return
-	} else if err != nil {
-		httpapi.WriteV1Error(w, r, http.StatusInternalServerError, "source_load_failed", "failed to load source")
-		return
-	}
-	session, _, _ := a.adminSessionFromRequest(r)
-	requestID := requestIDFromRequest(r)
-	jobID := a.queueTrackedJob("source_sync", "external_source", strconv.FormatInt(sourceID, 10))
-	if jobID == 0 {
-		httpapi.WriteV1Error(w, r, http.StatusInternalServerError, "job_queue_failed", "failed to queue source synchronization")
-		return
-	}
-	go a.runQueuedSourceSync(jobID, sourceID, session.AdminID, requestID)
-	httpapi.WriteJSON(w, http.StatusAccepted, map[string]any{"job_id": jobID, "status": "queued"})
+	a.respondQueuedJob(w, r, a.prepareSourceSync, "failed to queue source synchronization", false)
 }
 
 func (a *App) queueKeyHealthCheck(r *http.Request) int64 {
 	session, _, _ := a.adminSessionFromRequest(r)
-	jobID := a.queueTrackedJob("keys_health_check", "key", "all")
-	if jobID == 0 {
-		return 0
-	}
-	go a.runQueuedKeyHealthCheck(jobID, session.AdminID, requestIDFromRequest(r))
+	jobID, _ := a.enqueueAndDispatchJob(jobDispatchPlan{kind: "keys_health_check", targetType: "key", targetID: "all"}, session.AdminID, requestIDFromRequest(r))
 	return jobID
 }
 
-func (a *App) runQueuedKeyHealthCheck(jobID, actorAdminID int64, requestID string) {
-	a.markTrackedJobRunning(jobID)
-	targets, err := a.keyService().ListHealthCheckTargets(context.Background())
-	if err != nil {
-		a.finishKeyHealthCheckJob(jobID, keyHealthCheckJobSummary{}, err)
-		return
-	}
-	summary := executeKeyHealthCheckBatch(targets, func(ctx context.Context, rawURL string) (string, string, int64, error) {
-		status, detail, latency := checkConfigurationAvailabilityContext(ctx, rawURL)
-		return status, detail, latency, nil
-	}, func(keyID int64, status string, detail string, latency int64) error {
-		return a.keyService().SaveHealthCheckResult(context.Background(), keyID, status, detail, latency)
-	}, keyHealthCheckConcurrency)
-	a.finishKeyHealthCheckJob(jobID, summary, nil)
-	a.recordAuditEventForActor(actorAdminID, requestID, "keys.health_check", "key", "all", map[string]any{
-		"job_id":        jobID,
-		"result_counts": summary,
-	})
-}
-
-func (a *App) runQueuedSourceSync(jobID, sourceID, actorAdminID int64, requestID string) {
-	a.markTrackedJobRunning(jobID)
-	runID := a.startSourceSyncRun(sourceID)
-	source, err := a.getExternalSourceByID(sourceID)
-	if err != nil {
-		a.finishTrackedJob(jobID, err)
-		a.finishSourceSyncRun(runID, sources.SyncResult{}, err)
-		return
-	}
-	lease := a.beginSourceFetch(source)
-	defer a.releaseSourceFetch(lease)
-	a.markSourceFetchStatus(lease, "syncing", "")
-	hwidProfile := sources.NormalizeHWIDProfile(source.PassHWID, source.HWIDVersion, source.HWIDModelName, source.HWIDValue)
-	parsed, err := sources.Fetch(context.Background(), a.sourceClient(), source.SourceURL, hwidProfile, a.externalProfileFingerprintKeys())
-	if err != nil {
-		a.markSourceFetchStatus(lease, "error", err.Error())
-		a.finishTrackedJob(jobID, err)
-		a.finishSourceSyncRun(runID, sources.SyncResult{}, err)
-		return
-	}
-	syncResult, err := a.syncOwnedSourceResult(lease, parsed)
-	if err != nil {
-		a.markSourceFetchStatus(lease, "error", err.Error())
-		a.finishTrackedJob(jobID, err)
-		a.finishSourceSyncRun(runID, syncResult, err)
-		return
-	}
-	a.finishTrackedJob(jobID, nil)
-	a.finishSourceSyncRun(runID, syncResult, nil)
-	a.recordAuditEventForActor(actorAdminID, requestID, "external_source.sync", "external_source", strconv.FormatInt(sourceID, 10), map[string]any{
-		"imported_count": syncResult.Imported,
-		"skipped_count":  syncResult.Skipped,
-		"result_counts":  syncResult.Counts,
-		"job_id":         jobID,
-	})
-}
-
 func (a *App) apiV1RetryJob(w http.ResponseWriter, r *http.Request) {
-	jobID, ok := httpapi.PathID(w, r, "id")
-	if !ok {
-		return
-	}
-	var kind, status, targetID string
-	err := a.db.QueryRow(`SELECT kind, status, target_id FROM background_jobs WHERE id = ?`, jobID).Scan(&kind, &status, &targetID)
-	if errors.Is(err, sql.ErrNoRows) {
-		httpapi.WriteV1Error(w, r, http.StatusNotFound, "job_not_found", "job not found")
-		return
-	}
-	if err != nil {
-		httpapi.WriteV1Error(w, r, http.StatusInternalServerError, "job_load_failed", "failed to load job")
-		return
-	}
-	if status != "failed" {
-		httpapi.WriteV1Error(w, r, http.StatusConflict, "job_not_failed", "only failed jobs can be retried")
-		return
-	}
-	targetType := ""
-	var sourceID int64
-	switch kind {
-	case "source_sync":
-		targetType = "external_source"
-		sourceID, err = strconv.ParseInt(strings.TrimSpace(targetID), 10, 64)
-		if err != nil || sourceID < 1 {
-			httpapi.WriteV1Error(w, r, http.StatusConflict, "job_target_invalid", "job target is invalid")
-			return
-		}
-	case "keys_health_check":
-		targetType = "key"
-	default:
-		httpapi.WriteV1Error(w, r, http.StatusConflict, "job_not_retryable", "this job type is not retryable")
-		return
-	}
-	session, _, _ := a.adminSessionFromRequest(r)
-	newJobID := a.queueTrackedJob(kind, targetType, targetID)
-	if newJobID == 0 {
-		httpapi.WriteV1Error(w, r, http.StatusInternalServerError, "job_queue_failed", "failed to retry job")
-		return
-	}
-	switch kind {
-	case "source_sync":
-		go a.runQueuedSourceSync(newJobID, sourceID, session.AdminID, requestIDFromRequest(r))
-	case "keys_health_check":
-		go a.runQueuedKeyHealthCheck(newJobID, session.AdminID, requestIDFromRequest(r))
-	}
-	httpapi.WriteJSON(w, http.StatusAccepted, map[string]any{"job_id": newJobID, "retry_of": jobID, "status": "queued"})
+	a.respondQueuedJob(w, r, a.prepareJobRetry, "failed to retry job", true)
 }

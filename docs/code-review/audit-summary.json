@@ -4000,7 +4000,7 @@
       "R13b": "completed_pr25_a04_accepted",
       "R14": "completed_pr26_race_accepted",
       "R14c": "completed_pr27_race_review_accepted",
-      "R15a": "tests_first_retry_edges_passed_extraction_pending",
+      "R15a": "locally_validated_hosted_race_review_acceptance_pending",
       "R15b": "not_started",
       "R16a": "not_started",
       "R16b": "not_started",
@@ -4037,10 +4037,10 @@
     "nextBatch": "R15a",
     "nextBatchPriority": "P1",
     "nextBatchRemainingPrerequisites": [
-      "R14/R14c are accepted in PR26/PR27. R15a additional retry-edge characterization passes before extraction; separate queue/transition/retry commands with unchanged scheduling and best-effort tracking, then require full/hosted/race/review acceptance. R15b remains separate.",
+      "R14/R14c are accepted in PR26/PR27. R15a queue/transition/retry separation and full local validation pass after tests-first e35a1e9; require final-head hosted/race/review acceptance. R15b remains separate.",
       "A00/A02/A03/A04/A07 are accepted; broader A01 and A05-A06/A08-A14 remain."
     ],
-    "remainingCriticalRisk": "A00/A02/A03/A04/A07 and R14/R14c are accepted. R15a extraction and R15b source-create boundary remain before A05 acceptance. Concurrent tracking can fail with SQLITE_BUSY; R15a preserves that characterized best-effort policy. Broader A01 and A05-A06/A08-A14 remain. OS I/O trigger frequency remains unmeasured.",
+    "remainingCriticalRisk": "A00/A02/A03/A04/A07 and R14/R14c are accepted. R15a hosted/race/review acceptance and R15b source-create boundary remain before A05 acceptance. Concurrent tracking can fail with SQLITE_BUSY; R15a preserves that characterized best-effort policy. Broader A01 and A05-A06/A08-A14 remain. OS I/O trigger frequency remains unmeasured.",
     "r06CharacterizationCommit": "6a12236614e5",
     "r07aExecutionRecord": "docs/code-review/r07a-category-ordering.md",
     "autonomousContinuationRecord": "docs/code-review/autonomous-continuation.md",
