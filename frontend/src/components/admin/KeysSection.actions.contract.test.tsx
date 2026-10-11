@@ -3,15 +3,17 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { KeySummary } from "@/lib/types";
 import { KeysSection } from "@/components/admin/KeysSection";
 
-const mocks = vi.hoisted(() => ({ listCategories: vi.fn(), bulkDelete: vi.fn(), delete: vi.fn(), reorder: vi.fn(), check: vi.fn(), checkAll: vi.fn(), toast: vi.fn() }));
+const mocks = vi.hoisted(() => ({ listCategories: vi.fn(), bulkDelete: vi.fn(), delete: vi.fn(), reorder: vi.fn(), reorderCategories: vi.fn(), update: vi.fn(), check: vi.fn(), checkAll: vi.fn(), toast: vi.fn() }));
 vi.mock("@/lib/api", () => ({ keys: mocks }));
 vi.mock("@/components/ui/Toast", () => ({ useToast: () => ({ toast: mocks.toast }) }));
-afterEach(cleanup);
+afterEach(() => { cleanup(); vi.restoreAllMocks(); });
 beforeEach(() => {
   vi.resetAllMocks();
   mocks.listCategories.mockResolvedValue({ categories: [] });
   mocks.bulkDelete.mockResolvedValue({ deleted: 2 });
   mocks.reorder.mockResolvedValue(undefined);
+  mocks.reorderCategories.mockResolvedValue(undefined);
+  mocks.update.mockResolvedValue(undefined);
   mocks.delete.mockResolvedValue(undefined);
   mocks.check.mockResolvedValue(undefined);
   mocks.checkAll.mockResolvedValue({ job_id: 42, status: "queued" });
@@ -21,13 +23,27 @@ function fixtureKey(id: number, label = `key-${id}`): KeySummary {
 }
 function selectKey(label: string) { fireEvent.click(screen.getByRole("checkbox", { name: `Выбрать конфигурацию ${label}` })); }
 function openBulkDelete(count: number) { fireEvent.click(screen.getByRole("button", { name: `Удалить выбранные ключи (${count})` })); return screen.getByRole("dialog"); }
-function dragCard(sourceLabel: string, targetLabel: string) {
-  const source = screen.getByRole("checkbox", { name: `Выбрать конфигурацию ${sourceLabel}` }).closest(".ui-key-card")!;
-  const target = screen.getByRole("checkbox", { name: `Выбрать конфигурацию ${targetLabel}` }).closest(".ui-key-card")!;
-  fireEvent.dragStart(source, { dataTransfer: { setData: vi.fn(), effectAllowed: "" } });
-  fireEvent.drop(target);
+function dragCard(source: Pick<KeySummary, "label">, target: Pick<KeySummary, "label">) {
+  const sourceCard = cardFor(source);
+  const targetCard = cardFor(target);
+  fireEvent.dragStart(sourceCard, { dataTransfer: { setData: vi.fn(), effectAllowed: "" } });
+  fireEvent.drop(targetCard);
 }
 function deferred<T>() { let resolve!: (value: T) => void; const promise = new Promise<T>((done) => { resolve = done; }); return { promise, resolve }; }
+function cardFor(key: Pick<KeySummary, "label">) { return screen.getByRole("checkbox", { name: `Выбрать конфигурацию ${key.label}` }).closest(".ui-key-card") as HTMLElement; }
+function startCardDrag(key: Pick<KeySummary, "label">) { fireEvent.dragStart(cardFor(key), { dataTransfer: { setData: vi.fn(), effectAllowed: "" } }); }
+function categoryFixtures() { return [{ name: "A", color: "#d8b33d", keys_count: 1 }, { name: "B", color: "#123456", keys_count: 0 }]; }
+async function chooseKeyCategory(name: string) {
+  fireEvent.click(screen.getByLabelText("Категория ключа"));
+  fireEvent.click(await screen.findByRole("option", { name }));
+}
+async function openCategoryFixture(key: KeySummary, refresh = vi.fn()) {
+  mocks.listCategories.mockResolvedValue({ categories: categoryFixtures() });
+  render(<KeysSection keys={[key]} subscriptionFormat="links" onRefresh={refresh} />);
+  await screen.findByRole("button", { name: "Редактировать категорию «B»" });
+  fireEvent.click(screen.getByRole("button", { name: "Редактировать категорию «A»" }));
+  return refresh;
+}
 
 describe("KeysSection action and order contracts", () => {
   it("cancels deletion without a request and retains selection", async () => {
@@ -76,7 +92,7 @@ describe("KeysSection action and order contracts", () => {
   it("saves the full ID order while the visible list is filtered", async () => {
     render(<KeysSection keys={[fixtureKey(1, "visible-one"), fixtureKey(2, "hidden-two"), fixtureKey(3, "visible-three")]} subscriptionFormat="links" onRefresh={vi.fn()} />);
     fireEvent.change(screen.getByPlaceholderText("Поиск по названию, категории, URL, ID..."), { target: { value: "visible" } });
-    dragCard("visible-one", "visible-three");
+    dragCard({ label: "visible-one" }, { label: "visible-three" });
     fireEvent.click(screen.getByRole("button", { name: "Сохранить порядок" }));
     // Existing drops insert before the target after removing the source item.
     await waitFor(() => expect(mocks.reorder).toHaveBeenCalledWith([2, 1, 3]));
@@ -84,7 +100,7 @@ describe("KeysSection action and order contracts", () => {
   it("retains unsaved order across refetch and adopts current props after saving", async () => {
     const refresh = vi.fn().mockResolvedValue(undefined);
     const { rerender } = render(<KeysSection keys={[fixtureKey(1), fixtureKey(2), fixtureKey(3)]} subscriptionFormat="links" onRefresh={refresh} />);
-    dragCard("key-3", "key-1");
+    dragCard({ label: "key-3" }, { label: "key-1" });
     rerender(<KeysSection keys={[fixtureKey(1), fixtureKey(2), fixtureKey(3), fixtureKey(4)]} subscriptionFormat="links" onRefresh={refresh} />);
     expect(screen.queryByRole("checkbox", { name: "Выбрать конфигурацию key-4" })).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Сохранить порядок" }));
@@ -94,7 +110,7 @@ describe("KeysSection action and order contracts", () => {
   it("keeps pending order after a failed save and sends it again on retry", async () => {
     mocks.reorder.mockRejectedValueOnce(new Error("fixture order failure"));
     render(<KeysSection keys={[fixtureKey(1), fixtureKey(2), fixtureKey(3)]} subscriptionFormat="links" onRefresh={vi.fn()} />);
-    dragCard("key-3", "key-1");
+    dragCard({ label: "key-3" }, { label: "key-1" });
     const save = screen.getByRole("button", { name: "Сохранить порядок" });
     fireEvent.click(save);
     await waitFor(() => expect(mocks.toast).toHaveBeenCalledWith("Не удалось изменить порядок конфигураций", "error"));
@@ -128,5 +144,91 @@ describe("KeysSection action and order contracts", () => {
     fireEvent.click(screen.getByRole("checkbox", { name: "Снять выбор со всех конфигураций" }));
     fireEvent.click(within(openBulkDelete(1)).getByRole("button", { name: "Удалить" }));
     await waitFor(() => expect(mocks.bulkDelete).toHaveBeenCalledWith([2]));
+  });
+  it("cancels a single delete without changing the list or refreshing", () => {
+    const refresh = vi.fn();
+    render(<KeysSection keys={[fixtureKey(1)]} subscriptionFormat="links" onRefresh={refresh} />);
+    fireEvent.click(within(cardFor({ label: "key-1" })).getByRole("button", { name: "Удалить" }));
+    fireEvent.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Отмена" }));
+    expect(mocks.delete).not.toHaveBeenCalled();
+    expect(refresh).not.toHaveBeenCalled();
+    expect(cardFor({ label: "key-1" })).toBeInTheDocument();
+  });
+  it("retains a key after single-delete failure and permits retry", async () => {
+    mocks.delete.mockRejectedValueOnce(new Error("fixture single-delete failure"));
+    const refresh = vi.fn();
+    render(<KeysSection keys={[fixtureKey(1)]} subscriptionFormat="links" onRefresh={refresh} />);
+    fireEvent.click(within(cardFor({ label: "key-1" })).getByRole("button", { name: "Удалить" }));
+    fireEvent.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Удалить" }));
+    await waitFor(() => expect(mocks.toast).toHaveBeenCalledWith("Не удалось удалить конфигурацию", "error"));
+    expect(refresh).not.toHaveBeenCalled();
+    fireEvent.click(within(cardFor({ label: "key-1" })).getByRole("button", { name: "Удалить" }));
+    fireEvent.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Удалить" }));
+    await waitFor(() => expect(mocks.delete).toHaveBeenCalledTimes(2));
+    expect(mocks.delete.mock.calls).toEqual([[1], [1]]);
+  });
+  it("reports a single health failure without refreshing", async () => {
+    mocks.check.mockRejectedValueOnce(new Error("fixture single-health failure"));
+    const refresh = vi.fn();
+    render(<KeysSection keys={[fixtureKey(1)]} subscriptionFormat="links" onRefresh={refresh} />);
+    fireEvent.click(within(cardFor({ label: "key-1" })).getByRole("button", { name: "Проверить" }));
+    await waitFor(() => expect(mocks.toast).toHaveBeenCalledWith("Не удалось проверить конфигурацию", "error"));
+    expect(mocks.check).toHaveBeenCalledWith(1);
+    expect(refresh).not.toHaveBeenCalled();
+  });
+  it.each(["drag end", "unmount"])("removes its document drag listeners on %s", async (finish) => {
+    const added = vi.spyOn(document, "addEventListener");
+    const removed = vi.spyOn(document, "removeEventListener");
+    const { unmount } = render(<KeysSection keys={[fixtureKey(1)]} subscriptionFormat="links" onRefresh={vi.fn()} />);
+    startCardDrag({ label: "key-1" });
+    const registrations = added.mock.calls.filter(([name, , capture]) => ["dragover", "drop", "dragend"].includes(name) && capture === true);
+    expect(registrations).toHaveLength(3);
+    if (finish === "unmount") unmount();
+    else fireEvent.dragEnd(cardFor({ label: "key-1" }));
+    for (const [name, listener, capture] of registrations) expect(removed).toHaveBeenCalledWith(name, listener, capture);
+  });
+  it("submits the complete category order including an empty category while filtered", async () => {
+    mocks.listCategories.mockResolvedValue({ categories: categoryFixtures() });
+    const refresh = vi.fn();
+    render(<KeysSection keys={[{ ...fixtureKey(1), category: "A" }]} subscriptionFormat="links" onRefresh={refresh} />);
+    await screen.findByRole("button", { name: "Переместить категорию «A» вниз" });
+    fireEvent.change(screen.getByPlaceholderText("Поиск по названию, категории, URL, ID..."), { target: { value: "key-1" } });
+    fireEvent.click(screen.getByRole("button", { name: "Переместить категорию «A» вниз" }));
+    await waitFor(() => expect(mocks.reorderCategories).toHaveBeenCalledWith(["B", "A"]));
+    await waitFor(() => expect(refresh).toHaveBeenCalledOnce());
+  });
+  it("reports a category-order failure without refreshing", async () => {
+    mocks.listCategories.mockResolvedValue({ categories: categoryFixtures() });
+    mocks.reorderCategories.mockRejectedValueOnce(new Error("fixture category-order failure"));
+    const refresh = vi.fn();
+    render(<KeysSection keys={[{ ...fixtureKey(1), category: "A" }]} subscriptionFormat="links" onRefresh={refresh} />);
+    fireEvent.click(await screen.findByRole("button", { name: "Переместить категорию «A» вниз" }));
+    await waitFor(() => expect(mocks.toast).toHaveBeenCalledWith("fixture category-order failure", "error"));
+    expect(refresh).not.toHaveBeenCalled();
+  });
+  it.each(["B (0)", "Без категории"])("retains the legacy metadata-only move payload for %s", async (option) => {
+    const refresh = await openCategoryFixture({ ...fixtureKey(1), category: "A" });
+    await chooseKeyCategory(option);
+    fireEvent.click(screen.getByRole("button", { name: "Перенести" }));
+    await waitFor(() => expect(mocks.update).toHaveBeenCalledWith(1, {
+      label: "key-1", status: "active", kind: "real", category: option === "Без категории" ? "" : "B",
+      uuid: "", host: "", port: "", query: "", fragment: "", template_text: undefined,
+    }));
+    await waitFor(() => expect(refresh).toHaveBeenCalledOnce());
+  });
+  it("keeps informational content when moving a key between categories", async () => {
+    await openCategoryFixture({ ...fixtureKey(1), kind: "informational", category: "A", template_text: "fixture information" });
+    await chooseKeyCategory("B (0)");
+    fireEvent.click(screen.getByRole("button", { name: "Перенести" }));
+    await waitFor(() => expect(mocks.update).toHaveBeenCalledWith(1, expect.objectContaining({ kind: "informational", category: "B", template_text: "fixture information" })));
+  });
+  it("reports a failed key-category move and retains the current key", async () => {
+    mocks.update.mockRejectedValueOnce(new Error("fixture move failure"));
+    const refresh = await openCategoryFixture({ ...fixtureKey(1), category: "A" });
+    await chooseKeyCategory("B (0)");
+    fireEvent.click(screen.getByRole("button", { name: "Перенести" }));
+    await waitFor(() => expect(mocks.toast).toHaveBeenCalledWith("Не удалось перенести ключ", "error"));
+    expect(refresh).not.toHaveBeenCalled();
+    expect(screen.getByRole("button", { name: "Перенести" })).not.toBeDisabled();
   });
 });

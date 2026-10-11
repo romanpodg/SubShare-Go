@@ -34,7 +34,7 @@ Completed work:
 | A05 / P1 | Completed; R14/R14c/R15a/R15b accepted in PR26-PR29 | Six final-head checks/race/review clear at 99f82f1; retain [A05 evidence](r15b-source-create.md) |
 | A06 / P1 | Completed; R16a/R16b accepted in PR30/PR31 | Six final-head checks/race/review clear at f4aee31; retain [A06 evidence](r16b-shared-guards.md) |
 | A07 / P1 | Completed; R11a/R11b and corrections merged in PR19-PR22 | Final six checks/review clear at b6fb366; retain [requirement evidence](r11b-reveal-provenance.md) |
-| A08 / P1 | R17a initial mounted action/order baseline passes; production unchanged | Complete R17a prerequisite matrix/controller, then R17b shared presentation |
+| A08 / P1 | R17a complete prerequisite matrix and full frontend/browser gates pass; production unchanged | R17a controller extraction/acceptance, then R17b shared presentation |
 | A09 / P2 | Not started | R18a/R18b Go/TS/OpenAPI contracts and request errors |
 | A10 / P2 | Not started | R19 backend Xray interpretation |
 | A11 / P2 | Not started | R20 supported-consumer check and unused declarations |
