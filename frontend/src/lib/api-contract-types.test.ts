@@ -60,3 +60,8 @@ it("allows the existing empty informational create protocol", () => {
   const diagnostics = contractDiagnostics('import type { CreateKeyProfileInput } from "./types"; const input = { label: "fixture", status: "active", kind: "informational", creation_mode: "raw", protocol: "", template_text: "info" } satisfies CreateKeyProfileInput;');
   expect(diagnostics, diagnostics.join("\n")).toEqual([]);
 });
+
+it("rejects subscription configuration in the branding wire declaration", () => {
+  const source = 'import type { PanelSettingsResponse } from "./types"; const input = '+JSON.stringify({ ...fixture.cases["panel-settings"].response, subscriptionPageConfig: "{}" })+' satisfies PanelSettingsResponse;';
+  expect(contractDiagnostics(source)).not.toEqual([]);
+});
