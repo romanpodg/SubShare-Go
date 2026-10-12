@@ -46,7 +46,7 @@ All six checks passed for a438377: backend, frontend, Docker smoke, CodeScene, C
 
 Codecov: project **48.02%** versus main **46.89%**; main.go **18.46%** versus **8.01%**; sqlite.go **64.70%** versus **60.78%**; whole-PR patch **80.09%**. Test Analytics: **848 passed, 5 skipped, no failures/errors**. Bundle upload/check passed; size/delta figures were unavailable in inspected results. Local statements remain **52.4%**, with unchanged coverage across 140 repository blocks. Optional snapshot/client fixtures and local race execution remain unverified. Passing frontend CI does not complete its planned refactoring.
 
-**Current review boundary:** R01-R20 and separate correctness fixes are merged through PR37. A00/A02/A03/A04/A05/A06/A07/A08/A09/A10/A11 are accepted. R21 branding acknowledgment/reopening is next, with desired failures reproduced. Broader A01/A12-A14 remain incomplete. Historical audit measurements remain distinct from current validation.
+**Current review boundary:** R01-R21 and separate correctness fixes are merged through PR38. A00/A02/A03/A04/A05/A06/A07/A08/A09/A10/A11/A12 are accepted. R22a package-local delivery/sync fixtures and measurement are locally validated in PR39, with final hosted/review acceptance pending. R22b backup/upgrade/restore assurance and R23 public-page contracts are next; broader A01/A13-A14 remain incomplete. Historical audit measurements remain distinct from current validation.
 
 ## P0
 

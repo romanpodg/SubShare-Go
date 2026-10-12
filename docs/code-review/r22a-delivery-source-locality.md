@@ -1,6 +1,6 @@
 # R22a — Package-local delivery and source-sync contracts
 
-Status: locally validated on `test/delivery-source-local-contracts`, based on accepted R21 main `dabf134`; final hosted/review gates pending. This is the measurement/test-locality part of A13; R22b operational backup/migration/restore assurance remains separate.
+Status: locally validated in [PR39](https://github.com/romanpodg/SubShare-Go/pull/39), initially at `f8e9c1b`, based on accepted R21 main `dabf134`; final corrected-head hosted/review gates pending. This is the measurement/test-locality part of A13; R22b operational backup/migration/restore assurance remains separate.
 
 Keep all existing handler integration tests. Add direct semantic assertions for delivery format selection, credential/name projection, mixed exclusions, informational entries, safe failure/header publication and structured-output validation. Source-sync fixtures use populated disposable migrated SQLite databases and a fresh fixture keyring, exercising encrypted persistence, idempotence, stable identity, local metadata, partial-import removal policy, source scope, disabled insertion, user assignments, admission and publication rollback.
 
@@ -39,3 +39,7 @@ Full uncached instrumented Go passes 4,511 cases with five unchanged optional sn
 | Integration and final review | Local full/static/quality evidence above; exact-head hosted/review acceptance pending |
 
 R22a alone does not accept A13: matching-keyring restore, backup publication faults, custom path export, encryption/table-rebuild interruptions, Docker populated upgrade/restore and optional runner policy remain R22b requirements. Broader A01/A13-A14 remain; goal active, heartbeat paused.
+
+## PR39 review correction
+
+P2 comment 4247753351 correctly identified stale current-boundary prose contradicting the A12/R21 acceptance table. The correction aligns the paragraph with PR38/A12 acceptance, current R22a PR39 and remaining R22b/R23/A01 scope. Backlog table, batch table, audit next-batch state and latest continuation now agree. This correction changes only records; the locally validated Go fixtures and production baseline remain identical. Require all six checks/four race steps and completed actionable-findings-free review at the corrected head, then reply/resolve the verified finding before acceptance.
