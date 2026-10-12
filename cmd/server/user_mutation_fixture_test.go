@@ -91,6 +91,7 @@ func assertMutationResponse(t *testing.T, recorder *httptest.ResponseRecorder, p
 type mutationSQLFaults struct {
 	beginErr, commitErr       error
 	patchRowsAffectedErr      error
+	settingsRowsAffectedErr   error
 	deleteRowsAffectedErr     error
 	activationRowsAffectedErr error
 	deviceRowsAffectedErr     error
@@ -151,6 +152,8 @@ func (faults *mutationSQLFaults) rowsAffectedError(query string) error {
 	switch {
 	case isSubscriptionPatchWrite(query):
 		return faults.patchRowsAffectedErr
+	case strings.HasPrefix(strings.TrimSpace(query), "UPDATE users SET time_zone"):
+		return faults.settingsRowsAffectedErr
 	case strings.HasPrefix(strings.TrimSpace(query), "DELETE FROM users"):
 		return faults.deleteRowsAffectedErr
 	case isActivationClaimWrite(query):
