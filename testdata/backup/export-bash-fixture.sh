@@ -3,7 +3,9 @@
 set -euo pipefail
 docker() {
   if [[ "$2" == exec ]]; then
-    if [[ "$*" == *PROFILE_ENCRYPTION_KEYRING* ]]; then
+    if [[ "$*" == *'$PWD'* ]]; then
+      printf '/app/%s\n' "${!#}"
+    elif [[ "$*" == *PROFILE_ENCRYPTION_KEYRING* ]]; then
       [[ -z "${SUBSHARE_BACKUP_TEST_INLINE:-}" ]] || return 1
       printf '%s\n' "${SUBSHARE_BACKUP_TEST_KEYRING_PATH-/app/data/keyring.json}"
     elif [[ "$*" == *BACKUP_PATH* ]]; then

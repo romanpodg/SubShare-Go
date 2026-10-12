@@ -15,6 +15,10 @@ function docker {
 }
 
 function Invoke-BackupFixtureExec([object[]]$taskArguments) {
+    if (($taskArguments -join ' ') -match '\$PWD') {
+        Write-Output ('/app/' + $taskArguments[-1])
+        return
+    }
     if (($taskArguments -join ' ') -match 'PROFILE_ENCRYPTION_KEYRING') {
         Invoke-BackupFixtureKeyring
         return

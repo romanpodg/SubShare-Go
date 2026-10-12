@@ -106,6 +106,18 @@ func backupExportPowerShell(t *testing.T) string {
 	return ""
 }
 
+func TestBackupAssuranceNativeRelativePathsUseBackendWorkingDirectory(t *testing.T) {
+	root, err := filepath.Abs("../..")
+	backupAssuranceSuccess(t, err)
+	destination := t.TempDir()
+	capture := filepath.Join(destination, "copies.txt")
+	command := backupExportFixtureCommand(t, root)
+	command.Env = append(os.Environ(), "SUBSHARE_BACKUP_TEST_ROOT="+root, "SUBSHARE_BACKUP_TEST_DESTINATION="+destination, "SUBSHARE_BACKUP_TEST_CAPTURE="+capture, "SUBSHARE_BACKUP_TEST_PATH=archive/provider.db", "SUBSHARE_BACKUP_TEST_FAILURE=", "SUBSHARE_BACKUP_TEST_KEYRING_PATH=keys/provider.json", "SUBSHARE_BACKUP_TEST_INLINE=")
+	_, err = command.CombinedOutput()
+	backupAssuranceSuccess(t, err)
+	backupAssuranceEqual(t, "backend-relative pair", backupExportCapturedCopies(t, capture), []string{"backend:/app/archive/provider.db", "backend:/app/keys/provider.json"})
+}
+
 func backupExportCapturedCopies(t *testing.T, path string) []string {
 	t.Helper()
 	data, err := os.ReadFile(path)
