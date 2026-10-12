@@ -66,6 +66,35 @@ func backupExportFixtureCommand(t *testing.T, root string) *exec.Cmd {
 	return exec.CommandContext(ctx, path, filepath.Join(root, "testdata", "backup", "export-bash-fixture.sh"))
 }
 
+func TestBackupAssuranceNativeActiveKeyringContracts(t *testing.T) {
+	cases := []struct {
+		name, keyring, inline string
+		wantError             bool
+	}{
+		{"configured file", "/app/data/custom keys/provider.json", "", false},
+		{"inline with stale default file", "", "present", true},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			root, err := filepath.Abs("../..")
+			backupAssuranceSuccess(t, err)
+			destination := t.TempDir()
+			capture := filepath.Join(destination, "copies.txt")
+			command := backupExportFixtureCommand(t, root)
+			command.Env = append(os.Environ(), "SUBSHARE_BACKUP_TEST_ROOT="+root, "SUBSHARE_BACKUP_TEST_DESTINATION="+destination, "SUBSHARE_BACKUP_TEST_CAPTURE="+capture, "SUBSHARE_BACKUP_TEST_PATH=/app/data/backups/app.db", "SUBSHARE_BACKUP_TEST_FAILURE=", "SUBSHARE_BACKUP_TEST_KEYRING_PATH="+c.keyring, "SUBSHARE_BACKUP_TEST_INLINE="+c.inline)
+			_, err = command.CombinedOutput()
+			backupAssuranceEqual(t, "active keyring admission", err != nil, c.wantError)
+			copies := backupExportCapturedCopies(t, capture)
+			if c.wantError {
+				backupAssuranceEqual(t, "inline exports no pair", len(copies), 0)
+				return
+			}
+			backupAssuranceEqual(t, "paired copies", len(copies), 2)
+			backupAssuranceEqual(t, "active keyring copied", copies[1], "backend:"+c.keyring)
+		})
+	}
+}
+
 func backupExportPowerShell(t *testing.T) string {
 	t.Helper()
 	for _, name := range []string{"pwsh", "powershell"} {

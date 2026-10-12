@@ -15,12 +15,23 @@ function docker {
 }
 
 function Invoke-BackupFixtureExec([object[]]$taskArguments) {
+    if (($taskArguments -join ' ') -match 'PROFILE_ENCRYPTION_KEYRING') {
+        Invoke-BackupFixtureKeyring
+        return
+    }
     if (($taskArguments -join ' ') -notmatch 'BACKUP_PATH') {
         if ($env:SUBSHARE_BACKUP_TEST_FAILURE -eq 'keyring') { $global:LASTEXITCODE = 1 }
         return
     }
     if ($env:SUBSHARE_BACKUP_TEST_FAILURE -eq 'lookup') { $global:LASTEXITCODE = 1; return }
     Write-Output $env:SUBSHARE_BACKUP_TEST_PATH
+}
+
+function Invoke-BackupFixtureKeyring {
+    if ($env:SUBSHARE_BACKUP_TEST_INLINE) { $global:LASTEXITCODE = 1; return }
+    $path = $env:SUBSHARE_BACKUP_TEST_KEYRING_PATH
+    if ($null -eq $path) { $path = '/app/data/keyring.json' }
+    Write-Output $path
 }
 
 function Invoke-BackupFixtureCopy([object[]]$taskArguments) {
