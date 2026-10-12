@@ -154,7 +154,7 @@ func TestRoutingSettingsAPIRejectsInvalidAutomaticDelivery(t *testing.T) {
 func TestSubscriptionRoutingDeliveryModesAndLegacyHeaderConflicts(t *testing.T) {
 	app := newIntegrationApp(t)
 	userID := seedSubscriptionUser(t, app, model.UserStatusActive)
-	insertAssignedDeliveryKey(t, app, userID, nil, "VLESS", externalTestVLESS, "vless", "full", 1)
+	insertAssignedDeliveryKey(t, app, assignedDeliveryKeySeed{UserID: userID, Label: "VLESS", Raw: externalTestVLESS, Protocol: "vless", Compatibility: "full", SortOrder: 1})
 
 	legacyHeaders, _ := json.Marshal([]responseHeader{
 		{Key: "ROUTING", Value: "happ://routing/onadd/legacy-global"},
@@ -216,7 +216,7 @@ func TestSubscriptionRoutingDeliveryModesAndLegacyHeaderConflicts(t *testing.T) 
 func TestCorruptStoredRoutingDoesNotBreakSubscription(t *testing.T) {
 	app := newIntegrationApp(t)
 	userID := seedSubscriptionUser(t, app, model.UserStatusActive)
-	insertAssignedDeliveryKey(t, app, userID, nil, "VLESS", externalTestVLESS, "vless", "full", 1)
+	insertAssignedDeliveryKey(t, app, assignedDeliveryKeySeed{UserID: userID, Label: "VLESS", Raw: externalTestVLESS, Protocol: "vless", Compatibility: "full", SortOrder: 1})
 	if _, err := app.db.Exec(`UPDATE routing_settings SET config_json = '{', delivery_mode = 'add' WHERE id = 1`); err != nil {
 		t.Fatal(err)
 	}

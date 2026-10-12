@@ -1,4 +1,4 @@
-import type { XrayJSONDraft, XrayJSONPatch } from "./configuration";
+import type { XrayJSONDraft, XrayJSONPatch } from "./configuration-types";
 
 export function buildALPNValues(raw: string) {
   return raw
