@@ -1,6 +1,6 @@
 # R19 — Xray outbound interpretation and traversal
 
-Status: locally validated outbound interpretation/traversal extraction on `refactor/xray-outbound-interpretation`, after tests-first `219a0b4` / completed baseline `f9a2cd0`, based on accepted A09 merge `56c5b24`. Full Go/frontend/static/strict/secret checks pass. Hosted/review acceptance remains; no R19 PR exists at this checkpoint.
+Status: accepted in [PR36](https://github.com/romanpodg/SubShare-Go/pull/36), merge `4a8c833eeeafbcf132a685c6a715f2483b89d74f`, after tests-first `219a0b4` / `f9a2cd0`. All six final-head checks pass at `ace692166f503fe34d2326e2ca09b7a6b8578758` in [run 38197040947](https://github.com/romanpodg/SubShare-Go/actions/runs/38197040947), including four race steps and Docker validation. Exact-head automated review completed with a positive reaction and no threads. A10 is accepted against the evidence below.
 
 `testdata/configuration/xray-interpretation.json` freezes separate outputs for target selection, strict Go draft enumeration, lenient delivery projection/rejection and frontend selected draft/index. It covers null/wrong root/outbound/settings/node/user values, invalid first proxy with usable later proxy, extra nodes/users/outbounds, missing/null/zero/negative/oversized/prefix/wrong-type ports, generic/display tags, bool-versus-string unsafe TLS and unsupported network/security normalization. Compact Go expected drafts decode into the actual struct so omitted zero fields remain asserted; frontend drafts compare complete selected objects and exact boundary errors.
 
@@ -19,3 +19,17 @@ All 44 edge cases, 63 shared cases and the full profileconfig package pass. Twen
 New module/tests score 10.00; remaining xray.go improves 5.48 to 6.38, with existing protocol/build complexity still visible. Strict delta passes. Intermediate introduced duplication/cohesion/nesting/argument warnings were resolved through the shared traversal, validator placement and explicit document boundary; no suppressions were added. Failed intermediate delta artifacts remain under `.cache/r19` and are not passes. Automatic approval review initially rejected formatting/test execution due to account allowance exhaustion; no command ran, and verification resumed normally after the confirmed reset.
 
 Final uncached full Go/atomic coverage run 22765 exits zero: 4,476 passes / five unchanged optional skips, server statements 75.8%, no failures. Full frontend/static/strict and staged/history secret scans pass. Artifacts remain in `.cache/r19/go-full.log`, `go-events.json`, `go-junit.xml`, `coverage.out`, `frontend-full.json` and `final-extraction-delta.json`. Commit/push/open its independent main PR and require all six final-head checks/race and resolved actionable automated review before A10 acceptance. R20 read-only import-graph evidence is ignored under `.cache/r20`; no declarations have been removed. Whole goal remains incomplete; heartbeat stays paused.
+
+## Accepted A10 requirement evidence
+
+| Requirement | Evidence |
+| --- | --- |
+| First usable endpoint/default/wrong-type semantics | 44 boundary fixtures assert exact target/default/error outputs |
+| Strict extra nodes/users and original ordinal errors | Exact draft arrays/errors in the same corpus; original indices retained in the view |
+| Extended protocols and delivery rejection | SS/Hysteria/Hysteria2/TUIC version/plugin/mask/alias/server/error cases and full package builders pass |
+| Frontend preservation and supported transport/security | Separate frontend selected-draft/index expectations plus accepted 63-case shared corpus and 3,847 preservation/configuration checks |
+| Generic/display tags, TLS/default/exclusion behavior | Corpus and 25 byte-equivalent retained AST bodies; no numeric-validation or capability policy change |
+| Reduced local complexity and stable public API | New module 10.00, old file 5.48 to 6.38, target/strict/project complexity reduced, unchanged exported signatures and strict delta pass |
+| Final integration/review | All six final-head hosted/race gates pass; exact-head review is clear |
+
+R19/A10 is accepted. Continue R20's narrow unused-interface cleanup. Broader A01/A11-A14 and the whole goal remain incomplete; heartbeat remains paused.
