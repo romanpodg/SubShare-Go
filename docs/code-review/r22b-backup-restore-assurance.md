@@ -1,6 +1,6 @@
 # R22b — Backup, export and populated upgrade/restore assurance
 
-Status: tests-first baseline in progress on `test/backup-restore-contracts`, based on accepted R22a merge `c03465c`. R22a is accepted; A13 remains incomplete until both boundaries below are verified.
+Status: locally validated correction on `fix/backup-export-and-validation`, after saved/pushed tests-first `c26d0d0`, based on accepted R22a merge `c03465c`. Final secret/hosted/race/review acceptance remains. R22a is accepted; A13 remains incomplete until both boundaries below are verified.
 
 R22b1 covers backup preparation/publication failures, configured `BACKUP_PATH` export, actual populated backup restore with the matching keyring, and full secret authentication versus startup shape/key-ID checks. An ignored PowerShell probe executes the real export script with fake Docker commands and reproduces the hardcoded-default source despite a custom configured path with spaces. Land mandatory native script contracts and populated backup cases before its explicit configured-path correction. Default output names, paired file-backed keyring admission and failure feedback remain.
 
@@ -15,5 +15,32 @@ Populated SQLite backup cases restore immutable key ID, encrypted raw credential
 The missing-secret regression is a fifth desired failure: startup invariants reject the populated parent without its secret, while current runValidateBackup reports success after scanning zero secrets. Correct backup validation by applying existing startup invariants before complete cryptographic verification; preserve pre-encryption admission and healthy responses, no new credential format or migration rewrite.
 
 Run 45416 executes 21 parent/subtest events including three retained backup cases: 15 passes and six failures (five desired leaf assertions plus the native-script parent). Failures are behavioral assertions, not harness/import errors. All three new Go files score 10.00. Artifact: `.cache/r22b/assurance-before-tests.json` / assurance-before.log. Save this tests-first baseline before the explicit configured-path and missing-secret correction. Deterministic post-preservation publication-failure/rollback tests still need the narrow private rename seam; populated migration/Docker proof remain R22b2.
+
+## Implemented R22b1 correction and publication assurance
+
+Both export scripts query only `BACKUP_PATH` from the running backend, reject unavailable/disabled configuration, and quote the configured source (including spaces) for the existing paired export. Default filenames, file-backed keyring admission, failure feedback and Bash private modes remain. No .env or other operational values are read.
+
+Backup validation now applies existing startup parent/secret/key-ID invariants before full secret authentication, rejecting the missing-secret false success. Healthy encrypted backups and pre-encryption admission retain their existing policy. A private filesystem publication module owns the destination/candidate/previous paths and per-attempt rename dependency; it preserves the original publication order, primary errors, cleanup and best-effort restoration. No global hook or new file format.
+
+Twenty-nine focused Go/native PowerShell cases pass, including the five previously failing leaf contracts, three deterministic publication cases and five added path-normalization cases. All thirteen export contracts pass under PowerShell 7, built-in Windows PowerShell fallback, and Git Bash with the same fake Docker harness; both Bash files pass syntax checks. ASCII/Unicode padding and whitespace-only disabled configuration match the backend's TrimSpace policy, while interior Unicode remains intact. The Bash byte-literal trim set is checked against the installed Go Unicode table and does not use locale-dependent byte ranges. Hosted Linux must still execute the mandatory native Bash cases. When publication and rollback renames both fail, the original recoverable bytes remain in `.previous`; tests validate that artifact, without claiming same-path restoration succeeded. Live fixture credentials remain intact on initial publication failure.
+
+Four protected bodies (verifySQLiteBackup, canonicalPath, validateBackupPath, startBackup) are identical under the Go AST printer. No SQL/schema/HTTP/frontend behavior changes. Backup.go improves from 9.61 to 10.00; the new publication module and Go tests score 10.00. PowerShell production script is unscored, its harness scores 10.00; Bash is unsupported by CodeScene and is verified by syntax/execution rather than a fabricated score. Strict final delta passes without suppression. Migration/vet/configured lint (zero issues)/build run 5870 exits zero; final fixture vet/lint also pass. Full Go/ordinary atomic coverage run 19711 exits zero: 4,532 passes/five unchanged optional skips in 486.0 seconds, server statements 76.1%. The subsequent Bash normalization and five additional native fixture cases are separately validated by the final 29 focused cases and thirteen Bash/fallback outcomes; backend production Go is unchanged since that full run. Do not count these as an unexecuted larger local full run. Final exact-head hosted Go must execute the expanded matrix. Final secret/hosted/race/review gates remain.
+
+Artifacts: assurance-final-tests.json, bash-export-after.json, backup-health-final.json, publication-implementation-health.json, correction-strict-final.json, retained-bodies.txt and full-final-tests.json under `.cache/r22b`. Earlier intermediate health findings were resolved through the private publication boundary; they are not accepted exceptions.
+
+Additional final artifacts: assurance-trim-final-tests.json, native-final-tests.json, powershell-legacy-final.log, backend-whitespace-table.txt and coverage-functions-final.txt. The first Bash whitespace probe retained two actual failures before the matching normalization correction. No operational secrets, environment file or volume was inspected.
+
+## R22b1 requirement evidence (acceptance pending)
+
+| Requirement | Evidence |
+| --- | --- |
+| Configured export/default/disabled/failure contract | Thirteen actual-script fake-Docker outcomes on both Windows runtimes and Bash; final Linux native execution remains mandatory |
+| Populated paired restore | Read-only validation and restored IDs/raw/user/assignment/category/FK/sequence assertions from a generated database/keyring pair |
+| Authentication versus startup shape | Same key ID/wrong material and wrong-row-bound envelope pass shape but fail authentication; nil keyring and missing secret are rejected |
+| Preparation/publication failure safety | Failed VACUUM, blocked parent/prior file, corrupted SQLite; deterministic initial/replacement publication and failed rollback preserve live or recoverable prior bytes |
+| Retained behavior and quality | Four identical bodies; private publication phases preserve error/cleanup/restore policy; no schema rewrite; supported Go scores 10 and strict gate clear |
+| Final integration | Full backend evidence plus expanded native cases above; final secret/six hosted/four race/clear-review gates pending |
+
+R22b2 remains mandatory: interrupted encryption/table rebuild on populated fixtures, historical migration IDs/order, stable rows/sequences/FKs/credentials and rollback/resumption, Docker populated upgrade/restore and deliberate optional runner policy. Existing restart-only Docker checks do not prove those requirements. R23 and broader A01 also remain.
 
 Preserve operational data: all Go databases/keyrings/output files are fresh disposable fixtures; export scripts run against fake Docker commands. No operational .env, volume or keyring reads. A narrow private publication seam may support deterministic rename faults without global hooks; retain production sequencing/error/restore policy. Require focused/full/static/migration/strict/secret and all six final-head hosted/four race/clear-review gates for each accepted boundary. Keep broader A01/A13-A14 unfinished; goal active, heartbeat paused per user.

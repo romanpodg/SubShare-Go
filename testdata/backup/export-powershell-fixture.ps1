@@ -25,7 +25,7 @@ function Invoke-BackupFixtureExec([object[]]$taskArguments) {
 
 function Invoke-BackupFixtureCopy([object[]]$taskArguments) {
     $source = $taskArguments[2]
-    Add-Content -LiteralPath $env:SUBSHARE_BACKUP_TEST_CAPTURE -Value $source
+    [System.IO.File]::AppendAllText($env:SUBSHARE_BACKUP_TEST_CAPTURE, $source + [Environment]::NewLine, [System.Text.UTF8Encoding]::new($false))
     if ($env:SUBSHARE_BACKUP_TEST_FAILURE -eq 'database-copy' -and $source -ne 'backend:/app/data/keyring.json') { $global:LASTEXITCODE = 1; return }
     if ($env:SUBSHARE_BACKUP_TEST_FAILURE -eq 'keyring-copy' -and $source -eq 'backend:/app/data/keyring.json') { $global:LASTEXITCODE = 1; return }
     Set-Content -LiteralPath $taskArguments[3] -Value 'disposable export fixture'

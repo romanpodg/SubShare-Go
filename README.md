@@ -249,6 +249,8 @@ Common Docker commands:
 
 When `BACKUP_PATH` is enabled, SubShare maintains an integrity-checked SQLite backup in persistent storage.
 
+The export scripts use the running backend's configured backup path, including custom paths, and stop if backup is disabled or its configuration cannot be read.
+
 Linux:
 
 ```bash
