@@ -37,8 +37,8 @@ Completed work:
 | A08 / P1 | Completed; R17a/R17b accepted in PR32/PR33 | Six final-head checks/review clear at 37157f5; retain [A08 matrix](r17b-key-list-presentation.md) |
 | A09 / P2 | Completed; R18a/R18b accepted in PR34/PR35 | Six final-head checks/race/review clear at ab39494; retain [A09 matrix](r18b-branding-requests.md) |
 | A10 / P2 | Completed; R19 accepted in PR36 | Six final-head checks/race/review clear at ace6921; retain [A10 evidence](r19-xray-interpretation.md) |
-| A11 / P2 | R20 six unused declarations removed; import/compatibility/static evidence passes | Final full/local/hosted/review and [A11 matrix](r20-unused-persistence.md) acceptance |
-| A12 / P2 | Not started | R21 branding save acknowledgment and reopen state |
+| A11 / P2 | Completed; R20 accepted in PR37 | Six final-head checks/race/review clear at 3f3c1c2; retain [A11 matrix](r20-unused-persistence.md) |
+| A12 / P2 | R21 acknowledgment/reopen/late-load correction locally validated | Final secret/hosted/review and [A12 matrix](r21-branding-acknowledgment.md) acceptance |
 | A13 / P2 | Not started | R22a/R22b package measurement and backup/upgrade/restore failures |
 | A14 / P2 | Not started | R23 public-page renderer/config contracts |
 
@@ -46,7 +46,7 @@ All six checks passed for a438377: backend, frontend, Docker smoke, CodeScene, C
 
 Codecov: project **48.02%** versus main **46.89%**; main.go **18.46%** versus **8.01%**; sqlite.go **64.70%** versus **60.78%**; whole-PR patch **80.09%**. Test Analytics: **848 passed, 5 skipped, no failures/errors**. Bundle upload/check passed; size/delta figures were unavailable in inspected results. Local statements remain **52.4%**, with unchanged coverage across 140 repository blocks. Optional snapshot/client fixtures and local race execution remain unverified. Passing frontend CI does not complete its planned refactoring.
 
-**Current review boundary:** R01-R19 and separate correctness fixes are merged through PR36. A00/A02/A03/A04/A05/A06/A07/A08/A09/A10 are accepted. R20 unused internal persistence declarations are next. Broader A01/A11-A14 remain incomplete. Historical audit measurements remain distinct from current validation.
+**Current review boundary:** R01-R20 and separate correctness fixes are merged through PR37. A00/A02/A03/A04/A05/A06/A07/A08/A09/A10/A11 are accepted. R21 branding acknowledgment/reopening is next, with desired failures reproduced. Broader A01/A12-A14 remain incomplete. Historical audit measurements remain distinct from current validation.
 
 ## P0
 
