@@ -53,3 +53,19 @@ it("sequential title/page-title mutations preserve both acknowledged changes",as
   await waitFor(()=>expect(state().pageTitles.admin).toBe("External admin"));
   expect(state().panelTitle).toBe("External title");expect(JSON.parse(String(fetch.mock.calls[2][1]?.body))).toMatchObject({panelTitle:"External title",pageTitleAdmin:"External admin"});
 });
+
+it("failed queued edits do not poison the next partial update",async()=>{
+  const fetch=vi.fn().mockResolvedValueOnce(new Response(JSON.stringify(wire),{status:200})).mockRejectedValueOnce(new TypeError("fixture failure")).mockImplementation(async(_url:string,options:RequestInit)=>new Response(String(options.body),{status:200}));
+  vi.stubGlobal("fetch",fetch);mount();await waitFor(()=>expect(state().panelTitle).toBe("Server panel"));
+  fireEvent.click(screen.getByRole("button",{name:"External update"}));fireEvent.click(screen.getByRole("button",{name:"Update page title"}));
+  await waitFor(()=>expect(state().pageTitles.admin).toBe("External admin"));expect(state().panelTitle).toBe("Server panel");
+  expect(JSON.parse(String(fetch.mock.calls[2][1]?.body))).toMatchObject({panelTitle:"Server panel",pageTitleAdmin:"External admin"});
+});
+
+it("an initial load can establish server data after a failed concurrent edit",async()=>{
+  let resolveGet!:(value:Response)=>void;const pending=new Promise<Response>(resolve=>{resolveGet=resolve});
+  const fetch=vi.fn().mockReturnValueOnce(pending).mockRejectedValueOnce(new TypeError("fixture mutation failure"));vi.stubGlobal("fetch",fetch);mount();
+  fireEvent.click(screen.getByRole("button",{name:"External update"}));await waitFor(()=>expect(fetch).toHaveBeenCalledTimes(2));
+  await act(async()=>{resolveGet(new Response(JSON.stringify(wire),{status:200}));await pending});
+  expect(state().panelTitle).toBe("Server panel");expect(state().pageTitles.admin).toBe("Server admin");
+});

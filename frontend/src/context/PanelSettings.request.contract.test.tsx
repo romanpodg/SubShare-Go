@@ -11,7 +11,7 @@ afterEach(() => { cleanup(); localStorage.clear(); setCsrfToken(null); vi.unstub
 const wire = { panelTitle: "API panel", logoDataUrl: "", faviconDataUrl: "", pageTitleAdmin: "API admin", pageTitleAdminLogin: "API login", pageTitleSubscription: "API subscription" };
 function Consumer() {
   const { settings, updateSettings } = usePanelSettings();
-  return <><output data-testid="branding-state">{JSON.stringify(settings)}</output><button onClick={() => updateSettings({ panelTitle: "Edited panel" })}>Edit</button></>;
+  return <><output data-testid="branding-state">{JSON.stringify(settings)}</output><button onClick={() => { void updateSettings({ panelTitle: "Edited panel" }).catch(() => {}); }}>Edit</button></>;
 }
 function mount() { render(<PanelSettingsProvider><Consumer /></PanelSettingsProvider>); }
 
@@ -34,7 +34,7 @@ it("retains cache fallback when the public GET cannot be loaded", async () => {
   expect(state.pageTitles.adminLogin).toBe("Вход — SubShare");
 });
 
-it("retains PUT mapping, CSRF and the existing local update while acknowledgment stays R21", async () => {
+it("retains PUT mapping/CSRF and agreed state when persistence is denied", async () => {
   const fetch = vi.fn().mockResolvedValueOnce(new Response(JSON.stringify(wire), { status: 200 })).mockResolvedValueOnce(new Response('{"error":"owner required"}', { status: 403 }));
   vi.stubGlobal("fetch", fetch);
   setCsrfToken("fixture-csrf");
@@ -42,6 +42,6 @@ it("retains PUT mapping, CSRF and the existing local update while acknowledgment
   await waitFor(() => expect(screen.getByTestId("branding-state")).toHaveTextContent("API panel"));
   fireEvent.click(screen.getByRole("button", { name: "Edit" }));
   await waitFor(() => expect(fetch).toHaveBeenCalledTimes(2));
-  expect(screen.getByTestId("branding-state")).toHaveTextContent("Edited panel");
+  expect(screen.getByTestId("branding-state")).toHaveTextContent("API panel");
   expect(fetch.mock.calls[1]).toEqual(["/api/v1/panel-settings", expect.objectContaining({ method: "PUT", credentials: "same-origin", headers: { "Content-Type": "application/json", "X-CSRF-Token": "fixture-csrf" }, body: JSON.stringify({ ...wire, panelTitle: "Edited panel" }) })]);
 });

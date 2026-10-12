@@ -79,31 +79,15 @@ function writeCache(s: PanelSettings) {
   }
 }
 
-/** Returns true if the settings are purely the built-in defaults (i.e. nothing has been customised). */
-function isDefaultSettings(s: PanelSettings): boolean {
-  return (
-    s.panelTitle === DEFAULT_SETTINGS.panelTitle &&
-    !s.logoDataUrl &&
-    !s.faviconDataUrl &&
-    s.pageTitles.admin === DEFAULT_SETTINGS.pageTitles.admin &&
-    s.pageTitles.adminLogin === DEFAULT_SETTINGS.pageTitles.adminLogin &&
-    s.pageTitles.subscription === DEFAULT_SETTINGS.pageTitles.subscription
-  );
-}
-
-async function saveToAPI(s: PanelSettings): Promise<boolean> {
-  try {
-    await panelSettingsAPI.update(toAPI(s));
-    return true;
-  } catch {
-    return false;
-  }
+async function saveToAPI(s: PanelSettings): Promise<PanelSettings> {
+  return fromAPI(await panelSettingsAPI.update(toAPI(s)));
 }
 
 interface PanelSettingsContextValue {
   settings: PanelSettings;
-  updateSettings: (partial: Partial<PanelSettings>) => void;
-  updatePageTitles: (partial: Partial<PanelSettings["pageTitles"]>) => void;
+  loading: boolean;
+  updateSettings: (partial: Partial<PanelSettings>) => Promise<void>;
+  updatePageTitles: (partial: Partial<PanelSettings["pageTitles"]>) => Promise<void>;
 }
 
 const PanelSettingsContext = createContext<PanelSettingsContextValue | null>(null);
@@ -112,94 +96,64 @@ export function PanelSettingsProvider({ children }: { children: ReactNode }) {
   // Keep the server render and first client render identical. The backend is
   // the source of truth; localStorage is used only if it cannot be reached.
   const [settings, setSettings] = useState<PanelSettings>(DEFAULT_SETTINGS);
+  const [loading, setLoading] = useState(true);
   const pathname = usePathname();
-  // Keep a mutable ref that is always in sync — lets updateSettings/updatePageTitles
-  // read the CURRENT state even when called sequentially in the same event handler.
+  // Queued partial updates read the latest acknowledged state when they run.
   const latestRef = useRef<PanelSettings>(settings);
+  const mutationRevision = useRef(0);
+  const saveQueue = useRef<Promise<void>>(Promise.resolve());
 
   // Применяем favicon при каждом изменении настроек и маршрута.
   // Next.js может заново инжектить <link rel="icon"> при навигации,
   // поэтому важно повторно выставлять URL на каждом pathname.
-  useEffect(() => {
-    const links = Array.from(document.querySelectorAll<HTMLLinkElement>("link[rel~='icon']"));
-
-    if (settings.faviconDataUrl) {
-      if (links.length === 0) {
-        const iconLink = document.createElement("link");
-        iconLink.rel = "icon";
-        iconLink.href = settings.faviconDataUrl;
-        document.head.appendChild(iconLink);
-
-        const shortcutLink = document.createElement("link");
-        shortcutLink.rel = "shortcut icon";
-        shortcutLink.href = settings.faviconDataUrl;
-        document.head.appendChild(shortcutLink);
-      } else {
-        links.forEach((link) => {
-          link.href = settings.faviconDataUrl;
-        });
-
-        if (!links.some((link) => link.rel.toLowerCase() === "shortcut icon")) {
-          const shortcutLink = document.createElement("link");
-          shortcutLink.rel = "shortcut icon";
-          shortcutLink.href = settings.faviconDataUrl;
-          document.head.appendChild(shortcutLink);
-        }
-      }
-    } else if (links.length > 0) {
-      // Favicon was removed — restore browser default by clearing href
-      links.forEach((link) => link.removeAttribute("href"));
-    }
-  }, [settings.faviconDataUrl, pathname]);
+  usePanelFavicon(settings, pathname);
 
   // On mount: load from backend (source of truth).
   // Always apply API data — this fixes incognito/new-browser where localStorage is empty.
-  // If the API still has pure defaults but we have richer local cache, push the cache up
-  // (migrates users who saved before the backend endpoint existed).
   useEffect(() => {
+    const revision = mutationRevision.current;
+    let active = true;
     panelSettingsAPI.get()
       .then((api) => {
+        if (!active || mutationRevision.current !== revision) return;
         const apiSettings = fromAPI(api);
-
-        if (isDefaultSettings(apiSettings) && !isDefaultSettings(latestRef.current)) {
-          // API has no saved data yet — migrate local cache to backend
-          saveToAPI(latestRef.current);
-          // Keep displaying the local cache while migration happens
-        } else {
-          // API is source of truth — always use it
-          latestRef.current = apiSettings;
-          setSettings(apiSettings);
-          writeCache(apiSettings);
-        }
+        latestRef.current = apiSettings;
+        setSettings(apiSettings);
+        writeCache(apiSettings);
       })
       .catch(() => {
+        if (!active || mutationRevision.current !== revision) return;
         const cached = readCache();
         latestRef.current = cached;
         setSettings(cached);
-      });
+      })
+      .finally(() => { if (active) setLoading(false); });
+    return () => { active = false; };
   }, []);
 
-  const updateSettings = useCallback((partial: Partial<PanelSettings>) => {
-    const next = { ...latestRef.current, ...partial };
-    latestRef.current = next;
-    writeCache(next);
-    setSettings(next);
-    saveToAPI(next);
+  const persistUpdate = useCallback((apply: (current: PanelSettings) => PanelSettings) => {
+    const save = saveQueue.current.then(async () => {
+      const acknowledged = await saveToAPI(apply(latestRef.current));
+      mutationRevision.current += 1;
+      latestRef.current = acknowledged;
+      writeCache(acknowledged);
+      setSettings(acknowledged);
+      setLoading(false);
+    });
+    // A failed caller still receives its rejection; later edits can retry.
+    saveQueue.current = save.catch(() => {});
+    return save;
   }, []);
+
+  const updateSettings = useCallback((partial: Partial<PanelSettings>) =>
+    persistUpdate((current) => ({ ...current, ...partial })), [persistUpdate]);
 
   const updatePageTitles = useCallback((partial: Partial<PanelSettings["pageTitles"]>) => {
-    const next = {
-      ...latestRef.current,
-      pageTitles: { ...latestRef.current.pageTitles, ...partial },
-    };
-    latestRef.current = next;
-    writeCache(next);
-    setSettings(next);
-    saveToAPI(next);
-  }, []);
+    return persistUpdate((current) => ({ ...current, pageTitles: { ...current.pageTitles, ...partial } }));
+  }, [persistUpdate]);
 
   return (
-    <PanelSettingsContext.Provider value={{ settings, updateSettings, updatePageTitles }}>
+    <PanelSettingsContext.Provider value={{ settings, loading, updateSettings, updatePageTitles }}>
       {children}
     </PanelSettingsContext.Provider>
   );
@@ -209,4 +163,30 @@ export function usePanelSettings() {
   const ctx = useContext(PanelSettingsContext);
   if (!ctx) throw new Error("usePanelSettings must be used within PanelSettingsProvider");
   return ctx;
+}
+
+function usePanelFavicon(settings: PanelSettings, pathname: string) {
+  useEffect(() => { applyPanelFavicon(settings.faviconDataUrl); }, [settings.faviconDataUrl, pathname]);
+}
+
+function addPanelIcon(rel: string, url: string) {
+  const link = document.createElement("link");
+  link.rel = rel;
+  link.href = url;
+  document.head.appendChild(link);
+}
+
+function applyPanelFavicon(url: string) {
+  const links = Array.from(document.querySelectorAll<HTMLLinkElement>("link[rel~='icon']"));
+  if (!url) {
+    links.forEach((link) => link.removeAttribute("href"));
+    return;
+  }
+  if (links.length === 0) {
+    addPanelIcon("icon", url);
+    addPanelIcon("shortcut icon", url);
+    return;
+  }
+  links.forEach((link) => { link.href = url; });
+  if (!links.some((link) => link.rel.toLowerCase() === "shortcut icon")) addPanelIcon("shortcut icon", url);
 }

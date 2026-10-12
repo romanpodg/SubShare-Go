@@ -45,6 +45,15 @@ it(failure+" save keeps the editor open and preserves agreed title/cache", async
 });
 }
 
+it("a failed save remains visible and a retry closes only after acknowledgment", async () => {
+  const fetch=vi.fn().mockResolvedValueOnce(new Response(JSON.stringify(wire),{status:200})).mockResolvedValueOnce(new Response('{"message":"fixture denied","code":"save_failed"}',{status:403})).mockResolvedValueOnce(new Response(JSON.stringify({...wire,panelTitle:"Retried title"}),{status:200}));
+  vi.stubGlobal("fetch",fetch);const onClose=mount();await openLoadedModal();
+  fireEvent.change(screen.getByLabelText("Заголовок панели"),{target:{value:"Retried title"}});fireEvent.click(screen.getByRole("button",{name:"Сохранить"}));
+  await waitFor(()=>expect(screen.getByRole("alert")).toHaveTextContent("fixture denied"));expect(onClose).not.toHaveBeenCalled();
+  fireEvent.click(screen.getByRole("button",{name:"Сохранить"}));await waitFor(()=>expect(onClose).toHaveBeenCalledOnce());
+  expect(screen.getByTestId("agreed-title")).toHaveTextContent("Retried title");expect(fetch).toHaveBeenCalledTimes(3);
+});
+
 it("cancel and reopen discard the abandoned draft in favor of agreed data", async () => {
   vi.stubGlobal("fetch",vi.fn().mockResolvedValue(new Response(JSON.stringify(wire),{status:200})));
   mount(); await openLoadedModal();

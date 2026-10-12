@@ -4010,7 +4010,7 @@
       "R18b": "completed_pr35_p2_resolved_final_checks_review_a09_accepted",
       "R19": "completed_pr36_final_checks_review_a10_accepted",
       "R20": "completed_pr37_final_checks_review_a11_accepted",
-      "R21": "tests_first_branding_acknowledgment_matrix_ten_failures_three_passes",
+      "R21": "branding_acknowledgment_resync_correction_locally_validated_final_gates_pending",
       "R22a": "not_started",
       "R22b": "not_started",
       "R23": "not_started"
@@ -4037,7 +4037,7 @@
     "nextBatch": "R21",
     "nextBatchPriority": "P2",
     "nextBatchRemainingPrerequisites": [
-      "R20/A11 is accepted. R21 has thirteen landed mounted prerequisites, ten desired failures and three compatibility passes, with types/lint/quality passing against unchanged production. Commit the baseline, then await remote acknowledgment before agreed state/cache/modal closing, resync fresh openings and protect newer mutations from late loading. Require full frontend/browser/hosted/review before A12 acceptance.",
+      "R21 retains tests-first 1f2e1a0 and locally validated acknowledgment/fresh editor/late-load/queue correction. Sixteen state/modal, two favicon and three compatibility cases plus full 4,205 frontend/types/lint/export and 26 browser cases pass; production components 10.00, strict delta clear. Finish secrets, publish and require all six final-head checks/resolved review before A12 acceptance and R22a.",
       "A00/A02/A03/A04/A05/A06/A07/A08/A09/A10/A11 are accepted; broader A01/A12-A14 remain."
     ],
     "remainingCriticalRisk": "A00/A02/A03/A04/A05/A06/A07/A08/A09/A10/A11 are accepted. R21 denied branding acknowledgment/reopening/late GET correction remains. Concurrent tracking can fail with SQLITE_BUSY; accepted A05 preserves that characterized best-effort policy. Source update category preparation retains its audited pre-transaction behavior. Broader A01/A12-A14 remain. OS I/O trigger frequency remains unmeasured.",

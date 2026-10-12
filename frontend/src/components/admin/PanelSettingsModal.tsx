@@ -43,6 +43,13 @@ async function compressImage(file: File, maxPx: number): Promise<string> {
 }
 
 export function PanelSettingsModal({ open, onClose }: Props) {
+  const { loading } = usePanelSettings();
+  if (!open) return null;
+  if (loading) return <Modal open onClose={onClose} title="Настройки панели"><div role="status">Загрузка настроек…</div></Modal>;
+  return <PanelSettingsEditor open onClose={onClose} />;
+}
+
+function PanelSettingsEditor({ open, onClose }: Props) {
   const { settings, updateSettings } = usePanelSettings();
 
   const [panelTitle, setPanelTitle] = useState(settings.panelTitle);
@@ -51,24 +58,12 @@ export function PanelSettingsModal({ open, onClose }: Props) {
   const [pageTitleAdmin, setPageTitleAdmin] = useState(settings.pageTitles.admin);
   const [pageTitleLogin, setPageTitleLogin] = useState(settings.pageTitles.adminLogin);
   const [pageTitleSub, setPageTitleSub] = useState(settings.pageTitles.subscription);
+  const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState("");
+  const savingRef = useRef(false);
 
   const logoInputRef = useRef<HTMLInputElement>(null);
   const faviconInputRef = useRef<HTMLInputElement>(null);
-
-  // Синхронизируем state при открытии модалки
-  const handleOpen = () => {
-    setPanelTitle(settings.panelTitle);
-    setLogoDataUrl(settings.logoDataUrl);
-    setFaviconDataUrl(settings.faviconDataUrl);
-    setPageTitleAdmin(settings.pageTitles.admin);
-    setPageTitleLogin(settings.pageTitles.adminLogin);
-    setPageTitleSub(settings.pageTitles.subscription);
-  };
-
-  // Используем key чтобы сбросить state при открытии
-  if (open && panelTitle !== settings.panelTitle && panelTitle === settings.panelTitle) {
-    handleOpen();
-  }
 
   const handleLogoUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -84,18 +79,29 @@ export function PanelSettingsModal({ open, onClose }: Props) {
     setFaviconDataUrl(result);
   };
 
-  const handleSave = () => {
-    updateSettings({
-      panelTitle: panelTitle.trim() || "SubShare",
-      logoDataUrl,
-      faviconDataUrl,
-      pageTitles: {
-        admin: pageTitleAdmin.trim() || "Панель управления",
-        adminLogin: pageTitleLogin.trim() || "Вход",
-        subscription: pageTitleSub.trim() || "VPN-подписка",
-      },
-    });
-    onClose();
+  const handleSave = async () => {
+    if (savingRef.current) return;
+    savingRef.current = true;
+    setSaving(true);
+    setSaveError("");
+    try {
+      await updateSettings({
+        panelTitle: panelTitle.trim() || "SubShare",
+        logoDataUrl,
+        faviconDataUrl,
+        pageTitles: {
+          admin: pageTitleAdmin.trim() || "Панель управления",
+          adminLogin: pageTitleLogin.trim() || "Вход",
+          subscription: pageTitleSub.trim() || "VPN-подписка",
+        },
+      });
+      onClose();
+    } catch (error) {
+      setSaveError(error instanceof Error ? error.message : "Не удалось сохранить настройки");
+    } finally {
+      savingRef.current = false;
+      setSaving(false);
+    }
   };
 
   const handleRemoveLogo = () => {
@@ -109,8 +115,8 @@ export function PanelSettingsModal({ open, onClose }: Props) {
   };
 
   return (
-    <Modal open={open} onClose={onClose} title="Настройки панели" icon={<Settings className="h-4 w-4" aria-hidden="true" />}>
-      <div className="flex flex-col gap-3">
+    <Modal open={open} onClose={() => { if (!savingRef.current) onClose(); }} title="Настройки панели" icon={<Settings className="h-4 w-4" aria-hidden="true" />}>
+      <fieldset disabled={saving} className="flex min-w-0 flex-col gap-3">
 
         {/* Название панели */}
         <section className="flex flex-col gap-2">
@@ -236,15 +242,16 @@ export function PanelSettingsModal({ open, onClose }: Props) {
         </section>
 
         {/* Кнопки */}
+        {saveError ? <div role="alert" className="text-sm text-red-400">{saveError}</div> : null}
         <div className="flex justify-end gap-2 pt-1">
-          <Button variant="ghost" onClick={onClose}>
+          <Button variant="ghost" onClick={onClose} disabled={saving}>
             Отмена
           </Button>
-          <Button onClick={handleSave}>
+          <Button onClick={handleSave} disabled={saving}>
             Сохранить
           </Button>
         </div>
-      </div>
+      </fieldset>
     </Modal>
   );
 }

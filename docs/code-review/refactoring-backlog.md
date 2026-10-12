@@ -38,7 +38,7 @@ Completed work:
 | A09 / P2 | Completed; R18a/R18b accepted in PR34/PR35 | Six final-head checks/race/review clear at ab39494; retain [A09 matrix](r18b-branding-requests.md) |
 | A10 / P2 | Completed; R19 accepted in PR36 | Six final-head checks/race/review clear at ace6921; retain [A10 evidence](r19-xray-interpretation.md) |
 | A11 / P2 | Completed; R20 accepted in PR37 | Six final-head checks/race/review clear at 3f3c1c2; retain [A11 matrix](r20-unused-persistence.md) |
-| A12 / P2 | R21 thirteen-case tests-first matrix: ten desired failures, three compatibility passes | Correct acknowledgment/reopen/late-load behavior and final gates |
+| A12 / P2 | R21 acknowledgment/reopen/late-load correction locally validated | Final secret/hosted/review and [A12 matrix](r21-branding-acknowledgment.md) acceptance |
 | A13 / P2 | Not started | R22a/R22b package measurement and backup/upgrade/restore failures |
 | A14 / P2 | Not started | R23 public-page renderer/config contracts |
 
