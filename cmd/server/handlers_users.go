@@ -204,7 +204,12 @@ func (a *App) apiUpdateUserSettings(w http.ResponseWriter, r *http.Request) {
 		httpapi.WriteError(w, r, http.StatusInternalServerError, "failed to update user settings")
 		return
 	}
-	updated, _ := res.RowsAffected()
+	updated, err := res.RowsAffected()
+	if err != nil {
+		log.Printf("apiUpdateUserSettings: %v", err)
+		httpapi.WriteError(w, r, http.StatusInternalServerError, "failed to update user settings")
+		return
+	}
 	if updated == 0 {
 		httpapi.WriteError(w, r, http.StatusNotFound, "user not found")
 		return
