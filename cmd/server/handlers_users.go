@@ -115,101 +115,12 @@ func (a *App) apiUpdateUserSubscription(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	status, ok := model.NormalizeUserStatus(req.Status)
-	if !ok {
-		httpapi.WriteError(w, r, http.StatusBadRequest, "invalid subscription status")
-		return
-	}
-
-	startsAt, err := parseOptionalDateTimeLocal(req.StartsAt)
+	updated, err := a.replaceUserSubscription(id, req)
 	if err != nil {
-		httpapi.WriteError(w, r, http.StatusBadRequest, "invalid starts_at datetime")
+		writeSubscriptionReplacementError(w, r, err)
 		return
 	}
-	expiresAt, err := parseOptionalDateTimeLocal(req.ExpiresAt)
-	if err != nil {
-		httpapi.WriteError(w, r, http.StatusBadRequest, "invalid expires_at datetime")
-		return
-	}
-
-	if startsAt.Valid && expiresAt.Valid && startsAt.Time.After(expiresAt.Time) {
-		httpapi.WriteError(w, r, http.StatusBadRequest, "starts_at must be before expires_at")
-		return
-	}
-
-	blockedReason := strings.TrimSpace(req.BlockedReason)
-	if status != model.UserStatusBlocked {
-		blockedReason = ""
-	}
-
-	subscriptionName := strings.TrimSpace(req.SubscriptionName)
-	if len(subscriptionName) > 120 {
-		httpapi.WriteError(w, r, http.StatusBadRequest, "subscription_name is too long (max 120 characters)")
-		return
-	}
-
-	subscriptionRefreshHours := req.SubscriptionRefreshHours
-	if subscriptionRefreshHours <= 0 {
-		subscriptionRefreshHours = 12
-	}
-	if subscriptionRefreshHours > 720 {
-		httpapi.WriteError(w, r, http.StatusBadRequest, "subscription_refresh_hours must be between 1 and 720")
-		return
-	}
-
-	normalizeURL := func(raw string, field string) (string, bool) {
-		normalized, err := normalizeAbsoluteHTTPURL(raw, field)
-		if err != nil {
-			httpapi.WriteError(w, r, http.StatusBadRequest, err.Error())
-			return "", false
-		}
-		return normalized, true
-	}
-
-	subscriptionInfoURL, ok := normalizeURL(req.SubscriptionInfoURL, "subscription_info_url")
-	if !ok {
-		return
-	}
-	subscriptionExtraURL, ok := normalizeURL(req.SubscriptionExtraURL, "subscription_extra_url")
-	if !ok {
-		return
-	}
-
-	subscriptionExtraStatus := strings.TrimSpace(req.SubscriptionExtraStatus)
-	if len(subscriptionExtraStatus) > 255 {
-		httpapi.WriteError(w, r, http.StatusBadRequest, "subscription_extra_status is too long (max 255 characters)")
-		return
-	}
-
-	_, err = a.db.Exec(
-		`UPDATE users
-		 SET status = ?,
-		     starts_at = ?,
-		     expires_at = ?,
-		     blocked_reason = ?,
-		     subscription_name = ?,
-		     subscription_refresh_hours = ?,
-		     subscription_info_url = ?,
-		     subscription_extra_url = ?,
-		     subscription_extra_status = ?
-		 WHERE id = ?`,
-		status,
-		nullTimeValue(startsAt),
-		nullTimeValue(expiresAt),
-		nullStringValue(blockedReason),
-		nullStringValue(subscriptionName),
-		subscriptionRefreshHours,
-		nullStringValue(subscriptionInfoURL),
-		nullStringValue(subscriptionExtraURL),
-		nullStringValue(subscriptionExtraStatus),
-		id,
-	)
-	if err != nil {
-		log.Printf("apiUpdateUserSubscription: %v", err)
-		httpapi.WriteError(w, r, http.StatusInternalServerError, "failed to update subscription")
-		return
-	}
-	a.recordAuditEvent(r, "user.subscription.update", "user", strconv.FormatInt(id, 10), map[string]any{"status": status})
+	a.recordAuditEvent(r, "user.subscription.update", "user", strconv.FormatInt(id, 10), map[string]any{"status": updated.status})
 	httpapi.WriteMessage(w, "subscription updated")
 }
 

@@ -1,6 +1,6 @@
 # R23 — Shared public-page contracts
 
-Status: normalization implemented on `refactor/public-page-normalization` from PR41 merge `5a88693`, after saved tests-first `f5c8601`. Local validation is in progress; hosted acceptance remains pending.
+Status: accepted in PR42 at head `de6baf1571a0f7d9cf30a0a6af473ea4d6d742e9`, merge `0dfdba1010a27f5a60a7b807f96e197fb6222fed`. Tests-first `f5c8601` precedes extraction; earlier checkpoints below are historical.
 
 Use common JSON fixtures in both Go and frontend tests before extracting defaults/normalization. Assert supported hero/steps/linkButtons/activation/text/footer semantics, localized defaults, explicit branding substitution, escaped text/attributes, valid relative/HTTP links and Happ activation URLs, unsafe URLs and custom/legacy theme keys. Exercise the actual frontend page and Go renderer rather than an independent reimplementation.
 
@@ -35,3 +35,7 @@ Full Go exec41544 exits zero: 4,570 passes/five unchanged optional skips in528.3
 | Quality and integration | New modules/tests10; renderer8.34/page9.68; full local gates pass, final hosted/review pending |
 
 A14 remains unaccepted until final hosted gates/review. Broader A01 remains; no goal completion claim.
+
+## Final acceptance
+
+[PR42](https://github.com/romanpodg/SubShare-Go/pull/42) merged at `0dfdba1010a27f5a60a7b807f96e197fb6222fed` after all six gates at `de6baf1571a0f7d9cf30a0a6af473ea4d6d742e9`. [Run38290705750](https://github.com/romanpodg/SubShare-Go/actions/runs/38290705750) confirms all five Linux race steps, authentic populated Docker upgrade/matched restore and retained clean-stack/restart smoke. Exact-head automated review completed with positive reaction and no findings/threads; normal expected-head merge respected protections. The requirement matrix above is accepted; earlier pending checkpoints are historical. A14 is complete. Broader A01 remains, with R24a/R24b closing its remaining boundaries; goal active, heartbeat paused per user.

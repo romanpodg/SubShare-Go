@@ -27,7 +27,7 @@ Completed work:
 | Audit item | Status | Remaining work |
 | --- | --- | --- |
 | A00 / P0 | R01/R02 complete; PR #8 merged | No production I/O trigger frequency is claimed |
-| A01 / P1 | R03/R04 merged; R05a/R05b included in dc91072 merge | Other A01 mutation boundaries remain |
+| A01 / P1 | R03/R04/R05 accepted; R24a subscription boundary implemented, validation in progress | Subscription replacement and assignment/user-settings boundaries remain; [R24a record](r24a-subscription-replacement.md) |
 | A02 / P1 | Completed; R06/R07a/R07b/R08/R08c merged with hosted checks/review clear | Retain encrypted command, projection, ownership and rollback contracts |
 | A03 / P1 | Completed; R09/R10a/R10b/R10c merged | Retain preservation/shared/UTF-8 contracts; remaining parser complexity stays visible |
 | A04 / P1 | Completed; R12/R13a/R13b merged in PR23-PR25 | Final six checks/review clear at 49d5627; retain [requirement evidence](r13b-response-http.md) |
@@ -40,13 +40,13 @@ Completed work:
 | A11 / P2 | Completed; R20 accepted in PR37 | Six final-head checks/race/review clear at 3f3c1c2; retain [A11 matrix](r20-unused-persistence.md) |
 | A12 / P2 | Completed; R21 accepted in PR38 | Six final-head checks/race/review clear at c1695a8; retain [A12 matrix](r21-branding-acknowledgment.md) |
 | A13 / P2 | Completed; R22a/R22b1/R22b2 accepted in PR39–PR41 | Six final-head checks/five races/populated Docker/review clear at 930d9d3; retain [A13 matrix](r22b2-populated-migration-recovery.md) |
-| A14 / P2 | R23 normalization implemented; validation in progress | Shared supported semantics/differences protected; [record](r23-public-page-contracts.md); hosted acceptance pending |
+| A14 / P2 | Completed; R23 accepted in PR42 | Six final-head gates/five races/review clear at de6baf1; retain [A14 matrix](r23-public-page-contracts.md) |
 
 All six checks passed for a438377: backend, frontend, Docker smoke, CodeScene, Codecov patch and Codecov bundles. [Actions run 37429826449](https://github.com/romanpodg/SubShare-Go/actions/runs/37429826449) includes Go/migration/vet/lint/build/secret scanning, TypeScript/lint/Vitest/build/Playwright, restart persistence and configured uploads. [CodeScene analysis 7826153](https://codescene.io/projects/84883/delta/results/7826153) passed all three gates; both local deltas pass.
 
 Codecov: project **48.02%** versus main **46.89%**; main.go **18.46%** versus **8.01%**; sqlite.go **64.70%** versus **60.78%**; whole-PR patch **80.09%**. Test Analytics: **848 passed, 5 skipped, no failures/errors**. Bundle upload/check passed; size/delta figures were unavailable in inspected results. Local statements remain **52.4%**, with unchanged coverage across 140 repository blocks. Optional snapshot/client fixtures and local race execution remain unverified. Passing frontend CI does not complete its planned refactoring.
 
-**Current review boundary:** R01–R22 and separate correctness fixes are merged through PR41 at 5a88693. A00/A02–A13 are accepted, including populated interrupted migration and actual Docker upgrade/export/restore proof. R23 public-page contracts and broader A01/A14 remain incomplete. Historical audit measurements remain distinct from current validation.
+**Current review boundary:** R01–R23 and separate correctness fixes are merged through PR42 at 0dfdba1. A00/A02–A14 are accepted. Broader A01 remains: legacy subscription replacement, assignment and user-settings command boundaries. Historical audit measurements remain distinct from current validation.
 
 ## P0
 
