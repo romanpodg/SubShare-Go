@@ -8,7 +8,6 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
-	"time"
 
 	"github.com/romanpodg/SubShare-Go/internal/httpapi"
 	"github.com/romanpodg/SubShare-Go/internal/model"
@@ -160,64 +159,4 @@ func (a *App) apiGetUserSubscriptionURLs(w http.ResponseWriter, r *http.Request)
 		"plain_url":     plainURL,
 		"encrypted_url": encryptedURL,
 	})
-}
-
-func (a *App) apiUpdateUserSettings(w http.ResponseWriter, r *http.Request) {
-	id, ok := httpapi.PathID(w, r, "id")
-	if !ok {
-		return
-	}
-
-	var req model.UpdateUserSettingsRequest
-	if err := httpapi.ReadJSON(r, &req); err != nil {
-		httpapi.WriteError(w, r, http.StatusBadRequest, "invalid request body")
-		return
-	}
-
-	timeZone := strings.TrimSpace(req.TimeZone)
-	if timeZone == "" {
-		timeZone = "Europe/Moscow"
-	}
-	if len(timeZone) > 64 {
-		httpapi.WriteError(w, r, http.StatusBadRequest, "time_zone is too long (max 64 characters)")
-		return
-	}
-	if _, err := time.LoadLocation(timeZone); err != nil {
-		httpapi.WriteError(w, r, http.StatusBadRequest, "time_zone must be a valid IANA timezone")
-		return
-	}
-
-	language := strings.ToLower(strings.TrimSpace(req.Language))
-	if language == "" {
-		language = "ru"
-	}
-	switch language {
-	case "ru", "en":
-	default:
-		httpapi.WriteError(w, r, http.StatusBadRequest, "language must be one of: ru, en")
-		return
-	}
-
-	res, err := a.db.Exec(`UPDATE users SET time_zone = ?, language = ? WHERE id = ?`, timeZone, language, id)
-	if err != nil {
-		log.Printf("apiUpdateUserSettings: %v", err)
-		httpapi.WriteError(w, r, http.StatusInternalServerError, "failed to update user settings")
-		return
-	}
-	updated, err := res.RowsAffected()
-	if err != nil {
-		log.Printf("apiUpdateUserSettings: %v", err)
-		httpapi.WriteError(w, r, http.StatusInternalServerError, "failed to update user settings")
-		return
-	}
-	if updated == 0 {
-		httpapi.WriteError(w, r, http.StatusNotFound, "user not found")
-		return
-	}
-
-	a.recordAuditEvent(r, "user.settings.update", "user", strconv.FormatInt(id, 10), map[string]any{
-		"time_zone": timeZone,
-		"language":  language,
-	})
-	httpapi.WriteMessage(w, "user settings updated")
 }

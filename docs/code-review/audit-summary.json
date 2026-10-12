@@ -4015,7 +4015,7 @@
       "R22b": "completed_pr40_pr41_final_checks_five_races_populated_docker_review_a13_accepted",
       "R23": "completed_pr42_final_checks_five_races_review_a14_accepted",
       "R24a": "completed_pr43_final_checks_five_races_review_accepted",
-      "R24b": "tests_first_assignment_settings_reporting_regression"
+      "R24b": "locally_validated_hosted_acceptance_pending"
     },
     "partialStatusMeaning": "Related extraction/regression groundwork exists; prerequisites and acceptance cases remain unfinished.",
     "completedWork": [
