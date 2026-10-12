@@ -61,7 +61,7 @@ func applyAssuranceMigration(t *testing.T, f migrationAssuranceFixture, conn *sq
 
 func (f migrationAssuranceFixture) seed(t *testing.T, keys int) {
 	t.Helper()
-	profileContractExec(t, f.db, `INSERT INTO users(id, name, token, activation_code, status, key_assignment_mode) VALUES(501, 'Upgrade fixture', 'upgrade-fixture-token', 'upgrade-fixture-code', 'active', 'all')`)
+	profileContractExec(t, f.db, `INSERT INTO users(id, name, token, subscription_id, activation_code, status, key_assignment_mode, starts_at, expires_at, max_devices) VALUES(501, 'Upgrade fixture', 'upgrade-fixture-token', 'upgrade-fixture-token', 'upgrade-fixture-code', 'active', 'all', '2025-01-01T00:00:00Z', '2099-01-01T00:00:00Z', 0)`)
 	for index := 1; index <= keys; index++ {
 		profileContractExec(t, f.db, `INSERT INTO vless_keys(id, label, url, status, key_kind, created_at, sort_order) VALUES(?, ?, ?, 'active', 'real', '2025-01-01T00:00:00Z', ?)`, index, fmt.Sprintf("Fixture %03d", index), migrationAssuranceURI(index), index)
 		profileContractExec(t, f.db, `INSERT INTO user_keys(user_id, key_id) VALUES(501, ?)`, index)

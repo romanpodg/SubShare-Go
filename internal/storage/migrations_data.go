@@ -3,6 +3,7 @@ package storage
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"strings"
 
@@ -418,64 +419,44 @@ func applyMigration13Rebuild(ctx context.Context, conn *sql.Conn, db *sql.DB, ke
 		return fmt.Errorf("disable foreign keys: %w", err)
 	}
 
-	connectionDirty := false
 	defer func() {
-		if connectionDirty {
-			return
-		}
-		if _, err := conn.ExecContext(ctx, "PRAGMA foreign_keys = ON"); err != nil && resultErr == nil {
-			resultErr = fmt.Errorf("restore foreign_keys: %w", err)
-			connectionDirty = true
-		}
-		var fkStatus int
-		if err := conn.QueryRowContext(ctx, "PRAGMA foreign_keys").Scan(&fkStatus); err != nil && resultErr == nil {
-			resultErr = fmt.Errorf("verify foreign_keys status: %w", err)
-			connectionDirty = true
-		} else if fkStatus != 1 && resultErr == nil {
-			resultErr = fmt.Errorf("foreign_keys failed to re-enable (status: %d)", fkStatus)
-			connectionDirty = true
-		}
+		// Later transaction/row defers run first, so restoration follows
+		// rollback on failure as well as commit on success.
+		resultErr = errors.Join(resultErr, restoreMigrationForeignKeys(ctx, conn))
 	}()
 
 	tx, err := conn.BeginTx(ctx, nil)
 	if err != nil {
-		connectionDirty = true
 		return fmt.Errorf("begin rebuild tx: %w", err)
 	}
 	defer tx.Rollback()
 
 	for _, stmt := range migration13RebuildStatements {
 		if _, err := tx.ExecContext(ctx, stmt); err != nil {
-			connectionDirty = true
 			return fmt.Errorf("rebuild statement failed: %w", err)
 		}
 	}
 
 	rows, err := tx.QueryContext(ctx, "PRAGMA foreign_key_check")
 	if err != nil {
-		connectionDirty = true
 		return fmt.Errorf("execute foreign_key_check: %w", err)
 	}
 	defer rows.Close()
 	if rows.Next() {
 		var table, rowid, parent, fkid string
 		_ = rows.Scan(&table, &rowid, &parent, &fkid)
-		connectionDirty = true
 		return fmt.Errorf("foreign key violation detected on table %s (rowid %s)", table, rowid)
 	}
 
 	var integrityResult string
 	if err := tx.QueryRowContext(ctx, "PRAGMA integrity_check").Scan(&integrityResult); err != nil {
-		connectionDirty = true
 		return fmt.Errorf("execute integrity_check: %w", err)
 	}
 	if integrityResult != "ok" {
-		connectionDirty = true
 		return fmt.Errorf("integrity_check failed: %s", integrityResult)
 	}
 
 	if err := tx.Commit(); err != nil {
-		connectionDirty = true
 		return fmt.Errorf("commit rebuild tx: %w", err)
 	}
 	return nil

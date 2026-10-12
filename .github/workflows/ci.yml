@@ -86,6 +86,12 @@ jobs:
           -run '^(TestActualRegisteredRouteAuthorization.*|TestActualRouteInvalidCredentials.*|TestActualRouteCookieBearer.*|TestActualAuthPrivacy.*)$'
           -count=1
 
+      - name: Race-check populated migration recovery
+        run: >-
+          go test -race ./internal/storage
+          -run '^TestPopulatedMigrationAssurance'
+          -count=1
+
       # Fork PRs have no repository secrets; tests still run, uploads are skipped.
       - name: Upload Go coverage
         if: ${{ !cancelled() && hashFiles('coverage.out') != '' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) }}
@@ -234,6 +240,19 @@ jobs:
             caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile
           docker compose run --rm --no-deps -e BASE_URL=https://example.com frontend \
             caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile
+
+      - name: Setup Go for populated deployment fixtures
+        uses: actions/setup-go@v6
+        with:
+          go-version: "1.24"
+
+      - name: Generate authentic populated historical database
+        env:
+          SUBSHARE_DOCKER_FIXTURE_DIR: .cache/docker-upgrade-fixture
+        run: go test -tags=dockerfixture ./internal/storage -run '^TestWriteDockerUpgradeFixture$' -count=1
+
+      - name: Verify populated upgrade and matched-pair restore
+        run: bash scripts/ci/populated-upgrade-restore.sh
 
       - name: Start clean stack
         run: docker compose up -d --wait --wait-timeout 180
