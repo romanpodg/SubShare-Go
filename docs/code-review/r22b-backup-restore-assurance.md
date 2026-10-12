@@ -1,6 +1,6 @@
 # R22b — Backup, export and populated upgrade/restore assurance
 
-Status: locally validated correction on `fix/backup-export-and-validation`, after saved/pushed tests-first `c26d0d0`, based on accepted R22a merge `c03465c`. Final secret/hosted/race/review acceptance remains. R22a is accepted; A13 remains incomplete until both boundaries below are verified.
+Status: locally validated corrected candidate in [PR40](https://github.com/romanpodg/SubShare-Go/pull/40) on `fix/backup-export-and-validation`, after tests-first `c26d0d0`, `4887eef` and `5497a4d`, based on accepted R22a merge `c03465c`. Active-keyring and relative-path audit findings are now corrected locally; final corrected-head secret/hosted/race/review acceptance remains. R22a is accepted; A13 remains incomplete until both boundaries below are verified.
 
 PR40 initial head `e39fb8f` has all six checks/clear review, but is not accepted: the requirement audit found active-keyring pairing incomplete. Backend configuration supports a custom PROFILE_ENCRYPTION_KEYRING_FILE or mutually exclusive inline JSON; scripts still admitted/copied the default file. Two executed native regressions fail for custom active file and inline JSON with a stale default file. Keep the PR unmerged until the active file is selected and inline admission refused without printing secret JSON, then require all corrected-head gates again. Artifacts: active-keyring-before-final-tests.json / active-keyring-before-final.log. The two new Go/PowerShell fixture files score 10.00; no production correction yet at this checkpoint.
 
@@ -39,6 +39,7 @@ Additional final artifacts: assurance-trim-final-tests.json, native-final-tests.
 | Requirement | Evidence |
 | --- | --- |
 | Configured export/default/disabled/failure contract | Thirteen actual-script fake-Docker outcomes on both Windows runtimes and Bash; final Linux native execution remains mandatory |
+| Active keyring and relative paths | Corrected active custom-file pair, inline refusal despite stale default, and backend-relative database/keyring resolution; sixteen outcomes on both Windows runtimes and Bash |
 | Populated paired restore | Read-only validation and restored IDs/raw/user/assignment/category/FK/sequence assertions from a generated database/keyring pair |
 | Authentication versus startup shape | Same key ID/wrong material and wrong-row-bound envelope pass shape but fail authentication; nil keyring and missing secret are rejected |
 | Preparation/publication failure safety | Failed VACUUM, blocked parent/prior file, corrupted SQLite; deterministic initial/replacement publication and failed rollback preserve live or recoverable prior bytes |
@@ -46,5 +47,11 @@ Additional final artifacts: assurance-trim-final-tests.json, native-final-tests.
 | Final integration | Full backend evidence plus expanded native cases above; final secret/six hosted/four race/clear-review gates pending |
 
 R22b2 remains mandatory: interrupted encryption/table rebuild on populated fixtures, historical migration IDs/order, stable rows/sequences/FKs/credentials and rollback/resumption, Docker populated upgrade/restore and deliberate optional runner policy. Existing restart-only Docker checks do not prove those requirements. R23 and broader A01 also remain.
+
+## Final pairing/path audit correction
+
+Tests-first 4887eef and 5497a4d are saved locally before correction. Scripts now inspect inline-keyring presence without printing its value, select/trim/verify the configured active file, and copy that file. A stale default file cannot bypass inline admission. Relative configured database/keyring values resolve against backend PWD through quoted positional arguments; absolute/default values retain their path. Backend configuration declares file and raw inline JSON mutually exclusive, matching the new admission rule.
+
+All 33 final focused Go/native cases and sixteen Bash export outcomes pass; built-in Windows PowerShell fallback also passes the full native matrix. All changed supported Go/PowerShell files score 10.00, including the now-scored PowerShell resolver; Bash syntax passes. Final fixture vet/lint pass. Backend production Go remains identical to full run 19711; no larger local full count is claimed. Initial e39fb8f green gates/clear review are superseded by this own-audit correction and cannot authorize merge. Require six checks/four races and completed clear review at the published corrected head. Artifacts: pairing-final-tests.json, bash-export-after.json, powershell-pairing-legacy-final.log and pairing-*-health.json under `.cache/r22b`.
 
 Preserve operational data: all Go databases/keyrings/output files are fresh disposable fixtures; export scripts run against fake Docker commands. No operational .env, volume or keyring reads. A narrow private publication seam may support deterministic rename faults without global hooks; retain production sequencing/error/restore policy. Require focused/full/static/migration/strict/secret and all six final-head hosted/four race/clear-review gates for each accepted boundary. Keep broader A01/A13-A14 unfinished; goal active, heartbeat paused per user.

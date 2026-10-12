@@ -32,8 +32,29 @@ trim_backup_path() {
   printf '%s' "$path"
 }
 
-if ! docker compose exec -T backend sh -ec 'test -f /app/data/keyring.json'; then
+resolve_backend_export_path() {
+  if [[ "$1" == /* ]]; then
+    printf '%s' "$1"
+    return
+  fi
+  docker compose exec -T backend sh -ec 'printf "%s/%s" "$PWD" "$1"' sh "$1"
+}
+
+if ! CONFIGURED_KEYRING_PATH="$(docker compose exec -T backend sh -ec 'test -z "${PROFILE_ENCRYPTION_KEYRING_JSON:-}" && printf "%s" "${PROFILE_ENCRYPTION_KEYRING_FILE:-}"')"; then
+  echo "ERROR: an active file-backed keyring is required. Preserve PROFILE_ENCRYPTION_KEYRING_JSON securely before exporting an inline-keyring database." >&2
+  exit 1
+fi
+CONFIGURED_KEYRING_PATH="$(trim_backup_path "$CONFIGURED_KEYRING_PATH")"
+if [[ -z "$CONFIGURED_KEYRING_PATH" ]]; then
+  echo "ERROR: no active file-backed keyring is configured for export." >&2
+  exit 1
+fi
+if ! docker compose exec -T backend sh -ec 'test -f "$1"' sh "$CONFIGURED_KEYRING_PATH"; then
   echo "ERROR: no file-backed keyring exists in the data volume. Preserve PROFILE_ENCRYPTION_KEYRING_JSON securely before exporting this database." >&2
+  exit 1
+fi
+if ! CONFIGURED_KEYRING_PATH="$(resolve_backend_export_path "$CONFIGURED_KEYRING_PATH")"; then
+  echo "ERROR: could not resolve the configured keyring path in the running backend." >&2
   exit 1
 fi
 if ! CONFIGURED_BACKUP_PATH="$(docker compose exec -T backend sh -ec 'printf "%s" "${BACKUP_PATH:-}"')"; then
@@ -45,8 +66,12 @@ if [[ -z "$CONFIGURED_BACKUP_PATH" ]]; then
   echo "ERROR: automatic backup is disabled (BACKUP_PATH is empty)." >&2
   exit 1
 fi
+if ! CONFIGURED_BACKUP_PATH="$(resolve_backend_export_path "$CONFIGURED_BACKUP_PATH")"; then
+  echo "ERROR: could not resolve the configured backup path in the running backend." >&2
+  exit 1
+fi
 docker compose cp "backend:$CONFIGURED_BACKUP_PATH" "$OUT"
-docker compose cp backend:/app/data/keyring.json "$KEYRING_OUT"
+docker compose cp "backend:$CONFIGURED_KEYRING_PATH" "$KEYRING_OUT"
 chmod 600 "$OUT"
 chmod 600 "$KEYRING_OUT"
 

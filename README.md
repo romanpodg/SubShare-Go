@@ -251,6 +251,8 @@ When `BACKUP_PATH` is enabled, SubShare maintains an integrity-checked SQLite ba
 
 The export scripts use the running backend's configured backup path, including custom paths, and stop if backup is disabled or its configuration cannot be read.
 
+They export the configured active file-backed keyring. Inline keyring configurations are refused even if an older default keyring file remains; preserve the inline keyring securely alongside the database instead.
+
 Linux:
 
 ```bash
