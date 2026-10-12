@@ -27,7 +27,7 @@ Completed work:
 | Audit item | Status | Remaining work |
 | --- | --- | --- |
 | A00 / P0 | R01/R02 complete; PR #8 merged | No production I/O trigger frequency is claimed |
-| A01 / P1 | R03/R04/R05 accepted; R24a tests-first in progress | Subscription replacement and assignment/user-settings boundaries remain; [R24a record](r24a-subscription-replacement.md) |
+| A01 / P1 | R03/R04/R05 accepted; R24a subscription boundary implemented, validation in progress | Subscription replacement and assignment/user-settings boundaries remain; [R24a record](r24a-subscription-replacement.md) |
 | A02 / P1 | Completed; R06/R07a/R07b/R08/R08c merged with hosted checks/review clear | Retain encrypted command, projection, ownership and rollback contracts |
 | A03 / P1 | Completed; R09/R10a/R10b/R10c merged | Retain preservation/shared/UTF-8 contracts; remaining parser complexity stays visible |
 | A04 / P1 | Completed; R12/R13a/R13b merged in PR23-PR25 | Final six checks/review clear at 49d5627; retain [requirement evidence](r13b-response-http.md) |
