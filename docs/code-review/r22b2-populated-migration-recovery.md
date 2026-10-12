@@ -1,6 +1,6 @@
 # R22b2 — Populated migration interruption and Docker upgrade/restore
 
-Status: tests-first in progress on `test/populated-migration-recovery`, based on accepted PR40 merge `e23bebe`. R22a/R22b1 are accepted; A13 remains incomplete.
+Status: accepted in PR41 at head `930d9d35c87f4b8a66266e318c7d82c6aed03430`, merge `5a8869379b10a70b1a0cc3dc6972651189468f80`. Earlier checkpoints below are historical; final acceptance follows.
 
 Use authentic historical SchemaMigrations to build populated disposable version-eleven/twelve fixtures, not a minimal unit schema passed off as a complete server database. Inject encryption secret-insert failure inside a batch and after a committed hundred-row batch; prove rollback/resumption, historical migration IDs/order, stable rows/sequence, FK enforcement, raw credentials and unchanged already-committed envelopes. Inject plaintext-column table-copy/swap failure and prove the populated unit stays recoverable; reproduce FK restoration versus dirty-connection handling before any correction. No historical SQL rewrite.
 
@@ -27,3 +27,21 @@ Full uncached Go/atomic coverage exec 22837 is live; inspect completion before c
 Mandatory CI uses synthetic authentic historical schemas, populated fault/resumption cases and actual isolated Docker upgrade/restore. The existing SUBSHARE_MIGRATION_SOURCE real snapshot stays opt-in on a trusted operator runner with a deliberately selected disposable/anonymized fixture; do not point it at operational user data automatically. Four official-client tests remain opt-in with MIHOMO_BIN, SING_BOX_BIN, XRAY_26327_BIN and XRAY_CURRENT_BIN, and their existing pinned-version checks must pass before claiming external client compatibility. Do not silently download or execute arbitrary binaries. Missing snapshot/binaries remain explicit skips, not passes; generated fixtures and structural validation do not replace those external claims. No release-specific external validation is claimed by this refactoring batch.
 
 Final local full run 22837 exits zero: 4,549 passes/five unchanged optional skips in 495.7 seconds; server statements 76.1%. Eight final targeted cases, tagged generator/read-only verifier, actual disposable local HTTP delivery, regular/tagged vet/lint/build, Bash syntax/actionlint pass. Subsequent synthetic subscription-ID fixture correction is separately targeted-verified; production Go unchanged since full run. Fifteen protected migration functions/types/SQL declarations are AST-identical; SchemaMigrations/baseline files untouched. Final strict delta and staged secret scan pass. Actual populated Docker/fifth Linux race/final review remain required, not claimed. No local test process is live.
+
+## Final acceptance and A13 evidence
+
+[PR41](https://github.com/romanpodg/SubShare-Go/pull/41) merged at `5a8869379b10a70b1a0cc3dc6972651189468f80` after all six gates passed at `930d9d35c87f4b8a66266e318c7d82c6aed03430`. [Run 38261931220](https://github.com/romanpodg/SubShare-Go/actions/runs/38261931220) confirms all five Linux race steps, the authentic historical fixture generator, populated Docker upgrade/matched-pair restore, and retained clean-stack/restart smoke. Job 114856183018 logs show both isolated upgrade/restore projects healthy, configured database/keyring copies with spaces, two successful read-only pair verifications and removal of both disposable projects/volumes. Exact-head automated review completed with a positive reaction and no inline findings/threads. Copilot's quota failure is not counted as approval. Codecov's passing patch gate reports 60% patch coverage with cleanup error paths still uncovered; no claim of exhaustive fault coverage is made.
+
+| A13 requirement | Accepted evidence |
+| --- | --- |
+| Delivery/sync package execution and honest measurement | [R22a](r22a-delivery-source-locality.md), PR39: package-local fixtures, separate package/cross denominators and reviewed instrumentation proposal; integration tests retained |
+| Publication failures/configured export/keyring pairing | [R22b1](r22b-backup-restore-assurance.md), PR40: populated backup restore, deterministic publication/rollback faults, sixteen actual-script native outcomes and active relative keyring selection |
+| Authentication versus startup shape checks | R22b1: wrong material/row binding, absent keyring/secret, corruption and read-only validation |
+| Interrupted encryption and resumption | R22b2: authentic version11 fixture; row2/101 faults, rollback of failed batch, unpublished version12, retained ciphertext from committed batch |
+| Interrupted table rebuild and FK restoration | R22b2: copy/swap faults preserve full rows/assignments/secrets/sequence/migration snapshots; restore failure discards disabled pooled connection; retry passes |
+| Historical compatibility | Fifteen protected declarations/SQL AST-identical; migration IDs/order and baseline schema unchanged; stable identities/raw credentials/idempotence assertions |
+| Actual populated deployment upgrade/export/restore | Required Docker job starts current image from authentic historical database, checks exact delivery, exports configured pair, cryptographically verifies, restores in fresh project and repeats |
+| Optional runner policy | Trusted disposable/anonymized operator snapshot and four pinned official-client binaries remain opt-in; five absent optional checks remain explicit skips |
+| Final integration and review | Six gates/five Linux races and completed clear exact-head review at 930d9d3; normal expected-head merge without bypass |
+
+A13 is accepted. R23/A14 and broader A01 remain unfinished. Goal active; heartbeat paused per user.

@@ -1,0 +1,71 @@
+{
+  "config": {
+    "locale": "ru",
+    "templateVars": { "brandName": "Fixture & <Brand>", "greeting": "Здравствуйте" },
+    "theme": {
+      "buttonPrimaryHover": "#123456",
+      "buttonPrimaryBackgroundHover": "#654321",
+      "badgeText": "#abcdef"
+    },
+    "blocks": [
+      {
+        "type": "hero", "id": "hero", "brandTitle": "{brandName}",
+        "brandSubtitle": "{greeting} — 私密", "subhead": "<script>fixture</script>",
+        "statusBadge": "Ready & safe", "logo": { "src": "/subscription/logo.jpg", "alt": "{brandName} logo" }
+      },
+      {
+        "type": "steps", "id": "subscription", "title": "Connect {brandName}",
+        "steps": [
+          { "id": "download", "title": "Download", "description": "Official client", "block": {
+            "type": "linkButtons", "buttons": [
+              { "id": "fixture", "label": "Install & go", "href": "https://example.test/client?a=1&b=2", "variant": "primary", "external": true, "icon": { "type": "download" } },
+              { "id": "local", "label": "Local help", "href": "/help?q=one&lang=ru", "variant": "secondary" }
+            ]
+          } },
+          { "id": "activate", "title": "Activate", "description": "Enter code", "block": {
+            "type": "activation", "formLabel": "Fixture code", "formPlaceholder": "Code here",
+            "submitLabel": "Activate fixture", "submitLoadingLabel": "Waiting fixture",
+            "activateErrorFallback": "Fixture failed", "addButtonLabel": "Import fixture",
+            "addButtonDisabledLabel": "Activate first", "manualLinkLabel": "Fixture URL",
+            "copyLabel": "Copy fixture", "copiedLabel": "Copied fixture"
+          } },
+          { "id": "text", "title": "Finish", "description": "Text-only step", "block": { "type": "text" } }
+        ]
+      },
+      { "type": "footer", "id": "footer", "copyright": "© {brandName}", "languageBadge": "Русский", "footerLink": { "label": "Admin", "href": "/admin/login" } }
+    ]
+  },
+  "expected": {
+    "brand": "Fixture & <Brand>", "subtitle": "Здравствуйте — 私密",
+    "subhead": "<script>fixture</script>", "section": "Connect Fixture & <Brand>",
+    "copyright": "© Fixture & <Brand>", "importURL": "happ://add/https://example.test/sub/fixture",
+    "goPrimaryHover": "#123456", "frontendPrimaryHover": "#654321"
+  },
+  "admission": [
+    { "name": "null", "raw": "null", "goAccepted": false },
+    { "name": "empty object", "raw": "{}", "goAccepted": false },
+    { "name": "empty blocks", "raw": "{\"blocks\":[]}", "goAccepted": false },
+    { "name": "malformed", "raw": "{", "goAccepted": false },
+    { "name": "unknown root fields", "raw": "{\"future\":true,\"blocks\":[{\"type\":\"footer\",\"id\":\"footer\",\"copyright\":\"Admission fixture\",\"languageBadge\":\"ru\"}]}", "goAccepted": true }
+  ],
+  "links": [
+    { "name": "relative", "href": "/help?a=1&b=2", "goAllowed": true, "frontendHref": "/help?a=1&b=2" },
+    { "name": "https", "href": "https://example.test/path?a=1&b=2", "goAllowed": true, "frontendHref": "https://example.test/path?a=1&b=2" },
+    { "name": "http", "href": "http://example.test/path", "goAllowed": true, "frontendHref": "http://example.test/path" },
+    { "name": "Happ button", "href": "happ://add/fixture", "goAllowed": false, "frontendHref": "happ://add/fixture" },
+    { "name": "protocol relative", "href": "//example.test/path", "goAllowed": false, "frontendHref": "//example.test/path" },
+    { "name": "userinfo", "href": "https://fixture@example.test/path", "goAllowed": false, "frontendHref": "https://fixture@example.test/path" },
+    { "name": "javascript", "href": "javascript:alert('fixture')", "goAllowed": false, "frontendHref": "react-blocked" }
+  ],
+  "themes": [
+    { "name": "custom", "value": "#abcdef", "goValue": "#abcdef" },
+    { "name": "injection", "value": "red;} </style><script>fixture</script>", "goValue": "#1f3a8a" },
+    { "name": "URL", "value": "url(https://example.test/fixture)", "goValue": "#1f3a8a" }
+  ],
+  "defaults": {
+    "goBrand": "XRAY VPN", "frontendBrand": "SubShare", "locale": "ru",
+    "blockTypes": ["hero", "steps", "footer"], "stepTypes": ["linkButtons", "activation", "text"],
+    "downloadIDs": ["google-play", "app-store-ru", "app-store-global", "android-apk", "windows", "macos", "linux"]
+  },
+  "template": { "source": "Known {brandName}; unknown {missing}", "go": "Known Fixture; unknown {missing}", "frontend": "Known Fixture; unknown " }
+}
