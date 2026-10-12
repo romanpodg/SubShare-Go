@@ -36,7 +36,7 @@ Completed work:
 | A07 / P1 | Completed; R11a/R11b and corrections merged in PR19-PR22 | Final six checks/review clear at b6fb366; retain [requirement evidence](r11b-reveal-provenance.md) |
 | A08 / P1 | Completed; R17a/R17b accepted in PR32/PR33 | Six final-head checks/review clear at 37157f5; retain [A08 matrix](r17b-key-list-presentation.md) |
 | A09 / P2 | Completed; R18a/R18b accepted in PR34/PR35 | Six final-head checks/race/review clear at ab39494; retain [A09 matrix](r18b-branding-requests.md) |
-| A10 / P2 | R19 44-case prerequisite corpus/full package passes against unchanged production | Narrow outbound interpretation/traversal and final gates |
+| A10 / P2 | R19 outbound view/traversal implemented after 44-case prerequisite corpus | Final full/local/hosted/review gates and [A10 evidence](r19-xray-interpretation.md) |
 | A11 / P2 | Not started | R20 supported-consumer check and unused declarations |
 | A12 / P2 | Not started | R21 branding save acknowledgment and reopen state |
 | A13 / P2 | Not started | R22a/R22b package measurement and backup/upgrade/restore failures |
