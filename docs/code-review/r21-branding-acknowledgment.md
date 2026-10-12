@@ -1,6 +1,6 @@
 # R21 — Branding persistence acknowledgment and editor reopening
 
-Status: locally validated correction on `fix/branding-save-acknowledgment`, after tests-first `1f2e1a0`, based on accepted A11 merge `a0120f2`. The baseline's thirteen mounted cases produced ten desired failures/three compatibility passes; the correction and expanded retry/recovery/favicon/browser matrix pass. No R21 PR or A12 acceptance exists at this checkpoint.
+Status: accepted in [PR38](https://github.com/romanpodg/SubShare-Go/pull/38), merge `dabf134f85792a8ca9aa63fbc76888ea2a85e63c`, after tests-first `1f2e1a0` and final head `c1695a8172aba37dc65ea7b25e5fffac7b0cb952`. All six final-head checks pass in [run 38205469220](https://github.com/romanpodg/SubShare-Go/actions/runs/38205469220), including Docker and all four Linux race steps. Exact-head automated review completed with a positive reaction and no review threads. A12 is accepted; R22a/R22b/R23 and broader A01 remain.
 
 Desired failures protect opening after backend load, cancelling/reopening, later acknowledged external data, denied/server/network/invalid-response saves, pending/double-save acknowledgment, late successful GET and late failed GET versus a saved update. Passing compatibility checks retain cold-cache public defaults, fallback cache with missing defaults, and sequential panel/page-title payload merging. Artifacts: `.cache/r21/complete-desired-before.json`; the original five-case discovery and landed baseline remain separate.
 
@@ -18,7 +18,7 @@ Sixteen corrective state/modal cases, two favicon cases and three request-compat
 
 Artifacts remain under `.cache/r21`, including complete-desired-before.json, focused-final.json, full-final.json, build-final.log, browser-final.log, branding-browser-after.log, final-correction-delta.json and prove-mappings.mjs. The initial ten failing assertions are retained as desired-regression evidence. Finish secret scans, commit/push/open an independent main PR and require all six final-head checks/race plus resolved actionable automated review before A12 acceptance.
 
-## A12 requirement evidence (acceptance pending)
+## A12 accepted requirement evidence
 
 | Requirement | Evidence |
 | --- | --- |
@@ -28,4 +28,6 @@ Artifacts remain under `.cache/r21`, including complete-desired-before.json, foc
 | Late loading versus mutations | Successful/failed GET after acknowledgment and initial load after failed edit |
 | Cache/default/server truth and partial merging | Cold-cache defaults/fallback and sequential/failed-queue partial-update tests |
 | UI/default/mapping/favicon compatibility | Four unchanged bodies/defaults, favicon alias tests, full frontend and browser corpus |
-| Final integration/review | Local strict/validation passes; final secret and six exact-head hosted/race/review gates remain |
+| Final integration/review | Strict/staged/history secret scans and all six exact-head hosted checks pass; four Linux race steps pass; completed exact-head automated review has no findings |
+
+The local-validation paragraphs above retain pre-publication evidence. Final hosted acceptance supersedes their pending gate instructions. No protections were bypassed; expected-head normal merge succeeded. Both production components score 10.00 in hosted CodeScene; five optional backend snapshot/client cases remain deliberate skips. Heartbeat stays paused per user.

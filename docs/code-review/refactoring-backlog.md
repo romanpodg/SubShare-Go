@@ -38,8 +38,8 @@ Completed work:
 | A09 / P2 | Completed; R18a/R18b accepted in PR34/PR35 | Six final-head checks/race/review clear at ab39494; retain [A09 matrix](r18b-branding-requests.md) |
 | A10 / P2 | Completed; R19 accepted in PR36 | Six final-head checks/race/review clear at ace6921; retain [A10 evidence](r19-xray-interpretation.md) |
 | A11 / P2 | Completed; R20 accepted in PR37 | Six final-head checks/race/review clear at 3f3c1c2; retain [A11 matrix](r20-unused-persistence.md) |
-| A12 / P2 | R21 acknowledgment/reopen/late-load correction locally validated | Final secret/hosted/review and [A12 matrix](r21-branding-acknowledgment.md) acceptance |
-| A13 / P2 | Not started | R22a/R22b package measurement and backup/upgrade/restore failures |
+| A12 / P2 | Completed; R21 accepted in PR38 | Six final-head checks/race/review clear at c1695a8; retain [A12 matrix](r21-branding-acknowledgment.md) |
+| A13 / P2 | R22a package-local fixtures/measurement locally validated; R22b unfinished | R22a final hosted/review; [record](r22a-delivery-source-locality.md); backup/upgrade/restore failures remain |
 | A14 / P2 | Not started | R23 public-page renderer/config contracts |
 
 All six checks passed for a438377: backend, frontend, Docker smoke, CodeScene, Codecov patch and Codecov bundles. [Actions run 37429826449](https://github.com/romanpodg/SubShare-Go/actions/runs/37429826449) includes Go/migration/vet/lint/build/secret scanning, TypeScript/lint/Vitest/build/Playwright, restart persistence and configured uploads. [CodeScene analysis 7826153](https://codescene.io/projects/84883/delta/results/7826153) passed all three gates; both local deltas pass.
