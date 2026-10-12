@@ -1,6 +1,6 @@
 # R24b — Remaining A01 assignment and user-settings boundaries
 
-Status: final A01 boundaries implemented on `fix/settings-reporting-and-mutation-boundaries`, after tests-first `d268c04` and separate correction `3df1219`, from accepted PR43 merge `e0a2f29`. Local validation passed; hosted acceptance remains pending.
+Status: accepted in PR44 at head `63a0c0624761947780cb49d62461c322a31f61b3`, merge `be4ee583a405d8db9a465fa50779eb9d3a36310b`, after tests-first `d268c04`, explicit correction `3df1219` and extraction `63a0c06`. Earlier checkpoints below are historical; all A00–A14 code requirements are accepted.
 
 Assignment already owns one transaction but normalization and persistence share the v1 HTTP module. User settings still normalize and write directly in HTTP. Extract their pure policy and command boundaries, preserving SQL/arguments/background context/error precedence/defaults/aliases/deduplicated order and a single assignment transaction. Keep legacy and v1 error contracts distinct, including the characterized selected nonpositive-ID500. No generic repository, read-projection rewrite or schema change.
 
@@ -42,3 +42,7 @@ The complete backlog is not accepted until final hosted gates/review and persist
 ## Final local validation
 
 Full uncached Go/atomic coverage exec96974 exitszero:4,622passes/five unchanged optional skips in528.663s; server77.8%. Final production/test source stayed unchanged throughout that run.47focused/direct events, actual storage idempotence, vet/configured lint0/build, allnewmodule/test/handler health10, strict empty/pass, protected function/SQL/PATCH/replacement parity and staged-secret gates pass. No local process remains. Frontend/schema/routing/coverage config unchanged; final exact-head hosted frontend/Docker/backend/health/patch/bundle, five races and automated review remain mandatory. A01 and entire backlog acceptance await those gates plus persisted completion records.
+
+## Final acceptance
+
+[PR44](https://github.com/romanpodg/SubShare-Go/pull/44) merged at `be4ee583a405d8db9a465fa50779eb9d3a36310b` after all six gates at `63a0c0624761947780cb49d62461c322a31f61b3`. [Run38296550395](https://github.com/romanpodg/SubShare-Go/actions/runs/38296550395) proves all five Linux races, authentic populated Docker upgrade/matched restore and ordinary restart smoke. Exact-head review completed with a positive reaction/no findings/threads; normal expected-head merge respected protections. The A01 matrix above is accepted. All original A00–A14 code requirements are accepted, with no remaining implementation batch; [completion record](refactoring-completion.md) persists the full reconciliation. Earlier pending checkpoints are historical. Heartbeat remains paused; persistent-goal closure follows final documentation publication.
