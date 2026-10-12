@@ -4014,8 +4014,8 @@
       "R22a": "completed_pr39_p2_resolved_final_checks_review_accepted",
       "R22b": "completed_pr40_pr41_final_checks_five_races_populated_docker_review_a13_accepted",
       "R23": "completed_pr42_final_checks_five_races_review_a14_accepted",
-      "R24a": "locally_validated_hosted_acceptance_pending",
-      "R24b": "not_started"
+      "R24a": "completed_pr43_final_checks_five_races_review_accepted",
+      "R24b": "tests_first_assignment_settings_reporting_regression"
     },
     "partialStatusMeaning": "Related extraction/regression groundwork exists; prerequisites and acceptance cases remain unfinished.",
     "completedWork": [
@@ -4036,10 +4036,10 @@
         "scope": "Repository test maintainability, with assertions and transitions retained"
       }
     ],
-    "nextBatch": "R24a",
+    "nextBatch": "R24b",
     "nextBatchPriority": "P1",
     "nextBatchRemainingPrerequisites": [
-      "R23/A14 accepted in PR42 at de6baf1, merge 0dfdba1, after six gates/five Linux races and completed clear exact-head review. R24a finishes legacy subscription replacement policy/command/HTTP boundaries and relocates PATCH field/error adaptation, preserving existing CAS/retry/timezone/tri-state differences. R24b finishes assignment/user-settings boundaries before final A01 requirement reconciliation.",
+      "R24a accepted in PR43 at b2e9c18, merge e0a2f29, after six gates/five Linux races/populated Docker and completed clear review. R24b requires saved tests-first assignment/settings route/fault matrix, explicit false-404 correction for affected-row reporting failure, pure policy and transaction/SQL commands with unchanged endpoint semantics, final integration/review and complete A01 matrix.",
       "A00/A02–A14 are accepted; broader A01 remains."
     ],
     "remainingCriticalRisk": "A00/A02–A14 are accepted. Broader A01 remains. Concurrent tracking can fail with SQLITE_BUSY; accepted A05 preserves that characterized best-effort policy. Source update category preparation retains its audited pre-transaction behavior. OS I/O trigger frequency remains unmeasured.",

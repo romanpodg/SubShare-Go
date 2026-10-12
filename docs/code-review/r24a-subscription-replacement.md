@@ -1,6 +1,6 @@
 # R24a — Remaining A01 subscription replacement boundary
 
-Status: implemented on `refactor/subscription-replacement-command`, after tests-first `90b8fa6`, from accepted PR42 merge `0dfdba1`. Local validation passed; hosted acceptance pending. A00/A02–A14 are accepted; A01 remains incomplete.
+Status: accepted in PR43 at head `b2e9c1877339b4b1a10ecfc63fb05a91e35bb946`, merge `e0a2f292205e30fee2f7696ce2bf5ec34fab1fe0`. Earlier checkpoints below are historical. A00/A02–A14 are accepted; assignment/user-settings and final A01 acceptance remain.
 
 The original A01 requirement leaves legacy subscription PUT validation and SQL coupled to its HTTP handler. PATCH already has pure tri-state policy, snapshot comparison and five-attempt reload/revalidation. Finish the legacy replacement policy/command/adapter seam; relocate PATCH field normalization and response mapping into focused files while retaining CAS/retry/query bodies. Keep assignment/user-settings work separate as R24b. No generic repository or schema rewrite.
 
@@ -21,3 +21,7 @@ Twenty retained functions are AST-identical; replacement SQL bytes identical; PA
 ## Final local validation
 
 Full uncached Go/atomic coverage exec4737 completed zero:4,587passes/five unchanged optional skips in494.003s,server76.6%. The final source is unchanged from this run. Static/migration corpus/configured lint0/build,67focused/direct events,20retained-function/exact-SQL proof and strict/staged-secret gates pass. Frontend source is unchanged; the prior accepted R23 local frontend evidence is not relabeled as a new R24a run. Require the final six hosted gates, five Linux races, populated Docker and completed clear exact-head review before normal merge. R24b and final A01 matrix remain.
+
+## Final acceptance
+
+[PR43](https://github.com/romanpodg/SubShare-Go/pull/43) merged at `e0a2f292205e30fee2f7696ce2bf5ec34fab1fe0` after all six gates at `b2e9c1877339b4b1a10ecfc63fb05a91e35bb946`. [Run38293417810](https://github.com/romanpodg/SubShare-Go/actions/runs/38293417810) proves all five Linux races, populated historical upgrade/matched restore and ordinary clean-stack/restart smoke. Exact-head automated review completed with positive reaction and no findings/threads. Normal expected-head merge respected protections. R24a is accepted; remaining A01 work is R24b assignment/user-settings and final requirement reconciliation. Goal active; heartbeat paused.

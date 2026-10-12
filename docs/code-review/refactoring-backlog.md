@@ -27,7 +27,7 @@ Completed work:
 | Audit item | Status | Remaining work |
 | --- | --- | --- |
 | A00 / P0 | R01/R02 complete; PR #8 merged | No production I/O trigger frequency is claimed |
-| A01 / P1 | R03/R04/R05 accepted; R24a subscription boundary implemented, validation in progress | Subscription replacement and assignment/user-settings boundaries remain; [R24a record](r24a-subscription-replacement.md) |
+| A01 / P1 | R03/R04/R05/R24a accepted; R24b tests-first in progress | Assignment/user-settings boundaries and final requirement matrix remain; [R24b record](r24b-assignment-settings.md) |
 | A02 / P1 | Completed; R06/R07a/R07b/R08/R08c merged with hosted checks/review clear | Retain encrypted command, projection, ownership and rollback contracts |
 | A03 / P1 | Completed; R09/R10a/R10b/R10c merged | Retain preservation/shared/UTF-8 contracts; remaining parser complexity stays visible |
 | A04 / P1 | Completed; R12/R13a/R13b merged in PR23-PR25 | Final six checks/review clear at 49d5627; retain [requirement evidence](r13b-response-http.md) |
@@ -46,7 +46,7 @@ All six checks passed for a438377: backend, frontend, Docker smoke, CodeScene, C
 
 Codecov: project **48.02%** versus main **46.89%**; main.go **18.46%** versus **8.01%**; sqlite.go **64.70%** versus **60.78%**; whole-PR patch **80.09%**. Test Analytics: **848 passed, 5 skipped, no failures/errors**. Bundle upload/check passed; size/delta figures were unavailable in inspected results. Local statements remain **52.4%**, with unchanged coverage across 140 repository blocks. Optional snapshot/client fixtures and local race execution remain unverified. Passing frontend CI does not complete its planned refactoring.
 
-**Current review boundary:** R01–R23 and separate correctness fixes are merged through PR42 at 0dfdba1. A00/A02–A14 are accepted. Broader A01 remains: legacy subscription replacement, assignment and user-settings command boundaries. Historical audit measurements remain distinct from current validation.
+**Current review boundary:** R01–R24a and separate correctness fixes are merged through PR43 at e0a2f29. A00/A02–A14 are accepted. Broader A01 remains: assignment and user-settings command boundaries. Historical audit measurements remain distinct from current validation.
 
 ## P0
 
