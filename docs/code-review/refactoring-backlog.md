@@ -39,14 +39,14 @@ Completed work:
 | A10 / P2 | Completed; R19 accepted in PR36 | Six final-head checks/race/review clear at ace6921; retain [A10 evidence](r19-xray-interpretation.md) |
 | A11 / P2 | Completed; R20 accepted in PR37 | Six final-head checks/race/review clear at 3f3c1c2; retain [A11 matrix](r20-unused-persistence.md) |
 | A12 / P2 | Completed; R21 accepted in PR38 | Six final-head checks/race/review clear at c1695a8; retain [A12 matrix](r21-branding-acknowledgment.md) |
-| A13 / P2 | R22a package-local fixtures/measurement locally validated; R22b unfinished | R22a final hosted/review; [record](r22a-delivery-source-locality.md); backup/upgrade/restore failures remain |
+| A13 / P2 | R22a accepted in PR39; R22b assurance in progress | Six checks/race/review clear at a73c371; [record](r22a-delivery-source-locality.md); backup/upgrade/restore failures remain |
 | A14 / P2 | Not started | R23 public-page renderer/config contracts |
 
 All six checks passed for a438377: backend, frontend, Docker smoke, CodeScene, Codecov patch and Codecov bundles. [Actions run 37429826449](https://github.com/romanpodg/SubShare-Go/actions/runs/37429826449) includes Go/migration/vet/lint/build/secret scanning, TypeScript/lint/Vitest/build/Playwright, restart persistence and configured uploads. [CodeScene analysis 7826153](https://codescene.io/projects/84883/delta/results/7826153) passed all three gates; both local deltas pass.
 
 Codecov: project **48.02%** versus main **46.89%**; main.go **18.46%** versus **8.01%**; sqlite.go **64.70%** versus **60.78%**; whole-PR patch **80.09%**. Test Analytics: **848 passed, 5 skipped, no failures/errors**. Bundle upload/check passed; size/delta figures were unavailable in inspected results. Local statements remain **52.4%**, with unchanged coverage across 140 repository blocks. Optional snapshot/client fixtures and local race execution remain unverified. Passing frontend CI does not complete its planned refactoring.
 
-**Current review boundary:** R01-R21 and separate correctness fixes are merged through PR38. A00/A02/A03/A04/A05/A06/A07/A08/A09/A10/A11/A12 are accepted. R22a package-local delivery/sync fixtures and measurement are locally validated in PR39, with final hosted/review acceptance pending. R22b backup/upgrade/restore assurance and R23 public-page contracts are next; broader A01/A13-A14 remain incomplete. Historical audit measurements remain distinct from current validation.
+**Current review boundary:** R01-R21, R22a and separate correctness fixes are merged through PR39. A00/A02/A03/A04/A05/A06/A07/A08/A09/A10/A11/A12 are accepted. R22a package-local delivery/sync fixtures, statement measurements and instrumentation proposal are accepted. R22b backup/export/restore assurance is current, with migration interruption and populated Docker upgrade/restore kept as its second boundary; R23 public-page contracts and broader A01/A13-A14 remain incomplete. Historical audit measurements remain distinct from current validation.
 
 ## P0
 

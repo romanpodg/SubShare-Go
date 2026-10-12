@@ -4011,8 +4011,8 @@
       "R19": "completed_pr36_final_checks_review_a10_accepted",
       "R20": "completed_pr37_final_checks_review_a11_accepted",
       "R21": "completed_pr38_final_checks_review_a12_accepted",
-      "R22a": "package_local_contracts_instrumentation_proposal_locally_validated_final_gates_pending",
-      "R22b": "not_started",
+      "R22a": "completed_pr39_p2_resolved_final_checks_review_accepted",
+      "R22b": "backup_export_restore_baseline_in_progress_migration_docker_assurance_unfinished",
       "R23": "not_started"
     },
     "partialStatusMeaning": "Related extraction/regression groundwork exists; prerequisites and acceptance cases remain unfinished.",
@@ -4034,13 +4034,13 @@
         "scope": "Repository test maintainability, with assertions and transitions retained"
       }
     ],
-    "nextBatch": "R22a",
+    "nextBatch": "R22b1",
     "nextBatchPriority": "P2",
     "nextBatchRemainingPrerequisites": [
-      "R21/A12 accepted in PR38 at c1695a8, merge dabf134, after all six checks, four race steps and clear exact-head review. R22a adds 35 passing direct contract events with production/integration/CI unchanged. Full Go 4,511 passes/five skips, migration/static/build/test health 10/strict delta pass; package/cross profiles and separate instrumentation proposal documented. Finish secrets and final hosted/review gates before R22b.",
+      "R22a accepted in PR39 at a73c371, merge c03465c, after all six checks, four race steps, verified P2 resolution and clear exact-head review. R22b1 adds publication/configured export/paired restore and authentication fixtures first; custom backup-path export failure is reproduced with fake Docker commands. R22b2 retains populated encryption/table-rebuild interruptions, historical identities/rows/sequences/FKs/credentials and Docker upgrade/restore plus optional runner policy.",
       "A00/A02/A03/A04/A05/A06/A07/A08/A09/A10/A11/A12 are accepted; broader A01/A13-A14 remain."
     ],
-    "remainingCriticalRisk": "A00/A02/A03/A04/A05/A06/A07/A08/A09/A10/A11/A12 are accepted. R22a/R22b/R23 and broader A01 remain. Concurrent tracking can fail with SQLITE_BUSY; accepted A05 preserves that characterized best-effort policy. Source update category preparation retains its audited pre-transaction behavior. OS I/O trigger frequency remains unmeasured.",
+    "remainingCriticalRisk": "A00/A02/A03/A04/A05/A06/A07/A08/A09/A10/A11/A12 and R22a are accepted. R22b1/R22b2/R23 and broader A01 remain. Configured backup export and missing-secret backup certification failures are reproduced before correction. Concurrent tracking can fail with SQLITE_BUSY; accepted A05 preserves that characterized best-effort policy. Source update category preparation retains its audited pre-transaction behavior. OS I/O trigger frequency remains unmeasured.",
     "r06CharacterizationCommit": "6a12236614e5",
     "r07aExecutionRecord": "docs/code-review/r07a-category-ordering.md",
     "autonomousContinuationRecord": "docs/code-review/autonomous-continuation.md",
