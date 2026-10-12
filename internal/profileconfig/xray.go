@@ -65,113 +65,6 @@ func AnyToPort(value any) string {
 	return fmt.Sprintf("%d", portNumber)
 }
 
-// ParseXrayJSONTarget extracts host and port from XRAY-JSON outbounds.
-func ParseXrayJSONTarget(raw string) (host, port string, err error) {
-	var parsed any
-	if err := json.Unmarshal([]byte(strings.TrimSpace(raw)), &parsed); err != nil {
-		return "", "", fmt.Errorf("invalid XRAY-JSON syntax")
-	}
-
-	root, ok := AsObject(parsed)
-	if !ok {
-		return "", "", fmt.Errorf("XRAY-JSON must be an object")
-	}
-
-	outbounds := AsArray(root["outbounds"])
-	if len(outbounds) == 0 {
-		return "", "", fmt.Errorf("XRAY-JSON must contain outbounds")
-	}
-
-	for _, outboundRaw := range outbounds {
-		outbound, ok := AsObject(outboundRaw)
-		if !ok {
-			continue
-		}
-		protocol := strings.ToLower(AnyToString(outbound["protocol"]))
-		settings, _ := AsObject(outbound["settings"])
-
-		switch protocol {
-		case "vless", "vmess":
-			vnext := AsArray(settings["vnext"])
-			if len(vnext) == 0 {
-				continue
-			}
-			node, _ := AsObject(vnext[0])
-			host = AnyToString(node["address"])
-			port = AnyToPort(node["port"])
-
-			users := AsArray(node["users"])
-			user, _ := AsObject(nil)
-			if len(users) > 0 {
-				user, _ = AsObject(users[0])
-			}
-			identifier := AnyToString(user["id"])
-			if host == "" || identifier == "" {
-				continue
-			}
-			return host, port, nil
-		case "trojan":
-			servers := AsArray(settings["servers"])
-			if len(servers) == 0 {
-				continue
-			}
-			serverNode, _ := AsObject(servers[0])
-			host = AnyToString(serverNode["address"])
-			port = AnyToPort(serverNode["port"])
-			password := AnyToString(serverNode["password"])
-			if host == "" || password == "" {
-				continue
-			}
-			return host, port, nil
-		}
-	}
-
-	return "", "", fmt.Errorf("XRAY-JSON must contain outbound with protocol vless/vmess/trojan and valid server settings")
-}
-
-// ParseXrayJSONDrafts parses all supported outbounds in XRAY-JSON into LinkConfigurationDraft slice.
-func ParseXrayJSONDrafts(raw string) ([]LinkConfigurationDraft, error) {
-	var root map[string]any
-	if err := json.Unmarshal([]byte(strings.TrimSpace(raw)), &root); err != nil {
-		return nil, fmt.Errorf("invalid XRAY-JSON syntax")
-	}
-	outbounds := AsArray(root["outbounds"])
-	if len(outbounds) == 0 {
-		return nil, fmt.Errorf("XRAY-JSON must contain outbounds")
-	}
-	drafts := make([]LinkConfigurationDraft, 0, len(outbounds))
-	for outboundIndex, outboundRaw := range outbounds {
-		outbound, ok := AsObject(outboundRaw)
-		if !ok {
-			continue
-		}
-		protocol := strings.ToLower(AnyToString(outbound["protocol"]))
-		if protocol != "vless" && protocol != "vmess" && protocol != "trojan" {
-			continue
-		}
-		settings, _ := AsObject(outbound["settings"])
-		stream, _ := AsObject(outbound["streamSettings"])
-		base := xrayStreamDraft(protocol, outbound, stream)
-
-		var parsed []LinkConfigurationDraft
-		var err error
-		switch protocol {
-		case "vless", "vmess":
-			parsed, err = xrayVnextDrafts(base, settings, outboundIndex, protocol)
-		case "trojan":
-			parsed, err = xrayTrojanDrafts(base, settings, outboundIndex)
-		}
-		if err != nil {
-			return nil, err
-		}
-		drafts = append(drafts, parsed...)
-	}
-	if len(drafts) == 0 {
-		return nil, fmt.Errorf("XRAY-JSON contains no supported outbound")
-	}
-	return drafts, nil
-}
-
 // xrayStreamDraft projects the outbound's streamSettings (transport and TLS/
 // REALITY) onto a draft that each server/user entry is then cloned from.
 func xrayStreamDraft(protocol string, outbound, stream map[string]any) LinkConfigurationDraft {
@@ -302,62 +195,6 @@ func xrayTrojanDrafts(base LinkConfigurationDraft, settings map[string]any, outb
 		drafts = append(drafts, draft)
 	}
 	return drafts, nil
-}
-
-// ProjectXrayJSONDrafts parses each supported proxy outbound independently for
-// delivery projection. Invalid proxy outbounds are counted and skipped, while
-// routing helpers such as freedom and blackhole are ignored.
-func ProjectXrayJSONDrafts(raw string) ([]LinkConfigurationDraft, int, error) {
-	var root map[string]any
-	if err := json.Unmarshal([]byte(strings.TrimSpace(raw)), &root); err != nil {
-		return nil, 0, fmt.Errorf("invalid XRAY-JSON syntax")
-	}
-	outbounds := AsArray(root["outbounds"])
-	if len(outbounds) == 0 {
-		return nil, 0, fmt.Errorf("XRAY-JSON must contain outbounds")
-	}
-
-	drafts := make([]LinkConfigurationDraft, 0, len(outbounds))
-	rejected := 0
-	for _, outboundRaw := range outbounds {
-		outbound, ok := AsObject(outboundRaw)
-		if !ok {
-			continue
-		}
-		protocol := strings.ToLower(AnyToString(outbound["protocol"]))
-		switch protocol {
-		case "vless", "vmess", "trojan":
-			encoded, _ := json.Marshal(map[string]any{"outbounds": []any{outbound}})
-			parsed, err := ParseXrayJSONDrafts(string(encoded))
-			if err != nil {
-				rejected++
-				continue
-			}
-			drafts = append(drafts, parsed...)
-		case "shadowsocks":
-			parsed, err := projectXrayShadowsocks(outbound)
-			if err != nil {
-				rejected++
-				continue
-			}
-			drafts = append(drafts, parsed...)
-		case "hysteria", "hysteria2":
-			parsed, err := projectXrayHysteria2(outbound)
-			if err != nil {
-				rejected++
-				continue
-			}
-			drafts = append(drafts, parsed...)
-		case "tuic":
-			parsed, err := projectXrayTUIC(outbound)
-			if err != nil {
-				rejected++
-				continue
-			}
-			drafts = append(drafts, parsed...)
-		}
-	}
-	return drafts, rejected, nil
 }
 
 func outboundRemark(outbound map[string]any) string {
@@ -516,14 +353,6 @@ func projectXrayTUIC(outbound map[string]any) ([]LinkConfigurationDraft, error) 
 		drafts = append(drafts, draft)
 	}
 	return drafts, nil
-}
-
-// ValidateXrayJSONConfiguration validates XRAY-JSON string.
-func ValidateXrayJSONConfiguration(raw string) error {
-	if _, _, err := ParseXrayJSONTarget(raw); err != nil {
-		return err
-	}
-	return nil
 }
 
 // NormalizeXrayNetwork normalizes network transport type.

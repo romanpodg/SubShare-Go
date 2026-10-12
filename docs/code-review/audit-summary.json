@@ -4007,8 +4007,8 @@
       "R17a": "completed_pr32_controller_accepted",
       "R17b": "completed_pr33_presentation_a08_accepted",
       "R18a": "completed_pr34_p2_resolved_final_checks_review_accepted",
-      "R18b": "pr35_p2_branding_field_correction_final_validation_pending",
-      "R19": "not_started",
+      "R18b": "completed_pr35_p2_resolved_final_checks_review_a09_accepted",
+      "R19": "outbound_view_traversal_locally_validated_hosted_review_pending",
       "R20": "not_started",
       "R21": "not_started",
       "R22a": "not_started",
@@ -4034,13 +4034,13 @@
         "scope": "Repository test maintainability, with assertions and transitions retained"
       }
     ],
-    "nextBatch": "R18b",
+    "nextBatch": "R19",
     "nextBatchPriority": "P2",
     "nextBatchRemainingPrerequisites": [
-      "R18b PR35 is open at 2295468. P2 4242453821 blocks acceptance; tests-first 1da8102 reproduces unsupported branding-field admission. The corrected DTO/schema excludes subscription config, keeping its dedicated API. Full 4,143 frontend and focused Go/type/lint checks pass; finish static/strict/secret, publish/reply/resolve, final-head six checks/review and A09 acceptance before R19.",
-      "A00/A02/A03/A04/A05/A06/A07/A08 are accepted; broader A01/A09-A14 remain."
+      "A09 is accepted. R19 retains tests-first f9a2cd0 and locally validated outbound view/shared traversal with explicit policies. Final 4,476 Go passes/five optional skips, 4,187 frontend/type/lint/static/strict/secret checks pass, with 25 retained bodies identical. Publish and require all six final-head checks/resolved review before A10 acceptance and R20.",
+      "A00/A02/A03/A04/A05/A06/A07/A08/A09 are accepted; broader A01/A10-A14 remain."
     ],
-    "remainingCriticalRisk": "A00/A02/A03/A04/A05/A06/A07/A08 and R18a are accepted. R18b request integration/A09 acceptance remains; denied branding persistence acknowledgment/reopening stays R21. Concurrent tracking can fail with SQLITE_BUSY; accepted A05 preserves that characterized best-effort policy. Source update category preparation retains its audited pre-transaction behavior. Broader A01/A09-A14 remain. OS I/O trigger frequency remains unmeasured.",
+    "remainingCriticalRisk": "A00/A02/A03/A04/A05/A06/A07/A08/A09 are accepted. R19 Xray interpretation is next, with target/strict/frontend/projection boundaries retained. Denied branding acknowledgment/reopening stays R21. Concurrent tracking can fail with SQLITE_BUSY; accepted A05 preserves that characterized best-effort policy. Source update category preparation retains its audited pre-transaction behavior. Broader A01/A10-A14 remain. OS I/O trigger frequency remains unmeasured.",
     "r06CharacterizationCommit": "6a12236614e5",
     "r07aExecutionRecord": "docs/code-review/r07a-category-ordering.md",
     "autonomousContinuationRecord": "docs/code-review/autonomous-continuation.md",
