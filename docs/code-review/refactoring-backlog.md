@@ -40,7 +40,7 @@ Completed work:
 | A11 / P2 | Completed; R20 accepted in PR37 | Six final-head checks/race/review clear at 3f3c1c2; retain [A11 matrix](r20-unused-persistence.md) |
 | A12 / P2 | Completed; R21 accepted in PR38 | Six final-head checks/race/review clear at c1695a8; retain [A12 matrix](r21-branding-acknowledgment.md) |
 | A13 / P2 | Completed; R22a/R22b1/R22b2 accepted in PR39–PR41 | Six final-head checks/five races/populated Docker/review clear at 930d9d3; retain [A13 matrix](r22b2-populated-migration-recovery.md) |
-| A14 / P2 | R23 shared characterization in progress | Preserve supported page semantics and document existing renderer differences before extraction |
+| A14 / P2 | R23 normalization implemented; validation in progress | Shared supported semantics/differences protected; [record](r23-public-page-contracts.md); hosted acceptance pending |
 
 All six checks passed for a438377: backend, frontend, Docker smoke, CodeScene, Codecov patch and Codecov bundles. [Actions run 37429826449](https://github.com/romanpodg/SubShare-Go/actions/runs/37429826449) includes Go/migration/vet/lint/build/secret scanning, TypeScript/lint/Vitest/build/Playwright, restart persistence and configured uploads. [CodeScene analysis 7826153](https://codescene.io/projects/84883/delta/results/7826153) passed all three gates; both local deltas pass.
 

@@ -4013,7 +4013,7 @@
       "R21": "completed_pr38_final_checks_review_a12_accepted",
       "R22a": "completed_pr39_p2_resolved_final_checks_review_accepted",
       "R22b": "completed_pr40_pr41_final_checks_five_races_populated_docker_review_a13_accepted",
-      "R23": "shared_characterization_in_progress"
+      "R23": "locally_validated_hosted_acceptance_pending"
     },
     "partialStatusMeaning": "Related extraction/regression groundwork exists; prerequisites and acceptance cases remain unfinished.",
     "completedWork": [
