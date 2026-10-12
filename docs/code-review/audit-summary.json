@@ -4012,7 +4012,7 @@
       "R20": "completed_pr37_final_checks_review_a11_accepted",
       "R21": "completed_pr38_final_checks_review_a12_accepted",
       "R22a": "completed_pr39_p2_resolved_final_checks_review_accepted",
-      "R22b": "backup_export_active_keyring_relative_paths_auth_correction_locally_validated_corrected_hosted_review_pending_migration_docker_unfinished",
+      "R22b": "r22b1_completed_pr40_p2_resolved_final_checks_review_r22b2_migration_docker_in_progress",
       "R23": "not_started"
     },
     "partialStatusMeaning": "Related extraction/regression groundwork exists; prerequisites and acceptance cases remain unfinished.",
@@ -4034,13 +4034,13 @@
         "scope": "Repository test maintainability, with assertions and transitions retained"
       }
     ],
-    "nextBatch": "R22b1",
+    "nextBatch": "R22b2",
     "nextBatchPriority": "P2",
     "nextBatchRemainingPrerequisites": [
-      "R22a accepted in PR39 at a73c371, merge c03465c, after all six checks, four race steps, verified P2 resolution and clear exact-head review. R22b1 PR40 initial e39fb8f gates/clear review cannot authorize merge after own-audit active-keyring and relative-path corrections. Tests-first c26d0d0/4887eef/5497a4d retained; full Go 4,532/five skips plus final expanded 33 focused/sixteen native export outcomes on PowerShell 7/built-in fallback/Bash, retained-body/quality/static gates pass. Backend Go unchanged since full run; require corrected-head secret/six hosted/four race/clear final review. R22b2 migration interruption/Docker populated upgrade-restore/optional policy, R23 and A01 remain.",
+      "R22b1 accepted in PR40 at b4f7614, merge e23bebe, after all six checks/four Linux race steps, P2 4248379779 verified/replied/resolved and clear exact-head review. R22b2 requires populated interrupted encryption (migration12, batches100) and table rebuild (migration13), retained IDs/order/rows/sequences/FKs/credentials/rollback/resumption, actual Docker populated upgrade/restore and deliberate optional snapshot/client runner policy. Then R23 and broader A01.",
       "A00/A02/A03/A04/A05/A06/A07/A08/A09/A10/A11/A12 are accepted; broader A01/A13-A14 remain."
     ],
-    "remainingCriticalRisk": "A00/A02/A03/A04/A05/A06/A07/A08/A09/A10/A11/A12 and R22a are accepted. R22b1/R22b2/R23 and broader A01 remain. Configured backup export and missing-secret certification corrections are locally validated but final hosted/review acceptance is pending. Concurrent tracking can fail with SQLITE_BUSY; accepted A05 preserves that characterized best-effort policy. Source update category preparation retains its audited pre-transaction behavior. OS I/O trigger frequency remains unmeasured.",
+    "remainingCriticalRisk": "A00/A02/A03/A04/A05/A06/A07/A08/A09/A10/A11/A12 and R22a/R22b1 are accepted. R22b2/R23 and broader A01 remain; interrupted migration and populated Docker upgrade/restore assurance are unfinished. Concurrent tracking can fail with SQLITE_BUSY; accepted A05 preserves that characterized best-effort policy. Source update category preparation retains its audited pre-transaction behavior. OS I/O trigger frequency remains unmeasured.",
     "r06CharacterizationCommit": "6a12236614e5",
     "r07aExecutionRecord": "docs/code-review/r07a-category-ordering.md",
     "autonomousContinuationRecord": "docs/code-review/autonomous-continuation.md",
