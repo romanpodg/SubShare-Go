@@ -141,8 +141,10 @@ func TestExternalProfileSyncRepairsEightyRowsToFortyAndRemainsStable(t *testing.
 			requireFixturef(t, result.Counts.Updated == 40, "repair classifications=%#v", result.Counts)
 			requireFixturef(t, result.Counts.Added == 0, "repair classifications=%#v", result.Counts)
 
-		} else if result.Counts.Removed != 0 || result.Counts.Updated != 0 || result.Counts.Unchanged != 40 {
-			t.Fatalf("stable sync %d classifications=%#v", attempt, result.Counts)
+		} else {
+			requireFixturef(t, result.Counts.Removed == 0, "stable sync %d classifications=%#v", attempt, result.Counts)
+			requireFixturef(t, result.Counts.Updated == 0, "stable sync %d classifications=%#v", attempt, result.Counts)
+			requireFixturef(t, result.Counts.Unchanged == 40, "stable sync %d classifications=%#v", attempt, result.Counts)
 		}
 	}
 	{
