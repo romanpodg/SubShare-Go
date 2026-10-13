@@ -27,38 +27,40 @@ func TestUnsafeAndMalformedStoredRowsAreSafelyExcluded(t *testing.T) {
 	log.SetOutput(&logs)
 	t.Cleanup(func() { log.SetOutput(previous) })
 	generated, _, err := app.generateSelectedSubscription("subscription-token", "plain")
-	if err != nil || generated.Body != deliverySSClean || len(generated.Exclusions) != 2 {
-		t.Fatalf("safe partial output mismatch exclusions=%d err=%v", len(generated.Exclusions), err)
-	}
+	requireFixturef(t, err == nil, "safe partial output mismatch exclusions=%d err=%v", len(generated.Exclusions), err)
+	requireFixturef(t, generated.Body == deliverySSClean, "safe partial output mismatch exclusions=%d err=%v", len(generated.Exclusions), err)
+	requireFixturef(t, len(generated.Exclusions) == 2, "safe partial output mismatch exclusions=%d err=%v", len(generated.Exclusions), err)
+
 	codes := exclusionCodes(generated.Exclusions)
-	if !codes[delivery.ReasonUnsafeControl] || !codes[delivery.ReasonInvalidStored] {
-		t.Fatalf("unexpected exclusion codes: %#v", codes)
-	}
+	requireFixturef(t, codes[delivery.ReasonUnsafeControl], "unexpected exclusion codes: %#v", codes)
+	requireFixturef(t, codes[delivery.ReasonInvalidStored], "unexpected exclusion codes: %#v", codes)
+
 	formatted := strings.Join([]string{logs.String(), generated.Exclusions[0].Error(), generated.Exclusions[1].Error()}, " ")
 	for _, secret := range []string{"never-log-this-password", "never-log-this-auth", unsafeSecret, malformedSecret} {
-		if strings.Contains(formatted, secret) {
-			t.Fatal("generation diagnostics leaked credential-bearing material")
-		}
+		requireFixture(t, !(strings.Contains(formatted, secret)), "generation diagnostics leaked credential-bearing material")
+
 	}
 
 	request := httptest.NewRequest(http.MethodGet, "/sub/subscription-token/subbody/plain", nil)
 	request.SetPathValue("subscription_id", "subscription-token")
 	recorder := httptest.NewRecorder()
 	app.handleSubscriptionSubBodyPlain(recorder, request)
-	if recorder.Code != http.StatusOK || recorder.Body.String() != deliverySSClean {
-		t.Fatalf("safe partial handler status=%d or body mismatch", recorder.Code)
-	}
-	if recorder.Header().Get("SubShare-Excluded-Count") != "2" || !strings.Contains(recorder.Header().Get("SubShare-Exclusion-Codes"), delivery.ReasonUnsafeControl) {
-		t.Fatalf("safe exclusion headers: %#v", recorder.Header())
-	}
+	requireFixturef(t, recorder.Code == http.StatusOK, "safe partial handler status=%d or body mismatch", recorder.Code)
+	requireFixturef(t, recorder.Body.String() == deliverySSClean, "safe partial handler status=%d or body mismatch", recorder.Code)
+
+	requireFixturef(t, recorder.Header().Get("SubShare-Excluded-Count") == "2", "safe exclusion headers: %#v", recorder.Header())
+	requireFixturef(t, strings.Contains(recorder.Header().Get("SubShare-Exclusion-Codes"), delivery.ReasonUnsafeControl), "safe exclusion headers: %#v", recorder.Header())
+
 	var auditMetadata string
-	if err := app.db.QueryRow(`SELECT COALESCE(GROUP_CONCAT(metadata_json, ''), '') FROM audit_events`).Scan(&auditMetadata); err != nil {
-		t.Fatal(err)
+	{
+		err := app.db.QueryRow(`SELECT COALESCE(GROUP_CONCAT(metadata_json, ''), '') FROM audit_events`).Scan(&auditMetadata)
+		requireFixture(t, err == nil, err)
 	}
+
 	for _, forbidden := range []string{unsafeSecret, malformedSecret, deliverySSClean, base64.StdEncoding.EncodeToString([]byte(deliverySSClean))} {
-		if strings.Contains(logs.String(), forbidden) || strings.Contains(auditMetadata, forbidden) {
-			t.Fatalf("logs or audit contain credential-bearing delivery material")
-		}
+		requireFixturef(t, !(strings.Contains(logs.String(), forbidden)), "logs or audit contain credential-bearing delivery material")
+		requireFixturef(t, !(strings.Contains(auditMetadata, forbidden)), "logs or audit contain credential-bearing delivery material")
+
 	}
 }
 
@@ -73,9 +75,8 @@ func TestSubscriptionControlValidationRejectsCRLFNULAndDEL(t *testing.T) {
 		{"del", "ss://safe\x7fsecond"},
 	} {
 		t.Run(test.name, func(t *testing.T) {
-			if !delivery.HasUnsafeControl(test.raw) {
-				t.Fatal("unsafe control was accepted")
-			}
+			requireFixture(t, delivery.HasUnsafeControl(test.raw), "unsafe control was accepted")
+
 		})
 	}
 }
@@ -86,15 +87,16 @@ func TestStructuredDeliveryWithOnlyExcludedProfilesReturnsAllExcludedFailure(t *
 	insertAssignedDeliveryKey(t, app, assignedDeliveryKeySeed{UserID: userID, Label: "TUIC v4", Raw: externalTestTUICV4, Protocol: "tuic", Compatibility: "read_only", SortOrder: 0})
 
 	generated, denial, err := app.generateSelectedSubscription("subscription-token", "mihomo")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if denial.Code != http.StatusUnprocessableEntity || denial.Reason != delivery.ReasonAllExcluded || generated.Body != "" || generated.GeneratedCount != 0 {
-		t.Fatalf("empty structured result code=%d reason=%q or non-empty body", denial.Code, denial.Reason)
-	}
-	if len(generated.Exclusions) != 1 || generated.Exclusions[0].Reason != delivery.ReasonCompatibility {
-		t.Fatalf("empty structured exclusions = %#v", generated.Exclusions)
-	}
+	requireFixture(t, err == nil, err)
+
+	requireFixturef(t, denial.Code == http.StatusUnprocessableEntity, "empty structured result code=%d reason=%q or non-empty body", denial.Code, denial.Reason)
+	requireFixturef(t, denial.Reason == delivery.ReasonAllExcluded, "empty structured result code=%d reason=%q or non-empty body", denial.Code, denial.Reason)
+	requireFixturef(t, generated.Body == "", "empty structured result code=%d reason=%q or non-empty body", denial.Code, denial.Reason)
+	requireFixturef(t, generated.GeneratedCount == 0, "empty structured result code=%d reason=%q or non-empty body", denial.Code, denial.Reason)
+
+	requireFixturef(t, len(generated.Exclusions) == 1, "empty structured exclusions = %#v", generated.Exclusions)
+	requireFixturef(t, generated.Exclusions[0].Reason == delivery.ReasonCompatibility, "empty structured exclusions = %#v", generated.Exclusions)
+
 }
 
 func TestStructuredDeliveryAllExcludedHandlerPolicy(t *testing.T) {
@@ -167,12 +169,15 @@ func TestStructuredDeliveryMixedAndNoEligiblePolicies(t *testing.T) {
 		request.Header.Set("User-Agent", "xray-core")
 		recorder := httptest.NewRecorder()
 		app.handleSubscription(recorder, request)
-		if recorder.Code != http.StatusOK || recorder.Header().Get("SubShare-Excluded-Count") != "1" || recorder.Header().Get("SubShare-Exclusion-Codes") != delivery.ReasonUnsupportedProtocol {
-			t.Fatalf("mixed response status=%d or exclusion summary mismatch", recorder.Code)
+		requireFixturef(t, recorder.Code == http.StatusOK, "mixed response status=%d or exclusion summary mismatch", recorder.Code)
+		requireFixturef(t, recorder.Header().Get("SubShare-Excluded-Count") == "1", "mixed response status=%d or exclusion summary mismatch", recorder.Code)
+		requireFixturef(t, recorder.Header().Get("SubShare-Exclusion-Codes") == delivery.ReasonUnsupportedProtocol, "mixed response status=%d or exclusion summary mismatch", recorder.Code)
+
+		{
+			err := delivery.ValidateStructuredBody("xray-json", recorder.Body.String())
+			requireFixture(t, err == nil, "mixed response did not retain its supported Xray profile")
 		}
-		if err := delivery.ValidateStructuredBody("xray-json", recorder.Body.String()); err != nil {
-			t.Fatal("mixed response did not retain its supported Xray profile")
-		}
+
 	})
 
 	t.Run("no assigned profiles", func(t *testing.T) {
@@ -183,9 +188,8 @@ func TestStructuredDeliveryMixedAndNoEligiblePolicies(t *testing.T) {
 		request.Header.Set("User-Agent", "xray-core")
 		recorder := httptest.NewRecorder()
 		app.handleSubscription(recorder, request)
-		if recorder.Code != http.StatusServiceUnavailable {
-			t.Fatalf("no-assignment response status=%d, want 503", recorder.Code)
-		}
+		requireFixturef(t, recorder.Code == http.StatusServiceUnavailable, "no-assignment response status=%d, want 503", recorder.Code)
+
 	})
 }
 
@@ -201,16 +205,13 @@ func TestExclusionHeadersAreAggregatedDeterministicallyAndBounded(t *testing.T) 
 	second := http.Header{}
 	delivery.ApplyExclusionHeaders(first, exclusions)
 	delivery.ApplyExclusionHeaders(second, append([]delivery.Exclusion(nil), exclusions...))
-	if !reflect.DeepEqual(first, second) {
-		t.Fatal("exclusion headers were not deterministic")
-	}
-	if first.Get("SubShare-Excluded-Count") != "1500" || first.Get("SubShare-Exclusion-Codes") != delivery.ReasonCompatibility+","+delivery.ReasonUnsupportedProtocol {
-		t.Fatal("exclusion headers were not aggregated in stable order")
-	}
-	if first.Get("SubShare-Exclusion-Counts") != delivery.ReasonCompatibility+"=500,"+delivery.ReasonUnsupportedProtocol+"=1000" {
-		t.Fatal("exclusion count summary mismatch")
-	}
-	if len(first.Get("SubShare-Exclusion-Counts")) > 512 {
-		t.Fatal("aggregated exclusion header exceeded its fixed safe bound")
-	}
+	requireFixture(t, reflect.DeepEqual(first, second), "exclusion headers were not deterministic")
+
+	requireFixture(t, first.Get("SubShare-Excluded-Count") == "1500", "exclusion headers were not aggregated in stable order")
+	requireFixture(t, first.Get("SubShare-Exclusion-Codes") == delivery.ReasonCompatibility+","+delivery.ReasonUnsupportedProtocol, "exclusion headers were not aggregated in stable order")
+
+	requireFixture(t, first.Get("SubShare-Exclusion-Counts") == delivery.ReasonCompatibility+"=500,"+delivery.ReasonUnsupportedProtocol+"=1000", "exclusion count summary mismatch")
+
+	requireFixture(t, len(first.Get("SubShare-Exclusion-Counts")) <= 512, "aggregated exclusion header exceeded its fixed safe bound")
+
 }

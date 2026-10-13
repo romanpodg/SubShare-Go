@@ -25,9 +25,12 @@ func TestFinalStructuredTemplateValidationRejectsUnsafeTransforms(t *testing.T) 
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			if err := delivery.ValidateStructuredBody(test.format, test.body); err == nil || err.Error() != delivery.ReasonSerialization {
-				t.Fatal("unsafe or structurally invalid templated output was accepted")
+			{
+				err := delivery.ValidateStructuredBody(test.format, test.body)
+				requireFixture(t, err != nil, "unsafe or structurally invalid templated output was accepted")
+				requireFixture(t, err.Error() == delivery.ReasonSerialization, "unsafe or structurally invalid templated output was accepted")
 			}
+
 		})
 	}
 
@@ -38,17 +41,18 @@ func TestFinalStructuredTemplateValidationRejectsUnsafeTransforms(t *testing.T) 
 	}
 	for format, body := range valid {
 		final := applyTemplateContent("{{subscription}}", body, "ignored")
-		if err := delivery.ValidateStructuredBody(format, final); err != nil {
-			t.Fatalf("valid final %s template was rejected", format)
+		{
+			err := delivery.ValidateStructuredBody(format, final)
+			requireFixturef(t, err == nil, "valid final %s template was rejected", format)
 		}
+
 	}
 }
 
 func TestStructuredTemplateRequiresSubscriptionPlaceholder(t *testing.T) {
 	for _, format := range []string{"mihomo", "sing-box", "xray-json"} {
 		_, err := validateTemplateInput(templateInput{Name: "safe", Format: format, Content: `{"replaced":true}`})
-		if err == nil {
-			t.Fatalf("%s template without subscription placeholder was accepted", format)
-		}
+		requireFixturef(t, err != nil, "%s template without subscription placeholder was accepted", format)
+
 	}
 }

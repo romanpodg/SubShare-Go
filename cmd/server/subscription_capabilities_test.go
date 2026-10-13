@@ -14,9 +14,8 @@ import (
 
 func TestSubscriptionCapabilityMatrixIsCompleteAndVersionPinned(t *testing.T) {
 	matrix := delivery.CapabilityMatrix()
-	if len(matrix) != 7 {
-		t.Fatalf("capability profiles = %d, want 7", len(matrix))
-	}
+	requireFixturef(t, len(matrix) == 7, "capability profiles = %d, want 7", len(matrix))
+
 	want := map[string]bool{
 		"vless/current": true, "vmess/current": true, "trojan/current": true,
 		"shadowsocks/sip002/sip022": true, "hysteria2/2": true,
@@ -33,32 +32,40 @@ func TestSubscriptionCapabilityMatrixIsCompleteAndVersionPinned(t *testing.T) {
 			assertOfficialDeliveryCapability(t, capability, output, claim)
 		}
 	}
-	if len(want) != 0 {
-		t.Fatalf("missing capability profiles: %#v", want)
+	requireFixturef(t, len(want) == 0, "missing capability profiles: %#v", want)
+
+	{
+		got := findDeliveryCapability(t, matrix, deliveryCapabilitySelector{Protocol: "hysteria2", Generation: "2", Output: "xray-json"})
+		requireFixturef(t, got.Status == delivery.CapabilityConditional, "Hysteria 2 Xray capability = %#v", got)
+		requireFixturef(t, got.TargetVersion == delivery.TargetXrayCurrentVersion, "Hysteria 2 Xray capability = %#v", got)
+		requireFixturef(t, got.MinimumVersion == delivery.TargetXrayMinimumVersion, "Hysteria 2 Xray capability = %#v", got)
+		requireFixturef(t, got.SyntaxValidation == "official_binary", "Hysteria 2 Xray capability = %#v", got)
+		requireFixturef(t, got.RuntimeInteroperability == "not_tested", "Hysteria 2 Xray capability = %#v", got)
 	}
-	if got := findDeliveryCapability(t, matrix, "hysteria2", "2", "xray-json"); got.Status != delivery.CapabilityConditional || got.TargetVersion != delivery.TargetXrayCurrentVersion || got.MinimumVersion != delivery.TargetXrayMinimumVersion || got.SyntaxValidation != "official_binary" || got.RuntimeInteroperability != "not_tested" {
-		t.Fatalf("Hysteria 2 Xray capability = %#v", got)
+
+	{
+		got := findDeliveryCapability(t, matrix, deliveryCapabilitySelector{Protocol: "tuic", Generation: "5", Output: "xray-json"})
+		requireFixturef(t, got.Status == delivery.CapabilityUnsupported, "TUIC v5 Xray capability = %#v", got)
+		requireFixturef(t, got.ReasonCode == delivery.ReasonUnsupportedProtocol, "TUIC v5 Xray capability = %#v", got)
 	}
-	if got := findDeliveryCapability(t, matrix, "tuic", "5", "xray-json"); got.Status != delivery.CapabilityUnsupported || got.ReasonCode != delivery.ReasonUnsupportedProtocol {
-		t.Fatalf("TUIC v5 Xray capability = %#v", got)
+
+	{
+		got := findDeliveryCapability(t, matrix, deliveryCapabilitySelector{Protocol: "tuic", Generation: "4", Output: "plain"})
+		requireFixturef(t, got.Status == delivery.CapabilityCompatibility, "TUIC v4 plain capability = %#v", got)
+		requireFixturef(t, got.ReasonCode == "raw_delivery_only", "TUIC v4 plain capability = %#v", got)
 	}
-	if got := findDeliveryCapability(t, matrix, "tuic", "4", "plain"); got.Status != delivery.CapabilityCompatibility || got.ReasonCode != "raw_delivery_only" {
-		t.Fatalf("TUIC v4 plain capability = %#v", got)
-	}
+
 	encoded, err := json.Marshal(matrix)
-	if err != nil {
-		t.Fatal(err)
-	}
+	requireFixture(t, err == nil, err)
+
 	text := string(encoded)
 	for _, version := range []string{delivery.TargetMihomoVersion, delivery.TargetSingBoxVersion, delivery.TargetXrayMinimumVersion, delivery.TargetXrayCurrentVersion} {
-		if !strings.Contains(text, version) {
-			t.Errorf("target version %q is absent", version)
-		}
+		checkFixturef(t, strings.Contains(text, version), "target version %q is absent", version)
+
 	}
 	for _, secret := range []string{"shadow-password", "hysteria-auth", "tuic-password"} {
-		if strings.Contains(text, secret) {
-			t.Fatal("capability JSON leaked synthetic credential material")
-		}
+		requireFixture(t, !(strings.Contains(text, secret)), "capability JSON leaked synthetic credential material")
+
 	}
 }
 
@@ -66,34 +73,37 @@ func TestCapabilityAPIUsesBackendMatrixAndRejectsClientOverride(t *testing.T) {
 	app := newIntegrationApp(t)
 	recorder := httptest.NewRecorder()
 	app.apiV1GetSubscriptionDeliverySettings(recorder, httptest.NewRequest(http.MethodGet, "/api/v1/subscription-delivery-settings", nil))
-	if recorder.Code != http.StatusOK || !strings.Contains(recorder.Body.String(), delivery.TargetMihomoVersion) || !strings.Contains(recorder.Body.String(), delivery.ReasonUnsafeControl) {
-		t.Fatalf("capability response status=%d or required metadata absent", recorder.Code)
-	}
+	requireFixturef(t, recorder.Code == http.StatusOK, "capability response status=%d or required metadata absent", recorder.Code)
+	requireFixturef(t, strings.Contains(recorder.Body.String(), delivery.TargetMihomoVersion), "capability response status=%d or required metadata absent", recorder.Code)
+	requireFixturef(t, strings.Contains(recorder.Body.String(), delivery.ReasonUnsafeControl), "capability response status=%d or required metadata absent", recorder.Code)
+
 	var settings subscriptionDeliverySettingsResponse
-	if err := json.Unmarshal(recorder.Body.Bytes(), &settings); err != nil {
-		t.Fatalf("decode capability response: %v", err)
+	{
+		err := json.Unmarshal(recorder.Body.Bytes(), &settings)
+		requireFixturef(t, err == nil, "decode capability response: %v", err)
 	}
-	if !reflect.DeepEqual(settings.GenerationExclusionReasonCodes, delivery.ExclusionReasonCodes()) {
-		t.Fatalf("exclusion code catalog = %#v", settings.GenerationExclusionReasonCodes)
-	}
+
+	requireFixturef(t, reflect.DeepEqual(settings.GenerationExclusionReasonCodes, delivery.ExclusionReasonCodes()), "exclusion code catalog = %#v", settings.GenerationExclusionReasonCodes)
 
 	input := `{"response_headers":[],"announcement":"","remarks":{},"capabilities":[{"protocol":"fake","generation":"1","outputs":{}}],"generation_exclusion_reason_codes":["fake_reason"]}`
 	recorder = httptest.NewRecorder()
 	app.apiV1UpdateSubscriptionDeliverySettings(recorder, httptest.NewRequest(http.MethodPut, "/api/v1/subscription-delivery-settings", strings.NewReader(input)))
-	if recorder.Code != http.StatusBadRequest || strings.Contains(recorder.Body.String(), `"protocol":"fake"`) || strings.Contains(recorder.Body.String(), "fake_reason") {
-		t.Fatalf("client capability override was not rejected safely: status=%d", recorder.Code)
-	}
+	requireFixturef(t, recorder.Code == http.StatusBadRequest, "client capability override was not rejected safely: status=%d", recorder.Code)
+	requireFixturef(t, !(strings.Contains(recorder.Body.String(), `"protocol":"fake"`)), "client capability override was not rejected safely: status=%d", recorder.Code)
+	requireFixturef(t, !(strings.Contains(recorder.Body.String(), "fake_reason")), "client capability override was not rejected safely: status=%d", recorder.Code)
+
 }
 
 func TestOpenAPIDeliveryContractsRemainParseableAndReadOnly(t *testing.T) {
 	raw, err := os.ReadFile("openapi.yaml")
-	if err != nil {
-		t.Fatalf("read OpenAPI contract: %v", err)
-	}
+	requireFixturef(t, err == nil, "read OpenAPI contract: %v", err)
+
 	var document any
-	if err := yaml.Unmarshal(raw, &document); err != nil {
-		t.Fatalf("parse OpenAPI contract: %v", err)
+	{
+		err := yaml.Unmarshal(raw, &document)
+		requireFixturef(t, err == nil, "parse OpenAPI contract: %v", err)
 	}
+
 	text := string(raw)
 	for _, required := range []string{
 		"SubscriptionDeliverySettingsUpdate:",
@@ -103,8 +113,7 @@ func TestOpenAPIDeliveryContractsRemainParseableAndReadOnly(t *testing.T) {
 		"additionalProperties: false",
 		"runtime_interoperability:",
 	} {
-		if !strings.Contains(text, required) {
-			t.Fatalf("OpenAPI delivery contract is missing %s", required)
-		}
+		requireFixturef(t, strings.Contains(text, required), "OpenAPI delivery contract is missing %s", required)
+
 	}
 }

@@ -6,18 +6,19 @@ import (
 	"github.com/romanpodg/SubShare-Go/internal/delivery"
 )
 
-func findDeliveryCapability(t *testing.T, matrix []delivery.ProtocolCapability, protocol, generation, output string) delivery.OutputCapability {
+type deliveryCapabilitySelector struct{ Protocol, Generation, Output string }
+
+func findDeliveryCapability(t *testing.T, matrix []delivery.ProtocolCapability, selector deliveryCapabilitySelector) delivery.OutputCapability {
 	t.Helper()
 	for _, capability := range matrix {
-		if capability.Protocol == protocol && capability.Generation == generation {
-			result, ok := capability.Outputs[output]
-			if !ok {
-				t.Fatalf("%s/%s is missing %s", protocol, generation, output)
-			}
+		if capability.Protocol == selector.Protocol && capability.Generation == selector.Generation {
+			result, ok := capability.Outputs[selector.Output]
+			requireFixturef(t, ok, "%s/%s is missing %s", selector.Protocol, selector.Generation, selector.Output)
+
 			return result
 		}
 	}
-	t.Fatalf("missing capability %s/%s", protocol, generation)
+	t.Fatalf("missing capability %s/%s", selector.Protocol, selector.Generation)
 	return delivery.OutputCapability{}
 }
 func assertOfficialDeliveryCapability(t *testing.T, capability delivery.ProtocolCapability, output string, claim delivery.OutputCapability) {
@@ -25,15 +26,18 @@ func assertOfficialDeliveryCapability(t *testing.T, capability delivery.Protocol
 	if claim.SyntaxValidation != "official_binary" {
 		return
 	}
-	if claim.RuntimeInteroperability != "not_tested" {
-		t.Fatalf("official syntax validation overstated runtime interoperability for %s/%s/%s", capability.Protocol, capability.Generation, output)
-	}
+	requireFixturef(t, claim.RuntimeInteroperability == "not_tested", "official syntax validation overstated runtime interoperability for %s/%s/%s", capability.Protocol, capability.Generation, output)
+
 	versions := map[string]struct{ target, minimum string }{
 		"mihomo":    {delivery.TargetMihomoVersion, delivery.TargetMihomoVersion},
 		"sing-box":  {delivery.TargetSingBoxVersion, delivery.TargetSingBoxVersion},
 		"xray-json": {delivery.TargetXrayCurrentVersion, delivery.TargetXrayMinimumVersion},
 	}
-	if want, pinned := versions[output]; pinned && (claim.TargetVersion != want.target || claim.MinimumVersion != want.minimum) {
-		t.Fatalf("%s/%s/%s capability versions=%q/%q want=%q/%q", capability.Protocol, capability.Generation, output, claim.TargetVersion, claim.MinimumVersion, want.target, want.minimum)
+	want, pinned := versions[output]
+	if !pinned {
+		return
 	}
+	requireFixturef(t, claim.TargetVersion == want.target, "%s/%s/%s target version=%q want=%q", capability.Protocol, capability.Generation, output, claim.TargetVersion, want.target)
+	requireFixturef(t, claim.MinimumVersion == want.minimum, "%s/%s/%s minimum version=%q want=%q", capability.Protocol, capability.Generation, output, claim.MinimumVersion, want.minimum)
+
 }

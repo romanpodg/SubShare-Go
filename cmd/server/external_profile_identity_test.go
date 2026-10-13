@@ -69,9 +69,10 @@ func TestExternalProfileSemanticDeduplication(t *testing.T) {
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			parsed := parseExternalTestBody(t, test.body)
-			if len(parsed.Keys) != test.keys || parsed.Counts.Duplicate != test.duplicates || parsed.Counts.Ambiguous != test.ambiguous {
-				t.Fatalf("keys=%d counts=%#v items=%#v", len(parsed.Keys), parsed.Counts, parsed.Items)
-			}
+			requireFixturef(t, len(parsed.Keys) == test.keys, "keys=%d counts=%#v items=%#v", len(parsed.Keys), parsed.Counts, parsed.Items)
+			requireFixturef(t, parsed.Counts.Duplicate == test.duplicates, "keys=%d counts=%#v items=%#v", len(parsed.Keys), parsed.Counts, parsed.Items)
+			requireFixturef(t, parsed.Counts.Ambiguous == test.ambiguous, "keys=%d counts=%#v items=%#v", len(parsed.Keys), parsed.Counts, parsed.Items)
+
 		})
 	}
 }
@@ -87,39 +88,48 @@ func TestExternalProfileConnectivityChangesRemainDistinct(t *testing.T) {
 	}
 	for _, body := range tests {
 		parsed := parseExternalTestBody(t, body)
-		if len(parsed.Keys) != 2 || parsed.Counts.Duplicate != 0 || parsed.Keys[0].Fingerprint == parsed.Keys[1].Fingerprint {
-			t.Fatalf("connectivity-changing profiles collapsed: %#v", parsed)
-		}
+		requireFixturef(t, len(parsed.Keys) == 2, "connectivity-changing profiles collapsed: %#v", parsed)
+		requireFixturef(t, parsed.Counts.Duplicate == 0, "connectivity-changing profiles collapsed: %#v", parsed)
+		requireFixturef(t, parsed.Keys[0].Fingerprint != parsed.Keys[1].Fingerprint, "connectivity-changing profiles collapsed: %#v", parsed)
+
 	}
 	contradictory := parseExternalTestBody(t, "tuic://33333333-3333-4333-8333-333333333333:password@example.com:443?sni=first.example&server_name=second.example")
-	if contradictory.Counts.Ambiguous != 1 || !sources.ContainsWarningCode(contradictory.Items[0].Warnings, profiles.WarningAmbiguousParameter) {
-		t.Fatalf("contradictory TUIC aliases were not marked ambiguous: %#v", contradictory)
-	}
+	requireFixturef(t, contradictory.Counts.Ambiguous == 1, "contradictory TUIC aliases were not marked ambiguous: %#v", contradictory)
+	requireFixturef(t, sources.ContainsWarningCode(contradictory.Items[0].Warnings, profiles.WarningAmbiguousParameter), "contradictory TUIC aliases were not marked ambiguous: %#v", contradictory)
+
 }
 
 func TestExternalProfileFingerprintKeyAndSelectionIntegrity(t *testing.T) {
-	if _, err := sources.ParseBody(externalTestSS, nil); err == nil || err.Error() != "profile_fingerprint_key_unavailable" {
-		t.Fatalf("nil fingerprint key error = %v", err)
+	{
+		_, err := sources.ParseBody(externalTestSS, nil)
+		requireFixturef(t, err != nil, "nil fingerprint key error = %v", err)
+		requireFixturef(t, err.Error() == "profile_fingerprint_key_unavailable", "nil fingerprint key error = %v", err)
 	}
+
 	parsed := parseExternalTestBody(t, externalTestSS+"\n"+externalTestHY2)
 	selected, err := sources.FilterSelection(parsed, []string{parsed.Items[1].ItemRef})
-	if err != nil || len(selected.Keys) != 1 || selected.Keys[0].Protocol != "hysteria2" {
-		t.Fatalf("selection result=%#v err=%v", selected, err)
-	}
+	requireFixturef(t, err == nil, "selection result=%#v err=%v", selected, err)
+	requireFixturef(t, len(selected.Keys) == 1, "selection result=%#v err=%v", selected, err)
+	requireFixturef(t, selected.Keys[0].Protocol == "hysteria2", "selection result=%#v err=%v", selected, err)
+
 	for _, refs := range [][]string{{"ir1_tampered"}, {parsed.Items[0].ItemRef, parsed.Items[0].ItemRef}} {
-		if _, err := sources.FilterSelection(parsed, refs); err == nil {
-			t.Fatalf("tampered selection %#v was accepted", refs)
+		{
+			_, err := sources.FilterSelection(parsed, refs)
+			requireFixturef(t, err != nil, "tampered selection %#v was accepted", refs)
 		}
+
 	}
 
 	identical := parseExternalTestBody(t, externalTestSS+"\n"+externalTestSS)
-	if len(identical.Keys) != 1 || len(identical.Items) != 2 || identical.Items[1].Status != sources.StatusDuplicate {
-		t.Fatalf("identical-line duplicate result = %#v", identical)
+	requireFixturef(t, len(identical.Keys) == 1, "identical-line duplicate result = %#v", identical)
+	requireFixturef(t, len(identical.Items) == 2, "identical-line duplicate result = %#v", identical)
+	requireFixturef(t, identical.Items[1].Status == sources.StatusDuplicate, "identical-line duplicate result = %#v", identical)
+
+	requireFixturef(t, identical.Items[0].ItemRef != identical.Items[1].ItemRef, "identical source lines share item reference %q", identical.Items[0].ItemRef)
+
+	{
+		_, err := sources.FilterSelection(identical, []string{identical.Items[1].ItemRef})
+		requireFixture(t, err != nil, "duplicate-only preview occurrence was accepted for persistence")
 	}
-	if identical.Items[0].ItemRef == identical.Items[1].ItemRef {
-		t.Fatalf("identical source lines share item reference %q", identical.Items[0].ItemRef)
-	}
-	if _, err := sources.FilterSelection(identical, []string{identical.Items[1].ItemRef}); err == nil {
-		t.Fatal("duplicate-only preview occurrence was accepted for persistence")
-	}
+
 }

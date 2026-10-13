@@ -3,11 +3,10 @@ import {
   DEFAULT_NETWORK,
   DEFAULT_SECURITY,
   boolValue,
-  normalizeNetwork,
-  normalizeSecurity,
   parseHeaderType,
   textValue
 } from "./configuration-values";
+import { normalizeNetwork, normalizeSecurity } from "./configuration-discriminators";
 import { parseVmessExtraParams } from "./configuration-link-codec";
 
 function firstQueryValue(search: URLSearchParams, aliases: readonly string[]) {

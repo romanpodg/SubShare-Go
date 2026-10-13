@@ -17,35 +17,43 @@ func TestExternalProfileSyncRepairsHistoricalDuplicatesAndMergesAssignments(t *t
 	blankLowerID := insertHistoricalExternalProfile(t, app, historicalExternalProfileSeed{SourceID: sourceID, Raw: firstRaw, Protocol: "vless", Fingerprint: "", UserIDs: []int64{firstUser}})
 	currentFingerprint := parseExternalTestBody(t, externalTestVLESS).Keys[0].Fingerprint
 	ownerID := insertHistoricalExternalProfile(t, app, historicalExternalProfileSeed{SourceID: sourceID, Raw: secondRaw, Protocol: "vless", Fingerprint: currentFingerprint, UserIDs: []int64{secondUser}})
-	if ownerID <= blankLowerID {
-		t.Fatalf("test fixture IDs are not ordered: blank=%d owner=%d", blankLowerID, ownerID)
-	}
-	if _, err := app.db.Exec(`UPDATE vless_keys SET client_display_name = 'Historical override' WHERE id = ?`, blankLowerID); err != nil {
-		t.Fatalf("set duplicate override: %v", err)
+	requireFixturef(t, ownerID > blankLowerID, "test fixture IDs are not ordered: blank=%d owner=%d", blankLowerID, ownerID)
+
+	{
+		_, err := app.db.Exec(`UPDATE vless_keys SET client_display_name = 'Historical override' WHERE id = ?`, blankLowerID)
+		requireFixturef(t, err == nil, "set duplicate override: %v", err)
 	}
 
 	result, err := app.syncExternalSource(sourceID, parseExternalTestBody(t, externalTestVLESS))
-	if err != nil {
-		t.Fatalf("repair sync failed: %v", err)
+	requireFixturef(t, err == nil, "repair sync failed: %v", err)
+
+	{
+		got := sourceProfileCount(t, app, sourceID)
+		requireFixturef(t, got == 1, "source rows=%d want=1 result=%#v", got, result)
 	}
-	if got := sourceProfileCount(t, app, sourceID); got != 1 {
-		t.Fatalf("source rows=%d want=1 result=%#v", got, result)
-	}
+
 	var survivorID int64
-	if err := app.db.QueryRow(`SELECT id FROM vless_keys WHERE external_source_id = ?`, sourceID).Scan(&survivorID); err != nil {
-		t.Fatal(err)
+	{
+		err := app.db.QueryRow(`SELECT id FROM vless_keys WHERE external_source_id = ?`, sourceID).Scan(&survivorID)
+		requireFixture(t, err == nil, err)
 	}
-	if survivorID != ownerID {
-		t.Fatalf("survivor=%d want current-fingerprint owner=%d", survivorID, ownerID)
-	}
+
+	requireFixturef(t, survivorID == ownerID, "survivor=%d want current-fingerprint owner=%d", survivorID, ownerID)
+
 	var clientDisplayName string
-	if err := app.db.QueryRow(`SELECT client_display_name FROM vless_keys WHERE id = ?`, survivorID).Scan(&clientDisplayName); err != nil || clientDisplayName != "Historical override" {
-		t.Fatalf("merged client override=%q err=%v", clientDisplayName, err)
+	{
+		err := app.db.QueryRow(`SELECT client_display_name FROM vless_keys WHERE id = ?`, survivorID).Scan(&clientDisplayName)
+		requireFixturef(t, err == nil, "merged client override=%q err=%v", clientDisplayName, err)
+		requireFixturef(t, clientDisplayName == "Historical override", "merged client override=%q err=%v", clientDisplayName, err)
 	}
+
 	var assignments int
-	if err := app.db.QueryRow(`SELECT COUNT(*) FROM user_keys WHERE key_id = ? AND user_id IN (?, ?)`, survivorID, firstUser, secondUser).Scan(&assignments); err != nil || assignments != 2 {
-		t.Fatalf("merged assignments=%d want=2 err=%v", assignments, err)
+	{
+		err := app.db.QueryRow(`SELECT COUNT(*) FROM user_keys WHERE key_id = ? AND user_id IN (?, ?)`, survivorID, firstUser, secondUser).Scan(&assignments)
+		requireFixturef(t, err == nil, "merged assignments=%d want=2 err=%v", assignments, err)
+		requireFixturef(t, assignments == 2, "merged assignments=%d want=2 err=%v", assignments, err)
 	}
+
 }
 
 func TestExternalProfileSyncRepairsBlankDuplicatesDuringPartialImport(t *testing.T) {
@@ -60,17 +68,19 @@ func TestExternalProfileSyncRepairsBlankDuplicatesDuringPartialImport(t *testing
 
 	parsed := parseExternalTestBody(t, externalTestHY2+"\n"+"hysteria://unsupported.example:443")
 	result, err := app.syncExternalSource(sourceID, parsed)
-	if err != nil {
-		t.Fatalf("partial repair sync failed: %v", err)
-	}
-	if result.Counts.Removed != 1 || sourceProfileCount(t, app, sourceID) != 2 {
-		t.Fatalf("partial repair result=%#v rows=%d", result, sourceProfileCount(t, app, sourceID))
-	}
+	requireFixturef(t, err == nil, "partial repair sync failed: %v", err)
+
+	requireFixturef(t, result.Counts.Removed == 1, "partial repair result=%#v rows=%d", result, sourceProfileCount(t, app, sourceID))
+	requireFixturef(t, sourceProfileCount(t, app, sourceID) == 2, "partial repair result=%#v rows=%d", result, sourceProfileCount(t, app, sourceID))
+
 	for _, keyID := range []int64{firstID, missingID} {
 		var exists int
-		if err := app.db.QueryRow(`SELECT COUNT(*) FROM vless_keys WHERE id = ?`, keyID).Scan(&exists); err != nil || exists != 1 {
-			t.Fatalf("preserved key %d exists=%d err=%v", keyID, exists, err)
+		{
+			err := app.db.QueryRow(`SELECT COUNT(*) FROM vless_keys WHERE id = ?`, keyID).Scan(&exists)
+			requireFixturef(t, err == nil, "preserved key %d exists=%d err=%v", keyID, exists, err)
+			requireFixturef(t, exists == 1, "preserved key %d exists=%d err=%v", keyID, exists, err)
 		}
+
 	}
 }
 
@@ -83,17 +93,18 @@ func TestExternalProfileSyncLeavesRawXrayJSONOnExactRawIdentity(t *testing.T) {
 
 	parsed := parseExternalTestBody(t, externalTestXray+"\n"+"hysteria://unsupported.example:443")
 	result, err := app.syncExternalSource(sourceID, parsed)
-	if err != nil {
-		t.Fatalf("XRAY-JSON partial sync failed: %v", err)
-	}
-	if result.Counts.Removed != 0 {
-		t.Fatalf("XRAY-JSON exact-raw rows were reported removed: result=%#v", result)
-	}
+	requireFixturef(t, err == nil, "XRAY-JSON partial sync failed: %v", err)
+
+	requireFixturef(t, result.Counts.Removed == 0, "XRAY-JSON exact-raw rows were reported removed: result=%#v", result)
+
 	for _, keyID := range []int64{firstID, secondID} {
 		var exists int
-		if err := app.db.QueryRow(`SELECT COUNT(*) FROM vless_keys WHERE id = ?`, keyID).Scan(&exists); err != nil || exists != 1 {
-			t.Fatalf("XRAY-JSON exact-raw key %d exists=%d err=%v", keyID, exists, err)
+		{
+			err := app.db.QueryRow(`SELECT COUNT(*) FROM vless_keys WHERE id = ?`, keyID).Scan(&exists)
+			requireFixturef(t, err == nil, "XRAY-JSON exact-raw key %d exists=%d err=%v", keyID, exists, err)
+			requireFixturef(t, exists == 1, "XRAY-JSON exact-raw key %d exists=%d err=%v", keyID, exists, err)
 		}
+
 	}
 }
 
@@ -111,29 +122,34 @@ func TestExternalProfileSyncRepairsEightyRowsToFortyAndRemainsStable(t *testing.
 		current = append(current, raw)
 	}
 	insertHistoricalExternalProfile(t, app, historicalExternalProfileSeed{SourceID: otherSourceID, Raw: current[0], Protocol: "vless", Fingerprint: ""})
-	if got := sourceProfileCount(t, app, sourceID); got != 80 {
-		t.Fatalf("corrupted fixture rows=%d want=80", got)
+	{
+		got := sourceProfileCount(t, app, sourceID)
+		requireFixturef(t, got == 80, "corrupted fixture rows=%d want=80", got)
 	}
 
 	for attempt := 1; attempt <= 3; attempt++ {
 		result, err := app.syncExternalSource(sourceID, parseExternalTestBody(t, strings.Join(current, "\n")))
-		if err != nil {
-			t.Fatalf("sync %d failed: %v", attempt, err)
+		requireFixturef(t, err == nil, "sync %d failed: %v", attempt, err)
+
+		{
+			got := sourceProfileCount(t, app, sourceID)
+			requireFixturef(t, got == 40, "sync %d rows=%d want=40 result=%#v", attempt, got, result)
 		}
-		if got := sourceProfileCount(t, app, sourceID); got != 40 {
-			t.Fatalf("sync %d rows=%d want=40 result=%#v", attempt, got, result)
-		}
+
 		if attempt == 1 {
-			if result.Counts.Removed != 40 || result.Counts.Updated != 40 || result.Counts.Added != 0 {
-				t.Fatalf("repair classifications=%#v", result.Counts)
-			}
+			requireFixturef(t, result.Counts.Removed == 40, "repair classifications=%#v", result.Counts)
+			requireFixturef(t, result.Counts.Updated == 40, "repair classifications=%#v", result.Counts)
+			requireFixturef(t, result.Counts.Added == 0, "repair classifications=%#v", result.Counts)
+
 		} else if result.Counts.Removed != 0 || result.Counts.Updated != 0 || result.Counts.Unchanged != 40 {
 			t.Fatalf("stable sync %d classifications=%#v", attempt, result.Counts)
 		}
 	}
-	if got := sourceProfileCount(t, app, otherSourceID); got != 1 {
-		t.Fatalf("cross-source row count=%d want=1", got)
+	{
+		got := sourceProfileCount(t, app, otherSourceID)
+		requireFixturef(t, got == 1, "cross-source row count=%d want=1", got)
 	}
+
 }
 
 func TestExternalProfileLegacyRowWithoutFingerprintKeepsIDOnRename(t *testing.T) {
@@ -141,54 +157,63 @@ func TestExternalProfileLegacyRowWithoutFingerprintKeepsIDOnRename(t *testing.T)
 	sourceID := seedExternalProfileSource(t, app, "https://provider.example/legacy-fingerprint-backfill")
 	userID := seedSubscriptionUser(t, app, "active")
 	legacyID := insertAssignedDeliveryKey(t, app, assignedDeliveryKeySeed{UserID: userID, SourceID: &sourceID, Label: "Old name", Raw: externalTestVLESS, Protocol: "vless", Compatibility: "legacy", SortOrder: 1})
-	if _, err := app.db.Exec(`UPDATE vless_keys SET external_key_ref = ?, profile_fingerprint = NULL WHERE id = ?`, sources.KeyRef(externalTestVLESS), legacyID); err != nil {
-		t.Fatalf("prepare legacy row: %v", err)
+	{
+		_, err := app.db.Exec(`UPDATE vless_keys SET external_key_ref = ?, profile_fingerprint = NULL WHERE id = ?`, sources.KeyRef(externalTestVLESS), legacyID)
+		requireFixturef(t, err == nil, "prepare legacy row: %v", err)
 	}
 
 	renamed := strings.Replace(externalTestVLESS, "#VLESS", "#New name", 1)
 	result, err := app.syncExternalSource(sourceID, parseExternalTestBody(t, renamed))
-	if err != nil || result.Counts.Added != 0 || result.Counts.Updated != 1 {
-		t.Fatalf("legacy rename result=%#v err=%v", result, err)
-	}
+	requireFixturef(t, err == nil, "legacy rename result=%#v err=%v", result, err)
+	requireFixturef(t, result.Counts.Added == 0, "legacy rename result=%#v err=%v", result, err)
+	requireFixturef(t, result.Counts.Updated == 1, "legacy rename result=%#v err=%v", result, err)
+
 	var currentID int64
 	var fingerprint string
-	if err := app.db.QueryRow(`SELECT id, profile_fingerprint FROM vless_keys WHERE external_source_id = ?`, sourceID).Scan(&currentID, &fingerprint); err != nil {
-		t.Fatal(err)
+	{
+		err := app.db.QueryRow(`SELECT id, profile_fingerprint FROM vless_keys WHERE external_source_id = ?`, sourceID).Scan(&currentID, &fingerprint)
+		requireFixture(t, err == nil, err)
 	}
-	if currentID != legacyID || !strings.HasPrefix(fingerprint, "pf1_") {
-		t.Fatalf("legacy identity changed: id=%d want=%d fingerprint=%q", currentID, legacyID, fingerprint)
-	}
+
+	requireFixturef(t, currentID == legacyID, "legacy identity changed: id=%d want=%d fingerprint=%q", currentID, legacyID, fingerprint)
+	requireFixturef(t, strings.HasPrefix(fingerprint, "pf1_"), "legacy identity changed: id=%d want=%d fingerprint=%q", currentID, legacyID, fingerprint)
+
 }
 
 func TestExternalProfileKeyRotationMatchesPreviousFingerprint(t *testing.T) {
 	app := newIntegrationApp(t)
 	sourceID := seedExternalProfileSource(t, app, "https://provider.example/rotation")
 	parsed := parseExternalTestBody(t, externalTestTUIC)
-	if _, err := app.syncExternalSource(sourceID, parsed); err != nil {
-		t.Fatalf("initial sync: %v", err)
+	{
+		_, err := app.syncExternalSource(sourceID, parsed)
+		requireFixturef(t, err == nil, "initial sync: %v", err)
 	}
+
 	var id int64
 	var oldFingerprint string
-	if err := app.db.QueryRow(`SELECT id, profile_fingerprint FROM vless_keys WHERE external_source_id = ?`, sourceID).Scan(&id, &oldFingerprint); err != nil {
-		t.Fatalf("read old fingerprint: %v", err)
+	{
+		err := app.db.QueryRow(`SELECT id, profile_fingerprint FROM vless_keys WHERE external_source_id = ?`, sourceID).Scan(&id, &oldFingerprint)
+		requireFixturef(t, err == nil, "read old fingerprint: %v", err)
 	}
+
 	newKey := []byte("abcdef0123456789abcdef0123456789")
 	app.profileFingerprintOldKeys = [][]byte{append([]byte(nil), app.profileFingerprintKey...)}
 	app.profileFingerprintKey = newKey
 	rotated, err := sources.ParseBody(externalTestTUIC, app.externalProfileFingerprintKeys())
-	if err != nil {
-		t.Fatalf("parse rotated keyring: %v", err)
-	}
+	requireFixturef(t, err == nil, "parse rotated keyring: %v", err)
+
 	result, err := app.syncExternalSource(sourceID, rotated)
-	if err != nil || result.Counts.Updated != 1 {
-		t.Fatalf("rotation sync result=%#v err=%v", result, err)
-	}
+	requireFixturef(t, err == nil, "rotation sync result=%#v err=%v", result, err)
+	requireFixturef(t, result.Counts.Updated == 1, "rotation sync result=%#v err=%v", result, err)
+
 	var currentID int64
 	var newFingerprint string
-	if err := app.db.QueryRow(`SELECT id, profile_fingerprint FROM vless_keys WHERE external_source_id = ?`, sourceID).Scan(&currentID, &newFingerprint); err != nil {
-		t.Fatalf("read rotated fingerprint: %v", err)
+	{
+		err := app.db.QueryRow(`SELECT id, profile_fingerprint FROM vless_keys WHERE external_source_id = ?`, sourceID).Scan(&currentID, &newFingerprint)
+		requireFixturef(t, err == nil, "read rotated fingerprint: %v", err)
 	}
-	if currentID != id || newFingerprint == oldFingerprint {
-		t.Fatalf("rotation failed to preserve row and replace digest: id=%d/%d old=%q new=%q", id, currentID, oldFingerprint, newFingerprint)
-	}
+
+	requireFixturef(t, currentID == id, "rotation failed to preserve row and replace digest: id=%d/%d old=%q new=%q", id, currentID, oldFingerprint, newFingerprint)
+	requireFixturef(t, newFingerprint != oldFingerprint, "rotation failed to preserve row and replace digest: id=%d/%d old=%q new=%q", id, currentID, oldFingerprint, newFingerprint)
+
 }

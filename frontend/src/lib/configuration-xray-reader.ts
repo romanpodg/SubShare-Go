@@ -2,10 +2,9 @@ import type { ConfigurationProtocol, ParsedXrayJSONConfiguration } from "./confi
 import {
   asArray,
   asRecord,
-  normalizeNetwork,
-  parseSupportedProtocol,
   textValue
 } from "./configuration-values";
+import { normalizeNetwork, parseSupportedProtocol } from "./configuration-discriminators";
 import { readXrayConnection } from "./configuration-xray-connection-reader";
 import { readXrayTransport } from "./configuration-xray-transport-reader";
 import { readXraySecurity } from "./configuration-xray-security-reader";

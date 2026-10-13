@@ -27,18 +27,20 @@ func TestSourceOwnedClientDisplayNameOverridesURIAndJSONProjection(t *testing.T)
 	}
 	for index, item := range items {
 		keyID := insertAssignedDeliveryKey(t, app, assignedDeliveryKeySeed{UserID: userID, SourceID: &sourceID, Label: "Source panel", Raw: item.raw, Protocol: item.protocol, Compatibility: "full", SortOrder: index})
-		if _, err := app.db.Exec(`UPDATE vless_keys SET client_display_name = ? WHERE id = ?`, item.name, keyID); err != nil {
-			t.Fatal(err)
+		{
+			_, err := app.db.Exec(`UPDATE vless_keys SET client_display_name = ? WHERE id = ?`, item.name, keyID)
+			requireFixture(t, err == nil, err)
 		}
+
 	}
 
 	generated, denial, err := app.generateSelectedSubscription("subscription-token", "plain")
-	if err != nil || denial.Code != 0 {
-		t.Fatalf("generate source overrides code=%d reason=%q err=%v", denial.Code, denial.Reason, err)
-	}
-	if strings.Contains(generated.Body, `"outbounds"`) || strings.Contains(generated.Body, `{"`) {
-		t.Fatalf("raw JSON leaked from source projection: %q", generated.Body)
-	}
+	requireFixturef(t, err == nil, "generate source overrides code=%d reason=%q err=%v", denial.Code, denial.Reason, err)
+	requireFixturef(t, denial.Code == 0, "generate source overrides code=%d reason=%q err=%v", denial.Code, denial.Reason, err)
+
+	requireFixturef(t, !(strings.Contains(generated.Body, `"outbounds"`)), "raw JSON leaked from source projection: %q", generated.Body)
+	requireFixturef(t, !(strings.Contains(generated.Body, `{"`)), "raw JSON leaked from source projection: %q", generated.Body)
+
 	wantNames := map[string]bool{"Override VLESS": false, "Override VMess": false, "Override JSON": false}
 	for _, line := range strings.Split(generated.Body, "\n") {
 		name := profileconfig.ClientDisplayNameFromKeyURL(line, "")
@@ -47,9 +49,8 @@ func TestSourceOwnedClientDisplayNameOverridesURIAndJSONProjection(t *testing.T)
 		}
 	}
 	for name, found := range wantNames {
-		if !found {
-			t.Fatalf("source client name %q missing from %q", name, generated.Body)
-		}
+		requireFixturef(t, found, "source client name %q missing from %q", name, generated.Body)
+
 	}
 }
 
@@ -63,35 +64,43 @@ func TestSourceOwnedXrayProjectionUsesHumanLabelInsteadOfRoutingTag(t *testing.T
 	]}`
 	keyID := insertAssignedDeliveryKey(t, app, assignedDeliveryKeySeed{UserID: userID, SourceID: &sourceID, Label: "🌟 Human source name", Raw: raw, Protocol: "xray-json", Compatibility: "full", SortOrder: 0})
 	var envelopeBefore string
-	if err := app.db.QueryRow(`SELECT encrypted_url FROM vless_key_secrets WHERE vless_key_id = ?`, keyID).Scan(&envelopeBefore); err != nil {
-		t.Fatal(err)
+	{
+		err := app.db.QueryRow(`SELECT encrypted_url FROM vless_key_secrets WHERE vless_key_id = ?`, keyID).Scan(&envelopeBefore)
+		requireFixture(t, err == nil, err)
 	}
 
 	generated, denial, err := app.generateSelectedSubscription("subscription-token", "plain")
-	if err != nil || denial.Code != 0 {
-		t.Fatalf("source XRAY projection code=%d reason=%q err=%v", denial.Code, denial.Reason, err)
-	}
+	requireFixturef(t, err == nil, "source XRAY projection code=%d reason=%q err=%v", denial.Code, denial.Reason, err)
+	requireFixturef(t, denial.Code == 0, "source XRAY projection code=%d reason=%q err=%v", denial.Code, denial.Reason, err)
+
 	lines := strings.Split(generated.Body, "\n")
-	if len(lines) != 2 {
-		t.Fatalf("projected links=%d body=%q", len(lines), generated.Body)
-	}
+	requireFixturef(t, len(lines) == 2, "projected links=%d body=%q", len(lines), generated.Body)
+
 	for index, line := range lines {
 		want := "🌟 Human source name"
 		if index > 0 {
 			want = fmt.Sprintf("🌟 Human source name (%d)", index+1)
 		}
-		if got := profileconfig.ClientDisplayNameFromKeyURL(line, ""); got != want {
-			t.Fatalf("projected name %d=%q want=%q", index, got, want)
+		{
+			got := profileconfig.ClientDisplayNameFromKeyURL(line, "")
+			requireFixturef(t, got == want, "projected name %d=%q want=%q", index, got, want)
 		}
+
 	}
 	var storedName sql.NullString
 	var envelopeAfter string
-	if err := app.db.QueryRow(`SELECT client_display_name FROM vless_keys WHERE id = ?`, keyID).Scan(&storedName); err != nil || storedName.Valid {
-		t.Fatalf("derived source name was persisted: %#v err=%v", storedName, err)
+	{
+		err := app.db.QueryRow(`SELECT client_display_name FROM vless_keys WHERE id = ?`, keyID).Scan(&storedName)
+		requireFixturef(t, err == nil, "derived source name was persisted: %#v err=%v", storedName, err)
+		requireFixturef(t, !(storedName.Valid), "derived source name was persisted: %#v err=%v", storedName, err)
 	}
-	if err := app.db.QueryRow(`SELECT encrypted_url FROM vless_key_secrets WHERE vless_key_id = ?`, keyID).Scan(&envelopeAfter); err != nil || envelopeAfter != envelopeBefore {
-		t.Fatalf("projection rewrote encrypted source config=%v err=%v", envelopeAfter != envelopeBefore, err)
+
+	{
+		err := app.db.QueryRow(`SELECT encrypted_url FROM vless_key_secrets WHERE vless_key_id = ?`, keyID).Scan(&envelopeAfter)
+		requireFixturef(t, err == nil, "projection rewrote encrypted source config=%v err=%v", envelopeAfter != envelopeBefore, err)
+		requireFixturef(t, envelopeAfter == envelopeBefore, "projection rewrote encrypted source config=%v err=%v", envelopeAfter != envelopeBefore, err)
 	}
+
 }
 
 func TestLinkModeProjectsRawXrayJSONAtResolverBoundaryWithoutMutatingProfiles(t *testing.T) {
@@ -113,49 +122,53 @@ func TestLinkModeProjectsRawXrayJSONAtResolverBoundaryWithoutMutatingProfiles(t 
 		insertAssignedDeliveryKey(t, app, assignedDeliveryKeySeed{UserID: userID, Label: item.protocol, Raw: item.raw, Protocol: item.protocol, Compatibility: "full", SortOrder: index})
 	}
 	infoResult, err := app.db.Exec(`INSERT INTO vless_keys(label, status, key_kind, template_text, sort_order) VALUES('Info', 'active', 'informational', 'Hello {user_name}', 100)`)
-	if err != nil {
-		t.Fatalf("insert informational key: %v", err)
-	}
+	requireFixturef(t, err == nil, "insert informational key: %v", err)
+
 	infoID, _ := infoResult.LastInsertId()
-	if _, err := app.db.Exec(`INSERT INTO user_keys(user_id, key_id) VALUES(?, ?)`, userID, infoID); err != nil {
-		t.Fatalf("assign informational key: %v", err)
+	{
+		_, err := app.db.Exec(`INSERT INTO user_keys(user_id, key_id) VALUES(?, ?)`, userID, infoID)
+		requireFixturef(t, err == nil, "assign informational key: %v", err)
 	}
 
 	generated, denial, err := app.generateSelectedSubscription("subscription-token", "plain")
-	if err != nil || denial.Code != 0 {
-		t.Fatalf("link generation code=%d reason=%q err=%v", denial.Code, denial.Reason, err)
-	}
-	if json.Valid([]byte(generated.Body)) || strings.Contains(generated.Body, `"outbounds"`) || strings.Contains(generated.Body, `{"`) {
-		t.Fatalf("raw XRAY-JSON leaked into link body: %q", generated.Body)
-	}
-	if !strings.Contains(generated.Body, "vless://44444444-4444-4444-8444-444444444444@json-only.example:443") {
-		t.Fatalf("projected XRAY-JSON VLESS missing from link body: %q", generated.Body)
-	}
+	requireFixturef(t, err == nil, "link generation code=%d reason=%q err=%v", denial.Code, denial.Reason, err)
+	requireFixturef(t, denial.Code == 0, "link generation code=%d reason=%q err=%v", denial.Code, denial.Reason, err)
+
+	requireFixturef(t, !(json.Valid([]byte(generated.Body))), "raw XRAY-JSON leaked into link body: %q", generated.Body)
+	requireFixturef(t, !(strings.Contains(generated.Body, `"outbounds"`)), "raw XRAY-JSON leaked into link body: %q", generated.Body)
+	requireFixturef(t, !(strings.Contains(generated.Body, `{"`)), "raw XRAY-JSON leaked into link body: %q", generated.Body)
+
+	requireFixturef(t, strings.Contains(generated.Body, "vless://44444444-4444-4444-8444-444444444444@json-only.example:443"), "projected XRAY-JSON VLESS missing from link body: %q", generated.Body)
+
 	lines := strings.Split(generated.Body, "\n")
-	if len(lines) != 8 {
-		t.Fatalf("link lines=%d body=%q exclusions=%#v", len(lines), generated.Body, generated.Exclusions)
-	}
+	requireFixturef(t, len(lines) == 8, "link lines=%d body=%q exclusions=%#v", len(lines), generated.Body, generated.Exclusions)
+
 	for _, line := range lines {
 		scheme := profileconfig.SupportedConfigScheme(line)
-		if scheme == model.SubscriptionFormatXrayJSON || scheme == "" {
-			t.Fatalf("non-link entry reached link output: %q", line)
-		}
+		requireFixturef(t, scheme != model.SubscriptionFormatXrayJSON, "non-link entry reached link output: %q", line)
+		requireFixturef(t, scheme != "", "non-link entry reached link output: %q", line)
+
 	}
-	if len(generated.Exclusions) != 0 {
-		t.Fatalf("XRAY-JSON exclusion=%#v", generated.Exclusions)
-	}
+	requireFixturef(t, len(generated.Exclusions) == 0, "XRAY-JSON exclusion=%#v", generated.Exclusions)
 
 	var rowsBefore int
-	if err := app.db.QueryRow(`SELECT COUNT(*) FROM vless_keys`).Scan(&rowsBefore); err != nil {
-		t.Fatal(err)
+	{
+		err := app.db.QueryRow(`SELECT COUNT(*) FROM vless_keys`).Scan(&rowsBefore)
+		requireFixture(t, err == nil, err)
 	}
-	if _, _, err := app.generateSelectedSubscription("subscription-token", "xray-json"); err != nil {
-		t.Fatalf("JSON mode generation: %v", err)
+
+	{
+		_, _, err := app.generateSelectedSubscription("subscription-token", "xray-json")
+		requireFixturef(t, err == nil, "JSON mode generation: %v", err)
 	}
+
 	var rowsAfter int
-	if err := app.db.QueryRow(`SELECT COUNT(*) FROM vless_keys`).Scan(&rowsAfter); err != nil || rowsAfter != rowsBefore {
-		t.Fatalf("format switching mutated profiles: before=%d after=%d err=%v", rowsBefore, rowsAfter, err)
+	{
+		err := app.db.QueryRow(`SELECT COUNT(*) FROM vless_keys`).Scan(&rowsAfter)
+		requireFixturef(t, err == nil, "format switching mutated profiles: before=%d after=%d err=%v", rowsBefore, rowsAfter, err)
+		requireFixturef(t, rowsAfter == rowsBefore, "format switching mutated profiles: before=%d after=%d err=%v", rowsBefore, rowsAfter, err)
 	}
+
 }
 
 func TestLinkModeProjectsMultipleXrayOutboundsWithClientNameAndKeepsStoredBytes(t *testing.T) {
@@ -177,52 +190,70 @@ func TestLinkModeProjectsMultipleXrayOutboundsWithClientNameAndKeepsStoredBytes(
 		]
 	}`
 	keyID := insertAssignedDeliveryKey(t, app, assignedDeliveryKeySeed{UserID: userID, Label: "Panel only", Raw: raw, Protocol: "xray-json", Compatibility: "full", SortOrder: 0})
-	if _, err := app.db.Exec(`UPDATE vless_keys SET client_display_name = 'Subscriber node' WHERE id = ?`, keyID); err != nil {
-		t.Fatal(err)
+	{
+		_, err := app.db.Exec(`UPDATE vless_keys SET client_display_name = 'Subscriber node' WHERE id = ?`, keyID)
+		requireFixture(t, err == nil, err)
 	}
+
 	var envelopeBefore string
-	if err := app.db.QueryRow(`SELECT encrypted_url FROM vless_key_secrets WHERE vless_key_id = ?`, keyID).Scan(&envelopeBefore); err != nil {
-		t.Fatal(err)
+	{
+		err := app.db.QueryRow(`SELECT encrypted_url FROM vless_key_secrets WHERE vless_key_id = ?`, keyID).Scan(&envelopeBefore)
+		requireFixture(t, err == nil, err)
 	}
 
 	generated, denial, err := app.generateSelectedSubscription("subscription-token", "plain")
-	if err != nil || denial.Code != 0 {
-		t.Fatalf("link projection code=%d reason=%q err=%v", denial.Code, denial.Reason, err)
-	}
-	if strings.Contains(generated.Body, `"dns"`) || strings.Contains(generated.Body, `"routing"`) || strings.Contains(generated.Body, `"outbounds"`) || strings.Contains(generated.Body, "freedom") || strings.Contains(generated.Body, "blackhole") {
-		t.Fatalf("non-link JSON content leaked: %q", generated.Body)
-	}
+	requireFixturef(t, err == nil, "link projection code=%d reason=%q err=%v", denial.Code, denial.Reason, err)
+	requireFixturef(t, denial.Code == 0, "link projection code=%d reason=%q err=%v", denial.Code, denial.Reason, err)
+
+	requireFixturef(t, !(strings.Contains(generated.Body, `"dns"`)), "non-link JSON content leaked: %q", generated.Body)
+	requireFixturef(t, !(strings.Contains(generated.Body, `"routing"`)), "non-link JSON content leaked: %q", generated.Body)
+	requireFixturef(t, !(strings.Contains(generated.Body, `"outbounds"`)), "non-link JSON content leaked: %q", generated.Body)
+	requireFixturef(t, !(strings.Contains(generated.Body, "freedom")), "non-link JSON content leaked: %q", generated.Body)
+	requireFixturef(t, !(strings.Contains(generated.Body, "blackhole")), "non-link JSON content leaked: %q", generated.Body)
+
 	lines := strings.Split(generated.Body, "\n")
-	if len(lines) != 6 || generated.GeneratedCount != 6 || len(generated.Exclusions) != 1 {
-		t.Fatalf("lines=%d generated=%d exclusions=%#v body=%q", len(lines), generated.GeneratedCount, generated.Exclusions, generated.Body)
-	}
-	for index, line := range lines {
-		wantName := "Subscriber node"
-		if index > 0 {
-			wantName = fmt.Sprintf("Subscriber node (%d)", index+1)
-		}
-		if got := profileconfig.ClientDisplayNameFromKeyURL(line, ""); got != wantName {
-			t.Fatalf("line %d client name=%q want=%q link=%q", index, got, wantName, line)
-		}
-	}
+	requireFixturef(t, len(lines) == 6, "lines=%d generated=%d exclusions=%#v body=%q", len(lines), generated.GeneratedCount, generated.Exclusions, generated.Body)
+	requireFixturef(t, generated.GeneratedCount == 6, "lines=%d generated=%d exclusions=%#v body=%q", len(lines), generated.GeneratedCount, generated.Exclusions, generated.Body)
+	requireFixturef(t, len(generated.Exclusions) == 1, "lines=%d generated=%d exclusions=%#v body=%q", len(lines), generated.GeneratedCount, generated.Exclusions, generated.Body)
+
+	assertProjectedClientNames(t, lines, "Subscriber node")
+
 	request := httptest.NewRequest(http.MethodGet, "/sub/subscription-token/subbody", nil)
 	request.SetPathValue("subscription_id", "subscription-token")
 	recorder := httptest.NewRecorder()
 	app.handleSubscriptionSubBody(recorder, request)
 	decoded, decodeErr := base64.StdEncoding.DecodeString(recorder.Body.String())
-	if recorder.Code != http.StatusOK || decodeErr != nil || string(decoded) != generated.Body {
-		t.Fatalf("base64 link projection status=%d decode=%v body=%q", recorder.Code, decodeErr, string(decoded))
-	}
+	requireFixturef(t, recorder.Code == http.StatusOK, "base64 link projection status=%d decode=%v body=%q", recorder.Code, decodeErr, string(decoded))
+	requireFixturef(t, decodeErr == nil, "base64 link projection status=%d decode=%v body=%q", recorder.Code, decodeErr, string(decoded))
+	requireFixturef(t, string(decoded) == generated.Body, "base64 link projection status=%d decode=%v body=%q", recorder.Code, decodeErr, string(decoded))
 
 	jsonGenerated, denial, err := app.generateSelectedSubscription("subscription-token", "xray-json")
-	if err != nil || denial.Code != 0 || !strings.Contains(jsonGenerated.Body, `"dns"`) || !strings.Contains(jsonGenerated.Body, `"routing"`) {
-		t.Fatalf("JSON mode lost original document: code=%d err=%v body=%q", denial.Code, err, jsonGenerated.Body)
-	}
+	requireFixturef(t, err == nil, "JSON mode lost original document: code=%d err=%v body=%q", denial.Code, err, jsonGenerated.Body)
+	requireFixturef(t, denial.Code == 0, "JSON mode lost original document: code=%d err=%v body=%q", denial.Code, err, jsonGenerated.Body)
+	requireFixturef(t, strings.Contains(jsonGenerated.Body, `"dns"`), "JSON mode lost original document: code=%d err=%v body=%q", denial.Code, err, jsonGenerated.Body)
+	requireFixturef(t, strings.Contains(jsonGenerated.Body, `"routing"`), "JSON mode lost original document: code=%d err=%v body=%q", denial.Code, err, jsonGenerated.Body)
+
 	var envelopeAfter string
-	if err := app.db.QueryRow(`SELECT encrypted_url FROM vless_key_secrets WHERE vless_key_id = ?`, keyID).Scan(&envelopeAfter); err != nil {
-		t.Fatal(err)
+	{
+		err := app.db.QueryRow(`SELECT encrypted_url FROM vless_key_secrets WHERE vless_key_id = ?`, keyID).Scan(&envelopeAfter)
+		requireFixture(t, err == nil, err)
 	}
-	if envelopeAfter != envelopeBefore {
-		t.Fatal("switching output formats rewrote encrypted profile state")
+
+	requireFixture(t, envelopeAfter == envelopeBefore, "switching output formats rewrote encrypted profile state")
+
+}
+
+func assertProjectedClientNames(t *testing.T, lines []string, baseName string) {
+	t.Helper()
+	for index, line := range lines {
+		wantName := baseName
+		if index > 0 {
+			wantName = fmt.Sprintf("%s (%d)", baseName, index+1)
+		}
+		{
+			got := profileconfig.ClientDisplayNameFromKeyURL(line, "")
+			requireFixturef(t, got == wantName, "line %d client name=%q want=%q link=%q", index, got, wantName, line)
+		}
+
 	}
 }

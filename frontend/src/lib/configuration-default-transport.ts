@@ -25,11 +25,18 @@ function tcpSettings(draft: XrayJSONDraft) {
 
 export function buildDefaultTransport(draft: XrayJSONDraft): Record<string, unknown> {
   switch (draft.network) {
-    case "ws": return { wsSettings: { path: draft.path.trim(), headers: draft.host.trim() ? { Host: draft.host.trim() } : {} } };
-    case "grpc": return { grpcSettings: { serviceName: draft.path.trim(), ...(draft.grpcAuthority?.trim() ? { authority: draft.grpcAuthority.trim() } : {}) } };
+    case "ws": return websocketSettings(draft);
+    case "grpc": return grpcSettings(draft);
     case "httpupgrade": return { httpupgradeSettings: { path: draft.path.trim(), host: draft.host.trim() } };
     case "xhttp": return { xhttpSettings: { path: draft.path.trim(), host: draft.host.trim() } };
     case "tcp": return tcpSettings(draft);
     default: return {};
   }
+}
+
+function websocketSettings(draft: XrayJSONDraft) {
+  return { wsSettings: { path: draft.path.trim(), headers: draft.host.trim() ? { Host: draft.host.trim() } : {} } };
+}
+function grpcSettings(draft: XrayJSONDraft) {
+  return { grpcSettings: { serviceName: draft.path.trim(), ...(draft.grpcAuthority?.trim() ? { authority: draft.grpcAuthority.trim() } : {}) } };
 }

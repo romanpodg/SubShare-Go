@@ -47,26 +47,51 @@ function patchVmessSecurity(extra: Record<string, unknown>, patch: XrayJSONPatch
 
 function patchVmessParams(params: string, patch: XrayJSONPatch) {
   const extra = parseVmessExtraParams(params);
-  if (hasPatchField(patch, "network")) patchObjectValue(extra, ["net"], patch.network === "tcp" ? "" : patch.network);
+  patchVmessNetwork(extra, patch);
   patchVmessSecurity(extra, patch);
   patchObjectFields(extra, patch, vmessTextFields);
-  if (hasPatchField(patch, "allowInsecure")) patchObjectValue(extra, ["allowInsecure", "allowinsecure"], patch.allowInsecure);
+  patchVmessInsecure(extra, patch);
   patchObjectFields(extra, patch, vmessTrailingFields);
   return Object.keys(extra).length > 0 ? JSON.stringify(extra) : "";
 }
 
 function patchUriParams(params: string, patch: XrayJSONPatch) {
   const search = new URLSearchParams(params);
-  if (hasPatchField(patch, "network")) patchSearchValue(search, ["type"], patch.network === "tcp" ? "" : patch.network);
-  if (hasPatchField(patch, "security")) patchSearchValue(search, ["security"], patch.security === "none" ? "" : patch.security);
+  patchUriNetwork(search, patch);
+  patchUriSecurity(search, patch);
   patchQueryFields(search, patch, uriTextFields);
-  if (hasPatchField(patch, "allowInsecure")) patchSearchValue(search, [
+  patchUriInsecure(search, patch);
+  patchQueryFields(search, patch, uriTrailingFields);
+  return search.toString();
+}
+
+function patchVmessNetwork(extra: Record<string, unknown>, patch: XrayJSONPatch) {
+  if (!hasPatchField(patch, "network")) return;
+  patchObjectValue(extra, ["net"], patch.network === "tcp" ? "" : patch.network);
+}
+
+function patchUriNetwork(search: URLSearchParams, patch: XrayJSONPatch) {
+  if (!hasPatchField(patch, "network")) return;
+  patchSearchValue(search, ["type"], patch.network === "tcp" ? "" : patch.network);
+}
+
+function patchUriSecurity(search: URLSearchParams, patch: XrayJSONPatch) {
+  if (!hasPatchField(patch, "security")) return;
+  patchSearchValue(search, ["security"], patch.security === "none" ? "" : patch.security);
+}
+
+function patchVmessInsecure(extra: Record<string, unknown>, patch: XrayJSONPatch) {
+  if (!hasPatchField(patch, "allowInsecure")) return;
+  patchObjectValue(extra, ["allowInsecure", "allowinsecure"], patch.allowInsecure);
+}
+
+function patchUriInsecure(search: URLSearchParams, patch: XrayJSONPatch) {
+  if (!hasPatchField(patch, "allowInsecure")) return;
+  patchSearchValue(search, [
     "allowInsecure",
     "allowinsecure",
     "allow_insecure"
   ], patch.allowInsecure ? "1" : "");
-  patchQueryFields(search, patch, uriTrailingFields);
-  return search.toString();
 }
 
 // Patches only represented fields. Unrelated duplicate query entries and

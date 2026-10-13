@@ -3,17 +3,8 @@ import type {
   XrayJSONDraft,
   XrayJSONPatch
 } from "./configuration-types";
-import {
-  DEFAULT_PORT,
-  asRecord,
-  asArray,
-  normalizeProtocol,
-  normalizeNetwork,
-  normalizeSecurity,
-  toPortNumber,
-  parseHeaderType,
-  splitCommaValues
-} from "./configuration-values";
+import { DEFAULT_PORT, asRecord, asArray, toPortNumber, parseHeaderType, splitCommaValues } from "./configuration-values";
+import { normalizeProtocol, normalizeNetwork, normalizeSecurity } from "./configuration-discriminators";
 import { parseXrayJSONConfiguration } from "./configuration-xray-reader";
 import { appendSecurityPlan } from "./configuration-security-plan";
 import { hasPatchField, optionalText } from "./configuration-patch-values";

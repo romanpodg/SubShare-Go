@@ -44,9 +44,11 @@ func TestExternalImporterExistingXrayJSONCompatibility(t *testing.T) {
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			parsed := parseExternalTestBody(t, test.raw)
-			if parsed.DetectedFormat != "xray-json" || len(parsed.Keys) != 1 || parsed.Keys[0].Protocol != "xray-json" || parsed.Keys[0].Host != test.wantHost {
-				t.Fatalf("Xray compatibility result=%#v", parsed)
-			}
+			requireFixturef(t, parsed.DetectedFormat == "xray-json", "Xray compatibility result=%#v", parsed)
+			requireFixturef(t, len(parsed.Keys) == 1, "Xray compatibility result=%#v", parsed)
+			requireFixturef(t, parsed.Keys[0].Protocol == "xray-json", "Xray compatibility result=%#v", parsed)
+			requireFixturef(t, parsed.Keys[0].Host == test.wantHost, "Xray compatibility result=%#v", parsed)
+
 		})
 	}
 	arrayBody := `[
@@ -54,18 +56,20 @@ func TestExternalImporterExistingXrayJSONCompatibility(t *testing.T) {
 		{"remarks":"Array Trojan","outbounds":[{"protocol":"trojan","settings":{"servers":[{"address":"array-trojan.example","port":443,"password":"array-secret"}]}}]}
 	]`
 	arrayParsed := parseExternalTestBody(t, arrayBody)
-	if arrayParsed.DetectedFormat != "xray-json" || len(arrayParsed.Keys) != 2 || arrayParsed.Keys[0].Host != "array-vless.example" || arrayParsed.Keys[1].Host != "array-trojan.example" {
-		t.Fatalf("Xray JSON array compatibility result=%#v", arrayParsed)
-	}
+	requireFixturef(t, arrayParsed.DetectedFormat == "xray-json", "Xray JSON array compatibility result=%#v", arrayParsed)
+	requireFixturef(t, len(arrayParsed.Keys) == 2, "Xray JSON array compatibility result=%#v", arrayParsed)
+	requireFixturef(t, arrayParsed.Keys[0].Host == "array-vless.example", "Xray JSON array compatibility result=%#v", arrayParsed)
+	requireFixturef(t, arrayParsed.Keys[1].Host == "array-trojan.example", "Xray JSON array compatibility result=%#v", arrayParsed)
 
 	for _, raw := range []string{
 		`{"outbounds":[]}`,
 		`{"valid":"json but not xray"}`,
 	} {
 		parsed := parseExternalTestBody(t, raw)
-		if len(parsed.Keys) != 0 || parsed.Counts.Rejected != 1 || parsed.Items[0].ErrorCode != "invalid_xray_json" {
-			t.Fatalf("unsupported Xray-shaped JSON result=%#v", parsed)
-		}
+		requireFixturef(t, len(parsed.Keys) == 0, "unsupported Xray-shaped JSON result=%#v", parsed)
+		requireFixturef(t, parsed.Counts.Rejected == 1, "unsupported Xray-shaped JSON result=%#v", parsed)
+		requireFixturef(t, parsed.Items[0].ErrorCode == "invalid_xray_json", "unsupported Xray-shaped JSON result=%#v", parsed)
+
 	}
 }
 
@@ -89,75 +93,79 @@ func TestExternalImporterRecognizesXrayHysteria2AndPreservesSupportedFields(t *t
 		}]
 	}`
 	parsed := parseExternalTestBody(t, raw)
-	if parsed.Counts.Accepted != 1 || len(parsed.Keys) != 1 || parsed.Keys[0].Protocol != "hysteria2" {
-		t.Fatalf("Hysteria2 JSON parse=%#v", parsed)
-	}
+	requireFixturef(t, parsed.Counts.Accepted == 1, "Hysteria2 JSON parse=%#v", parsed)
+	requireFixturef(t, len(parsed.Keys) == 1, "Hysteria2 JSON parse=%#v", parsed)
+	requireFixturef(t, parsed.Keys[0].Protocol == "hysteria2", "Hysteria2 JSON parse=%#v", parsed)
+
 	profile, err := profiles.Parse(parsed.Keys[0].URL)
-	if err != nil {
-		t.Fatalf("parse imported Hysteria2 URI: %v", err)
-	}
+	requireFixturef(t, err == nil, "parse imported Hysteria2 URI: %v", err)
+
 	data, ok := profile.Data.(profiles.Hysteria2Data)
-	if !ok || profile.Server != "hy-json.example" || profile.Port.Expression != "443,5000-5010" ||
-		profile.DisplayName != "HY2 JSON" ||
-		data.Authentication.Reveal() != "json-hysteria-auth" || data.SNI != "tls-json.example" ||
-		data.CertificateSHA256 != "abababababababababababababababababababababababababababababababab" ||
-		data.ObfuscationType != "salamander" || data.ObfuscationPassword.Reveal() != "json-obfs-secret" {
-		t.Fatalf("imported Hysteria2 profile=%#v data=%#v", profile, data)
-	}
-	if parsed.Keys[0].Fingerprint == "" {
-		t.Fatal("semantic fingerprint missing")
-	}
+	requireFixturef(t, ok, "imported Hysteria2 profile=%#v data=%#v", profile, data)
+	requireFixturef(t, profile.Server == "hy-json.example", "imported Hysteria2 profile=%#v data=%#v", profile, data)
+	requireFixturef(t, profile.Port.Expression == "443,5000-5010", "imported Hysteria2 profile=%#v data=%#v", profile, data)
+	requireFixturef(t, profile.DisplayName == "HY2 JSON", "imported Hysteria2 profile=%#v data=%#v", profile, data)
+	requireFixturef(t, data.Authentication.Reveal() == "json-hysteria-auth", "imported Hysteria2 profile=%#v data=%#v", profile, data)
+	requireFixturef(t, data.SNI == "tls-json.example", "imported Hysteria2 profile=%#v data=%#v", profile, data)
+	requireFixturef(t, data.CertificateSHA256 == "abababababababababababababababababababababababababababababababab", "imported Hysteria2 profile=%#v data=%#v", profile, data)
+	requireFixturef(t, data.ObfuscationType == "salamander", "imported Hysteria2 profile=%#v data=%#v", profile, data)
+	requireFixturef(t, data.ObfuscationPassword.Reveal() == "json-obfs-secret", "imported Hysteria2 profile=%#v data=%#v", profile, data)
+
+	requireFixture(t, parsed.Keys[0].Fingerprint != "", "semantic fingerprint missing")
+
 	encoded, err := json.Marshal(parsed.Items)
-	if err != nil {
-		t.Fatalf("marshal preview: %v", err)
-	}
+	requireFixturef(t, err == nil, "marshal preview: %v", err)
+
 	for _, secret := range []string{"json-hysteria-auth", "json-obfs-secret", "hysteria2://", `"outbounds"`} {
-		if strings.Contains(string(encoded), secret) {
-			t.Fatalf("preview leaked %q: %s", secret, encoded)
-		}
+		requireFixturef(t, !(strings.Contains(string(encoded), secret)), "preview leaked %q: %s", secret, encoded)
+
 	}
 }
 
 func TestExternalImporterClassifiesHysteriaV1AndIdentifiableXrayFailures(t *testing.T) {
 	v1 := `{"remarks":"Legacy Hysteria","outbounds":[{"protocol":"hysteria","settings":{"version":1,"address":"legacy-hy.example","port":8443},"streamSettings":{"hysteriaSettings":{"version":1,"auth":"never-preview-this"}}}]}`
 	parsed := parseExternalTestBody(t, v1)
-	if len(parsed.Keys) != 0 || parsed.Counts.Unsupported != 1 {
-		t.Fatalf("Hysteria v1 parse=%#v", parsed)
-	}
+	requireFixturef(t, len(parsed.Keys) == 0, "Hysteria v1 parse=%#v", parsed)
+	requireFixturef(t, parsed.Counts.Unsupported == 1, "Hysteria v1 parse=%#v", parsed)
+
 	item := parsed.Items[0]
-	if item.Protocol != "hysteria" || item.ErrorCode != "unsupported_hysteria_v1" || item.DisplayName != "Legacy Hysteria" || item.Host != "legacy-hy.example" || item.Port != "8443" {
-		t.Fatalf("Hysteria v1 diagnostic=%#v", item)
-	}
+	requireFixturef(t, item.Protocol == "hysteria", "Hysteria v1 diagnostic=%#v", item)
+	requireFixturef(t, item.ErrorCode == "unsupported_hysteria_v1", "Hysteria v1 diagnostic=%#v", item)
+	requireFixturef(t, item.DisplayName == "Legacy Hysteria", "Hysteria v1 diagnostic=%#v", item)
+	requireFixturef(t, item.Host == "legacy-hy.example", "Hysteria v1 diagnostic=%#v", item)
+	requireFixturef(t, item.Port == "8443", "Hysteria v1 diagnostic=%#v", item)
+
 	ambiguous := parseExternalTestBody(t, `{"remarks":"Unknown Hysteria","outbounds":[{"protocol":"hysteria","settings":{"address":"unknown-hy.example","port":443},"streamSettings":{"network":"hysteria","hysteriaSettings":{"auth":"never-preview-this-either"}}},{"protocol":"freedom","settings":{}},{"protocol":"blackhole","settings":{}}]}`)
-	if ambiguous.Counts.Unsupported != 1 || ambiguous.Items[0].Protocol != "hysteria-unknown" || ambiguous.Items[0].ErrorCode != "ambiguous_hysteria_version" {
-		t.Fatalf("markerless Hysteria must remain ambiguous: %#v", ambiguous)
-	}
+	requireFixturef(t, ambiguous.Counts.Unsupported == 1, "markerless Hysteria must remain ambiguous: %#v", ambiguous)
+	requireFixturef(t, ambiguous.Items[0].Protocol == "hysteria-unknown", "markerless Hysteria must remain ambiguous: %#v", ambiguous)
+	requireFixturef(t, ambiguous.Items[0].ErrorCode == "ambiguous_hysteria_version", "markerless Hysteria must remain ambiguous: %#v", ambiguous)
 
 	unsupported := parseExternalTestBody(t, `{"outbounds":[{"tag":"Direct","protocol":"freedom","settings":{}}]}`)
-	if unsupported.Counts.Unsupported != 1 || unsupported.Items[0].Protocol != "freedom" || unsupported.Items[0].ErrorCode != "unsupported_xray_protocol" {
-		t.Fatalf("unsupported Xray diagnostic=%#v", unsupported)
-	}
+	requireFixturef(t, unsupported.Counts.Unsupported == 1, "unsupported Xray diagnostic=%#v", unsupported)
+	requireFixturef(t, unsupported.Items[0].Protocol == "freedom", "unsupported Xray diagnostic=%#v", unsupported)
+	requireFixturef(t, unsupported.Items[0].ErrorCode == "unsupported_xray_protocol", "unsupported Xray diagnostic=%#v", unsupported)
 
 	malformed := parseExternalTestBody(t, `{"outbounds":[{"tag":"Broken VLESS","protocol":"vless","settings":{"vnext":[]}}]}`)
-	if malformed.Counts.Rejected != 1 || malformed.Items[0].Protocol != "vless" || malformed.Items[0].ErrorCode != "invalid_vless_json" {
-		t.Fatalf("malformed VLESS diagnostic=%#v", malformed)
-	}
+	requireFixturef(t, malformed.Counts.Rejected == 1, "malformed VLESS diagnostic=%#v", malformed)
+	requireFixturef(t, malformed.Items[0].Protocol == "vless", "malformed VLESS diagnostic=%#v", malformed)
+	requireFixturef(t, malformed.Items[0].ErrorCode == "invalid_vless_json", "malformed VLESS diagnostic=%#v", malformed)
 
 	withAuxiliary := parseExternalTestBody(t, `{"outbounds":[{"protocol":"hysteria","settings":{"version":2,"address":"hy.example","port":443},"streamSettings":{"network":"hysteria","security":"tls","hysteriaSettings":{"version":2,"auth":"not-in-preview"}}},{"protocol":"freedom","settings":{}},{"protocol":"blackhole","settings":{}}]}`)
-	if withAuxiliary.Counts.Accepted != 1 || len(withAuxiliary.Keys) != 1 || withAuxiliary.Keys[0].Protocol != "hysteria2" {
-		t.Fatalf("Hysteria2 with routing helpers must import: %#v", withAuxiliary)
-	}
+	requireFixturef(t, withAuxiliary.Counts.Accepted == 1, "Hysteria2 with routing helpers must import: %#v", withAuxiliary)
+	requireFixturef(t, len(withAuxiliary.Keys) == 1, "Hysteria2 with routing helpers must import: %#v", withAuxiliary)
+	requireFixturef(t, withAuxiliary.Keys[0].Protocol == "hysteria2", "Hysteria2 with routing helpers must import: %#v", withAuxiliary)
 
 	malformedHysteria2 := parseExternalTestBody(t, `{"remarks":"Broken HY2","outbounds":[{"protocol":"hysteria","settings":{"version":2,"address":"broken-hy2.example","port":443},"streamSettings":{"network":"hysteria","security":"tls","hysteriaSettings":{"version":2}}},{"protocol":"freedom","settings":{}},{"protocol":"blackhole","settings":{}}]}`)
-	if malformedHysteria2.Counts.Rejected != 1 || malformedHysteria2.Items[0].Protocol != "hysteria2" || malformedHysteria2.Items[0].ErrorCode != "invalid_hysteria2_json" {
-		t.Fatalf("malformed Hysteria2 diagnostic=%#v", malformedHysteria2)
-	}
+	requireFixturef(t, malformedHysteria2.Counts.Rejected == 1, "malformed Hysteria2 diagnostic=%#v", malformedHysteria2)
+	requireFixturef(t, malformedHysteria2.Items[0].Protocol == "hysteria2", "malformed Hysteria2 diagnostic=%#v", malformedHysteria2)
+	requireFixturef(t, malformedHysteria2.Items[0].ErrorCode == "invalid_hysteria2_json", "malformed Hysteria2 diagnostic=%#v", malformedHysteria2)
 
 	diagnosticItems := append(append([]sources.ImportItem{}, parsed.Items...), ambiguous.Items...)
 	encoded, err := json.Marshal(diagnosticItems)
-	if err != nil || strings.Contains(string(encoded), "never-preview-this") || strings.Contains(string(encoded), "never-preview-this-either") {
-		t.Fatalf("Hysteria v1 preview leaked credentials: json=%s err=%v", encoded, err)
-	}
+	requireFixturef(t, err == nil, "Hysteria v1 preview leaked credentials: json=%s err=%v", encoded, err)
+	requireFixturef(t, !(strings.Contains(string(encoded), "never-preview-this")), "Hysteria v1 preview leaked credentials: json=%s err=%v", encoded, err)
+	requireFixturef(t, !(strings.Contains(string(encoded), "never-preview-this-either")), "Hysteria v1 preview leaked credentials: json=%s err=%v", encoded, err)
+
 }
 
 func runtimeShapeHysteria2Fixture(label, host, auth string) string {
@@ -184,37 +192,42 @@ func TestExtractJSONSubscriptionLabelRejectsGenericRoutingTags(t *testing.T) {
 			"meta":      map[string]any{"serverDescription": "Human source name"},
 			"outbounds": []any{map[string]any{"tag": tag}},
 		}
-		if got := sources.ExtractJSONLabel(root, "Fallback"); got != "Human source name" {
-			t.Fatalf("generic tag %q replaced human metadata: %q", tag, got)
+		{
+			got := sources.ExtractJSONLabel(root, "Fallback")
+			requireFixturef(t, got == "Human source name", "generic tag %q replaced human metadata: %q", tag, got)
 		}
+
 	}
 	root := map[string]any{"outbounds": []any{map[string]any{"tag": "Meaningful edge name"}}}
-	if got := sources.ExtractJSONLabel(root, "Fallback"); got != "Meaningful edge name" {
-		t.Fatalf("meaningful outbound tag was discarded: %q", got)
+	{
+		got := sources.ExtractJSONLabel(root, "Fallback")
+		requireFixturef(t, got == "Meaningful edge name", "meaningful outbound tag was discarded: %q", got)
 	}
+
 }
 
 func TestExternalImporterRuntimeXrayHysteria2ShapeAndCandidateAccounting(t *testing.T) {
 	standalone := runtimeShapeHysteria2Fixture("EE fixture", "ee-hy2.fixture.example", "fixture-auth-ee")
 	parsedStandalone := parseExternalTestBody(t, standalone)
-	if parsedStandalone.Counts.Accepted != 1 || len(parsedStandalone.Keys) != 1 || len(parsedStandalone.Items) != 1 || parsedStandalone.Keys[0].Protocol != "hysteria2" {
-		t.Fatalf("runtime-shape Hysteria2 parse=%#v", parsedStandalone)
-	}
+	requireFixturef(t, parsedStandalone.Counts.Accepted == 1, "runtime-shape Hysteria2 parse=%#v", parsedStandalone)
+	requireFixturef(t, len(parsedStandalone.Keys) == 1, "runtime-shape Hysteria2 parse=%#v", parsedStandalone)
+	requireFixturef(t, len(parsedStandalone.Items) == 1, "runtime-shape Hysteria2 parse=%#v", parsedStandalone)
+	requireFixturef(t, parsedStandalone.Keys[0].Protocol == "hysteria2", "runtime-shape Hysteria2 parse=%#v", parsedStandalone)
+
 	profile, err := profiles.Parse(parsedStandalone.Keys[0].URL)
-	if err != nil {
-		t.Fatalf("parse runtime-shape Hysteria2 URI: %v", err)
-	}
+	requireFixturef(t, err == nil, "parse runtime-shape Hysteria2 URI: %v", err)
+
 	data := profile.Data.(profiles.Hysteria2Data)
-	if profile.Server != "ee-hy2.fixture.example" || data.Authentication.Reveal() != "fixture-auth-ee" || data.SNI != "sni.fixture.example" {
-		t.Fatalf("runtime-shape Hysteria2 data=%#v profile=%#v", data, profile)
-	}
+	requireFixturef(t, profile.Server == "ee-hy2.fixture.example", "runtime-shape Hysteria2 data=%#v profile=%#v", data, profile)
+	requireFixturef(t, data.Authentication.Reveal() == "fixture-auth-ee", "runtime-shape Hysteria2 data=%#v profile=%#v", data, profile)
+	requireFixturef(t, data.SNI == "sni.fixture.example", "runtime-shape Hysteria2 data=%#v profile=%#v", data, profile)
+
 	extensions := map[string]bool{}
 	for _, parameter := range profile.UnknownQueryParameters {
 		extensions[parameter.Key] = true
 	}
-	if !extensions["alpn"] || !extensions["fp"] {
-		t.Fatalf("Xray TLS extensions were not preserved: %#v", profile.UnknownQueryParameters)
-	}
+	requireFixturef(t, extensions["alpn"], "Xray TLS extensions were not preserved: %#v", profile.UnknownQueryParameters)
+	requireFixturef(t, extensions["fp"], "Xray TLS extensions were not preserved: %#v", profile.UnknownQueryParameters)
 
 	aggregate := `{
 		"remarks":"Best server fixture",
@@ -229,19 +242,19 @@ func TestExternalImporterRuntimeXrayHysteria2ShapeAndCandidateAccounting(t *test
 		objects = append(objects, runtimeShapeHysteria2Fixture(fmt.Sprintf("HY2 fixture %d", index+1), fmt.Sprintf("hy2-%d.fixture.example", index+1), fmt.Sprintf("fixture-auth-%d", index+1)))
 	}
 	parsed := parseExternalTestBody(t, "["+strings.Join(objects, ",")+"]")
-	if len(parsed.Keys) != len(objects) || len(parsed.Items) != len(objects) || parsed.Counts.Accepted != len(objects) || parsed.Counts.Rejected != 0 || parsed.Counts.Unsupported != 0 {
-		t.Fatalf("candidate accounting lost an object: keys=%d items=%d counts=%#v", len(parsed.Keys), len(parsed.Items), parsed.Counts)
-	}
-	if parsed.Keys[0].Protocol != "xray-json" {
-		t.Fatalf("multi-profile aggregate was reduced instead of retained as XRAY-JSON: %#v", parsed.Keys[0])
-	}
+	requireFixturef(t, len(parsed.Keys) == len(objects), "candidate accounting lost an object: keys=%d items=%d counts=%#v", len(parsed.Keys), len(parsed.Items), parsed.Counts)
+	requireFixturef(t, len(parsed.Items) == len(objects), "candidate accounting lost an object: keys=%d items=%d counts=%#v", len(parsed.Keys), len(parsed.Items), parsed.Counts)
+	requireFixturef(t, parsed.Counts.Accepted == len(objects), "candidate accounting lost an object: keys=%d items=%d counts=%#v", len(parsed.Keys), len(parsed.Items), parsed.Counts)
+	requireFixturef(t, parsed.Counts.Rejected == 0, "candidate accounting lost an object: keys=%d items=%d counts=%#v", len(parsed.Keys), len(parsed.Items), parsed.Counts)
+	requireFixturef(t, parsed.Counts.Unsupported == 0, "candidate accounting lost an object: keys=%d items=%d counts=%#v", len(parsed.Keys), len(parsed.Items), parsed.Counts)
+
+	requireFixturef(t, parsed.Keys[0].Protocol == "xray-json", "multi-profile aggregate was reduced instead of retained as XRAY-JSON: %#v", parsed.Keys[0])
+
 	preview, err := json.Marshal(parsed.Items)
-	if err != nil {
-		t.Fatal(err)
-	}
+	requireFixture(t, err == nil, err)
+
 	for _, secret := range []string{"fixture-auth-ee", "aggregate-fixture-auth", "fixture-auth-1", `"outbounds"`, "hysteria2://"} {
-		if strings.Contains(string(preview), secret) {
-			t.Fatalf("runtime-shape preview leaked %q: %s", secret, preview)
-		}
+		requireFixturef(t, !(strings.Contains(string(preview), secret)), "runtime-shape preview leaked %q: %s", secret, preview)
+
 	}
 }

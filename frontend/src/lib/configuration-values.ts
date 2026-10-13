@@ -14,9 +14,11 @@ export const SUPPORTED_PROTOCOLS: ConfigurationProtocol[] = [
 ];
 
 export function asRecord(value: unknown): Record<string, unknown> | null {
-  if (!value || typeof value !== "object" || Array.isArray(value)) {
+  if (typeof value !== "object") {
     return null;
   }
+  if (value === null) return null;
+  if (Array.isArray(value)) return null;
   return value as Record<string, unknown>;
 }
 
@@ -40,7 +42,7 @@ export function portValue(value: unknown): string {
     return DEFAULT_PORT;
   }
   const numeric = Number.parseInt(text, 10);
-  if (!Number.isFinite(numeric) || numeric <= 0 || numeric > 65535) {
+  if (!validPort(numeric)) {
     return DEFAULT_PORT;
   }
   return String(numeric);
@@ -73,54 +75,20 @@ export function parseHeaderType(value: unknown) {
   return "";
 }
 
-export function normalizeProtocol(value: string): ConfigurationProtocol {
-  const parsed = parseSupportedProtocol(value);
-  if (parsed) {
-    return parsed;
-  }
-  return "vless";
-}
 
-export function parseSupportedProtocol(value: string): ConfigurationProtocol | null {
-  const normalized = value.toLowerCase().trim() as ConfigurationProtocol;
-  if (SUPPORTED_PROTOCOLS.includes(normalized)) {
-    return normalized;
-  }
-  return null;
-}
 
-export function normalizeNetwork(value: string): XrayJSONNetwork {
-  const normalized = value.toLowerCase().trim() as XrayJSONNetwork;
-  switch (normalized) {
-    case "tcp":
-    case "ws":
-    case "grpc":
-    case "httpupgrade":
-    case "xhttp":
-    case "h2":
-    case "quic":
-      return normalized;
-    default:
-      return DEFAULT_NETWORK;
-  }
-}
 
-export function normalizeSecurity(value: string): XrayJSONSecurity {
-  const normalized = value.toLowerCase().trim() as XrayJSONSecurity;
-  switch (normalized) {
-    case "none":
-    case "tls":
-    case "reality":
-      return normalized;
-    default:
-      return DEFAULT_SECURITY;
-  }
-}
 
 export function toPortNumber(rawPort: string) {
   const parsedPort = Number.parseInt(rawPort.trim(), 10);
-  if (!Number.isFinite(parsedPort) || parsedPort <= 0 || parsedPort > 65535) {
+  if (!validPort(parsedPort)) {
     return Number.parseInt(DEFAULT_PORT, 10);
   }
   return parsedPort;
+}
+
+function validPort(value: number) {
+  if (!Number.isFinite(value)) return false;
+  if (value <= 0) return false;
+  return value <= 65535;
 }

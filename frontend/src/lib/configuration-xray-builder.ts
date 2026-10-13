@@ -3,9 +3,9 @@ import {
   DEFAULT_PORT,
   DEFAULT_NETWORK,
   DEFAULT_SECURITY,
-  normalizeProtocol,
   toPortNumber
 } from "./configuration-values";
+import { normalizeProtocol } from "./configuration-discriminators";
 import { buildDefaultConnection } from "./configuration-default-connection";
 import { buildDefaultTransport } from "./configuration-default-transport";
 import { buildDefaultSecurity } from "./configuration-default-security";
@@ -19,7 +19,14 @@ export function buildXrayJSONConfiguration(draft: XrayJSONDraft) {
   if (!identifier) throw new Error(protocol === "trojan" ? "Укажите пароль" : "Укажите UUID / ID");
   const normalized = { ...draft, protocol };
   const port = toPortNumber(draft.port || DEFAULT_PORT);
-  const outbound = {
+  const outbound = buildOutbound(normalized, port);
+  return JSON.stringify(buildDefaultEnvelope(outbound), null, 2);
+}
+
+function buildOutbound(draft: XrayJSONDraft, port: number) {
+  const protocol = draft.protocol;
+  const normalized = draft;
+  return {
     tag: draft.remark.trim() || "proxy",
     protocol,
     settings: buildDefaultConnection(normalized, port),
@@ -30,5 +37,4 @@ export function buildXrayJSONConfiguration(draft: XrayJSONDraft) {
       ...buildDefaultSecurity(normalized),
     },
   };
-  return JSON.stringify(buildDefaultEnvelope(outbound), null, 2);
 }
