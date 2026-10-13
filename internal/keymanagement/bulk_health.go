@@ -38,7 +38,7 @@ func (s *Service) BulkUpdateKeys(ctx context.Context, params BulkUpdateKeysParam
 	if err != nil {
 		return 0, err
 	}
-	status, ok := model.NormalizeKeyStatus(params.Status)
+	status, ok := model.KeyStatus(params.Status).Normalize()
 	if !ok {
 		return 0, ErrInvalidKeyStatus
 	}

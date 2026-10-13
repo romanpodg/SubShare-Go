@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"github.com/romanpodg/SubShare-Go/internal/sources"
+	"net/http"
 	"strings"
 )
 
@@ -12,14 +13,11 @@ type sourceCreateResult struct {
 	ID   int64
 	Sync sources.SyncResult
 }
-type sourceCreateFailure struct{ code, message, field string }
-
-func (e sourceCreateFailure) Error() string { return e.message }
 
 var (
-	errSourceCreate      = sourceCreateFailure{code: "source_create_failed", message: "failed to create source"}
-	errSourceImportSave  = sourceCreateFailure{code: "source_create_failed", message: "failed to save imported source"}
-	errSourceURLConflict = sourceCreateFailure{code: "source_url_conflict", message: "source URL already exists", field: "source_url"}
+	errSourceCreate      = sourceFailure{status: http.StatusInternalServerError, code: "source_create_failed", message: "failed to create source"}
+	errSourceImportSave  = sourceFailure{status: http.StatusInternalServerError, code: "source_create_failed", message: "failed to save imported source"}
+	errSourceURLConflict = sourceFailure{status: http.StatusConflict, code: "source_url_conflict", message: "source URL already exists", field: "source_url"}
 )
 
 type sourceCreateCategories struct {
@@ -55,16 +53,16 @@ func (a *App) createExternalSource(source externalSourceRow, parsed sources.Pars
 
 func resolveSourceCreateCategories(tx *sql.Tx, source externalSourceRow) (sourceCreateCategories, error) {
 	if _, err := tx.Exec(`INSERT OR IGNORE INTO external_source_categories(name) VALUES(?)`, source.Category); err != nil {
-		return sourceCreateCategories{}, sourceCreateFailure{code: "source_category_failed", message: "failed to save source category"}
+		return sourceCreateCategories{}, errSourceCategory
 	}
 	var categories sourceCreateCategories
 	if err := tx.QueryRow(`SELECT id FROM external_source_categories WHERE name = ?`, source.Category).Scan(&categories.sourceCategoryID); err != nil {
-		return sourceCreateCategories{}, sourceCreateFailure{code: "source_category_failed", message: "failed to resolve source category"}
+		return sourceCreateCategories{}, sourceFailure{status: http.StatusInternalServerError, code: "source_category_failed", message: "failed to resolve source category"}
 	}
 	var err error
 	categories.keyCategoryID, err = ensureKeyCategory(tx, source.KeyCategory)
 	if err != nil {
-		return sourceCreateCategories{}, sourceCreateFailure{code: "key_category_failed", message: err.Error()}
+		return sourceCreateCategories{}, sourceFailure{status: http.StatusInternalServerError, code: "key_category_failed", message: err.Error()}
 	}
 	return categories, nil
 }

@@ -23,11 +23,19 @@ func TestEffectiveUserStatus(t *testing.T) {
 		{name: "limited", status: "active", devices: 2, maxDevices: 2, want: "limited"},
 		{name: "unlimited with connected devices", status: "active", devices: 20, maxDevices: 0, want: "active"},
 		{name: "future expiry", status: "active", expiresAt: now.Add(time.Hour), hasExpiry: true, want: "active"},
+		{name: "exact expiry is active", status: "active", expiresAt: now, hasExpiry: true, want: "active"},
+		{name: "expiry wins over limit", status: "active", expiresAt: now.Add(-time.Second), hasExpiry: true, devices: 2, maxDevices: 2, want: "expired"},
+		{name: "absent expiry ignores timestamp", status: "active", expiresAt: now.Add(-time.Hour), want: "active"},
+		{name: "invalid status falls back to active", status: "invalid", want: "active"},
+		{name: "negative device limit is unlimited", status: "active", devices: 20, maxDevices: -1, want: "active"},
 	}
 	for _, test := range tests {
 		test := test
 		t.Run(test.name, func(t *testing.T) {
-			got := EffectiveUserStatus(test.status, test.expiresAt, test.hasExpiry, test.devices, test.maxDevices, now)
+			got := EffectiveUserStatus(UserStatusSnapshot{
+				Status: UserStatus(test.status), ExpiresAt: test.expiresAt, HasExpiry: test.hasExpiry,
+				ConnectedDevices: test.devices, MaxDevices: test.maxDevices,
+			}, now)
 			if got != test.want {
 				t.Fatalf("EffectiveUserStatus() = %q, want %q", got, test.want)
 			}
@@ -57,7 +65,7 @@ func TestNormalizeUserStatus(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			gotStatus, gotOK := NormalizeUserStatus(tt.input)
+			gotStatus, gotOK := UserStatus(tt.input).Normalize()
 			if gotStatus != tt.wantStatus {
 				t.Errorf("NormalizeUserStatus(%q) status = %q, want %q", tt.input, gotStatus, tt.wantStatus)
 			}
@@ -85,7 +93,7 @@ func TestNormalizeStoredStatus(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := NormalizeStoredStatus(tt.input)
+			got := UserStatus(tt.input).Stored()
 			if got != tt.want {
 				t.Errorf("NormalizeStoredStatus(%q) = %q, want %q", tt.input, got, tt.want)
 			}
@@ -113,7 +121,7 @@ func TestNormalizeKeyStatus(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			gotStatus, gotOK := NormalizeKeyStatus(tt.input)
+			gotStatus, gotOK := KeyStatus(tt.input).Normalize()
 			if gotStatus != tt.wantStatus {
 				t.Errorf("NormalizeKeyStatus(%q) status = %q, want %q", tt.input, gotStatus, tt.wantStatus)
 			}
@@ -138,7 +146,7 @@ func TestKeyStatusLabel(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := KeyStatusLabel(tt.input)
+			got := KeyStatus(tt.input).Label()
 			if got != tt.want {
 				t.Errorf("KeyStatusLabel(%q) = %q, want %q", tt.input, got, tt.want)
 			}
@@ -164,7 +172,7 @@ func TestNormalizeCheckStatus(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := NormalizeCheckStatus(tt.input)
+			got := CheckStatus(tt.input).Normalize()
 			if got != tt.want {
 				t.Errorf("NormalizeCheckStatus(%q) = %q, want %q", tt.input, got, tt.want)
 			}
@@ -187,7 +195,7 @@ func TestCheckStatusLabel(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := CheckStatusLabel(tt.input)
+			got := CheckStatus(tt.input).Label()
 			if got != tt.want {
 				t.Errorf("CheckStatusLabel(%q) = %q, want %q", tt.input, got, tt.want)
 			}

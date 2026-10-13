@@ -156,16 +156,15 @@ func (row userListRow) toUser() model.User {
 	u.SubscriptionExtraURL = strings.TrimSpace(row.subscriptionExtraURL.String)
 	u.SubscriptionExtraStatus = strings.TrimSpace(row.subscriptionExtraStatus.String)
 	row.setDisplayDates(&u)
-	u.Status = model.NormalizeStoredStatus(row.status.String)
+	u.Status = model.UserStatus(row.status.String).Stored()
 	u.BlockedReason = strings.TrimSpace(row.blockedReason.String)
 	u.MaxDevices = positiveIntOrDefault(row.maxDevices, 0)
 	u.ConnectedDeviceCount = positiveIntOrDefault(row.connectedDevices, 0)
 	u.EffectiveStatus = model.EffectiveUserStatus(
-		u.Status,
-		row.expiresAt.Time,
-		row.expiresAt.Valid,
-		u.ConnectedDeviceCount,
-		u.MaxDevices,
+		model.UserStatusSnapshot{
+			Status: model.UserStatus(u.Status), ExpiresAt: row.expiresAt.Time, HasExpiry: row.expiresAt.Valid,
+			ConnectedDevices: u.ConnectedDeviceCount, MaxDevices: u.MaxDevices,
+		},
 		time.Now(),
 	)
 	rawHWIDs := strings.TrimSpace(row.connectedHWIDs.String)

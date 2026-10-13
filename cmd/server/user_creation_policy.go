@@ -17,7 +17,7 @@ func validateCreateUserRequest(req model.CreateUserRequest) (createUserInput, st
 		name: strings.TrimSpace(req.Name), email: strings.TrimSpace(req.Email),
 		activationCode: strings.TrimSpace(req.ActivationCode), issueDays: req.IssueDays,
 	}
-	status, ok := model.NormalizeUserStatus(req.Status)
+	status, ok := model.UserStatus(req.Status).Normalize()
 	if !ok {
 		return in, "invalid subscription status"
 	}

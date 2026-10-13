@@ -61,7 +61,7 @@ func (h *KeyAdministrationHandler) BulkUpdateKeys(w http.ResponseWriter, r *http
 		return
 	}
 
-	status, _ := model.NormalizeKeyStatus(req.Status)
+	status, _ := model.KeyStatus(req.Status).Normalize()
 	if h.audit != nil {
 		h.audit(r, "keys.bulk_status", "key", "multiple", map[string]any{"count": updated, "status": status})
 	}
@@ -145,8 +145,8 @@ func (h *KeyAdministrationHandler) CheckAllKeys(w http.ResponseWriter, r *http.R
 	}
 	eligibleTargets := make([]keymanagement.HealthCheckTarget, 0, len(targets))
 	for _, target := range targets {
-		status, _ := model.NormalizeKeyStatus(target.Status)
-		kind, _ := model.NormalizeKeyKind(target.Kind)
+		status, _ := model.KeyStatus(target.Status).Normalize()
+		kind, _ := model.KeyKind(target.Kind).Normalize()
 		if status != model.KeyStatusActive || kind == model.KeyKindInformational || target.Unreadable || target.URL == "" {
 			continue
 		}
@@ -218,7 +218,7 @@ func healthCheckPayload(result keymanagement.HealthCheckResult) map[string]any {
 	payload := map[string]any{
 		"id":                 result.ID,
 		"check_status":       result.Status,
-		"check_status_label": model.CheckStatusLabel(result.Status),
+		"check_status_label": model.CheckStatus(result.Status).Label(),
 		"check_error":        result.Error,
 		"last_checked_at":    "",
 		"last_latency_ms":    result.Latency,

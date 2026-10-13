@@ -17,7 +17,7 @@ func (err *userAssignmentRequestError) Error() string { return err.message }
 // Route validation deliberately precedes command validation: the existing all
 // mode rejects any supplied IDs; selected nonpositive IDs keep their500 mapping.
 func prepareUserAssignmentRequest(input model.UpdateKeyAssignmentRequest) (string, error) {
-	mode, valid := model.NormalizeKeyAssignmentMode(input.Mode)
+	mode, valid := model.KeyAssignmentMode(input.Mode).Normalize()
 	if !valid {
 		return "", &userAssignmentRequestError{code: "assignment_mode_invalid", message: "mode must be all or selected"}
 	}
@@ -28,7 +28,7 @@ func prepareUserAssignmentRequest(input model.UpdateKeyAssignmentRequest) (strin
 }
 
 func normalizeUserAssignment(mode string, keyIDs []int64) (userAssignmentInput, error) {
-	mode, valid := model.NormalizeKeyAssignmentMode(mode)
+	mode, valid := model.KeyAssignmentMode(mode).Normalize()
 	if !valid {
 		return userAssignmentInput{}, errors.New("invalid assignment mode")
 	}

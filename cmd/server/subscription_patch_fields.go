@@ -43,7 +43,7 @@ func applyPatchStatus(field model.OptionalString, target *string) error {
 	if field.Null {
 		return errors.New("status cannot be null")
 	}
-	normalized, valid := model.NormalizeUserStatus(field.Value)
+	normalized, valid := model.UserStatus(field.Value).Normalize()
 	if !valid {
 		return errors.New("invalid subscription status")
 	}

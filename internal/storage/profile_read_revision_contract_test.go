@@ -250,8 +250,8 @@ func TestProfileReadMappingRetainsDetailAndLegacyDifferences(t *testing.T) {
 	profileContractEqual(t, "detail latency", key.LastLatencyMS, int64(17))
 	profileContractEqual(t, "list latency", list[0].LastLatencyMS, int64(17))
 	profileContractEqual(t, "detail status label remains omitted", key.StatusLabel, "")
-	profileContractEqual(t, "list status label", list[0].StatusLabel, model.KeyStatusLabel(key.Status))
-	profileContractEqual(t, "list check label", list[0].CheckStatusLabel, model.CheckStatusLabel(key.CheckStatus))
+	profileContractEqual(t, "list status label", list[0].StatusLabel, model.KeyStatus(key.Status).Label())
+	profileContractEqual(t, "list check label", list[0].CheckStatusLabel, model.CheckStatus(key.CheckStatus).Label())
 	assertProfileContractSnapshot(t, f.db, before)
 }
 

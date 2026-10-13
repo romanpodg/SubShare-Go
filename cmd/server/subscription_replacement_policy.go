@@ -31,7 +31,7 @@ func prepareSubscriptionReplacement(input model.UpdateSubscriptionRequest) (subs
 }
 
 func replacementAccess(input model.UpdateSubscriptionRequest, next *subscriptionReplacement) error {
-	status, ok := model.NormalizeUserStatus(input.Status)
+	status, ok := model.UserStatus(input.Status).Normalize()
 	if !ok {
 		return errors.New("invalid subscription status")
 	}

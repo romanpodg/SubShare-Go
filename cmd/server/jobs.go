@@ -96,12 +96,12 @@ func executeKeyHealthCheckBatch(
 // skipTarget counts a target that is not probed at all and reports whether it
 // was skipped.
 func (s *keyHealthCheckJobSummary) skipTarget(target keymanagement.HealthCheckTarget) bool {
-	targetStatus, _ := model.NormalizeKeyStatus(target.Status)
+	targetStatus, _ := model.KeyStatus(target.Status).Normalize()
 	if targetStatus != model.KeyStatusActive {
 		s.SkippedDisabled++
 		return true
 	}
-	if kind, _ := model.NormalizeKeyKind(target.Kind); kind == model.KeyKindInformational {
+	if kind, _ := model.KeyKind(target.Kind).Normalize(); kind == model.KeyKindInformational {
 		s.SkippedUnsupported++
 		return true
 	}
@@ -155,7 +155,7 @@ func checkKeyHealthTarget(
 		result.checkFailed = true
 		return result
 	}
-	result.status = model.NormalizeCheckStatus(status)
+	result.status = model.CheckStatus(status).Normalize()
 	if result.status == "unsupported_check" {
 		result.unsupported = true
 	}

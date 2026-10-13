@@ -129,7 +129,7 @@ func legacyUpdateSortOrder(ctx context.Context, tx *sql.Tx, params keymanagement
 		return 0, fmt.Errorf("failed to query existing key: %w", err)
 	}
 
-	existingKindNormalized, _ := model.NormalizeKeyKind(existingKind.String)
+	existingKindNormalized, _ := model.KeyKind(existingKind.String).Normalize()
 	if existingKindNormalized == "" {
 		existingKindNormalized = model.KeyKindReal
 	}

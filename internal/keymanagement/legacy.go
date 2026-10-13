@@ -30,11 +30,11 @@ func (s *Service) CreateLegacy(ctx context.Context, params CreateLegacyParams) (
 	category := NormalizeKeyCategory(params.Category)
 	templateText := strings.TrimSpace(params.TemplateText)
 
-	kind, kindOK := model.NormalizeKeyKind(params.Kind)
+	kind, kindOK := model.KeyKind(params.Kind).Normalize()
 	if !kindOK {
 		return 0, "", ErrInvalidKeyKind
 	}
-	status, statusOK := model.NormalizeKeyStatus(params.Status)
+	status, statusOK := model.KeyStatus(params.Status).Normalize()
 	if !statusOK {
 		return 0, "", ErrInvalidKeyStatus
 	}
@@ -87,11 +87,11 @@ func (s *Service) UpdateLegacy(ctx context.Context, id int64, params UpdateLegac
 	category := NormalizeKeyCategory(params.Category)
 	templateText := strings.TrimSpace(params.TemplateText)
 
-	kind, kindOK := model.NormalizeKeyKind(params.Kind)
+	kind, kindOK := model.KeyKind(params.Kind).Normalize()
 	if !kindOK {
 		return "", ErrInvalidKeyKind
 	}
-	status, statusOK := model.NormalizeKeyStatus(params.Status)
+	status, statusOK := model.KeyStatus(params.Status).Normalize()
 	if !statusOK {
 		return "", ErrInvalidKeyStatus
 	}

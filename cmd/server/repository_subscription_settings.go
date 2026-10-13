@@ -71,7 +71,7 @@ func (row subscriptionSettingsRow) toSettings() model.SubscriptionSettings {
 }
 
 func storedSubscriptionFormat(raw string) string {
-	if normalized, ok := model.NormalizeSubscriptionFormat(strings.TrimSpace(raw)); ok {
+	if normalized, ok := model.SubscriptionFormat(strings.TrimSpace(raw)).Normalize(); ok {
 		return normalized
 	}
 	return model.SubscriptionFormatLinks

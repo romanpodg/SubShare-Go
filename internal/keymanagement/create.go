@@ -150,8 +150,8 @@ func validCreationMetadata(statusOK, kindOK bool, label string) bool {
 func normalizeLocalCreation(params CreateLocalParams) (CreateLocalParams, error) {
 	label := strings.TrimSpace(params.Label)
 	clientDisplayName := creationClientName(params.ClientDisplayName, label)
-	status, statusOK := model.NormalizeKeyStatus(params.Status)
-	kind, kindOK := model.NormalizeKeyKind(params.Kind)
+	status, statusOK := model.KeyStatus(params.Status).Normalize()
+	kind, kindOK := model.KeyKind(params.Kind).Normalize()
 	templateText := strings.TrimSpace(params.TemplateText)
 
 	if !validCreationMetadata(statusOK, kindOK, label) {

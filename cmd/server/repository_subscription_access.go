@@ -33,7 +33,7 @@ type subscriptionAccessRow struct {
 
 // accessDecision preserves denial precedence: status, start time, expiration.
 func (row subscriptionAccessRow) accessDecision(now time.Time) (int, string) {
-	switch model.NormalizeStoredStatus(row.status.String) {
+	switch model.UserStatus(row.status.String).Stored() {
 	case model.UserStatusBlocked:
 		return http.StatusForbidden, firstNonEmpty(row.blockedReason.String, "subscription blocked")
 	case model.UserStatusPaused:
