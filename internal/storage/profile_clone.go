@@ -11,15 +11,9 @@ import (
 )
 
 func (r *Repository) CloneLocal(ctx context.Context, params keymanagement.CloneProfileParams) (*model.VLESSKey, string, error) {
-	if err := r.credentials.encryptionAvailable(); err != nil {
-		return nil, "", fmt.Errorf("%w: %v", keymanagement.ErrEncryptionUnavailable, err)
-	}
-	if _, err := r.credentials.blindIndex(""); err != nil {
-		return nil, "", fmt.Errorf("%w: %v", keymanagement.ErrBlindIndexUnavailable, err)
-	}
-	tx, err := r.db.BeginTx(ctx, nil)
+	tx, _, err := r.beginIndexedProfileWrite(ctx, "")
 	if err != nil {
-		return nil, "", fmt.Errorf("failed to start transaction: %w", err)
+		return nil, "", err
 	}
 	defer tx.Rollback()
 

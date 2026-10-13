@@ -47,27 +47,21 @@ func nullInt64Value(id int64) any {
 }
 
 func (r *Repository) CreateLocal(ctx context.Context, params keymanagement.CreateProfileParams) (*model.VLESSKey, string, error) {
-	tx, blindIndex, err := r.beginIndexedProfileWrite(ctx, params.BuiltURI)
-	if err != nil {
-		return nil, "", err
-	}
-	defer tx.Rollback()
-
-	keyID, err := r.insertLocalProfile(ctx, tx, localProfileCreation{params: params, blindIndex: blindIndex})
-	if err != nil {
-		return nil, "", err
-	}
-
-	if err := commitLocalProfileCreation(ctx, tx, keyID); err != nil {
-		return nil, "", err
-	}
-
-	return r.GetByID(ctx, keyID)
+	return r.withIndexedProfileWrite(ctx, indexedProfileWrite{uri: params.BuiltURI, commitOperation: "failed to commit key creation"}, func(tx *sql.Tx, index string) (int64, error) {
+		id, err := r.insertLocalProfile(ctx, tx, localProfileCreation{params: params, blindIndex: index})
+		if err != nil {
+			return 0, err
+		}
+		if err := assignLocalProfileToAllMode(ctx, tx, id); err != nil {
+			return 0, err
+		}
+		return id, nil
+	})
 }
 
-// commitLocalProfileCreation keeps required all-mode assignments in the same
-// transaction as the profile and secret. A failed assignment cannot commit.
-func commitLocalProfileCreation(ctx context.Context, tx *sql.Tx, keyID int64) error {
+// assignLocalProfileToAllMode runs inside the caller's profile transaction.
+// A failed assignment prevents that transaction from committing.
+func assignLocalProfileToAllMode(ctx context.Context, tx *sql.Tx, keyID int64) error {
 	if _, err := tx.ExecContext(ctx, `
 		INSERT INTO user_keys(user_id, key_id)
 		SELECT id, ? FROM users WHERE key_assignment_mode = 'all'
@@ -75,24 +69,16 @@ func commitLocalProfileCreation(ctx context.Context, tx *sql.Tx, keyID int64) er
 		return fmt.Errorf("failed to assign key to all-mode users: %w", err)
 	}
 
-	if err := tx.Commit(); err != nil {
-		return fmt.Errorf("failed to commit key creation: %w", err)
-	}
 	return nil
 }
 
 func (r *Repository) UpdateLocal(ctx context.Context, params keymanagement.UpdateProfileParams) (*model.VLESSKey, string, error) {
-	tx, blindIndex, err := r.beginIndexedProfileWrite(ctx, params.NewURI)
-	if err != nil {
-		return nil, "", err
-	}
-	defer tx.Rollback()
-
-	if err := r.applyLocalProfileUpdate(ctx, tx, localProfileUpdate{params: params, blindIndex: blindIndex}); err != nil {
-		return nil, "", err
-	}
-
-	return r.commitProfileMutation(ctx, tx, params.ID, "failed to commit key update")
+	return r.withIndexedProfileWrite(ctx, indexedProfileWrite{uri: params.NewURI, commitOperation: "failed to commit key update"}, func(tx *sql.Tx, index string) (int64, error) {
+		if err := r.applyLocalProfileUpdate(ctx, tx, localProfileUpdate{params: params, blindIndex: index}); err != nil {
+			return 0, err
+		}
+		return params.ID, nil
+	})
 }
 
 // loadLocalKeyForUpdate checks that the key exists, is locally owned, sits at
@@ -129,12 +115,9 @@ func (r *Repository) loadLocalKeyForUpdate(ctx context.Context, tx *sql.Tx, id, 
 // Source-controlled fields and the encrypted configuration are deliberately
 // excluded from the UPDATE.
 func (r *Repository) UpdateSourceOwnedMetadata(ctx context.Context, params keymanagement.UpdateSourceOwnedMetadataParams) (*model.VLESSKey, string, error) {
-	if err := r.credentials.encryptionAvailable(); err != nil {
-		return nil, "", fmt.Errorf("%w: %v", keymanagement.ErrEncryptionUnavailable, err)
-	}
-	tx, err := r.db.BeginTx(ctx, nil)
+	tx, err := r.beginEncryptedProfileWrite(ctx)
 	if err != nil {
-		return nil, "", fmt.Errorf("failed to start transaction: %w", err)
+		return nil, "", err
 	}
 	defer tx.Rollback()
 

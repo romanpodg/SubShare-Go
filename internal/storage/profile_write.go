@@ -185,3 +185,32 @@ func (r *Repository) commitProfileMutation(ctx context.Context, tx *sql.Tx, id i
 	}
 	return r.GetByID(ctx, id)
 }
+
+type indexedProfileWrite struct {
+	uri, commitOperation string
+}
+
+// This boundary owns rollback, commit, and the final read for indexed writes.
+func (r *Repository) withIndexedProfileWrite(ctx context.Context, write indexedProfileWrite, apply func(*sql.Tx, string) (int64, error)) (*model.VLESSKey, string, error) {
+	tx, index, err := r.beginIndexedProfileWrite(ctx, write.uri)
+	if err != nil {
+		return nil, "", err
+	}
+	defer tx.Rollback()
+	id, err := apply(tx, index)
+	if err != nil {
+		return nil, "", err
+	}
+	return r.commitProfileMutation(ctx, tx, id, write.commitOperation)
+}
+
+func (r *Repository) beginEncryptedProfileWrite(ctx context.Context) (*sql.Tx, error) {
+	if err := r.credentials.encryptionAvailable(); err != nil {
+		return nil, fmt.Errorf("%w: %v", keymanagement.ErrEncryptionUnavailable, err)
+	}
+	tx, err := r.db.BeginTx(ctx, nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to start transaction: %w", err)
+	}
+	return tx, nil
+}
