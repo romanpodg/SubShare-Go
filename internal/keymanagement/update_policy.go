@@ -37,8 +37,8 @@ func normalizeLocalUpdateMetadata(params UpdateLocalParams) (UpdateProfileParams
 	if err != nil {
 		return UpdateProfileParams{}, err
 	}
-	status, statusOK := model.NormalizeKeyStatus(params.Status)
-	kind, kindOK := model.NormalizeKeyKind(params.Kind)
+	status, statusOK := model.KeyStatus(params.Status).Normalize()
+	kind, kindOK := model.KeyKind(params.Kind).Normalize()
 	if !statusOK {
 		return UpdateProfileParams{}, ErrInvalidInput
 	}
@@ -125,7 +125,7 @@ func resolveUpdatedURI(key *model.VLESSKey, currentURI string, command UpdatePro
 // Source-owned requests must be an exact metadata-only projection. Rejection
 // precedes display-name validation; the adapter cannot change source columns.
 func planSourceMetadataUpdate(key *model.VLESSKey, params UpdateLocalParams) (UpdateSourceOwnedMetadataParams, error) {
-	status, statusOK := model.NormalizeKeyStatus(params.Status)
+	status, statusOK := model.KeyStatus(params.Status).Normalize()
 	if !statusOK {
 		return UpdateSourceOwnedMetadataParams{}, ErrSourceOwnedReadOnly
 	}
@@ -152,7 +152,7 @@ func sourceUpdateIdentityMatches(key *model.VLESSKey, params UpdateLocalParams) 
 	if strings.TrimSpace(params.Label) != strings.TrimSpace(key.Label) {
 		return false
 	}
-	kind, kindOK := model.NormalizeKeyKind(params.Kind)
+	kind, kindOK := model.KeyKind(params.Kind).Normalize()
 	if !kindOK {
 		return false
 	}

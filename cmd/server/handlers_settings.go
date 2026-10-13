@@ -141,7 +141,7 @@ func (a *App) apiUpdateSubscriptionSettings(w http.ResponseWriter, r *http.Reque
 		httpapi.WriteError(w, r, http.StatusBadRequest, "extra_status is too long (max 255 characters)")
 		return
 	}
-	subscriptionFormat, ok := model.NormalizeSubscriptionFormat(req.SubscriptionFormat)
+	subscriptionFormat, ok := model.SubscriptionFormat(req.SubscriptionFormat).Normalize()
 	if !ok {
 		httpapi.WriteError(w, r, http.StatusBadRequest, "subscription_format must be one of: links, xray-json")
 		return

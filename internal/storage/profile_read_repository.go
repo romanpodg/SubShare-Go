@@ -46,16 +46,16 @@ func (row *profileReadRow) baseKey() model.VLESSKey {
 		key.CategoryID = row.categoryID.Int64
 	}
 	key.Category = strings.TrimSpace(row.category.String)
-	key.Kind, _ = model.NormalizeKeyKind(row.kind.String)
+	key.Kind, _ = model.KeyKind(row.kind.String).Normalize()
 	if key.Kind == "" {
 		key.Kind = model.KeyKindReal
 	}
 	key.TemplateText = strings.TrimSpace(row.templateText.String)
-	key.Status, _ = model.NormalizeKeyStatus(row.status.String)
+	key.Status, _ = model.KeyStatus(row.status.String).Normalize()
 	if key.Status == "" {
 		key.Status = model.KeyStatusActive
 	}
-	key.CheckStatus = model.NormalizeCheckStatus(row.checkStatus.String)
+	key.CheckStatus = model.CheckStatus(row.checkStatus.String).Normalize()
 	if row.latency.Valid {
 		key.LastLatencyMS = row.latency.Int64
 	}
@@ -85,8 +85,8 @@ func (row *profileReadRow) detailKey(rawURI string) *model.VLESSKey {
 func (row *profileReadRow) legacyKey(rawURI string) model.VLESSKey {
 	key := row.baseKey()
 	key.URL = rawURI
-	key.StatusLabel = model.KeyStatusLabel(key.Status)
-	key.CheckStatusLabel = model.CheckStatusLabel(key.CheckStatus)
+	key.StatusLabel = model.KeyStatus(key.Status).Label()
+	key.CheckStatusLabel = model.CheckStatus(key.CheckStatus).Label()
 	key.CheckError = strings.TrimSpace(row.checkError.String)
 	if row.lastCheckedAt.Valid {
 		key.LastCheckedAtText = row.lastCheckedAt.Time.Local().Format("2006-01-02 15:04:05")

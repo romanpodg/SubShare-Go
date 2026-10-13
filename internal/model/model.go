@@ -6,26 +6,34 @@ import (
 	"time"
 )
 
-// Status constants for users.
+// UserStatus identifies the user lifecycle vocabulary at validation boundaries.
+type UserStatus string
+
 const (
 	UserStatusActive  = "active"
 	UserStatusPaused  = "paused"
 	UserStatusBlocked = "blocked"
 )
 
-// Status constants for keys.
+// KeyStatus identifies key availability, including historical input aliases.
+type KeyStatus string
+
 const (
 	KeyStatusActive    = "active"
 	KeyStatusNonActive = "non-active"
 )
 
-// Kind constants for keys.
+// KeyKind distinguishes connection keys from informational entries.
+type KeyKind string
+
 const (
 	KeyKindReal          = "real"
 	KeyKindInformational = "informational"
 )
 
-// Subscription format constants.
+// SubscriptionFormat identifies the supported subscription representations.
+type SubscriptionFormat string
+
 const (
 	SubscriptionFormatLinks    = "links"
 	SubscriptionFormatXrayJSON = "xray-json"
@@ -61,6 +69,8 @@ const (
 	ExternalImportStatusAmbiguous         = "ambiguous"
 	ExternalImportStatusUnsupported       = "unsupported"
 )
+
+type KeyAssignmentMode string
 
 const (
 	KeyAssignmentModeAll      = "all"
@@ -120,20 +130,30 @@ type User struct {
 	CreatedAt                time.Time         `json:"created_at"`
 }
 
+// UserStatusSnapshot groups the persisted state and device usage needed to
+// derive operational status. Now remains explicit for deterministic evaluation.
+type UserStatusSnapshot struct {
+	Status           UserStatus
+	ExpiresAt        time.Time
+	HasExpiry        bool
+	ConnectedDevices int
+	MaxDevices       int
+}
+
 // EffectiveUserStatus derives the operational status without changing the
 // persisted compatibility status.
-func EffectiveUserStatus(status string, expiresAt time.Time, hasExpiry bool, connectedDevices, maxDevices int, now time.Time) string {
-	normalized := NormalizeStoredStatus(status)
+func EffectiveUserStatus(state UserStatusSnapshot, now time.Time) string {
+	normalized := state.Status.Stored()
 	if normalized == UserStatusBlocked {
 		return "blocked"
 	}
 	if normalized == UserStatusPaused {
 		return "paused"
 	}
-	if hasExpiry && now.After(expiresAt) {
+	if state.HasExpiry && now.After(state.ExpiresAt) {
 		return "expired"
 	}
-	if maxDevices > 0 && connectedDevices >= maxDevices {
+	if state.MaxDevices > 0 && state.ConnectedDevices >= state.MaxDevices {
 		return "limited"
 	}
 	return "active"
@@ -590,110 +610,97 @@ type UpdateAdminRequest struct {
 	Role     string `json:"role"`
 }
 
-// NormalizeUserStatus validates and normalizes a user status string.
-// It returns the normalized status and true if valid, or empty string and false otherwise.
-func NormalizeUserStatus(raw string) (string, bool) {
-	status := strings.ToLower(strings.TrimSpace(raw))
-	if status == "" {
-		status = UserStatusActive
-	}
-	switch status {
-	case UserStatusActive, UserStatusPaused, UserStatusBlocked:
-		return status, true
-	default:
-		return "", false
-	}
+// valueVocabulary defines accepted values, aliases and the empty-input default.
+// Wire DTO fields stay strings; callers choose a domain before normalization.
+type valueVocabulary[T ~string] map[T]string
+
+func (values valueVocabulary[T]) normalize(raw T) (string, bool) {
+	value, ok := values[T(strings.ToLower(strings.TrimSpace(string(raw))))]
+	return value, ok
 }
 
-// NormalizeStoredStatus normalizes a status from the database, defaulting to active.
-func NormalizeStoredStatus(raw string) string {
-	status, ok := NormalizeUserStatus(raw)
+var userStatuses = valueVocabulary[UserStatus]{
+	"": UserStatusActive, UserStatusActive: UserStatusActive,
+	UserStatusPaused: UserStatusPaused, UserStatusBlocked: UserStatusBlocked,
+}
+
+// Normalize validates a user status and returns its canonical wire value.
+func (status UserStatus) Normalize() (string, bool) {
+	return userStatuses.normalize(status)
+}
+
+// Stored normalizes a persisted user status, defaulting unknown values to active.
+func (status UserStatus) Stored() string {
+	value, ok := status.Normalize()
 	if !ok {
 		return UserStatusActive
 	}
-	return status
+	return value
 }
 
-// NormalizeKeyStatus validates and normalizes a key status string.
-func NormalizeKeyStatus(raw string) (string, bool) {
-	status := strings.ToLower(strings.TrimSpace(raw))
-	if status == "" {
-		status = KeyStatusActive
-	}
-	if status == "blocked" {
-		status = KeyStatusNonActive
-	}
-	switch status {
-	case KeyStatusActive, KeyStatusNonActive:
-		return status, true
-	default:
-		return "", false
-	}
+var keyStatuses = valueVocabulary[KeyStatus]{
+	"": KeyStatusActive, KeyStatusActive: KeyStatusActive,
+	KeyStatusNonActive: KeyStatusNonActive, "blocked": KeyStatusNonActive,
 }
 
-// KeyStatusLabel returns a human-readable label for a key status.
-func KeyStatusLabel(status string) string {
-	switch status {
-	case KeyStatusActive:
-		return "active"
-	case KeyStatusNonActive:
-		return "non-active"
-	default:
-		return "non-active"
-	}
+// Normalize validates a key status, including the historical blocked alias.
+func (status KeyStatus) Normalize() (string, bool) {
+	return keyStatuses.normalize(status)
 }
 
-// NormalizeCheckStatus normalizes a health check status string.
-func NormalizeCheckStatus(raw string) string {
-	status := strings.ToLower(strings.TrimSpace(raw))
-	switch status {
-	case "up", "down", "unknown", "unsupported_check":
-		return status
-	default:
+// Label returns a human-readable label for a canonical key status.
+func (status KeyStatus) Label() string {
+	if status == KeyStatusActive {
+		return KeyStatusActive
+	}
+	return KeyStatusNonActive
+}
+
+type CheckStatus string
+
+var checkStatuses = valueVocabulary[CheckStatus]{
+	"up": "up", "down": "down", "unknown": "unknown", "unsupported_check": "unsupported_check",
+}
+
+// Normalize defaults unrecognized health check values to unknown.
+func (status CheckStatus) Normalize() string {
+	value, ok := checkStatuses.normalize(status)
+	if !ok {
 		return "unknown"
 	}
+	return value
 }
 
-// NormalizeSubscriptionFormat validates and normalizes subscription format.
-func NormalizeSubscriptionFormat(raw string) (string, bool) {
-	format := strings.ToLower(strings.TrimSpace(raw))
-	if format == "" {
-		format = SubscriptionFormatLinks
-	}
-	switch format {
-	case SubscriptionFormatLinks, SubscriptionFormatXrayJSON:
-		return format, true
-	default:
-		return "", false
-	}
+var subscriptionFormats = valueVocabulary[SubscriptionFormat]{
+	"": SubscriptionFormatLinks, SubscriptionFormatLinks: SubscriptionFormatLinks,
+	SubscriptionFormatXrayJSON: SubscriptionFormatXrayJSON,
 }
 
-// NormalizeKeyKind validates and normalizes key kind.
-func NormalizeKeyKind(raw string) (string, bool) {
-	kind := strings.ToLower(strings.TrimSpace(raw))
-	if kind == "" {
-		kind = KeyKindReal
-	}
-	switch kind {
-	case KeyKindReal, KeyKindInformational:
-		return kind, true
-	default:
-		return "", false
-	}
+// Normalize validates a subscription format, defaulting empty input to links.
+func (format SubscriptionFormat) Normalize() (string, bool) {
+	return subscriptionFormats.normalize(format)
 }
 
-func NormalizeKeyAssignmentMode(raw string) (string, bool) {
-	mode := strings.ToLower(strings.TrimSpace(raw))
-	switch mode {
-	case KeyAssignmentModeAll, KeyAssignmentModeSelected:
-		return mode, true
-	default:
-		return "", false
-	}
+var keyKinds = valueVocabulary[KeyKind]{
+	"": KeyKindReal, KeyKindReal: KeyKindReal, KeyKindInformational: KeyKindInformational,
 }
 
-// CheckStatusLabel returns a human-readable label for a check status (in Russian).
-func CheckStatusLabel(status string) string {
+// Normalize validates a key kind, defaulting empty input to real.
+func (kind KeyKind) Normalize() (string, bool) {
+	return keyKinds.normalize(kind)
+}
+
+var keyAssignmentModes = valueVocabulary[KeyAssignmentMode]{
+	KeyAssignmentModeAll: KeyAssignmentModeAll, KeyAssignmentModeSelected: KeyAssignmentModeSelected,
+}
+
+// Normalize validates assignment mode; empty input has no default.
+func (mode KeyAssignmentMode) Normalize() (string, bool) {
+	return keyAssignmentModes.normalize(mode)
+}
+
+// Label returns a human-readable label for a canonical check status (in Russian).
+func (status CheckStatus) Label() string {
 	switch status {
 	case "up":
 		return "Доступен"

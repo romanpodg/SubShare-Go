@@ -98,7 +98,7 @@ func (r *Repository) GetHealthCheckTarget(ctx context.Context, id int64) (keyman
 	if err != nil {
 		return keymanagement.HealthCheckTarget{}, fmt.Errorf("failed to load key health target: %w", err)
 	}
-	if normalized, _ := model.NormalizeKeyKind(kind); normalized == model.KeyKindInformational {
+	if normalized, _ := model.KeyKind(kind).Normalize(); normalized == model.KeyKindInformational {
 		return keymanagement.HealthCheckTarget{ID: id}, nil
 	}
 	rawURL, err := r.credentials.decrypt(envelope.String, id)
@@ -129,8 +129,8 @@ func (r *Repository) ListHealthCheckTargets(ctx context.Context) ([]keymanagemen
 			return nil, fmt.Errorf("failed to scan key health target: %w", err)
 		}
 		target := keymanagement.HealthCheckTarget{ID: id, Status: status, Kind: kind}
-		normalizedStatus, _ := model.NormalizeKeyStatus(status)
-		if normalized, _ := model.NormalizeKeyKind(kind); normalized == model.KeyKindInformational || normalizedStatus != model.KeyStatusActive {
+		normalizedStatus, _ := model.KeyStatus(status).Normalize()
+		if normalized, _ := model.KeyKind(kind).Normalize(); normalized == model.KeyKindInformational || normalizedStatus != model.KeyStatusActive {
 			targets = append(targets, target)
 			continue
 		}
@@ -222,7 +222,7 @@ func scanHealthCheckResult(scan scanFunc) (keymanagement.HealthCheckResult, erro
 	if err := scan(&result.ID, &status, &detail, &checkedAt, &latency); err != nil {
 		return result, err
 	}
-	result.Status = model.NormalizeCheckStatus(status.String)
+	result.Status = model.CheckStatus(status.String).Normalize()
 	result.Error = strings.TrimSpace(detail.String)
 	if checkedAt.Valid {
 		value := checkedAt.Time

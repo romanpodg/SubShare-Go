@@ -52,7 +52,7 @@ func (a *App) selectSubscriptionEntries(ctx subscriptionDeliveryContext, respons
 			ID: row.ID, SourceID: row.SourceID, Raw: row.Raw, Kind: row.Kind, TemplateText: row.TemplateText,
 			Label: row.Label, ClientDisplayName: row.ClientDisplayName, StoredProtocol: row.StoredProtocol, Compatibility: row.Compatibility,
 		}
-		kind, _ := model.NormalizeKeyKind(entry.Kind)
+		kind, _ := model.KeyKind(entry.Kind).Normalize()
 		entry.Kind = kind
 		selection.EligibleCount++
 		if kind == model.KeyKindInformational {
