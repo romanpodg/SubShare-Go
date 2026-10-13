@@ -190,14 +190,20 @@ type indexedProfileWrite struct {
 	uri, commitOperation string
 }
 
+// Keep the index paired with the transaction prepared for that URI.
+type indexedProfileTransaction struct {
+	tx    *sql.Tx
+	index string
+}
+
 // This boundary owns rollback, commit, and the final read for indexed writes.
-func (r *Repository) withIndexedProfileWrite(ctx context.Context, write indexedProfileWrite, apply func(*sql.Tx, string) (int64, error)) (*model.VLESSKey, string, error) {
+func (r *Repository) withIndexedProfileWrite(ctx context.Context, write indexedProfileWrite, apply func(indexedProfileTransaction) (int64, error)) (*model.VLESSKey, string, error) {
 	tx, index, err := r.beginIndexedProfileWrite(ctx, write.uri)
 	if err != nil {
 		return nil, "", err
 	}
 	defer tx.Rollback()
-	id, err := apply(tx, index)
+	id, err := apply(indexedProfileTransaction{tx: tx, index: index})
 	if err != nil {
 		return nil, "", err
 	}

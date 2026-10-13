@@ -47,12 +47,12 @@ func nullInt64Value(id int64) any {
 }
 
 func (r *Repository) CreateLocal(ctx context.Context, params keymanagement.CreateProfileParams) (*model.VLESSKey, string, error) {
-	create := func(tx *sql.Tx, index string) (int64, error) {
-		id, err := r.insertLocalProfile(ctx, tx, localProfileCreation{params: params, blindIndex: index})
+	create := func(session indexedProfileTransaction) (int64, error) {
+		id, err := r.insertLocalProfile(ctx, session.tx, localProfileCreation{params: params, blindIndex: session.index})
 		if err != nil {
 			return 0, err
 		}
-		if err := assignLocalProfileToAllMode(ctx, tx, id); err != nil {
+		if err := assignLocalProfileToAllMode(ctx, session.tx, id); err != nil {
 			return 0, err
 		}
 		return id, nil
@@ -74,8 +74,8 @@ func assignLocalProfileToAllMode(ctx context.Context, tx *sql.Tx, keyID int64) e
 }
 
 func (r *Repository) UpdateLocal(ctx context.Context, params keymanagement.UpdateProfileParams) (*model.VLESSKey, string, error) {
-	update := func(tx *sql.Tx, index string) (int64, error) {
-		if err := r.applyLocalProfileUpdate(ctx, tx, localProfileUpdate{params: params, blindIndex: index}); err != nil {
+	update := func(session indexedProfileTransaction) (int64, error) {
+		if err := r.applyLocalProfileUpdate(ctx, session.tx, localProfileUpdate{params: params, blindIndex: session.index}); err != nil {
 			return 0, err
 		}
 		return params.ID, nil
