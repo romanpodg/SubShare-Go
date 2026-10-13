@@ -77,7 +77,7 @@ jobs:
       - name: Race-check job and source lifecycle
         run: >-
           go test -race ./cmd/server
-          -run '^(TestJobLifecycle.*|TestJobSource.*|TestJobRetry.*|TestJobRecovery.*|TestSourceCreate.*)$'
+          -run '^(TestJobLifecycle.*|TestJobSource.*|TestJobRetry.*|TestJobRecovery.*|TestSourceCreate.*|TestExternalProfileConcurrentRetryDoesNotDuplicateAndHistoryCountsAreAccurate)$'
           -count=1
 
       - name: Race-check actual-route authorization

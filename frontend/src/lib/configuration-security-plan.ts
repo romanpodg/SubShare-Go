@@ -1,4 +1,4 @@
-import type { XrayJSONPatch } from "./configuration";
+import type { XrayJSONPatch } from "./configuration-types";
 import { buildALPNValues, hasPatchField, optionalText } from "./configuration-patch-values";
 
 type SecurityPath = Array<string | number>;

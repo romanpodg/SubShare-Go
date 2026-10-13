@@ -21,7 +21,7 @@ func responsePublicFixture(t *testing.T, responseType, headers string) userMutat
 	t.Helper()
 	f := newUserMutationFixture(t)
 	userID := seedSubscriptionUser(t, f.app, model.UserStatusActive)
-	insertAssignedDeliveryKey(t, f.app, userID, nil, "Fixture", responsePreviewURI, "vless", "full", 0)
+	insertAssignedDeliveryKey(t, f.app, assignedDeliveryKeySeed{UserID: userID, Label: "Fixture", Raw: responsePreviewURI, Protocol: "vless", Compatibility: "full", SortOrder: 0})
 	execRepositoryFixtureSQL(t, f.app, `DELETE FROM response_rules`)
 	execRepositoryFixtureSQL(t, f.app, `INSERT INTO response_rules(name, enabled, priority, operator, conditions_json, response_type, headers_json) VALUES('Fixture', 1, 0, 'AND', '[]', ?, ?)`, responseType, headers)
 	return f

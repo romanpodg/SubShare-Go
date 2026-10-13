@@ -105,7 +105,7 @@ func newRepositoryUserFixture(t *testing.T) repositoryUserFixture {
 		      (?, 'new', 'new', NULL, 'Happ/3.0 (Android 14)', ?)`, userID, stamp, userID, stamp.Add(time.Hour))
 	execRepositoryFixtureSQL(t, app, `INSERT INTO users(name, email, token, time_zone, language, max_devices, subscription_refresh_hours)
 		VALUES('Empty', '', 'empty-token', ' ', ' ', -1, 0)`)
-	keyID := insertAssignedDeliveryKey(t, app, userID, nil, "Assigned", externalTestVLESS, "vless", "full", 1)
+	keyID := insertAssignedDeliveryKey(t, app, assignedDeliveryKeySeed{UserID: userID, Label: "Assigned", Raw: externalTestVLESS, Protocol: "vless", Compatibility: "full", SortOrder: 1})
 	return repositoryUserFixture{app: app, userID: userID, keyID: keyID, stamp: stamp}
 }
 

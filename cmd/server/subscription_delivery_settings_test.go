@@ -90,7 +90,7 @@ func TestSubscriptionAnnouncementUsesCanonicalMetadata(t *testing.T) {
 			if _, err := app.db.Exec(`UPDATE subscription_delivery_settings SET announcement = ?, response_headers_json = ? WHERE id = 1`, test.legacyDelivery, string(headersJSON)); err != nil {
 				t.Fatal(err)
 			}
-			insertAssignedDeliveryKey(t, app, userID, nil, "VLESS", externalTestVLESS, "vless", "full", 1)
+			insertAssignedDeliveryKey(t, app, assignedDeliveryKeySeed{UserID: userID, Label: "VLESS", Raw: externalTestVLESS, Protocol: "vless", Compatibility: "full", SortOrder: 1})
 
 			request := httptest.NewRequest(http.MethodGet, "/sub/subscription-token", nil)
 			request.SetPathValue("subscription_id", "subscription-token")
@@ -297,7 +297,7 @@ func TestSubscriptionExpirationMetadataDelivery(t *testing.T) {
 			if _, err := app.db.Exec(`UPDATE subscription_settings SET subscription_format = ?, show_subscription_expiration = ?, happ_notify_expiration = ? WHERE id = 1`, test.format, boolToInt(test.enabled), boolToInt(test.happEnabled)); err != nil {
 				t.Fatal(err)
 			}
-			insertAssignedDeliveryKey(t, app, userID, nil, "VLESS", externalTestVLESS, "vless", "full", 1)
+			insertAssignedDeliveryKey(t, app, assignedDeliveryKeySeed{UserID: userID, Label: "VLESS", Raw: externalTestVLESS, Protocol: "vless", Compatibility: "full", SortOrder: 1})
 
 			request := httptest.NewRequest(http.MethodGet, "/sub/subscription-token", nil)
 			request.SetPathValue("subscription_id", "subscription-token")
