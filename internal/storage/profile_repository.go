@@ -47,7 +47,7 @@ func nullInt64Value(id int64) any {
 }
 
 func (r *Repository) CreateLocal(ctx context.Context, params keymanagement.CreateProfileParams) (*model.VLESSKey, string, error) {
-	return r.withIndexedProfileWrite(ctx, indexedProfileWrite{uri: params.BuiltURI, commitOperation: "failed to commit key creation"}, func(tx *sql.Tx, index string) (int64, error) {
+	create := func(tx *sql.Tx, index string) (int64, error) {
 		id, err := r.insertLocalProfile(ctx, tx, localProfileCreation{params: params, blindIndex: index})
 		if err != nil {
 			return 0, err
@@ -56,7 +56,8 @@ func (r *Repository) CreateLocal(ctx context.Context, params keymanagement.Creat
 			return 0, err
 		}
 		return id, nil
-	})
+	}
+	return r.withIndexedProfileWrite(ctx, indexedProfileWrite{uri: params.BuiltURI, commitOperation: "failed to commit key creation"}, create)
 }
 
 // assignLocalProfileToAllMode runs inside the caller's profile transaction.
@@ -73,12 +74,13 @@ func assignLocalProfileToAllMode(ctx context.Context, tx *sql.Tx, keyID int64) e
 }
 
 func (r *Repository) UpdateLocal(ctx context.Context, params keymanagement.UpdateProfileParams) (*model.VLESSKey, string, error) {
-	return r.withIndexedProfileWrite(ctx, indexedProfileWrite{uri: params.NewURI, commitOperation: "failed to commit key update"}, func(tx *sql.Tx, index string) (int64, error) {
+	update := func(tx *sql.Tx, index string) (int64, error) {
 		if err := r.applyLocalProfileUpdate(ctx, tx, localProfileUpdate{params: params, blindIndex: index}); err != nil {
 			return 0, err
 		}
 		return params.ID, nil
-	})
+	}
+	return r.withIndexedProfileWrite(ctx, indexedProfileWrite{uri: params.NewURI, commitOperation: "failed to commit key update"}, update)
 }
 
 // loadLocalKeyForUpdate checks that the key exists, is locally owned, sits at
