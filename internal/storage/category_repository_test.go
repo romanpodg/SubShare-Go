@@ -146,8 +146,23 @@ func checkCategoryDeletionModes(t *testing.T, fixture categoryOrderingFixture) {
 
 }
 func TestKeyRepository_CategoryCollisionsReferencesAndOrdering(t *testing.T) {
+	fixture := createCategoryCollisionFixture(t)
+	checkCategoryMergeReferences(t, fixture)
+	checkCategoryReorderValidation(t, fixture)
+}
+
+type categoryCollisionFixture struct {
+	db                            *sql.DB
+	repo                          *Repository
+	ctx                           context.Context
+	targetID, localID, importedID int64
+}
+
+func createCategoryCollisionFixture(t *testing.T) categoryCollisionFixture {
+	t.Helper()
+
 	db := setupTestDB(t)
-	defer db.Close()
+	t.Cleanup(func() { _ = db.Close() })
 	repo := NewRepository(db, newTestKeyringForStorage(t))
 	ctx := context.Background()
 
@@ -192,12 +207,17 @@ func TestKeyRepository_CategoryCollisionsReferencesAndOrdering(t *testing.T) {
 		requireFixturef(t, err == nil, "mark imported key: %v", err)
 	}
 
+	return categoryCollisionFixture{db: db, repo: repo, ctx: ctx, targetID: target.ID, localID: localID, importedID: importedID}
+}
+func checkCategoryMergeReferences(t *testing.T, fixture categoryCollisionFixture) {
+	t.Helper()
+	ctx, db, repo, localID, importedID := fixture.ctx, fixture.db, fixture.repo, fixture.localID, fixture.importedID
 	merged, err := repo.UpdateKeyCategory(ctx, keymanagement.UpdateCategoryParams{
 		OldName: "Source", NewName: "Target", Color: "#444444",
 	})
 	requireFixturef(t, err == nil, "merge category rename: %v", err)
 
-	requireFixturef(t, merged.ID == target.ID, "unexpected merged category: %#v", merged)
+	requireFixturef(t, merged.ID == fixture.targetID, "unexpected merged category: %#v", merged)
 	requireFixturef(t, merged.Name == "Target", "unexpected merged category: %#v", merged)
 	requireFixturef(t, merged.Color == "#444444", "unexpected merged category: %#v", merged)
 
@@ -209,8 +229,8 @@ func TestKeyRepository_CategoryCollisionsReferencesAndOrdering(t *testing.T) {
 			requireFixturef(t, err == nil, "load key %d category: %v", id, err)
 		}
 
-		requireFixturef(t, categoryID == target.ID, "key %d category = (%d, %q), want (%d, Target)", id, categoryID, category, target.ID)
-		requireFixturef(t, category == "Target", "key %d category = (%d, %q), want (%d, Target)", id, categoryID, category, target.ID)
+		requireFixturef(t, categoryID == fixture.targetID, "key %d category = (%d, %q), want (%d, Target)", id, categoryID, category, fixture.targetID)
+		requireFixturef(t, category == "Target", "key %d category = (%d, %q), want (%d, Target)", id, categoryID, category, fixture.targetID)
 
 	}
 	var sourceCategoryID int64
@@ -220,9 +240,13 @@ func TestKeyRepository_CategoryCollisionsReferencesAndOrdering(t *testing.T) {
 		requireFixturef(t, err == nil, "load source category reference: %v", err)
 	}
 
-	requireFixturef(t, sourceCategoryID == target.ID, "source reference = (%d, %q), want (%d, Target)", sourceCategoryID, sourceCategory, target.ID)
-	requireFixturef(t, sourceCategory == "Target", "source reference = (%d, %q), want (%d, Target)", sourceCategoryID, sourceCategory, target.ID)
+	requireFixturef(t, sourceCategoryID == fixture.targetID, "source reference = (%d, %q), want (%d, Target)", sourceCategoryID, sourceCategory, fixture.targetID)
+	requireFixturef(t, sourceCategory == "Target", "source reference = (%d, %q), want (%d, Target)", sourceCategoryID, sourceCategory, fixture.targetID)
 
+}
+func checkCategoryReorderValidation(t *testing.T, fixture categoryCollisionFixture) {
+	t.Helper()
+	ctx, repo, localID, importedID := fixture.ctx, fixture.repo, fixture.localID, fixture.importedID
 	{
 		err := repo.ReorderKeyCategories(ctx, []string{"Target", "Unknown"})
 		requireFixturef(t, err == nil, "partial/unknown category reorder must remain accepted: %v", err)
@@ -249,7 +273,6 @@ func TestKeyRepository_CategoryCollisionsReferencesAndOrdering(t *testing.T) {
 	}
 
 }
-
 func TestKeyRepository_CategoryDeletionModesIncludeSourceOwnedKeys(t *testing.T) {
 	newFixture := func(t *testing.T, category string) (*Repository, int64, int64) {
 		t.Helper()

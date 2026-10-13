@@ -3,7 +3,6 @@ package storage
 import (
 	"context"
 	"database/sql"
-	"errors"
 	"fmt"
 	"github.com/romanpodg/SubShare-Go/internal/keymanagement"
 	"github.com/romanpodg/SubShare-Go/internal/model"
@@ -40,11 +39,7 @@ func (r *Repository) CloneLocal(ctx context.Context, params keymanagement.CloneP
 		return nil, "", err
 	}
 
-	if err := tx.Commit(); err != nil {
-		return nil, "", fmt.Errorf("failed to commit clone: %w", err)
-	}
-
-	return r.GetByID(ctx, newID)
+	return r.commitProfileMutation(ctx, tx, newID, "failed to commit clone")
 }
 
 // cloneSource is the row a clone is copied from.
@@ -72,24 +67,16 @@ func (r *Repository) loadCloneSource(ctx context.Context, tx *sql.Tx, id, expect
 		&src.label, &src.clientDisplayName, &src.category, &src.kind, &src.templateText, &src.status,
 		&src.protocol, &src.schemaVersion, &src.warnings, &src.encryptedURL, &src.categoryID, &src.externalSourceID, &src.revision,
 	)
-	if errors.Is(err, sql.ErrNoRows) {
-		return nil, "", keymanagement.ErrKeyNotFound
+	if err := profileLookupError(err, "failed to load source key"); err != nil {
+		return nil, "", err
 	}
-	if err != nil {
-		return nil, "", fmt.Errorf("failed to load source key: %w", err)
-	}
-
 	if src.revision != expectedRevision {
 		return nil, "", keymanagement.ErrProfileRevisionConflict
 	}
 
-	if !src.encryptedURL.Valid || src.encryptedURL.String == "" {
-		return nil, "", keymanagement.ErrStorageIntegrity
-	}
-
-	decryptedURI, decErr := r.credentials.decrypt(src.encryptedURL.String, id)
-	if decErr != nil {
-		return nil, "", mapKeyCredentialError(decErr)
+	decryptedURI, err := r.decryptLoadedProfile(src.encryptedURL, id)
+	if err != nil {
+		return nil, "", err
 	}
 	return &src, decryptedURI, nil
 }

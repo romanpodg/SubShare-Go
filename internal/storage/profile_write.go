@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"github.com/romanpodg/SubShare-Go/internal/keymanagement"
+	"github.com/romanpodg/SubShare-Go/internal/model"
 )
 
 type localProfileCreation struct {
@@ -155,4 +156,32 @@ func (r *Repository) beginIndexedProfileWrite(ctx context.Context, uri string) (
 		return nil, "", fmt.Errorf("failed to start transaction: %w", err)
 	}
 	return tx, index, nil
+}
+
+func profileLookupError(err error, operation string) error {
+	if errors.Is(err, sql.ErrNoRows) {
+		return keymanagement.ErrKeyNotFound
+	}
+	if err != nil {
+		return fmt.Errorf("%s: %w", operation, err)
+	}
+	return nil
+}
+
+func (r *Repository) decryptLoadedProfile(envelope sql.NullString, id int64) (string, error) {
+	if !envelope.Valid || envelope.String == "" {
+		return "", keymanagement.ErrStorageIntegrity
+	}
+	raw, err := r.credentials.decrypt(envelope.String, id)
+	if err != nil {
+		return "", mapKeyCredentialError(err)
+	}
+	return raw, nil
+}
+
+func (r *Repository) commitProfileMutation(ctx context.Context, tx *sql.Tx, id int64, operation string) (*model.VLESSKey, string, error) {
+	if err := tx.Commit(); err != nil {
+		return nil, "", fmt.Errorf("%s: %w", operation, err)
+	}
+	return r.GetByID(ctx, id)
 }

@@ -9,8 +9,8 @@ import (
 
 func TestStructuredCreateTUICALPNPreservesExplicitEmptyAndOmission(t *testing.T) {
 	for _, test := range []struct {
-		name string
-		alpn *model.TriStatePatch[[]string]
+		name    string
+		alpn    *model.TriStatePatch[[]string]
 		present bool
 	}{
 		{name: "omitted"},

@@ -10,17 +10,9 @@ import (
 )
 
 func (r *Repository) CreateLegacy(ctx context.Context, params keymanagement.CreateLegacyKeyParams) (int64, error) {
-	if err := r.credentials.encryptionAvailable(); err != nil {
-		return 0, fmt.Errorf("%w: %v", keymanagement.ErrEncryptionUnavailable, err)
-	}
-	blindIndex, err := r.credentials.blindIndex(params.KeyURL)
+	tx, blindIndex, err := r.beginIndexedProfileWrite(ctx, params.KeyURL)
 	if err != nil {
-		return 0, fmt.Errorf("%w: %v", keymanagement.ErrBlindIndexUnavailable, err)
-	}
-
-	tx, err := r.db.BeginTx(ctx, nil)
-	if err != nil {
-		return 0, fmt.Errorf("failed to start transaction: %w", err)
+		return 0, err
 	}
 	defer tx.Rollback()
 
@@ -44,36 +36,18 @@ func (r *Repository) CreateLegacy(ctx context.Context, params keymanagement.Crea
 }
 
 func (r *Repository) UpdateLegacy(ctx context.Context, params keymanagement.UpdateLegacyKeyParams) error {
-	if err := r.credentials.encryptionAvailable(); err != nil {
-		return fmt.Errorf("%w: %v", keymanagement.ErrEncryptionUnavailable, err)
-	}
-	blindIndex, err := r.credentials.blindIndex(params.BuiltURL)
-	if err != nil {
-		return fmt.Errorf("%w: %v", keymanagement.ErrBlindIndexUnavailable, err)
-	}
-
-	tx, err := r.db.BeginTx(ctx, nil)
-	if err != nil {
-		return fmt.Errorf("failed to start transaction: %w", err)
-	}
-	defer tx.Rollback()
-
-	sortOrder, err := legacyUpdateSortOrder(ctx, tx, params)
+	tx, blindIndex, err := r.beginIndexedProfileWrite(ctx, params.BuiltURL)
 	if err != nil {
 		return err
 	}
+	defer tx.Rollback()
 
-	categoryIDVal, err := r.categories.upsertTx(ctx, tx, params.Category, "#4B5563")
+	write, err := r.prepareLegacyProfileWrite(ctx, tx, params)
 	if err != nil {
-		return fmt.Errorf("%w: %v", keymanagement.ErrCategoryPersistence, err)
+		return err
 	}
-
-	env, err := r.credentials.encrypt(params.BuiltURL, params.ID)
-	if err != nil {
-		return fmt.Errorf("%w: %v", keymanagement.ErrCredentialEncryption, err)
-	}
-
-	if err := applyLegacyProfileWrite(ctx, tx, legacyProfileWrite{params: params, index: blindIndex, categoryID: categoryIDVal, order: sortOrder, envelope: env}); err != nil {
+	write.index = blindIndex
+	if err := applyLegacyProfileWrite(ctx, tx, write); err != nil {
 		return err
 	}
 
@@ -204,4 +178,23 @@ func legacyOrderNeedsRefresh(order sql.NullInt64, oldKind, newKind string) bool 
 		return true
 	}
 	return oldKind != newKind
+}
+
+func (r *Repository) prepareLegacyProfileWrite(ctx context.Context, tx *sql.Tx, params keymanagement.UpdateLegacyKeyParams) (legacyProfileWrite, error) {
+	sortOrder, err := legacyUpdateSortOrder(ctx, tx, params)
+	if err != nil {
+		return legacyProfileWrite{}, err
+	}
+
+	categoryIDVal, err := r.categories.upsertTx(ctx, tx, params.Category, "#4B5563")
+	if err != nil {
+		return legacyProfileWrite{}, fmt.Errorf("%w: %v", keymanagement.ErrCategoryPersistence, err)
+	}
+
+	env, err := r.credentials.encrypt(params.BuiltURL, params.ID)
+	if err != nil {
+		return legacyProfileWrite{}, fmt.Errorf("%w: %v", keymanagement.ErrCredentialEncryption, err)
+	}
+
+	return legacyProfileWrite{params: params, categoryID: categoryIDVal, order: sortOrder, envelope: env}, nil
 }

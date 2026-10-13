@@ -15,6 +15,7 @@ test("login page is usable at desktop and mobile widths", async ({ page }) => {
   const usernameInput = page.getByLabel(/логин|username/i);
   const passwordInput = page.locator('input[type="password"]');
   await expect(usernameInput).toBeVisible();
+  await expect(passwordInput).toHaveCount(1);
   await expect(passwordInput).toBeVisible();
 
   const signalCore = page.getByRole("img", { name: /сигнальное ядро SubShare/i });

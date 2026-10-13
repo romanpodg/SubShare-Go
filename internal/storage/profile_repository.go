@@ -3,7 +3,6 @@ package storage
 import (
 	"context"
 	"database/sql"
-	"errors"
 	"fmt"
 	"github.com/romanpodg/SubShare-Go/internal/keymanagement"
 
@@ -93,11 +92,7 @@ func (r *Repository) UpdateLocal(ctx context.Context, params keymanagement.Updat
 		return nil, "", err
 	}
 
-	if err := tx.Commit(); err != nil {
-		return nil, "", fmt.Errorf("failed to commit key update: %w", err)
-	}
-
-	return r.GetByID(ctx, params.ID)
+	return r.commitProfileMutation(ctx, tx, params.ID, "failed to commit key update")
 }
 
 // loadLocalKeyForUpdate checks that the key exists, is locally owned, sits at
@@ -114,11 +109,8 @@ func (r *Repository) loadLocalKeyForUpdate(ctx context.Context, tx *sql.Tx, id, 
 		LEFT JOIN vless_key_secrets s ON s.vless_key_id = k.id
 		WHERE k.id = ?
 	`, id).Scan(&extSourceID, &storedRev, &storedBlindIndex, &storedEncryptedURL)
-	if errors.Is(err, sql.ErrNoRows) {
-		return "", "", keymanagement.ErrKeyNotFound
-	}
-	if err != nil {
-		return "", "", fmt.Errorf("failed to load key ownership: %w", err)
+	if err := profileLookupError(err, "failed to load key ownership"); err != nil {
+		return "", "", err
 	}
 	if extSourceID.Valid && extSourceID.Int64 > 0 {
 		return "", "", keymanagement.ErrSourceOwnedReadOnly
@@ -126,12 +118,9 @@ func (r *Repository) loadLocalKeyForUpdate(ctx context.Context, tx *sql.Tx, id, 
 	if storedRev.Int64 != expectedRevision {
 		return "", "", keymanagement.ErrProfileRevisionConflict
 	}
-	if !storedEncryptedURL.Valid || storedEncryptedURL.String == "" {
-		return "", "", keymanagement.ErrStorageIntegrity
-	}
-	storedURI, decryptErr := r.credentials.decrypt(storedEncryptedURL.String, id)
-	if decryptErr != nil {
-		return "", "", mapKeyCredentialError(decryptErr)
+	storedURI, err := r.decryptLoadedProfile(storedEncryptedURL, id)
+	if err != nil {
+		return "", "", err
 	}
 	return storedURI, storedBlindIndex, nil
 }
@@ -168,8 +157,5 @@ func (r *Repository) UpdateSourceOwnedMetadata(ctx context.Context, params keyma
 	if affected == 0 {
 		return nil, "", keymanagement.ErrProfileRevisionConflict
 	}
-	if err := tx.Commit(); err != nil {
-		return nil, "", fmt.Errorf("failed to commit source-owned metadata: %w", err)
-	}
-	return r.GetByID(ctx, params.ID)
+	return r.commitProfileMutation(ctx, tx, params.ID, "failed to commit source-owned metadata")
 }
