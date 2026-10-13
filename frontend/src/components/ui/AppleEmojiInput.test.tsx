@@ -6,7 +6,7 @@ import { AppleEmojiInput, type AppleEmojiInputHandle } from "./AppleEmojiInput";
 const grin = "\u{1F600}";
 const family = "\u{1F468}\u200D\u{1F469}\u200D\u{1F467}\u200D\u{1F466}";
 
-function InteractiveInput({ initial = "", maxLength = 200 }: { initial?: string; maxLength?: number }) {
+function InteractiveInput({ initial = "", maxLength = 200 }: { initial?: string; maxLength?: number; }) {
   const [value, setValue] = useState(initial);
   const ref = useRef<AppleEmojiInputHandle>(null);
   return <>
@@ -28,6 +28,22 @@ function selectText(editor: HTMLElement, start: number, end: number) {
 }
 
 describe("AppleEmojiInput native fallback", () => {
+  it("keeps markup as text when initializing the editable DOM", () => {
+    render(<AppleEmojiInput label="Message" value={'<script>alert("x")</script> & 😀'} />);
+    const editor = screen.getByRole("textbox", { name: "Message" });
+    expect(editor.textContent).toBe('<script>alert("x")</script> & 😀');
+    expect(editor.querySelector("script")).toBeNull();
+  });
+
+  it("decodes block lines and inline emoji before applying the grapheme limit", () => {
+    const onChange = vi.fn();
+    render(<AppleEmojiInput label="Message" value="" multiline maxLength={5} onChange={onChange} />);
+    const editor = screen.getByRole("textbox", { name: "Message" });
+    editor.innerHTML = '<div>A<span>😀</span></div><p>B<br>C</p>';
+    fireEvent.input(editor);
+    expect(onChange).toHaveBeenLastCalledWith({ target: { value: "A😀\nB\n" } });
+  });
+
   it("renders emoji without a remote image request", () => {
     render(<AppleEmojiInput label="Message" value="Hello 😀" />);
     const editor = screen.getByRole("textbox", { name: "Message" });
