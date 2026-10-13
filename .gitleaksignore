@@ -7,3 +7,6 @@
 1e3b6c3d305d60378a9c0157b1c45f337aca7f0c:internal/storage/profile_read_repository.go:generic-api-key:60
 # The same ordinary assignment was quoted in the historical execution record.
 a9688242df3ebda987b6ed119106dfb0ca91fc5a:docs/code-review/r07b-profile-reads.md:generic-api-key:27
+# False positive: deterministic Shadowsocks password in the synthetic key-service
+# reveal assertion. Ignore only this historical commit/file/rule/line.
+c6db75442355651fd6fc93c4070f9fefd1b43184:internal/keymanagement/keymanagement_test.go:generic-api-key:53
