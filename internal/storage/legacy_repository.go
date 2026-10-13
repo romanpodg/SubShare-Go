@@ -73,19 +73,8 @@ func (r *Repository) UpdateLegacy(ctx context.Context, params keymanagement.Upda
 		return fmt.Errorf("%w: %v", keymanagement.ErrCredentialEncryption, err)
 	}
 
-	if _, err := tx.ExecContext(ctx, `
-		UPDATE vless_keys
-		SET label = ?, url_blind_index = ?, category_id = ?, category = ?, status = ?, key_kind = ?, template_text = ?, sort_order = ?
-		WHERE id = ?
-	`, params.Label, blindIndex, categoryIDVal, params.Category, params.Status, params.Kind, nullStringValue(params.TemplateText), sortOrder, params.ID); err != nil {
-		return fmt.Errorf("failed to update key: %w", err)
-	}
-
-	if _, err := tx.ExecContext(ctx, `
-		INSERT INTO vless_key_secrets(vless_key_id, encrypted_url) VALUES(?, ?)
-		ON CONFLICT(vless_key_id) DO UPDATE SET encrypted_url = excluded.encrypted_url
-	`, params.ID, env); err != nil {
-		return fmt.Errorf("failed to update key secret: %w", err)
+	if err := applyLegacyProfileWrite(ctx, tx, legacyProfileWrite{params: params, index: blindIndex, categoryID: categoryIDVal, order: sortOrder, envelope: env}); err != nil {
+		return err
 	}
 
 	return tx.Commit()
@@ -172,11 +161,47 @@ func legacyUpdateSortOrder(ctx context.Context, tx *sql.Tx, params keymanagement
 	}
 
 	sortOrder := existingSort.Int64
-	if !existingSort.Valid || sortOrder <= 0 || existingKindNormalized != params.Kind {
+	if legacyOrderNeedsRefresh(existingSort, existingKindNormalized, params.Kind) {
 		if err := tx.QueryRowContext(ctx, `SELECT COALESCE(MAX(sort_order), 0) + 1 FROM vless_keys`).Scan(&sortOrder); err != nil {
 			return 0, fmt.Errorf("%w: %v", keymanagement.ErrKeyOrderPersistence, err)
 		}
 	}
 
 	return sortOrder, nil
+}
+
+type legacyProfileWrite struct {
+	params          keymanagement.UpdateLegacyKeyParams
+	index, envelope string
+	categoryID      any
+	order           int64
+}
+
+func applyLegacyProfileWrite(ctx context.Context, tx *sql.Tx, write legacyProfileWrite) error {
+	if _, err := tx.ExecContext(ctx, `
+		UPDATE vless_keys
+		SET label = ?, url_blind_index = ?, category_id = ?, category = ?, status = ?, key_kind = ?, template_text = ?, sort_order = ?
+		WHERE id = ?
+	`, write.params.Label, write.index, write.categoryID, write.params.Category, write.params.Status, write.params.Kind, nullStringValue(write.params.TemplateText), write.order, write.params.ID); err != nil {
+		return fmt.Errorf("failed to update key: %w", err)
+	}
+
+	if _, err := tx.ExecContext(ctx, `
+		INSERT INTO vless_key_secrets(vless_key_id, encrypted_url) VALUES(?, ?)
+		ON CONFLICT(vless_key_id) DO UPDATE SET encrypted_url = excluded.encrypted_url
+	`, write.params.ID, write.envelope); err != nil {
+		return fmt.Errorf("failed to update key secret: %w", err)
+	}
+
+	return nil
+}
+
+func legacyOrderNeedsRefresh(order sql.NullInt64, oldKind, newKind string) bool {
+	if !order.Valid {
+		return true
+	}
+	if order.Int64 <= 0 {
+		return true
+	}
+	return oldKind != newKind
 }

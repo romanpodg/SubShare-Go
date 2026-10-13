@@ -362,30 +362,7 @@ async function checkKeyCardLabels({ page, categoryNavigator, longKeyCard, longCl
       scrollWidth: element.scrollWidth,
     }));
     expect(navigatorOverflow.scrollWidth).toBeLessThanOrEqual(navigatorOverflow.clientWidth);
-    const compactTextMetrics = await longKeyCard.evaluate((card) => {
-      const title = card.querySelector(".ui-key-card-title") as HTMLElement;
-      const source = card.querySelector(".ui-key-card-source") as HTMLElement;
-      const titleStyle = getComputedStyle(title);
-      const sourceStyle = getComputedStyle(source);
-      return {
-        cardClientWidth: card.clientWidth,
-        cardScrollWidth: card.scrollWidth,
-        titleClientWidth: title.clientWidth,
-        titleScrollWidth: title.scrollWidth,
-        titleHeight: title.getBoundingClientRect().height,
-        titleLineHeight: Number.parseFloat(titleStyle.lineHeight),
-        titleWhiteSpace: titleStyle.whiteSpace,
-        titleOverflow: titleStyle.overflow,
-        titleTextOverflow: titleStyle.textOverflow,
-        sourceClientWidth: source.clientWidth,
-        sourceScrollWidth: source.scrollWidth,
-        sourceHeight: source.getBoundingClientRect().height,
-        sourceLineHeight: Number.parseFloat(sourceStyle.lineHeight),
-        sourceWhiteSpace: sourceStyle.whiteSpace,
-        sourceOverflow: sourceStyle.overflow,
-        sourceTextOverflow: sourceStyle.textOverflow,
-      };
-    });
+    const compactTextMetrics = await longKeyCard.evaluate(readKeyCardTextMetrics);
     const clientDisplayMetrics = await longClientDisplay.evaluate((element) => {
       const computed = getComputedStyle(element);
       return {
@@ -434,4 +411,31 @@ async function checkBulkSelection({ categoryNavigator, page, firstKeySelection }
   await expect(page.getByRole("button", { name: "Внешние источники", exact: true })).toBeVisible();
   await expect(page.getByRole("button", { name: /Изменить выбранные ключи/ })).toHaveCount(0);
   await expect(page.getByRole("button", { name: /Удалить выбранные ключи/ })).toHaveCount(0);
+}
+
+function readKeyCardTextMetrics(card: Element) {
+
+  const title = card.querySelector(".ui-key-card-title") as HTMLElement;
+  const source = card.querySelector(".ui-key-card-source") as HTMLElement;
+  const titleStyle = getComputedStyle(title);
+  const sourceStyle = getComputedStyle(source);
+  return {
+    cardClientWidth: card.clientWidth,
+    cardScrollWidth: card.scrollWidth,
+    titleClientWidth: title.clientWidth,
+    titleScrollWidth: title.scrollWidth,
+    titleHeight: title.getBoundingClientRect().height,
+    titleLineHeight: Number.parseFloat(titleStyle.lineHeight),
+    titleWhiteSpace: titleStyle.whiteSpace,
+    titleOverflow: titleStyle.overflow,
+    titleTextOverflow: titleStyle.textOverflow,
+    sourceClientWidth: source.clientWidth,
+    sourceScrollWidth: source.scrollWidth,
+    sourceHeight: source.getBoundingClientRect().height,
+    sourceLineHeight: Number.parseFloat(sourceStyle.lineHeight),
+    sourceWhiteSpace: sourceStyle.whiteSpace,
+    sourceOverflow: sourceStyle.overflow,
+    sourceTextOverflow: sourceStyle.textOverflow,
+  };
+
 }

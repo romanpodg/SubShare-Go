@@ -140,3 +140,19 @@ func (r *Repository) validateSourceMetadataUpdate(ctx context.Context, tx *sql.T
 
 	return nil
 }
+
+// Credentials are checked before opening the transaction, preserving error precedence.
+func (r *Repository) beginIndexedProfileWrite(ctx context.Context, uri string) (*sql.Tx, string, error) {
+	if err := r.credentials.encryptionAvailable(); err != nil {
+		return nil, "", fmt.Errorf("%w: %v", keymanagement.ErrEncryptionUnavailable, err)
+	}
+	index, err := r.credentials.blindIndex(uri)
+	if err != nil {
+		return nil, "", fmt.Errorf("%w: %v", keymanagement.ErrBlindIndexUnavailable, err)
+	}
+	tx, err := r.db.BeginTx(ctx, nil)
+	if err != nil {
+		return nil, "", fmt.Errorf("failed to start transaction: %w", err)
+	}
+	return tx, index, nil
+}

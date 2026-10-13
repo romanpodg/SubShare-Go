@@ -51,9 +51,24 @@ func TestProfileRepository_ClientDisplayNameMetadataDoesNotRewriteSecretAndClone
 }
 
 func TestProfileRepository_SourceLocalMetadataDoesNotRewriteSecret(t *testing.T) {
+	fixture := createSourceMetadataFixture(t)
+	checkSourceMetadataTransitions(t, fixture)
+}
+
+type sourceMetadataFixture struct {
+	db            *sql.DB
+	repo          *Repository
+	ctx           context.Context
+	keyID         int64
+	raw, envelope string
+}
+
+func createSourceMetadataFixture(t *testing.T) sourceMetadataFixture {
+	t.Helper()
+
 	ctx := context.Background()
 	db := setupTestDB(t)
-	defer db.Close()
+	t.Cleanup(func() { _ = db.Close() })
 	repo := NewRepository(db, newTestKeyringForRepo(t))
 	raw := "vless://11111111-1111-4111-8111-111111111111@example.com:443#Source%20name"
 	created, _, err := repo.CreateLocal(ctx, keymanagement.CreateProfileParams{
@@ -77,9 +92,14 @@ func TestProfileRepository_SourceLocalMetadataDoesNotRewriteSecret(t *testing.T)
 		requireFixture(t, err == nil, err)
 	}
 
+	return sourceMetadataFixture{db: db, repo: repo, ctx: ctx, keyID: created.ID, raw: raw, envelope: envelopeBefore}
+}
+func checkSourceMetadataTransitions(t *testing.T, fixture sourceMetadataFixture) {
+	t.Helper()
+	ctx, db, repo, raw, envelopeBefore := fixture.ctx, fixture.db, fixture.repo, fixture.raw, fixture.envelope
 	override := "Subscriber override"
 	updated, updatedRaw, err := repo.UpdateSourceOwnedMetadata(ctx, keymanagement.UpdateSourceOwnedMetadataParams{
-		ID: created.ID, ExpectedRevision: 1, Status: "non-active", ClientDisplayName: &override,
+		ID: fixture.keyID, ExpectedRevision: 1, Status: "non-active", ClientDisplayName: &override,
 	})
 	requireFixture(t, err == nil, err)
 
@@ -91,14 +111,14 @@ func TestProfileRepository_SourceLocalMetadataDoesNotRewriteSecret(t *testing.T)
 
 	var envelopeAfter string
 	{
-		err := db.QueryRow(`SELECT encrypted_url FROM vless_key_secrets WHERE vless_key_id = ?`, created.ID).Scan(&envelopeAfter)
+		err := db.QueryRow(`SELECT encrypted_url FROM vless_key_secrets WHERE vless_key_id = ?`, fixture.keyID).Scan(&envelopeAfter)
 		requireFixture(t, err == nil, err)
 	}
 
 	requireFixture(t, envelopeAfter == envelopeBefore, "client display-name override rewrote encrypted configuration")
 
 	clone, cloneRaw, err := repo.CloneLocal(ctx, keymanagement.CloneProfileParams{
-		ID: created.ID, ExpectedRevision: 2, NewLabel: "Local clone",
+		ID: fixture.keyID, ExpectedRevision: 2, NewLabel: "Local clone",
 	})
 	requireFixture(t, err == nil, err)
 
@@ -106,9 +126,16 @@ func TestProfileRepository_SourceLocalMetadataDoesNotRewriteSecret(t *testing.T)
 	requireFixturef(t, clone.ClientDisplayName == override, "clone=%#v raw=%q", clone, cloneRaw)
 	requireFixturef(t, clone.ClientDisplayNameOverridden, "clone=%#v raw=%q", clone, cloneRaw)
 
+	checkSourceMetadataResetAndClone(t, fixture)
+}
+
+func checkSourceMetadataResetAndClone(t *testing.T, fixture sourceMetadataFixture) {
+	t.Helper()
+	ctx, db, repo, raw, envelopeBefore := fixture.ctx, fixture.db, fixture.repo, fixture.raw, fixture.envelope
+	var envelopeAfter string
 	empty := ""
 	reset, resetRaw, err := repo.UpdateSourceOwnedMetadata(ctx, keymanagement.UpdateSourceOwnedMetadataParams{
-		ID: created.ID, ExpectedRevision: 2, Status: "active", ClientDisplayName: &empty,
+		ID: fixture.keyID, ExpectedRevision: 2, Status: "active", ClientDisplayName: &empty,
 	})
 	requireFixture(t, err == nil, err)
 
@@ -119,20 +146,20 @@ func TestProfileRepository_SourceLocalMetadataDoesNotRewriteSecret(t *testing.T)
 
 	var storedOverride sql.NullString
 	{
-		err := db.QueryRow(`SELECT client_display_name FROM vless_keys WHERE id = ?`, created.ID).Scan(&storedOverride)
+		err := db.QueryRow(`SELECT client_display_name FROM vless_keys WHERE id = ?`, fixture.keyID).Scan(&storedOverride)
 		requireFixture(t, err == nil, err)
 	}
 
 	requireFixturef(t, !(storedOverride.Valid), "reset stored override=%#v, want NULL", storedOverride)
 
 	{
-		err := db.QueryRow(`SELECT encrypted_url FROM vless_key_secrets WHERE vless_key_id = ?`, created.ID).Scan(&envelopeAfter)
+		err := db.QueryRow(`SELECT encrypted_url FROM vless_key_secrets WHERE vless_key_id = ?`, fixture.keyID).Scan(&envelopeAfter)
 		requireFixturef(t, err == nil, "reset envelope changed=%v err=%v", envelopeAfter != envelopeBefore, err)
 		requireFixturef(t, envelopeAfter == envelopeBefore, "reset envelope changed=%v err=%v", envelopeAfter != envelopeBefore, err)
 	}
 
 	fallbackClone, fallbackCloneRaw, err := repo.CloneLocal(ctx, keymanagement.CloneProfileParams{
-		ID: created.ID, ExpectedRevision: 3, NewLabel: "Fallback clone",
+		ID: fixture.keyID, ExpectedRevision: 3, NewLabel: "Fallback clone",
 	})
 	requireFixture(t, err == nil, err)
 

@@ -23,39 +23,8 @@ interface EditorLoading {
 
 export function useKeyEditorLoading(input: EditorLoading) {
   const { keyId, toast, beginSessionRequest, acceptRevision, setLoading, setDetail, setSchemaResponse, setAvailableCategories } = input;
-  const { setCategory, setDisplayName, setHy2CertSha, setHy2Insecure, setHy2ObfsType, setHy2Sni, setKind, setLabel, setLegacyDraft, setLegacySecretsRevealed, setMode, setPort, setProtocol, setServer, setSsMethod, setSsPluginName, setStatus, setTemplateText, setTuicAlpn, setTuicCc, setTuicHeartbeat, setTuicSkipCert, setTuicSni, setTuicUdpOverStream, setTuicUdpRelay, setTuicZeroRtt } = input.setters;
-  const applyDetailProjection = useCallback((projection: NonNullable<ReturnType<typeof buildEditorDetailProjection>>) => {
-    setServer(projection.server);
-    setPort(projection.port);
-    setDisplayName(projection.displayName);
-    if (projection.legacy) {
-      setLegacyDraft(projection.legacy);
-      setLegacySecretsRevealed(false);
-    }
-    if (projection.shadowsocks) {
-      setSsMethod(projection.shadowsocks.method);
-      setSsPluginName(projection.shadowsocks.pluginName);
-    }
-    if (projection.hysteria2) {
-      setHy2Sni(projection.hysteria2.sni);
-      setHy2Insecure(projection.hysteria2.insecure);
-      setHy2CertSha(projection.hysteria2.certificate);
-      setHy2ObfsType(projection.hysteria2.obfuscation);
-    }
-    if (projection.tuic) {
-      setTuicSni(projection.tuic.sni);
-      setTuicAlpn(projection.tuic.alpn);
-      setTuicSkipCert(projection.tuic.skipCert);
-      setTuicCc(projection.tuic.cc);
-      setTuicUdpRelay(projection.tuic.relay);
-      setTuicUdpOverStream(projection.tuic.udpOverStream);
-      setTuicZeroRtt(projection.tuic.zeroRtt);
-      setTuicHeartbeat(projection.tuic.heartbeat);
-    }
-  }, [setServer, setPort, setDisplayName, setLegacyDraft, setLegacySecretsRevealed,
-    setSsMethod, setSsPluginName, setHy2Sni, setHy2Insecure, setHy2CertSha, setHy2ObfsType,
-    setTuicSni, setTuicAlpn, setTuicSkipCert, setTuicCc, setTuicUdpRelay,
-    setTuicUdpOverStream, setTuicZeroRtt, setTuicHeartbeat]);
+  const { setCategory, setKind, setLabel, setMode, setProtocol, setStatus, setTemplateText } = input.setters;
+  const applyDetailProjection = useCallback((projection: NonNullable<ReturnType<typeof buildEditorDetailProjection>>) => applyDetailProjectionValues(projection, input.setters), [input.setters]);
 
   const loadProfileDetail = useCallback(async (id: number, inSession: ReturnType<ReturnType<typeof useEditorRequestSession>>) => {
     const detailRes = await keysApi.get(id);
@@ -92,4 +61,56 @@ export function useKeyEditorLoading(input: EditorLoading) {
     setLoading, setSchemaResponse, setAvailableCategories]);
 
   return loadDetailAndSchema;
+}
+
+function applyDetailProjectionValues(projection: NonNullable<ReturnType<typeof buildEditorDetailProjection>>, setters: ReturnType<typeof useEditorDraft>["setters"]) {
+  const {
+    setDisplayName,
+    setHy2CertSha,
+    setHy2Insecure,
+    setHy2ObfsType,
+    setHy2Sni,
+    setLegacyDraft,
+    setLegacySecretsRevealed,
+    setPort,
+    setServer,
+    setSsMethod,
+    setSsPluginName,
+    setTuicAlpn,
+    setTuicCc,
+    setTuicHeartbeat,
+    setTuicSkipCert,
+    setTuicSni,
+    setTuicUdpOverStream,
+    setTuicUdpRelay,
+    setTuicZeroRtt
+  } = setters;
+
+  setServer(projection.server);
+  setPort(projection.port);
+  setDisplayName(projection.displayName);
+  if (projection.legacy) {
+    setLegacyDraft(projection.legacy);
+    setLegacySecretsRevealed(false);
+  }
+  if (projection.shadowsocks) {
+    setSsMethod(projection.shadowsocks.method);
+    setSsPluginName(projection.shadowsocks.pluginName);
+  }
+  if (projection.hysteria2) {
+    setHy2Sni(projection.hysteria2.sni);
+    setHy2Insecure(projection.hysteria2.insecure);
+    setHy2CertSha(projection.hysteria2.certificate);
+    setHy2ObfsType(projection.hysteria2.obfuscation);
+  }
+  if (projection.tuic) {
+    setTuicSni(projection.tuic.sni);
+    setTuicAlpn(projection.tuic.alpn);
+    setTuicSkipCert(projection.tuic.skipCert);
+    setTuicCc(projection.tuic.cc);
+    setTuicUdpRelay(projection.tuic.relay);
+    setTuicUdpOverStream(projection.tuic.udpOverStream);
+    setTuicZeroRtt(projection.tuic.zeroRtt);
+    setTuicHeartbeat(projection.tuic.heartbeat);
+  }
 }

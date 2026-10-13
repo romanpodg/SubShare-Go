@@ -3,94 +3,11 @@ import { expect, test } from "@playwright/test";
 import { expectNoHorizontalOverflow } from "./smoke-assertions";
 
 test("subscription settings section icons stay square and responsive", async ({ page }) => {
-  const runtimeErrors: string[] = [];
-  let routingDeliveryMode = "disabled";
-  const routingConfig = JSON.stringify({
-    Name: "SubShare Routing",
-    GlobalProxy: false,
-    RouteOrder: "block-proxy-direct",
-    DomainStrategy: "IPIfNonMatch",
-    FakeDNS: false,
-    UseChunkFiles: true,
-    DnsHosts: {},
-    DirectSites: ["one.test", "two.test", "three.test", "four.test", "five.test"],
-    DirectIp: [],
-    ProxySites: [],
-    ProxyIp: [],
-    BlockSites: [],
-    BlockIp: [],
-  });
-  page.on("pageerror", (error) => runtimeErrors.push(error.message));
-  await page.route("**/api/auth/me", (route) =>
-    route.fulfill({
-      contentType: "application/json",
-      body: JSON.stringify({ username: "owner", role: "owner", csrf_token: "test" }),
-    })
-  );
-  await page.route("**/api/v1/panel-settings", (route) =>
-    route.fulfill({
-      contentType: "application/json",
-      body: JSON.stringify({ app_name: "SubShare", logo_url: "", theme: "dark" }),
-    })
-  );
-  await page.route("**/api/v1/build-info", (route) =>
-    route.fulfill({
-      contentType: "application/json",
-      body: JSON.stringify({ version: "test", commit: "abc", build_time: "now", schema_version: 5 }),
-    })
-  );
-  await page.route("**/api/v1/subscription-settings", (route) =>
-    route.fulfill({
-      contentType: "application/json",
-      body: JSON.stringify({
-        title: "AllKeys",
-        refresh_hours: 12,
-        info_url: "",
-        extra_url: "",
-        extra_status: "down",
-        subscription_format: "xray-json",
-        time_zone: "UTC",
-        language: "ru",
-        provider_id: "subshare",
-        happ_no_limit_mode: false,
-        happ_no_limit_mode_xhttp_only: false,
-        happ_mandatory_hwid: false,
-        happ_notify_expiration: false,
-        happ_hide_server_settings: false,
-        happ_subscription_body: "",
-      }),
-    })
-  );
-  await page.route("**/api/v1/subscription-delivery-settings", (route) =>
-    route.fulfill({
-      contentType: "application/json",
-      body: JSON.stringify({
-        response_headers: [{ key: "X-Edge", value: "enabled" }],
-        remarks: { expired: ["Срок действия истёк"], paused: [], blocked: [], limited: [], empty: [] },
-      }),
-    })
-  );
-  await page.route("**/api/v1/routing-settings", async (route) => {
-    if (route.request().method() === "PUT") {
-      const body = route.request().postDataJSON() as { delivery_mode: string; };
-      routingDeliveryMode = body.delivery_mode;
-    }
-    await route.fulfill({
-      contentType: "application/json",
-      body: JSON.stringify({
-        config_json: routingConfig,
-        delivery_mode: routingDeliveryMode,
-        add_url: "happ://routing/add/server-add-payload",
-        onadd_url: "happ://routing/onadd/server-onadd-payload",
-        off_url: "happ://routing/off",
-      }),
-    });
-  });
-
+  const { runtimeErrors, readRoutingDeliveryMode } = await mountSubscriptionRoutingFixture(page);
   const { fullHDSettingsOverflow, settingsColumns, settingsDialog } = await checkSubscriptionControlsAndSettingsDialog({ page });
   const { routingDeliveryOptions, routingWorkspace, routingDialog, routingScrollArea, routingFooter } = await checkSettingsAndRoutingDesktopLayouts({ fullHDSettingsOverflow, page, settingsColumns, settingsDialog });
   await checkConstrainedRoutingWorkspace({ page, routingDeliveryOptions, routingWorkspace, routingDialog, routingScrollArea, routingFooter });
-  await checkRoutingFooterAndApply({ routingDialog, page, routingScrollArea, routingFooter, readRoutingDeliveryMode: () => routingDeliveryMode, runtimeErrors });
+  await checkRoutingFooterAndApply({ routingDialog, page, routingScrollArea, routingFooter, readRoutingDeliveryMode, runtimeErrors });
 });
 
 async function checkSubscriptionControlsAndSettingsDialog({ page }: { page: Page; }) {
@@ -299,4 +216,101 @@ async function checkRoutingFooterAndApply({ routingDialog, page, routingScrollAr
   await expect(page.getByText("Передаётся с подпиской", { exact: true })).toBeVisible();
   expect(readRoutingDeliveryMode()).toBe("onadd");
   expect(runtimeErrors).toEqual([]);
+}
+
+async function mountSubscriptionRoutingFixture(page: Page) {
+  const runtimeErrors: string[] = [];
+  let routingDeliveryMode = "disabled";
+  const routingConfig = JSON.stringify({
+    Name: "SubShare Routing",
+    GlobalProxy: false,
+    RouteOrder: "block-proxy-direct",
+    DomainStrategy: "IPIfNonMatch",
+    FakeDNS: false,
+    UseChunkFiles: true,
+    DnsHosts: {},
+    DirectSites: ["one.test", "two.test", "three.test", "four.test", "five.test"],
+    DirectIp: [],
+    ProxySites: [],
+    ProxyIp: [],
+    BlockSites: [],
+    BlockIp: [],
+  });
+  page.on("pageerror", (error) => runtimeErrors.push(error.message));
+  await mountSubscriptionAuthentication(page);
+  await mountSubscriptionPageResponses(page);
+  await page.route("**/api/v1/routing-settings", async (route) => {
+    if (route.request().method() === "PUT") {
+      const body = route.request().postDataJSON() as { delivery_mode: string; };
+      routingDeliveryMode = body.delivery_mode;
+    }
+    await route.fulfill({
+      contentType: "application/json",
+      body: JSON.stringify({
+        config_json: routingConfig,
+        delivery_mode: routingDeliveryMode,
+        add_url: "happ://routing/add/server-add-payload",
+        onadd_url: "happ://routing/onadd/server-onadd-payload",
+        off_url: "happ://routing/off",
+      }),
+    });
+  });
+
+  return { runtimeErrors, readRoutingDeliveryMode: () => routingDeliveryMode };
+
+}
+async function mountSubscriptionAuthentication(page: Page) {
+  await page.route("**/api/auth/me", (route) =>
+    route.fulfill({
+      contentType: "application/json",
+      body: JSON.stringify({ username: "owner", role: "owner", csrf_token: "test" }),
+    })
+  );
+  await page.route("**/api/v1/panel-settings", (route) =>
+    route.fulfill({
+      contentType: "application/json",
+      body: JSON.stringify({ app_name: "SubShare", logo_url: "", theme: "dark" }),
+    })
+  );
+  await page.route("**/api/v1/build-info", (route) =>
+    route.fulfill({
+      contentType: "application/json",
+      body: JSON.stringify({ version: "test", commit: "abc", build_time: "now", schema_version: 5 }),
+    })
+  );
+
+}
+async function mountSubscriptionPageResponses(page: Page) {
+  await page.route("**/api/v1/subscription-settings", (route) =>
+    route.fulfill({
+      contentType: "application/json",
+      body: JSON.stringify({
+        title: "AllKeys",
+        refresh_hours: 12,
+        info_url: "",
+        extra_url: "",
+        extra_status: "down",
+        subscription_format: "xray-json",
+        time_zone: "UTC",
+        language: "ru",
+        provider_id: "subshare",
+        happ_no_limit_mode: false,
+        happ_no_limit_mode_xhttp_only: false,
+        happ_mandatory_hwid: false,
+        happ_notify_expiration: false,
+        happ_hide_server_settings: false,
+        happ_subscription_body: "",
+      }),
+    })
+  );
+  await page.route("**/api/v1/subscription-delivery-settings", (route) =>
+    route.fulfill({
+      contentType: "application/json",
+      body: JSON.stringify({
+        response_headers: [{ key: "X-Edge", value: "enabled" }],
+        remarks: { expired: ["Срок действия истёк"], paused: [], blocked: [], limited: [], empty: [] },
+      }),
+    })
+  );
+
 }

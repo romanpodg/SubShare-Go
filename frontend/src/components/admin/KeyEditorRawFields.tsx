@@ -1,10 +1,10 @@
 "use client";
 
+import { KeyEditorRawReveal } from "./KeyEditorRawReveal";
+
 import { Button } from "@/components/ui/Button";
 import {
-  Copy,
-  Eye,
-  Lock
+  Copy
 } from "lucide-react";
 
 import { isXrayJSONRaw } from "./key-editor-raw-policy";
@@ -12,27 +12,10 @@ import { isXrayJSONRaw } from "./key-editor-raw-policy";
 import type { KeyEditorModel } from "./use-key-editor-model";
 
 export function KeyEditorRawFields({ model }: { model: KeyEditorModel; }) {
-  const { changeRaw, copyRaw, handleReveal, isSourceOwned, keyId, mode, rawFormattingWarning, rawUri, rawValidationError, revealedRaw, revealing } = model;
+  const { changeRaw, copyRaw, isSourceOwned, keyId, mode, rawFormattingWarning, rawUri, rawValidationError, revealedRaw } = model;
   return (
     <div className={mode === "raw" ? "space-y-3" : "hidden space-y-3"}>
-      {keyId && !revealedRaw && (
-        <div className="flex items-center justify-between rounded-sm border border-amber-500/30 bg-amber-500/10 p-3.5 text-xs text-amber-200">
-          <div className="flex items-center gap-2">
-            <Lock className="h-4 w-4 shrink-0 text-amber-400" aria-hidden="true" />
-            <span>Сырой URI содержит расшифрованные учетные данные.</span>
-          </div>
-          <Button
-            type="button"
-            variant="ghost"
-            loading={revealing}
-            onClick={() => handleReveal("raw")}
-          >
-            <Eye className="mr-1.5 h-3.5 w-3.5" aria-hidden="true" />
-            Раскрыть сырую ссылку
-          </Button>
-        </div>
-      )}
-
+      <KeyEditorRawReveal model={model} />
       <textarea
         id="key-editor-raw"
         value={rawUri}

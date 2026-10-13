@@ -2,14 +2,30 @@ package storage
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"github.com/romanpodg/SubShare-Go/internal/keymanagement"
 	"testing"
 )
 
 func TestStorage_CategoryManagementAndKeyReordering(t *testing.T) {
+	fixture := createCategoryOrderingFixture(t)
+	checkCategoryRenameAndOrdering(t, fixture)
+	checkCategoryDeletionModes(t, fixture)
+}
+
+type categoryOrderingFixture struct {
+	db            *sql.DB
+	repo          *Repository
+	ctx           context.Context
+	first, second int64
+}
+
+func createCategoryOrderingFixture(t *testing.T) categoryOrderingFixture {
+	t.Helper()
+
 	db := setupTestDB(t)
-	defer db.Close()
+	t.Cleanup(func() { _ = db.Close() })
 	kr := newTestKeyringForStorage(t)
 	repo := NewRepository(db, kr)
 	ctx := context.Background()
@@ -44,6 +60,11 @@ func TestStorage_CategoryManagementAndKeyReordering(t *testing.T) {
 	})
 	requireFixturef(t, err == nil, "CreateLegacy failed: %v", err)
 
+	return categoryOrderingFixture{db: db, repo: repo, ctx: ctx, first: k1, second: k2}
+}
+func checkCategoryRenameAndOrdering(t *testing.T, fixture categoryOrderingFixture) {
+	t.Helper()
+	ctx, db, repo, k1, k2 := fixture.ctx, fixture.db, fixture.repo, fixture.first, fixture.second
 	// 2. List Key Categories
 	cats, err := repo.ListKeyCategories(ctx)
 	requireFixturef(t, err == nil, "ListKeyCategories failed: err=%v, cats=%#v", err, cats)
@@ -89,8 +110,12 @@ func TestStorage_CategoryManagementAndKeyReordering(t *testing.T) {
 	requireFixturef(t, s1 == 2, "ReorderKeys incorrect sort_orders: s1=%d, s2=%d", s1, s2)
 	requireFixturef(t, s2 == 1, "ReorderKeys incorrect sort_orders: s1=%d, s2=%d", s1, s2)
 
+}
+func checkCategoryDeletionModes(t *testing.T, fixture categoryOrderingFixture) {
+	t.Helper()
+	ctx, db, repo, k1, k2 := fixture.ctx, fixture.db, fixture.repo, fixture.first, fixture.second
 	// 6. Delete Category with keep_keys
-	err = repo.DeleteKeyCategory(ctx, keymanagement.DeleteCategoryParams{
+	err := repo.DeleteKeyCategory(ctx, keymanagement.DeleteCategoryParams{
 		Name: "CatARenamed",
 		Mode: "keep_keys",
 	})
@@ -120,7 +145,6 @@ func TestStorage_CategoryManagementAndKeyReordering(t *testing.T) {
 	requireFixturef(t, k2Exist == 0, "k2 was not deleted in delete_with_keys mode")
 
 }
-
 func TestKeyRepository_CategoryCollisionsReferencesAndOrdering(t *testing.T) {
 	db := setupTestDB(t)
 	defer db.Close()

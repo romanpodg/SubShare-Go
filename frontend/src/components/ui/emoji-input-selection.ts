@@ -31,11 +31,20 @@ export interface PlainTextSelection {
 }
 
 /** Save the selection as plain-text UTF-16 offsets. */
-export function saveSelection(root: HTMLElement): PlainTextSelection | null {
+function selectedRange(): Range | null {
   const selection = window.getSelection();
   if (!selection?.rangeCount) return null;
-  const range = selection.getRangeAt(0);
-  if (!root.contains(range.startContainer) || !root.contains(range.endContainer)) return null;
+  return selection.getRangeAt(0);
+}
+
+function rangeInside(root: HTMLElement, range: Range): boolean {
+  return root.contains(range.startContainer) && root.contains(range.endContainer);
+}
+
+export function saveSelection(root: HTMLElement): PlainTextSelection | null {
+  const range = selectedRange();
+  if (!range) return null;
+  if (!rangeInside(root, range)) return null;
   const start = boundaryOffset(root, range.startContainer, range.startOffset);
   const end = boundaryOffset(root, range.endContainer, range.endOffset);
   if (start < 0 || end < 0) return null;

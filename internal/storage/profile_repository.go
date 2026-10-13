@@ -48,17 +48,9 @@ func nullInt64Value(id int64) any {
 }
 
 func (r *Repository) CreateLocal(ctx context.Context, params keymanagement.CreateProfileParams) (*model.VLESSKey, string, error) {
-	if err := r.credentials.encryptionAvailable(); err != nil {
-		return nil, "", fmt.Errorf("%w: %v", keymanagement.ErrEncryptionUnavailable, err)
-	}
-	blindIndex, err := r.credentials.blindIndex(params.BuiltURI)
+	tx, blindIndex, err := r.beginIndexedProfileWrite(ctx, params.BuiltURI)
 	if err != nil {
-		return nil, "", fmt.Errorf("%w: %v", keymanagement.ErrBlindIndexUnavailable, err)
-	}
-
-	tx, err := r.db.BeginTx(ctx, nil)
-	if err != nil {
-		return nil, "", fmt.Errorf("failed to start transaction: %w", err)
+		return nil, "", err
 	}
 	defer tx.Rollback()
 
@@ -91,16 +83,9 @@ func commitLocalProfileCreation(ctx context.Context, tx *sql.Tx, keyID int64) er
 }
 
 func (r *Repository) UpdateLocal(ctx context.Context, params keymanagement.UpdateProfileParams) (*model.VLESSKey, string, error) {
-	if err := r.credentials.encryptionAvailable(); err != nil {
-		return nil, "", fmt.Errorf("%w: %v", keymanagement.ErrEncryptionUnavailable, err)
-	}
-	blindIndex, err := r.credentials.blindIndex(params.NewURI)
+	tx, blindIndex, err := r.beginIndexedProfileWrite(ctx, params.NewURI)
 	if err != nil {
-		return nil, "", fmt.Errorf("%w: %v", keymanagement.ErrBlindIndexUnavailable, err)
-	}
-	tx, err := r.db.BeginTx(ctx, nil)
-	if err != nil {
-		return nil, "", fmt.Errorf("failed to start transaction: %w", err)
+		return nil, "", err
 	}
 	defer tx.Rollback()
 

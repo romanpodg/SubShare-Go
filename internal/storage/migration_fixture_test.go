@@ -36,6 +36,13 @@ func createPopulatedPreStage5Schema(t *testing.T, db *sql.DB, version int) {
 		requireFixturef(t, err == nil, "enable foreign keys: %v", err)
 	}
 
+	createPreStage5Tables(t, db, version)
+	recordPreStage5Migrations(t, db, version)
+	seedPreStage5Profiles(t, db, version)
+}
+
+func createPreStage5Tables(t *testing.T, db *sql.DB, version int) {
+	t.Helper()
 	profileColumns := ""
 	syncCountColumn := ""
 	if version >= 9 {
@@ -98,6 +105,10 @@ func createPopulatedPreStage5Schema(t *testing.T, db *sql.DB, version int) {
 		}
 
 	}
+
+}
+func recordPreStage5Migrations(t *testing.T, db *sql.DB, version int) {
+	t.Helper()
 	for migrationVersion := 1; migrationVersion <= version; migrationVersion++ {
 		{
 			_, err := db.Exec(`INSERT INTO schema_migrations(version, name) VALUES(?, 'old')`, migrationVersion)
@@ -106,6 +117,9 @@ func createPopulatedPreStage5Schema(t *testing.T, db *sql.DB, version int) {
 
 	}
 
+}
+func seedPreStage5Profiles(t *testing.T, db *sql.DB, version int) {
+	t.Helper()
 	profileValues := ""
 	if version >= 9 {
 		profileValues = `, protocol, profile_fingerprint, profile_schema_version, profile_compatibility, profile_warnings_json`
