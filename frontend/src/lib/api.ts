@@ -216,6 +216,18 @@ export const keys = {
     const qs = q.toString();
     return request<{ data: KeySummary[]; meta: PageMeta }>("GET", `/api/v1/keys${qs ? `?${qs}` : ""}`);
   },
+  listAllSummaries: async (): Promise<KeySummary[]> => {
+    const summaries: KeySummary[] = [];
+    let page = 1;
+    let totalPages: number;
+    do {
+      const { data, meta } = await keys.listSummaries({ page, page_size: 100 });
+      summaries.push(...data);
+      totalPages = meta.total_pages;
+      page += 1;
+    } while (page <= totalPages);
+    return summaries;
+  },
   get: (id: number) => request<{ data: KeyProfileDetailResponse }>("GET", `/api/v1/keys/${id}`),
   reveal: (
     id: number,

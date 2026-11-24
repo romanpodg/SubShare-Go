@@ -3,6 +3,44 @@ import { expect, test, type Locator } from "@playwright/test";
 import { openKeysPage } from "./key-list-fixture";
 import { expectNoHorizontalOverflow } from "./smoke-assertions";
 
+test("key list loads and searches beyond the first API page", async ({ page }) => {
+  await openKeysPage(page);
+
+  const total = 205;
+  await page.route("**/api/v1/keys?*", async (route) => {
+    const params = new URL(route.request().url()).searchParams;
+    const pageNumber = Number(params.get("page") ?? 1);
+    const pageSize = Math.min(Number(params.get("page_size") ?? 25), 100);
+    const offset = (pageNumber - 1) * pageSize;
+    const data = Array.from({ length: Math.min(pageSize, total - offset) }, (_, index) => ({
+      id: offset + index + 1,
+      label: `Ключ ${offset + index + 1}`,
+      client_display_name: "",
+      category: "",
+      kind: "real",
+      template_text: "",
+      status: "active",
+      check_status: "unknown",
+      check_error: "",
+      last_latency_ms: 0,
+      last_checked_at: "",
+      external_source_id: 0,
+      external_source_name: "",
+      created_at: "2026-07-29T10:00:00Z",
+    }));
+    await route.fulfill({
+      json: { data, meta: { page: pageNumber, page_size: pageSize, total, total_pages: Math.ceil(total / pageSize) } },
+    });
+  });
+
+  await page.reload();
+  await expect(page.getByText("Ключи (205)", { exact: true })).toBeVisible();
+  await expect(page.locator(".ui-key-card")).toHaveCount(total);
+  await page.getByPlaceholder(/Поиск по названию/).fill("Ключ 205");
+  await expect(page.locator(".ui-key-card")).toHaveCount(1);
+  await expect(page.locator(".ui-key-card-title")).toHaveText("Ключ 205");
+});
+
 test("key-list controls, alignment, and labels remain readable across viewports", async ({ page }) => {
   const { categoryNavigator, categoryNavigatorGrid, longKeyLabel, longSourceName, longClientDisplayName } = await checkKeyHealthAndInitialLayout({ page });
   await checkCategoryGridStyling({ categoryNavigator, categoryNavigatorGrid });

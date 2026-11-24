@@ -35,8 +35,8 @@ const completeKeyCreation = () => {
           if (insertAtIndex !== null) {
             setTimeout(async () => {
               try {
-                const { data: freshKeys } = await keysApi.listSummaries({ page_size: 200 });
-                if (!freshKeys || freshKeys.length === 0) {
+                const freshKeys = await keysApi.listAllSummaries();
+                if (freshKeys.length === 0) {
                   return;
                 }
                 const newKey = freshKeys[freshKeys.length - 1];

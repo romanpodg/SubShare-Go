@@ -4,7 +4,7 @@ import type { ComponentProps } from "react";
 import type { KeySummary } from "@/lib/types";
 import { KeysSection } from "./KeysSection";
 
-const mocks = vi.hoisted(() => ({ listCategories: vi.fn(), listSummaries: vi.fn(), reorder: vi.fn(), toast: vi.fn() }));
+const mocks = vi.hoisted(() => ({ listCategories: vi.fn(), listAllSummaries: vi.fn(), reorder: vi.fn(), toast: vi.fn() }));
 vi.mock("@/lib/api", () => ({ keys: mocks }));
 vi.mock("@/components/ui/Toast", () => ({ useToast: () => ({ toast: mocks.toast }) }));
 type EditorProps = ComponentProps<typeof import("./KeyEditorModal").KeyEditorModal>;
@@ -25,7 +25,7 @@ const initialKeys = [placementKey(1, "A"), placementKey(2, "B")];
 beforeEach(() => {
   vi.resetAllMocks(); vi.useFakeTimers();
   mocks.listCategories.mockResolvedValue({ categories: [] });
-  mocks.listSummaries.mockResolvedValue({ data: [...initialKeys, placementKey(3, "A")] });
+  mocks.listAllSummaries.mockResolvedValue([...initialKeys, placementKey(3, "A")]);
   mocks.reorder.mockResolvedValue(undefined);
 });
 afterEach(() => { cleanup(); vi.useRealTimers(); });
@@ -48,7 +48,7 @@ describe("KeysSection creation placement", () => {
     expect(screen.getByTestId("fixture-category")).toHaveTextContent("A");
     expect(screen.getByTestId("fixture-kind")).toHaveTextContent(kind);
     await completePlacement();
-    expect(mocks.listSummaries).toHaveBeenCalledWith({ page_size: 200 });
+    expect(mocks.listAllSummaries).toHaveBeenCalledOnce();
     expect(mocks.reorder).toHaveBeenCalledWith([1, 2, 3]);
     expect(refresh).toHaveBeenCalledTimes(2);
   });
@@ -69,7 +69,7 @@ describe("KeysSection creation placement", () => {
     expect(mocks.toast).not.toHaveBeenCalled();
   });
   it("leaves creation successful when the optional fresh-list read fails", async () => {
-    mocks.listSummaries.mockRejectedValueOnce(new Error("fixture fresh-list failure"));
+    mocks.listAllSummaries.mockRejectedValueOnce(new Error("fixture fresh-list failure"));
     const refresh = vi.fn().mockResolvedValue(undefined);
     render(<KeysSection keys={initialKeys} subscriptionFormat="links" onRefresh={refresh} />);
     clickCategoryAdd("real"); await completePlacement();
