@@ -19,10 +19,10 @@ export default function KeysPage() {
     setError(null);
     setSettingsError(null);
     const [keysResult, settingsResult] = await Promise.allSettled([
-      keysApi.listSummaries({ page_size: 200 }),
+      keysApi.listAllSummaries(),
       subscriptionSettings.get(),
     ]);
-    if (keysResult.status === "fulfilled") setKeys(keysResult.value.data || []);
+    if (keysResult.status === "fulfilled") setKeys(keysResult.value);
     else setError(keysResult.reason);
     if (settingsResult.status === "fulfilled") {
       setFormat(settingsResult.value.subscription_format);
